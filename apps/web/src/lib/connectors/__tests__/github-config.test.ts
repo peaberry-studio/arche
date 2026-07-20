@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   getGithubConnectionTestEndpoint,
+  getGithubMcpHeaders,
   getGithubMcpServerUrl,
   parseGithubConnectorConfig,
 } from '@/lib/connectors/github'
@@ -69,6 +70,11 @@ describe('GitHub connector config', () => {
 
     expect(getGithubMcpServerUrl(githubCom.config)).toBe('https://api.githubcopilot.com/mcp/')
     expect(getGithubMcpServerUrl(enterprise.config)).toBe('https://github.example.com/mcp/')
+    expect(getGithubMcpHeaders(githubCom.config)).toEqual({
+      Authorization: 'Bearer ghp_example',
+      'X-MCP-Readonly': 'true',
+      'X-MCP-Toolsets': 'repos,git',
+    })
     expect(getGithubConnectionTestEndpoint({
       pat: 'ghp_example',
       pinnedRepos: ['owner/repo'],

@@ -1,9 +1,10 @@
 const GITHUB_PAT_PATTERN = /^(?:ghp_|github_pat_)\S+$/
 const GITHUB_PINNED_REPO_PATTERN = /^[\w.-]+\/[\w.-]+$/
 const GITHUB_MCP_DEFAULT_HOST = 'https://api.githubcopilot.com'
-const GITHUB_TOOLSETS = new Set(['repos', 'git'])
 
 export const DEFAULT_GITHUB_TOOLSETS = ['repos', 'git'] as const
+
+const GITHUB_TOOLSETS = new Set<string>(DEFAULT_GITHUB_TOOLSETS)
 
 export type GithubConnectorConfig = {
   pat: string
@@ -95,6 +96,14 @@ export function parseGithubConnectorConfig(
 
 export function getGithubMcpServerUrl(config: GithubConnectorConfig): string {
   return `${config.host ?? GITHUB_MCP_DEFAULT_HOST}/mcp/`
+}
+
+export function getGithubMcpHeaders(config: GithubConnectorConfig): Record<string, string> {
+  return {
+    Authorization: `Bearer ${config.pat}`,
+    'X-MCP-Readonly': 'true',
+    'X-MCP-Toolsets': config.toolsets.join(','),
+  }
 }
 
 export function getGithubConnectionTestEndpoint(config: Record<string, unknown>): string | null {

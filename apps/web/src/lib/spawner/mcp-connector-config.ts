@@ -1,5 +1,9 @@
 import { parseAhrefsConnectorConfig } from '@/lib/connectors/ahrefs'
-import { getGithubMcpServerUrl, parseGithubConnectorConfig } from '@/lib/connectors/github'
+import {
+  getGithubMcpHeaders,
+  getGithubMcpServerUrl,
+  parseGithubConnectorConfig,
+} from '@/lib/connectors/github'
 import { getGoogleWorkspaceMcpServerUrl, isGoogleWorkspaceConnectorType } from '@/lib/connectors/google-workspace'
 import { isMetaAdsConnectorReady, parseMetaAdsConnectorConfig } from '@/lib/connectors/meta-ads'
 import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
@@ -132,11 +136,7 @@ function buildGithubMcpServerConfig(
     type: 'remote',
     url: getGithubMcpServerUrl(parsed.config),
     enabled: true,
-    headers: {
-      Authorization: `Bearer ${parsed.config.pat}`,
-      'X-MCP-Readonly': 'true',
-      'X-MCP-Toolsets': parsed.config.toolsets.join(','),
-    },
+    headers: getGithubMcpHeaders(parsed.config),
     oauth: false,
   }
 }
