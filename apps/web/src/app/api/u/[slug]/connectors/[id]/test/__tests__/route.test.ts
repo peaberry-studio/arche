@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   validateDesktopToken: vi.fn(() => true),
   requireCapability: vi.fn(() => null),
   decryptConfig: vi.fn(),
+  getGithubConnectionTestEndpoint: vi.fn(),
   getConnectorAuthType: vi.fn(() => 'manual'),
   refreshConnectorOAuthConfigIfNeeded: vi.fn(),
   getCustomConnectorTestEndpoint: vi.fn(),
@@ -29,6 +30,9 @@ vi.mock('@/lib/runtime/desktop/token', () => ({
 }))
 vi.mock('@/lib/runtime/require-capability', () => ({ requireCapability: mocks.requireCapability }))
 vi.mock('@/lib/connectors/crypto', () => ({ decryptConfig: mocks.decryptConfig }))
+vi.mock('@/lib/connectors/github', () => ({
+  getGithubConnectionTestEndpoint: mocks.getGithubConnectionTestEndpoint,
+}))
 vi.mock('@/lib/connectors/oauth-config', () => ({ getConnectorAuthType: mocks.getConnectorAuthType }))
 vi.mock('@/lib/connectors/oauth-refresh', () => ({
   refreshConnectorOAuthConfigIfNeeded: mocks.refreshConnectorOAuthConfigIfNeeded,
@@ -159,6 +163,21 @@ describe('POST /api/u/[slug]/connectors/[id]/test', () => {
     expect(res.status).toBe(400)
     const body = await res.json()
     expect(body.error).toBe('ssrf_blocked')
+  })
+
+  it('validates SSRF for GitHub Enterprise test endpoints', async () => {
+    mocks.connectorService.findByIdAndUserId.mockResolvedValue({ ...CONNECTOR, type: 'github' })
+    mocks.getGithubConnectionTestEndpoint.mockReturnValue('https://internal.example/api/v3/user')
+    mocks.validateConnectorTestEndpoint.mockResolvedValue({
+      ok: false,
+      error: 'blocked_endpoint',
+    })
+
+    const res = await POST(makeRequest(), params('admin', 'c1'))
+
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'blocked_endpoint' })
+    expect(mocks.testConnectorConnection).not.toHaveBeenCalled()
   })
 
   it('returns 401 when not authenticated', async () => {

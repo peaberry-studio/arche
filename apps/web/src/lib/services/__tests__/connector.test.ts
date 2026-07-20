@@ -18,6 +18,7 @@ import {
   findManyByUserId,
   findEnabledByUserId,
   findEnabledMcpByUserId,
+  findEnabledGithubConnectorsForUser,
   findHashEntriesByUserId,
   findCapabilityInventoryEntries,
   findManyByIds,
@@ -68,6 +69,18 @@ describe('connectorService', () => {
       expect(mockPrisma.connector.findMany).toHaveBeenCalledWith({
         where: { userId: 'u1', enabled: true },
         select: { id: true, type: true, name: true, config: true, enabled: true },
+      })
+    })
+  })
+
+  describe('findEnabledGithubConnectorsForUser', () => {
+    it('selects enabled GitHub connector configs deterministically', async () => {
+      mockPrisma.connector.findMany.mockResolvedValue([])
+      await findEnabledGithubConnectorsForUser('u1')
+      expect(mockPrisma.connector.findMany).toHaveBeenCalledWith({
+        where: { userId: 'u1', type: 'github', enabled: true },
+        select: { config: true },
+        orderBy: { id: 'asc' },
       })
     })
   })

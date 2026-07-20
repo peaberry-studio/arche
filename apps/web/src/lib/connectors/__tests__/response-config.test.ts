@@ -30,6 +30,18 @@ describe('sanitizeConnectorConfigForResponse', () => {
     expect(sanitizeConnectorConfigForResponse('custom', config)).toBe(config)
   })
 
+  it('redacts GitHub personal access tokens from responses', () => {
+    expect(sanitizeConnectorConfigForResponse('github', {
+      pat: 'github_pat_secret',
+      pinnedRepos: ['acme/api'],
+      toolsets: ['repos', 'git'],
+    })).toEqual({
+      hasPat: true,
+      pinnedRepos: ['acme/api'],
+      toolsets: ['repos', 'git'],
+    })
+  })
+
   it('redacts OAuth credentials while preserving connection metadata', () => {
     expect(sanitizeConnectorConfigForResponse('custom', {
       authType: 'oauth',

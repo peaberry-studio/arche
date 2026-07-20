@@ -44,6 +44,11 @@ export const CONNECTOR_TYPE_OPTIONS: {
     description: 'Meta Marketing API insights via Arche MCP.',
   },
   {
+    type: 'github',
+    label: 'GitHub',
+    description: 'Read-only repository history and source code via GitHub MCP.',
+  },
+  {
     type: 'google_gmail',
     label: 'Gmail',
     description: 'Official Google Workspace Gmail MCP integration.',
@@ -92,6 +97,8 @@ export function buildDefaultName(type: ConnectorType): string {
       return 'Umami'
     case 'meta-ads':
       return 'Meta Ads'
+    case 'github':
+      return 'GitHub'
     case 'google_gmail':
       return 'Gmail'
     case 'google_drive':

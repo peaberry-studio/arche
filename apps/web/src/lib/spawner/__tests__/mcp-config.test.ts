@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 
 import type { ConnectorRecord } from '../mcp-config'
+import { shouldExposeConnectorViaGateway } from '../mcp-connector-config'
 
 // ---------------------------------------------------------------------------
 // Hoisted mocks
@@ -359,6 +360,39 @@ describe('mcp-config', () => {
           headers: { Authorization: 'Bearer gw-token' },
           oauth: false,
         })
+      })
+    })
+
+    // -----------------------------------------------------------------------
+    // GitHub connector
+    // -----------------------------------------------------------------------
+
+    describe('github', () => {
+      it('builds a direct read-only MCP config with restricted toolsets', () => {
+        passGates({ pat: 'github_pat_example', pinnedRepos: ['acme/api'] })
+        const connector = makeConnector({ type: 'github', id: 'gh1' })
+
+        const result = buildMcpConfigFromConnectors([connector], {
+          gatewayTargets: {
+            gh1: { url: 'http://gateway/gh1/mcp', token: 'gateway-token' },
+          },
+        })
+
+        expect(result.mcpConfig.mcp['arche_github_gh1']).toEqual({
+          type: 'remote',
+          url: 'https://api.githubcopilot.com/mcp/',
+          enabled: true,
+          headers: {
+            Authorization: 'Bearer github_pat_example',
+            'X-MCP-Readonly': 'true',
+            'X-MCP-Toolsets': 'repos,git',
+          },
+          oauth: false,
+        })
+        expect(shouldExposeConnectorViaGateway('github', {
+          pat: 'github_pat_example',
+          pinnedRepos: ['acme/api'],
+        })).toBe(false)
       })
     })
 

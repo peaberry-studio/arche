@@ -77,3 +77,17 @@ export function withWorkspaceIdentity(
 
   return agentsMd + block
 }
+
+export function withLinkedRepositories(agentsMd: string, repos: string[]): string {
+  if (repos.length === 0) return agentsMd
+
+  const list = repos.map((repo) => `- \`${repo}\``).join('\n')
+  const block =
+    `\n\n## Linked Repositories\n\n` +
+    `You have GitHub MCP tools (\`get_file_contents\`, \`search_code\`, ` +
+    `\`list_commits\`, \`get_commit\`, \`compare_commits\`) to query these ` +
+    `repositories. Use \`main\` unless correlating across branches.\n\n` +
+    `${list}\n`
+
+  return agentsMd + block
+}

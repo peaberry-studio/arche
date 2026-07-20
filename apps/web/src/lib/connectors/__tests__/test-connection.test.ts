@@ -256,6 +256,38 @@ describe('testConnectorConnection', () => {
     })
   })
 
+  describe('github', () => {
+    it('calls the GitHub user endpoint with the PAT', async () => {
+      fetchSpy = mockFetch({ status: 200 })
+
+      const result = await testConnectorConnection('github', {
+        pat: 'github_pat_example',
+        pinnedRepos: ['acme/api'],
+      })
+
+      expect(result).toEqual({ ok: true, tested: true, message: 'GitHub connection verified.' })
+      const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit]
+      expect(url).toBe('https://api.github.com/user')
+      expect((init.headers as Record<string, string>).Authorization).toBe('Bearer github_pat_example')
+    })
+
+    it('does not test invalid GitHub configuration', async () => {
+      fetchSpy = vi.spyOn(globalThis, 'fetch')
+
+      const result = await testConnectorConnection('github', {
+        pat: 'invalid',
+        pinnedRepos: ['acme/api'],
+      })
+
+      expect(result).toEqual({
+        ok: false,
+        tested: false,
+        message: 'Invalid GitHub connector configuration',
+      })
+      expect(fetchSpy).not.toHaveBeenCalled()
+    })
+  })
+
   describe('notion', () => {
     it('calls Notion REST API with API key in manual mode', async () => {
       fetchSpy = mockFetch({ status: 200 })

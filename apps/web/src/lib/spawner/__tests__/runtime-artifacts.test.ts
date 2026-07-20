@@ -10,6 +10,8 @@ const findIdentityBySlugMock = vi.fn()
 const getEnabledProviderCredentialsForUserMock = vi.fn()
 const getEffectiveCredentialForUserMock = vi.fn()
 const decryptProviderSecretMock = vi.fn()
+const decryptConfigMock = vi.fn()
+const findEnabledGithubConnectorsForUserMock = vi.fn()
 
 let repoDir: string | null = null
 
@@ -50,6 +52,12 @@ async function loadRuntimeArtifactsModule() {
     userService: {
       findIdentityBySlug: (...args: unknown[]) => findIdentityBySlugMock(...args),
     },
+    connectorService: {
+      findEnabledGithubConnectorsForUser: (...args: unknown[]) => findEnabledGithubConnectorsForUserMock(...args),
+    },
+  }))
+  vi.doMock('@/lib/connectors/crypto', () => ({
+    decryptConfig: (...args: unknown[]) => decryptConfigMock(...args),
   }))
   vi.doMock('@/lib/providers/store', () => ({
     getEnabledProviderCredentialsForUser: (...args: unknown[]) => getEnabledProviderCredentialsForUserMock(...args),
@@ -72,6 +80,8 @@ describe('runtime artifacts', () => {
     getEnabledProviderCredentialsForUserMock.mockResolvedValue(new Map())
     getEffectiveCredentialForUserMock.mockResolvedValue(null)
     decryptProviderSecretMock.mockReturnValue({ apiKey: 'unused' })
+    decryptConfigMock.mockReturnValue({})
+    findEnabledGithubConnectorsForUserMock.mockResolvedValue([])
     findIdentityBySlugMock.mockResolvedValue({
       id: 'user-1',
       slug: 'alice',
@@ -102,6 +112,7 @@ describe('runtime artifacts', () => {
     }
 
     vi.unmock('@/lib/config-repo-store')
+    vi.unmock('@/lib/connectors/crypto')
     vi.unmock('@/lib/providers/crypto')
     vi.unmock('@/lib/providers/store')
     vi.unmock('@/lib/services')
@@ -249,6 +260,32 @@ describe('runtime artifacts', () => {
     expect(config.agent?.growth?.prompt).toContain(
       '- Mixpanel: available through MCP tools prefixed with `arche_custom_user-mixpanel_`.'
     )
+  })
+
+  it('appends enabled GitHub connector repositories to AGENTS instructions', async () => {
+    await createRuntimeRepo({
+      'AGENTS.md': '# Base instructions\n',
+      'CommonWorkspaceConfig.json': createWorkspaceConfig(),
+    })
+    findEnabledGithubConnectorsForUserMock.mockResolvedValue([
+      { config: 'encrypted-github-config' },
+    ])
+    decryptConfigMock.mockReturnValue({
+      pat: 'github_pat_example',
+      pinnedRepos: ['acme/web', 'acme/api'],
+    })
+
+    const {
+      buildWorkspaceRuntimeArtifacts,
+      getWebProviderGatewayConfig,
+    } = await loadRuntimeArtifactsModule()
+
+    const artifacts = await buildWorkspaceRuntimeArtifacts('alice', getWebProviderGatewayConfig())
+
+    expect(findEnabledGithubConnectorsForUserMock).toHaveBeenCalledWith('user-1')
+    expect(artifacts.agentsMd).toContain('## Linked Repositories')
+    expect(artifacts.agentsMd).toContain('- `acme/api`')
+    expect(artifacts.agentsMd).toContain('- `acme/web`')
   })
 
   it('adds configured Ollama models to the runtime provider config', async () => {

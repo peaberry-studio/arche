@@ -39,6 +39,15 @@ describe('agent connector capabilities', () => {
         ownerSlug: null,
       },
       {
+        id: 'globalgithub',
+        type: 'github',
+        name: 'GitHub',
+        enabled: false,
+        scope: 'type',
+        ownerKind: null,
+        ownerSlug: null,
+      },
+      {
         id: 'globalgooglecalendar',
         type: 'google_calendar',
         name: 'Google Calendar',

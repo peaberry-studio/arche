@@ -1,4 +1,5 @@
 import { parseAhrefsConnectorConfig, testAhrefsConnection } from '@/lib/connectors/ahrefs'
+import { getGithubConnectionTestEndpoint, parseGithubConnectorConfig } from '@/lib/connectors/github'
 import { getConnectorMcpServerUrl } from '@/lib/connectors/mcp/server-url'
 import { testMetaAdsConnection } from '@/lib/connectors/meta-ads'
 import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
@@ -14,6 +15,7 @@ export type TestConnectionResult = {
 
 type TestConnectionOptions = {
   customEndpointUrl?: URL
+  githubEndpointUrl?: URL
 }
 
 type TestConnectionHandler = (
@@ -46,6 +48,7 @@ function getAccessToken(type: ConnectorType, config: Record<string, unknown>): s
     case 'ahrefs':
     case 'umami':
     case 'custom':
+    case 'github':
       return null
     case 'google_gmail':
     case 'google_drive':
@@ -203,6 +206,33 @@ const CONNECTOR_TEST_HANDLERS: Record<ConnectorType, TestConnectionHandler> = {
       tested: true,
       message: response.message,
     }
+  },
+
+  github: async (config, options) => {
+    const parsed = parseGithubConnectorConfig(config)
+    if (!parsed.ok) {
+      return { ok: false, tested: false, message: 'Invalid GitHub connector configuration' }
+    }
+
+    const endpoint = options.githubEndpointUrl?.toString() ?? getGithubConnectionTestEndpoint(config)
+    if (!endpoint) {
+      return { ok: false, tested: false, message: 'Invalid GitHub connector configuration' }
+    }
+
+    const response = await fetchWithTimeout(endpoint, {
+      method: 'GET',
+      headers: {
+        Accept: 'application/vnd.github+json',
+        Authorization: `Bearer ${parsed.config.pat}`,
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+    })
+
+    if (!response.ok) {
+      return { ok: false, tested: true, message: `GitHub test failed (${response.status})` }
+    }
+
+    return { ok: true, tested: true, message: 'GitHub connection verified.' }
   },
 
   notion: async (config) => {

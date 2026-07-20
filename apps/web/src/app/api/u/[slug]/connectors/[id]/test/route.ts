@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { decryptConfig } from '@/lib/connectors/crypto'
+import { getGithubConnectionTestEndpoint } from '@/lib/connectors/github'
 import { getConnectorAuthType } from '@/lib/connectors/oauth-config'
 import { refreshConnectorOAuthConfigIfNeeded } from '@/lib/connectors/oauth-refresh'
 import { getCustomConnectorTestEndpoint, testConnectorConnection, type TestConnectionResult } from '@/lib/connectors/test-connection'
@@ -84,7 +85,24 @@ export const POST = withAuth<TestConnectionResult | { error: string }, { slug: s
       }
     }
 
-    const result = await testConnectorConnection(connector.type, config, { customEndpointUrl })
+    let githubEndpointUrl: URL | undefined
+    if (connector.type === 'github') {
+      const endpoint = getGithubConnectionTestEndpoint(config)
+      if (!endpoint) {
+        return NextResponse.json({ error: 'invalid_endpoint' }, { status: 400 })
+      }
+
+      const endpointValidation = await validateConnectorTestEndpoint(endpoint)
+      if (!endpointValidation.ok) {
+        return NextResponse.json({ error: endpointValidation.error }, { status: 400 })
+      }
+      githubEndpointUrl = endpointValidation.url
+    }
+
+    const result = await testConnectorConnection(connector.type, config, {
+      customEndpointUrl,
+      githubEndpointUrl,
+    })
 
     if (result.ok && getConnectorAuthType(config) === 'oauth') {
       const message = result.message ?? 'Connection verified.'

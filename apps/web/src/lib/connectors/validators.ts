@@ -1,4 +1,5 @@
 import { getConnectorAuthType } from '@/lib/connectors/oauth-config'
+import { parseGithubConnectorConfig } from '@/lib/connectors/github'
 import { getLinearOAuthActor, getLinearOAuthScopeValidationError, isLinearOAuthActor } from '@/lib/connectors/linear'
 import { isOAuthConnectorType } from '@/lib/connectors/oauth'
 import { validateMetaAdsConnectorConfig } from '@/lib/connectors/meta-ads-config'
@@ -32,6 +33,7 @@ export const CONNECTOR_SCHEMAS: Record<ConnectorType, ConnectorConfigSchema> = {
     required: ['authType', 'appId', 'appSecret'],
     optional: ['permissions', 'selectedAdAccountIds', 'defaultAdAccountId', 'oauth'],
   },
+  github: { required: ['pat', 'pinnedRepos'], optional: ['host', 'toolsets'] },
   custom: {
     required: ['endpoint'],
     optional: [
@@ -92,6 +94,12 @@ export function validateConnectorConfig(
 ): ConnectorConfigValidationResult {
   if (type === 'meta-ads') {
     return validateMetaAdsConnectorConfig(config)
+  }
+
+  if (type === 'github') {
+    return parseGithubConnectorConfig(config).ok
+      ? { valid: true }
+      : { valid: false, message: 'Invalid GitHub connector configuration' }
   }
 
   if (getConnectorAuthType(config) === 'oauth' && isOAuthConnectorType(type)) {

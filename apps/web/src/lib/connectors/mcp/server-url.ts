@@ -1,3 +1,4 @@
+import { getGithubMcpServerUrl, parseGithubConnectorConfig } from '@/lib/connectors/github'
 import { getGoogleWorkspaceMcpServerUrl, isGoogleWorkspaceConnectorType } from '@/lib/connectors/google-workspace'
 import { getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
 import type { ConnectorType } from '@/lib/connectors/types'
@@ -9,6 +10,7 @@ const MCP_SERVER_URLS = {
 
 export function getConnectorMcpServerUrl(type: 'linear' | 'notion', config: Record<string, unknown>): string
 export function getConnectorMcpServerUrl(type: 'custom', config: Record<string, unknown>): string | null
+export function getConnectorMcpServerUrl(type: 'github', config: Record<string, unknown>): string | null
 export function getConnectorMcpServerUrl(type: 'google_gmail' | 'google_drive' | 'google_calendar' | 'google_chat' | 'google_people', config: Record<string, unknown>): string
 export function getConnectorMcpServerUrl(type: ConnectorType, config: Record<string, unknown>): string | null
 export function getConnectorMcpServerUrl(type: ConnectorType, config: Record<string, unknown>): string | null {
@@ -30,10 +32,16 @@ export function getConnectorMcpServerUrl(type: ConnectorType, config: Record<str
       const endpoint = config.endpoint
       return typeof endpoint === 'string' ? endpoint : null
     }
+    case 'github': {
+      const parsed = parseGithubConnectorConfig(config)
+      return parsed.ok ? getGithubMcpServerUrl(parsed.config) : null
+    }
     case 'zendesk':
     case 'meta-ads':
     case 'ahrefs':
     case 'umami':
       return null
   }
+
+  return null
 }

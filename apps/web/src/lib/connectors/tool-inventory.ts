@@ -1,4 +1,5 @@
 import { getAhrefsMcpTools, parseAhrefsConnectorConfig } from '@/lib/connectors/ahrefs'
+import { parseGithubConnectorConfig } from '@/lib/connectors/github'
 import { getMetaAdsMcpTools, parseMetaAdsConnectorConfig } from '@/lib/connectors/meta-ads'
 import { getConnectorMcpServerUrl } from '@/lib/connectors/mcp/server-url'
 import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
@@ -63,6 +64,16 @@ function buildRemoteHeaders(
     accept: 'application/json, text/event-stream',
     'content-type': 'application/json',
     ...(toStringRecord(config.headers) ?? {}),
+  }
+
+  if (type === 'github') {
+    const parsed = parseGithubConnectorConfig(config)
+    if (!parsed.ok) return null
+
+    headers.Authorization = `Bearer ${parsed.config.pat}`
+    headers['X-MCP-Readonly'] = 'true'
+    headers['X-MCP-Toolsets'] = parsed.config.toolsets.join(',')
+    return headers
   }
 
   if (getConnectorAuthType(config) === 'oauth') {
@@ -206,7 +217,7 @@ async function loadRemoteConnectorToolInventory(
   }
 
   let url: URL
-  if (type === 'custom') {
+  if (type === 'custom' || type === 'github') {
     const endpointValidation = await validateConnectorTestEndpoint(upstreamUrl)
     if (!endpointValidation.ok) {
       return { ok: false, tools: [], message: 'Connector endpoint is not allowed.' }

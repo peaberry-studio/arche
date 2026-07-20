@@ -64,7 +64,7 @@ arche/
 | `User` | Accounts (email, slug, role, Argon2 hash, TOTP fields) |
 | `Session` | Sessions with token hash, expiration, IP, and user agent |
 | `Instance` | Containerized workspace (status, containerId, encrypted password, configSha) |
-| `Connector` | Per-user connector records with encrypted config. Supported connector types are defined in `apps/web/src/lib/connectors/types.ts`: Linear, Notion, Zendesk, Ahrefs, Umami, custom MCP, Meta Ads, and Google Workspace products (Gmail, Drive, Calendar, Chat, People) |
+| `Connector` | Per-user connector records with encrypted config. Supported connector types are defined in `apps/web/src/lib/connectors/types.ts`: Linear, Notion, Zendesk, Ahrefs, Umami, GitHub repositories, custom MCP, Meta Ads, and Google Workspace products (Gmail, Drive, Calendar, Chat, People) |
 | `ProviderCredential` | Per-user model provider credentials for providers such as OpenAI, Anthropic, Fireworks, OpenRouter, and OpenCode |
 | `ExternalIntegration` | Admin-managed integrations stored once for the deployment, such as Slack |
 | `SlackThreadBinding` | Mapping between Slack channel threads and OpenCode sessions |

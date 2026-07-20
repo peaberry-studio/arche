@@ -23,7 +23,18 @@ function sanitizeMetaAdsConfigForResponse(config: Record<string, unknown>): Reco
   }
 }
 
+function sanitizeGithubConfigForResponse(config: Record<string, unknown>): Record<string, unknown> {
+  const sanitizedConfig = { ...config }
+  delete sanitizedConfig.pat
+
+  return {
+    ...sanitizedConfig,
+    hasPat: typeof config.pat === 'string' && config.pat.length > 0,
+  }
+}
+
 const CONNECTOR_CONFIG_SANITIZERS: Partial<Record<ConnectorType, ConnectorConfigSanitizer>> = {
+  github: sanitizeGithubConfigForResponse,
   'meta-ads': sanitizeMetaAdsConfigForResponse,
 }
 
