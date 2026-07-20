@@ -43,9 +43,12 @@ describe('GitHub connector config', () => {
     { pat: 'token', pinnedRepos: ['owner/repo'] },
     { pat: 'ghp_example', pinnedRepos: 'owner/repo' },
     { pat: 'ghp_example', pinnedRepos: ['owner/repo/path'] },
+    { pat: 'ghp_example', pinnedRepos: ['owner/ repo'] },
     { pat: 'ghp_example', host: 'https://github.example.com', pinnedRepos: ['owner/repo'] },
     { pat: 'ghp_example', pinnedRepos: ['owner/repo'], toolsets: ['all'] },
     { pat: 'ghp_example', pinnedRepos: ['owner/repo'], toolsets: [] },
+    { pat: 'ghp_example', pinnedRepos: ['owner/repo'], toolsets: ['repos', 'repos'] },
+    { pat: 'ghp_example', pinnedRepos: ['owner/repo'], toolsets: [' '] },
   ])('rejects invalid config %#', (config) => {
     expect(parseGithubConnectorConfig(config)).toEqual({ ok: false })
   })

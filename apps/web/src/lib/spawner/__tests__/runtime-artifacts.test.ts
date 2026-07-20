@@ -288,6 +288,37 @@ describe('runtime artifacts', () => {
     expect(artifacts.agentsMd).toContain('- `acme/web`')
   })
 
+  it('ignores undecryptable and invalid GitHub connector configs when injecting repositories', async () => {
+    await createRuntimeRepo({
+      'AGENTS.md': '# Base instructions\n',
+      'CommonWorkspaceConfig.json': createWorkspaceConfig(),
+    })
+    findEnabledGithubConnectorsForUserMock.mockResolvedValue([
+      { config: 'valid-config' },
+      { config: 'undecryptable-config' },
+      { config: 'invalid-config' },
+    ])
+    decryptConfigMock.mockImplementation((config: string) => {
+      if (config === 'undecryptable-config') {
+        throw new Error('decrypt failed')
+      }
+      if (config === 'invalid-config') {
+        return { pat: 'invalid', pinnedRepos: ['acme/private'] }
+      }
+      return { pat: 'github_pat_example', pinnedRepos: ['acme/api'] }
+    })
+
+    const {
+      buildWorkspaceRuntimeArtifacts,
+      getWebProviderGatewayConfig,
+    } = await loadRuntimeArtifactsModule()
+
+    const artifacts = await buildWorkspaceRuntimeArtifacts('alice', getWebProviderGatewayConfig())
+
+    expect(artifacts.agentsMd).toContain('- `acme/api`')
+    expect(artifacts.agentsMd).not.toContain('acme/private')
+  })
+
   it('adds configured Ollama models to the runtime provider config', async () => {
     await createRuntimeRepo({
       'CommonWorkspaceConfig.json': createWorkspaceConfig(),

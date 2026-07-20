@@ -286,6 +286,28 @@ describe('testConnectorConnection', () => {
       })
       expect(fetchSpy).not.toHaveBeenCalled()
     })
+
+    it.each([401, 403, 429])('returns a test failure for GitHub status %i', async (status) => {
+      fetchSpy = mockFetch({ status })
+
+      const result = await testConnectorConnection('github', {
+        pat: 'github_pat_example',
+        pinnedRepos: ['acme/api'],
+      })
+
+      expect(result).toEqual({ ok: false, tested: true, message: `GitHub test failed (${status})` })
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'https://api.github.com/user',
+        expect.objectContaining({
+          method: 'GET',
+          headers: {
+            Accept: 'application/vnd.github+json',
+            Authorization: 'Bearer github_pat_example',
+            'X-GitHub-Api-Version': '2022-11-28',
+          },
+        }),
+      )
+    })
   })
 
   describe('notion', () => {

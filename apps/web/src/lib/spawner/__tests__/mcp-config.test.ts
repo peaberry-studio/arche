@@ -960,5 +960,31 @@ describe('mcp-config', () => {
       expect(result).not.toBeNull()
       expect(result!.mcpConfig.mcp['arche_notion_n1']!.type).toBe('local')
     })
+
+    it('injects GitHub directly without issuing a connector gateway token', async () => {
+      serviceMocks.userService.findIdBySlug.mockResolvedValue({ id: 'user-1' })
+      serviceMocks.connectorService.findEnabledMcpByUserId.mockResolvedValue([
+        makeConnector({ type: 'github', id: 'gh1', config: 'enc-github' }),
+      ])
+      connectorMocks.decryptConfig.mockReturnValue({
+        pat: 'github_pat_example',
+        pinnedRepos: ['acme/api'],
+      })
+
+      const result = await buildMcpConfigForSlug('my-slug')
+
+      expect(connectorMocks.issueConnectorGatewayToken).not.toHaveBeenCalled()
+      expect(result?.mcpConfig.mcp['arche_github_gh1']).toEqual({
+        type: 'remote',
+        url: 'https://api.githubcopilot.com/mcp/',
+        enabled: true,
+        headers: {
+          Authorization: 'Bearer github_pat_example',
+          'X-MCP-Readonly': 'true',
+          'X-MCP-Toolsets': 'repos,git',
+        },
+        oauth: false,
+      })
+    })
   })
 })

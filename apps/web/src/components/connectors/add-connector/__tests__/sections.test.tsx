@@ -211,6 +211,39 @@ describe('add connector sections', () => {
     })
   })
 
+  it('validates GitHub repositories and becomes incomplete when the last repository is removed', () => {
+    const ref = createRef<AddConnectorSectionHandle>()
+    render(<GithubSection ref={ref} isActive onStateChange={vi.fn()} />)
+
+    fireEvent.change(screen.getByLabelText('Personal access token'), {
+      target: { value: 'github_pat_example' },
+    })
+    fireEvent.change(screen.getByLabelText('Pinned repositories'), {
+      target: { value: 'acme/api/path' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+
+    expect(screen.getByText('Enter a repository as owner/repository.')).toBeTruthy()
+    expect(getHandle(ref).isComplete()).toBe(false)
+
+    fireEvent.change(screen.getByLabelText('Pinned repositories'), {
+      target: { value: 'acme/api' },
+    })
+    fireEvent.keyDown(screen.getByLabelText('Pinned repositories'), { key: 'Enter' })
+    fireEvent.keyDown(screen.getByLabelText('Pinned repositories'), { key: 'Enter' })
+
+    expect(screen.getAllByRole('button', { name: 'Remove acme/api' })).toHaveLength(1)
+    expect(getHandle(ref).isComplete()).toBe(true)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove acme/api' }))
+
+    expect(getHandle(ref).isComplete()).toBe(false)
+    expect(getHandle(ref).getSubmission()).toEqual({
+      ok: false,
+      message: 'Add at least one pinned repository.',
+    })
+  })
+
   it('submits Umami API-key and login configurations', () => {
     const ref = createRef<AddConnectorSectionHandle>()
     render(<UmamiSection ref={ref} isActive onStateChange={vi.fn()} />)
