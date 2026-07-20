@@ -22,10 +22,9 @@ describe('GitHub connector config', () => {
     })
   })
 
-  it('parses a GitHub Enterprise host and allowed toolset subset', () => {
+  it('parses an allowed toolset subset', () => {
     const parsed = parseGithubConnectorConfig({
       pat: 'ghp_example',
-      host: 'https://github.example.com/',
       pinnedRepos: ['acme/platform'],
       toolsets: ['repos'],
     })
@@ -34,7 +33,6 @@ describe('GitHub connector config', () => {
       ok: true,
       config: {
         pat: 'ghp_example',
-        host: 'https://github.example.com',
         pinnedRepos: ['acme/platform'],
         toolsets: ['repos'],
       },
@@ -45,44 +43,29 @@ describe('GitHub connector config', () => {
     { pat: 'token', pinnedRepos: ['owner/repo'] },
     { pat: 'ghp_example', pinnedRepos: 'owner/repo' },
     { pat: 'ghp_example', pinnedRepos: ['owner/repo/path'] },
-    { pat: 'ghp_example', host: 'http://github.example.com', pinnedRepos: ['owner/repo'] },
-    { pat: 'ghp_example', host: 'https://github.example.com/api', pinnedRepos: ['owner/repo'] },
+    { pat: 'ghp_example', host: 'https://github.example.com', pinnedRepos: ['owner/repo'] },
     { pat: 'ghp_example', pinnedRepos: ['owner/repo'], toolsets: ['all'] },
     { pat: 'ghp_example', pinnedRepos: ['owner/repo'], toolsets: [] },
   ])('rejects invalid config %#', (config) => {
     expect(parseGithubConnectorConfig(config)).toEqual({ ok: false })
   })
 
-  it('builds MCP and REST test URLs from parsed configuration', () => {
+  it('builds GitHub.com MCP and REST test URLs', () => {
     const githubCom = parseGithubConnectorConfig({
       pat: 'ghp_example',
       pinnedRepos: ['owner/repo'],
     })
-    const enterprise = parseGithubConnectorConfig({
-      pat: 'ghp_example',
-      host: 'https://github.example.com',
-      pinnedRepos: ['owner/repo'],
-    })
 
-    if (!githubCom.ok || !enterprise.ok) {
+    if (!githubCom.ok) {
       throw new Error('expected valid GitHub connector configurations')
     }
 
-    expect(getGithubMcpServerUrl(githubCom.config)).toBe('https://api.githubcopilot.com/mcp/')
-    expect(getGithubMcpServerUrl(enterprise.config)).toBe('https://github.example.com/mcp/')
+    expect(getGithubMcpServerUrl()).toBe('https://api.githubcopilot.com/mcp/')
     expect(getGithubMcpHeaders(githubCom.config)).toEqual({
       Authorization: 'Bearer ghp_example',
       'X-MCP-Readonly': 'true',
       'X-MCP-Toolsets': 'repos,git',
     })
-    expect(getGithubConnectionTestEndpoint({
-      pat: 'ghp_example',
-      pinnedRepos: ['owner/repo'],
-    })).toBe('https://api.github.com/user')
-    expect(getGithubConnectionTestEndpoint({
-      pat: 'ghp_example',
-      host: 'https://github.example.com',
-      pinnedRepos: ['owner/repo'],
-    })).toBe('https://github.example.com/api/v3/user')
+    expect(getGithubConnectionTestEndpoint()).toBe('https://api.github.com/user')
   })
 })

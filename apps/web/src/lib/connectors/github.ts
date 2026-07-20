@@ -1,6 +1,7 @@
 const GITHUB_PAT_PATTERN = /^(?:ghp_|github_pat_)\S+$/
 const GITHUB_PINNED_REPO_PATTERN = /^[\w.-]+\/[\w.-]+$/
-const GITHUB_MCP_DEFAULT_HOST = 'https://api.githubcopilot.com'
+const GITHUB_MCP_SERVER_URL = 'https://api.githubcopilot.com/mcp/'
+const GITHUB_CONNECTION_TEST_ENDPOINT = 'https://api.github.com/user'
 
 export const DEFAULT_GITHUB_TOOLSETS = ['repos', 'git'] as const
 
@@ -8,7 +9,6 @@ const GITHUB_TOOLSETS = new Set<string>(DEFAULT_GITHUB_TOOLSETS)
 
 export type GithubConnectorConfig = {
   pat: string
-  host?: string
   pinnedRepos: string[]
   toolsets: string[]
 }
@@ -23,29 +23,6 @@ export function isGithubPat(value: string): boolean {
 
 export function isGithubPinnedRepo(value: string): boolean {
   return GITHUB_PINNED_REPO_PATTERN.test(value.trim())
-}
-
-function parseGithubHost(value: unknown): string | undefined {
-  if (value === undefined) return undefined
-  if (typeof value !== 'string' || !value.trim()) return undefined
-
-  try {
-    const url = new URL(value.trim())
-    if (
-      url.protocol !== 'https:' ||
-      url.username ||
-      url.password ||
-      url.pathname !== '/' ||
-      url.search ||
-      url.hash
-    ) {
-      return undefined
-    }
-
-    return url.origin
-  } catch {
-    return undefined
-  }
 }
 
 function parseToolsets(value: unknown): string[] | null {
@@ -77,8 +54,7 @@ export function parseGithubConnectorConfig(
   )
   if (pinnedRepos.some((repo) => !isGithubPinnedRepo(repo))) return { ok: false }
 
-  const host = parseGithubHost(config.host)
-  if (config.host !== undefined && !host) return { ok: false }
+  if (config.host !== undefined) return { ok: false }
 
   const toolsets = parseToolsets(config.toolsets)
   if (!toolsets) return { ok: false }
@@ -87,15 +63,14 @@ export function parseGithubConnectorConfig(
     ok: true,
     config: {
       pat,
-      ...(host ? { host } : {}),
       pinnedRepos: Array.from(new Set(pinnedRepos)),
       toolsets,
     },
   }
 }
 
-export function getGithubMcpServerUrl(config: GithubConnectorConfig): string {
-  return `${config.host ?? GITHUB_MCP_DEFAULT_HOST}/mcp/`
+export function getGithubMcpServerUrl(): string {
+  return GITHUB_MCP_SERVER_URL
 }
 
 export function getGithubMcpHeaders(config: GithubConnectorConfig): Record<string, string> {
@@ -106,11 +81,6 @@ export function getGithubMcpHeaders(config: GithubConnectorConfig): Record<strin
   }
 }
 
-export function getGithubConnectionTestEndpoint(config: Record<string, unknown>): string | null {
-  const parsed = parseGithubConnectorConfig(config)
-  if (!parsed.ok) return null
-
-  return parsed.config.host
-    ? `${parsed.config.host}/api/v3/user`
-    : 'https://api.github.com/user'
+export function getGithubConnectionTestEndpoint(): string {
+  return GITHUB_CONNECTION_TEST_ENDPOINT
 }

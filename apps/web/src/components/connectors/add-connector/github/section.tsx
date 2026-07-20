@@ -25,16 +25,13 @@ export const GithubSection = forwardRef<
   AddConnectorSectionProps
 >(function GithubSection({ onStateChange, isActive }, ref) {
   const [pat, setPat] = useState('')
-  const [host, setHost] = useState('')
   const [pinnedRepos, setPinnedRepos] = useState<string[]>([])
   const [repoInput, setRepoInput] = useState('')
   const [repoError, setRepoError] = useState<string | null>(null)
-  const [showAdvanced, setShowAdvanced] = useState(false)
 
   const state = {
     selectedType: 'github' as const,
     pat,
-    host,
     pinnedRepos,
   }
 
@@ -137,32 +134,6 @@ export const GithubSection = forwardRef<
               </li>
             ))}
           </ul>
-        ) : null}
-      </div>
-
-      <div className="space-y-2">
-        <button
-          type="button"
-          className="text-sm text-muted-foreground hover:text-foreground"
-          onClick={() => setShowAdvanced((current) => !current)}
-        >
-          {showAdvanced ? 'Hide advanced settings' : 'Show advanced settings'}
-        </button>
-        {showAdvanced ? (
-          <div className="space-y-2">
-            <Label htmlFor="connector-github-host" className="text-foreground">
-              GitHub host
-            </Label>
-            <Input
-              id="connector-github-host"
-              value={host}
-              onChange={(event) => setHost(event.target.value)}
-              placeholder="https://github.example.com"
-            />
-            <p className="text-xs text-muted-foreground">
-              Leave blank for GitHub.com. GitHub Enterprise Server requires a compatible MCP endpoint and is not supported by the hosted GitHub.com MCP server.
-            </p>
-          </div>
         ) : null}
       </div>
     </div>

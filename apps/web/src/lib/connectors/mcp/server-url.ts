@@ -34,7 +34,7 @@ export function getConnectorMcpServerUrl(type: ConnectorType, config: Record<str
     }
     case 'github': {
       const parsed = parseGithubConnectorConfig(config)
-      return parsed.ok ? getGithubMcpServerUrl(parsed.config) : null
+      return parsed.ok ? getGithubMcpServerUrl() : null
     }
     case 'zendesk':
     case 'meta-ads':

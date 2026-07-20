@@ -201,7 +201,7 @@ describe('loadConnectorToolInventory', () => {
       tools: [{ name: 'list_commits', title: 'List commits', description: 'List commits' }],
     })
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://validated.example/rpc',
+      'https://api.githubcopilot.com/mcp/',
       expect.objectContaining({
         headers: expect.objectContaining({
           Authorization: 'Bearer github_pat_example',
@@ -210,6 +210,7 @@ describe('loadConnectorToolInventory', () => {
         }),
       }),
     )
+    expect(mocks.validateConnectorTestEndpoint).not.toHaveBeenCalled()
   })
 
   it('uses API key auth for any remote connector inventory', async () => {

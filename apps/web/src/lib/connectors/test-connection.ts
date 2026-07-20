@@ -15,7 +15,6 @@ export type TestConnectionResult = {
 
 type TestConnectionOptions = {
   customEndpointUrl?: URL
-  githubEndpointUrl?: URL
 }
 
 type TestConnectionHandler = (
@@ -208,18 +207,13 @@ const CONNECTOR_TEST_HANDLERS: Record<ConnectorType, TestConnectionHandler> = {
     }
   },
 
-  github: async (config, options) => {
+  github: async (config) => {
     const parsed = parseGithubConnectorConfig(config)
     if (!parsed.ok) {
       return { ok: false, tested: false, message: 'Invalid GitHub connector configuration' }
     }
 
-    const endpoint = options.githubEndpointUrl?.toString() ?? getGithubConnectionTestEndpoint(config)
-    if (!endpoint) {
-      return { ok: false, tested: false, message: 'Invalid GitHub connector configuration' }
-    }
-
-    const response = await fetchWithTimeout(endpoint, {
+    const response = await fetchWithTimeout(getGithubConnectionTestEndpoint(), {
       method: 'GET',
       headers: {
         Accept: 'application/vnd.github+json',

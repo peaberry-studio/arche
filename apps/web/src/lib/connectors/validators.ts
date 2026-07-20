@@ -33,7 +33,7 @@ export const CONNECTOR_SCHEMAS: Record<ConnectorType, ConnectorConfigSchema> = {
     required: ['authType', 'appId', 'appSecret'],
     optional: ['permissions', 'selectedAdAccountIds', 'defaultAdAccountId', 'oauth'],
   },
-  github: { required: ['pat', 'pinnedRepos'], optional: ['host', 'toolsets'] },
+  github: { required: ['pat', 'pinnedRepos'], optional: ['toolsets'] },
   custom: {
     required: ['endpoint'],
     optional: [

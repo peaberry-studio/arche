@@ -5,7 +5,6 @@ import type { ConnectorConfigResult } from '@/components/connectors/add-connecto
 export type GithubConnectorFormState = {
   selectedType: 'github'
   pat: string
-  host: string
   pinnedRepos: string[]
 }
 
@@ -22,13 +21,12 @@ export function buildGithubConnectorConfig(
 
   const parsed = parseGithubConnectorConfig({
     pat: state.pat,
-    ...(state.host.trim() ? { host: state.host } : {}),
     pinnedRepos: state.pinnedRepos,
   })
   if (!parsed.ok) {
     return {
       ok: false,
-      message: 'Enter a valid GitHub personal access token, host, and pinned repositories.',
+      message: 'Enter a valid GitHub personal access token and pinned repositories.',
     }
   }
 

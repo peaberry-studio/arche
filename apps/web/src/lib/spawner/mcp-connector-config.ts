@@ -134,7 +134,7 @@ function buildGithubMcpServerConfig(
 
   return {
     type: 'remote',
-    url: getGithubMcpServerUrl(parsed.config),
+    url: getGithubMcpServerUrl(),
     enabled: true,
     headers: getGithubMcpHeaders(parsed.config),
     oauth: false,

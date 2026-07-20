@@ -214,7 +214,7 @@ async function loadRemoteConnectorToolInventory(
   }
 
   let url: URL
-  if (type === 'custom' || type === 'github') {
+  if (type === 'custom') {
     const endpointValidation = await validateConnectorTestEndpoint(upstreamUrl)
     if (!endpointValidation.ok) {
       return { ok: false, tools: [], message: 'Connector endpoint is not allowed.' }
