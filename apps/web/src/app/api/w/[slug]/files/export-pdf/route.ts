@@ -13,7 +13,7 @@ export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 export const maxDuration = 30
 
-const MAX_MARKDOWN_BYTES = 512 * 1024
+const MAX_MARKDOWN_BYTES = 4 * 1024 * 1024
 const MAX_CONCURRENT_EXPORTS = 2
 
 let activeExports = 0
