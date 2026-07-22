@@ -12,7 +12,7 @@ export type VisualizationTheme = {
   isDark: boolean
 }
 
-const FALLBACK: VisualizationTheme = {
+export const FALLBACK: VisualizationTheme = {
   background: 'hsl(36, 28%, 91%)',
   card: 'hsl(38, 24%, 93%)',
   muted: 'hsl(30, 14%, 87%)',
