@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { ArrowLineLeft, ArrowLineRight, ChatCircle, Circle, Compass, Database, File, Graph, SlidersHorizontal, TreeStructure } from "@phosphor-icons/react";
 
 import { ensureInstanceRunningAction } from "@/actions/spawner";
@@ -22,6 +23,7 @@ import {
   isFlowSession,
 } from "@/lib/workspace-session-utils";
 import { downloadWorkspaceFile } from "@/lib/workspace-file-download";
+import { exportWorkspaceFileAsPdf } from "@/lib/workspace-file-export-pdf";
 import {
   getWorkspaceLayoutCookieName,
   getWorkspaceLayoutStorageKey,
@@ -1437,6 +1439,20 @@ export function WorkspaceShell({
     [slug]
   );
 
+  const handleExportFilePdf = useCallback(
+    async (path: string) => {
+      const toastId = "pdf-export";
+      toast.loading("Exporting PDF…", { id: toastId });
+      const ok = await exportWorkspaceFileAsPdf(slug, path);
+      if (ok) {
+        toast.success("PDF exported", { id: toastId });
+      } else {
+        toast.error("PDF export failed", { id: toastId });
+      }
+    },
+    [slug]
+  );
+
   // Resize handlers - now work via the gap area between panels
   const handleResizeLeft = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -1682,6 +1698,7 @@ export function WorkspaceShell({
       fileNodes={workspace.fileTree}
       headerActions={leftPanelHeaderActions}
       onDownloadFile={handleDownloadFile}
+      onExportFilePdf={handleExportFilePdf}
       onOpenFile={handleOpenFile}
       openFiles={openFiles}
       readFile={workspace.readFile}

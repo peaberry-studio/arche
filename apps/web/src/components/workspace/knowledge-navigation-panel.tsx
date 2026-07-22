@@ -23,6 +23,7 @@ type KnowledgeNavigationPanelProps = {
   fileNodes: WorkspaceFileNode[]
   headerActions?: ReactNode
   onDownloadFile?: (path: string) => void
+  onExportFilePdf?: (path: string) => void
   onOpenFile: (path: string) => void
   openFiles: OpenKnowledgeFile[]
   readFile: (path: string) => Promise<{ content: string; type: 'patch' | 'raw'; hash?: string } | null>
@@ -37,6 +38,7 @@ export function KnowledgeNavigationPanel({
   fileNodes,
   headerActions,
   onDownloadFile,
+  onExportFilePdf,
   onOpenFile,
   openFiles,
   readFile,
@@ -94,6 +96,7 @@ export function KnowledgeNavigationPanel({
             activePath={activeFilePath}
             onSelect={onOpenFile}
             onDownloadFile={onDownloadFile}
+            onExportFilePdf={onExportFilePdf}
             hideHeader
           />
         ) : (
