@@ -810,6 +810,24 @@ export function WorkspaceShell({
     );
   }, [activeFilePath, isKnowledgeMode, slug]);
 
+  useEffect(() => {
+    if (!safeInitialFilePath || fileCacheRef.current[safeInitialFilePath]) return;
+    void readWorkspaceFile(safeInitialFilePath).then((result) => {
+      if (!result) return;
+      setFileCache((prev) => ({
+        ...prev,
+        [safeInitialFilePath]: {
+          content: result.content,
+          type: result.type,
+          title: safeInitialFilePath.split("/").pop() ?? safeInitialFilePath,
+          updatedAt: "Just now",
+          size: `${(result.content.length / 1024).toFixed(1)} KB`,
+          hash: result.hash,
+        },
+      }));
+    });
+  }, [safeInitialFilePath, readWorkspaceFile]);
+
   const refreshOpenFilesCache = useCallback(async () => {
     if (openFilePaths.length === 0) return;
 
