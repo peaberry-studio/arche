@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { CaretRight, File, Folder, FolderOpen } from "@phosphor-icons/react";
 
 import { cn } from "@/lib/utils";
@@ -18,41 +18,43 @@ type FileTreeProps = {
 
 type TreeState = Record<string, boolean>;
 
-export function FileTree({ nodes, activePath, onSelect, onFileContextMenu }: FileTreeProps) {
-  const initialExpanded = useMemo<TreeState>(() => {
-    const state: TreeState = {};
-    nodes.forEach((node) => {
-      if (node.type === "directory") state[node.path] = true;
-    });
-    if (activePath) {
-      const segments = activePath.split("/");
-      for (let i = 1; i < segments.length; i++) {
-        state[segments.slice(0, i).join("/")] = true;
-      }
-    }
-    return state;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nodes]);
+function getAncestorPaths(filePath: string): string[] {
+  const segments = filePath.split("/");
+  const ancestors: string[] = [];
+  for (let i = 1; i < segments.length; i++) {
+    ancestors.push(segments.slice(0, i).join("/"));
+  }
+  return ancestors;
+}
 
-  const [expanded, setExpanded] = useState<TreeState>(initialExpanded);
+export function FileTree({ nodes, activePath, onSelect, onFileContextMenu }: FileTreeProps) {
+  const [expanded, setExpanded] = useState<TreeState>({});
+  const seenNodesRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    if (!activePath) return;
-    const segments = activePath.split("/");
-    if (segments.length <= 1) return;
     setExpanded((prev) => {
       const next = { ...prev };
       let changed = false;
-      for (let i = 1; i < segments.length; i++) {
-        const ancestor = segments.slice(0, i).join("/");
-        if (!next[ancestor]) {
-          next[ancestor] = true;
-          changed = true;
+      for (const node of nodes) {
+        if (node.type === "directory" && !seenNodesRef.current.has(node.path)) {
+          seenNodesRef.current.add(node.path);
+          if (!next[node.path]) {
+            next[node.path] = true;
+            changed = true;
+          }
+        }
+      }
+      if (activePath) {
+        for (const ancestor of getAncestorPaths(activePath)) {
+          if (!next[ancestor]) {
+            next[ancestor] = true;
+            changed = true;
+          }
         }
       }
       return changed ? next : prev;
     });
-  }, [activePath]);
+  }, [nodes, activePath]);
 
   const toggle = (path: string) => {
     setExpanded((prev) => ({ ...prev, [path]: !prev[path] }));
