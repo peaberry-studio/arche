@@ -1441,7 +1441,7 @@ export function WorkspaceShell({
 
   const handleExportFilePdf = useCallback(
     async (path: string) => {
-      const toastId = "pdf-export";
+      const toastId = `pdf-export:${path}`;
       toast.loading("Exporting PDF…", { id: toastId });
       const ok = await exportWorkspaceFileAsPdf(slug, path);
       if (ok) {

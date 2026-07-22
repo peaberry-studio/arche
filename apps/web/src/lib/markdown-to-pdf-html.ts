@@ -1,6 +1,7 @@
 import fs from "node:fs"
 import path from "node:path"
 
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize"
 import rehypeStringify from "rehype-stringify"
 import remarkParse from "remark-parse"
 import remarkRehype from "remark-rehype"
@@ -19,6 +20,8 @@ import {
   workspaceRemarkPlugins,
 } from "@/components/workspace/markdown-plugins"
 
+const MAX_VEGA_CHARTS = 20
+
 async function renderVegaLiteToSvg(spec: Record<string, unknown>): Promise<string> {
   const vega = await import("vega")
   const vegaLite = await import("vega-lite")
@@ -28,9 +31,11 @@ async function renderVegaLiteToSvg(spec: Record<string, unknown>): Promise<strin
   const compiled = vegaLite.compile(specWithConfig as Parameters<typeof vegaLite.compile>[0])
   const runtime = vega.parse(compiled.spec)
   const view = new vega.View(runtime, { renderer: "none" })
-  const svg = await view.toSVG()
-  view.finalize()
-  return svg
+  try {
+    return await view.toSVG()
+  } finally {
+    view.finalize()
+  }
 }
 
 type VegaLiteTarget = {
@@ -78,22 +83,17 @@ function rehypeVegaLiteToSvg() {
 
     if (targets.length === 0) return
 
-    const svgs = await Promise.all(
-      targets.map(async ({ spec }) => {
-        try {
-          return await renderVegaLiteToSvg(spec)
-        } catch {
-          return null
-        }
-      }),
-    )
+    const capped = targets.slice(0, MAX_VEGA_CHARTS)
 
-    for (let i = 0; i < targets.length; i++) {
-      const svg = svgs[i]
-      if (!svg) continue
+    for (const target of capped) {
+      let svg: string | null = null
+      try {
+        svg = await renderVegaLiteToSvg(target.spec)
+      } catch {
+        continue
+      }
 
-      const { parent, index } = targets[i]
-      parent.children[index] = {
+      target.parent.children[target.index] = {
         type: "element",
         tagName: "div",
         properties: { className: ["vega-chart"] },
@@ -103,13 +103,65 @@ function rehypeVegaLiteToSvg() {
   }
 }
 
+const pdfSanitizeSchema = {
+  ...defaultSchema,
+  tagNames: [
+    ...(defaultSchema.tagNames ?? []),
+    "svg", "path", "rect", "circle", "ellipse", "line", "polyline", "polygon",
+    "g", "defs", "clipPath", "use", "text", "tspan", "title", "desc",
+    "linearGradient", "radialGradient", "stop", "pattern", "mask", "image",
+    "marker",
+    "span", "div",
+  ],
+  attributes: {
+    ...defaultSchema.attributes,
+    div: [...(defaultSchema.attributes?.div ?? []), "className", "style"],
+    span: [...(defaultSchema.attributes?.span ?? []), "className", "style", "aria-hidden"],
+    svg: ["xmlns", "viewBox", "width", "height", "class", "style", "role", "aria-*", "fill", "stroke", "overflow", "preserveAspectRatio"],
+    path: ["d", "fill", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin", "opacity", "transform", "class", "style", "clip-path"],
+    rect: ["x", "y", "width", "height", "rx", "ry", "fill", "stroke", "stroke-width", "opacity", "transform", "class", "style", "clip-path"],
+    circle: ["cx", "cy", "r", "fill", "stroke", "stroke-width", "opacity", "transform", "class"],
+    ellipse: ["cx", "cy", "rx", "ry", "fill", "stroke", "stroke-width", "opacity", "transform", "class"],
+    line: ["x1", "y1", "x2", "y2", "stroke", "stroke-width", "opacity", "transform", "class"],
+    polyline: ["points", "fill", "stroke", "stroke-width", "opacity", "transform", "class"],
+    polygon: ["points", "fill", "stroke", "stroke-width", "opacity", "transform", "class"],
+    g: ["transform", "class", "style", "clip-path", "opacity", "fill", "stroke"],
+    defs: [],
+    clipPath: ["id"],
+    use: ["href", "x", "y", "width", "height"],
+    text: ["x", "y", "dx", "dy", "text-anchor", "dominant-baseline", "font-size", "font-family", "font-weight", "font-style", "fill", "opacity", "transform", "class", "style"],
+    tspan: ["x", "y", "dx", "dy", "text-anchor", "font-size", "font-family", "font-weight", "fill", "class"],
+    title: [],
+    desc: [],
+    linearGradient: ["id", "x1", "y1", "x2", "y2", "gradientUnits", "gradientTransform"],
+    radialGradient: ["id", "cx", "cy", "r", "fx", "fy", "gradientUnits"],
+    stop: ["offset", "stop-color", "stop-opacity"],
+    pattern: ["id", "x", "y", "width", "height", "patternUnits", "patternTransform"],
+    mask: ["id", "x", "y", "width", "height", "maskUnits"],
+    image: ["x", "y", "width", "height", "href", "preserveAspectRatio"],
+    marker: ["id", "markerWidth", "markerHeight", "refX", "refY", "orient", "markerUnits"],
+  },
+}
+
 function loadKatexCss(): string {
   try {
-    const katexCssPath = path.resolve(
-      process.cwd(),
-      "node_modules/katex/dist/katex.min.css",
+    const katexDir = path.resolve(process.cwd(), "node_modules/katex/dist")
+    let css = fs.readFileSync(path.join(katexDir, "katex.min.css"), "utf-8")
+    css = css.replace(
+      /url\(fonts\/([^)]+)\)/g,
+      (_match: string, fontFile: string) => {
+        const fontPath = path.join(katexDir, "fonts", fontFile)
+        try {
+          const fontData = fs.readFileSync(fontPath)
+          const ext = path.extname(fontFile).slice(1)
+          const mime = ext === "woff2" ? "font/woff2" : ext === "woff" ? "font/woff" : `font/${ext}`
+          return `url(data:${mime};base64,${fontData.toString("base64")})`
+        } catch {
+          return `url(fonts/${fontFile})`
+        }
+      },
     )
-    return fs.readFileSync(katexCssPath, "utf-8")
+    return css
   } catch {
     return ""
   }
@@ -257,9 +309,10 @@ export async function markdownToPdfHtml(markdown: string): Promise<string> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- unified's .use() types break across a for-loop reassignment
   let processor: any = unified().use(remarkParse)
   for (const plugin of workspaceRemarkPlugins) processor = processor.use(plugin)
-  processor = processor.use(remarkRehype, { allowDangerousHtml: true })
+  processor = processor.use(remarkRehype)
   for (const plugin of workspaceRehypePlugins) processor = processor.use(plugin)
   processor = processor
+    .use(rehypeSanitize, pdfSanitizeSchema)
     .use(rehypeVegaLiteToSvg)
     .use(rehypeStringify, { allowDangerousHtml: true })
 
