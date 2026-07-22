@@ -211,6 +211,31 @@ describe('add connector sections', () => {
     })
   })
 
+  it('commits a valid repository left in the input when submitting without pressing Add', () => {
+    const ref = createRef<AddConnectorSectionHandle>()
+    render(<GithubSection ref={ref} isActive onStateChange={vi.fn()} />)
+
+    fireEvent.change(screen.getByLabelText('Personal access token'), {
+      target: { value: 'github_pat_example' },
+    })
+    fireEvent.change(screen.getByLabelText('Pinned repositories'), {
+      target: { value: 'acme/api' },
+    })
+    fireEvent.keyDown(screen.getByLabelText('Pinned repositories'), { key: 'Enter' })
+    // Second repo typed but not committed with Enter/Add.
+    fireEvent.change(screen.getByLabelText('Pinned repositories'), {
+      target: { value: 'acme/web' },
+    })
+
+    expect(expectSuccessfulSubmission(ref)).toMatchObject({
+      config: {
+        pat: 'github_pat_example',
+        pinnedRepos: ['acme/api', 'acme/web'],
+        toolsets: ['repos', 'git'],
+      },
+    })
+  })
+
   it('validates GitHub repositories and becomes incomplete when the last repository is removed', () => {
     const ref = createRef<AddConnectorSectionHandle>()
     render(<GithubSection ref={ref} isActive onStateChange={vi.fn()} />)

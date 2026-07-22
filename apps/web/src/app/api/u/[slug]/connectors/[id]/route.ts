@@ -13,6 +13,7 @@ import { sanitizeConnectorConfigForResponse } from '@/lib/connectors/response-co
 import { preserveConnectorToolPermissions } from '@/lib/connectors/tool-permissions'
 import type { ConnectorType } from '@/lib/connectors/types'
 import {
+  normalizeConnectorConfigForPersistence,
   validateConnectorConfig,
   validateConnectorName,
   validateConnectorType,
@@ -248,9 +249,10 @@ export const PATCH = withAuth<
         { status: 400 }
       )
     }
+    const configToPersist = normalizeConnectorConfigForPersistence(connectorType, mergedConfig)
     try {
-      updateData.config = encryptConfig(mergedConfig)
-      responseConfig = mergedConfig
+      updateData.config = encryptConfig(configToPersist)
+      responseConfig = configToPersist
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to encrypt config'
       return NextResponse.json(

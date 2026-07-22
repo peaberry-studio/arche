@@ -38,6 +38,10 @@ export const GithubSection = forwardRef<
 
   useNotifyStateChange(onStateChange, state)
 
+  function includesRepo(repos: string[], repo: string): boolean {
+    return repos.some((item) => item.toLowerCase() === repo.toLowerCase())
+  }
+
   function addPinnedRepo() {
     const repo = repoInput.trim()
     if (!isGithubPinnedRepo(repo)) {
@@ -46,7 +50,7 @@ export const GithubSection = forwardRef<
     }
 
     setPinnedRepos((current) =>
-      current.includes(repo) ? current : [...current, repo]
+      includesRepo(current, repo) ? current : [...current, repo]
     )
     setRepoInput('')
     setRepoError(null)
@@ -55,7 +59,15 @@ export const GithubSection = forwardRef<
   useImperativeHandle(ref, () => ({
     isComplete: () => isGithubConnectorConfigurationComplete(state),
     getSubmission: (): AddConnectorSubmissionResult => {
-      const configResult = buildGithubConnectorConfig(state)
+      // Commit a valid repo left in the input but not yet added so it isn't
+      // silently dropped when the user clicks Save without pressing Enter/Add.
+      const pendingRepo = repoInput.trim()
+      const submissionState =
+        isGithubPinnedRepo(pendingRepo) && !includesRepo(pinnedRepos, pendingRepo)
+          ? { ...state, pinnedRepos: [...pinnedRepos, pendingRepo] }
+          : state
+
+      const configResult = buildGithubConnectorConfig(submissionState)
       if (!configResult.ok) {
         return { ok: false, message: configResult.message }
       }

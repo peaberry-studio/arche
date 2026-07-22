@@ -39,12 +39,41 @@ describe('GitHub connector config', () => {
     })
   })
 
+  it('dedupes pinned repos case-insensitively, keeping the first spelling', () => {
+    expect(parseGithubConnectorConfig({
+      pat: 'ghp_example',
+      pinnedRepos: ['Acme/API', 'acme/api', 'other/repo'],
+    })).toEqual({
+      ok: true,
+      config: {
+        pat: 'ghp_example',
+        pinnedRepos: ['Acme/API', 'other/repo'],
+        toolsets: ['repos', 'git'],
+      },
+    })
+  })
+
+  it('drops stray keys and returns only the normalized config', () => {
+    expect(parseGithubConnectorConfig({
+      pat: 'ghp_example',
+      pinnedRepos: ['owner/repo'],
+      host: 'https://github.example.com',
+      hasPat: true,
+    })).toEqual({
+      ok: true,
+      config: {
+        pat: 'ghp_example',
+        pinnedRepos: ['owner/repo'],
+        toolsets: ['repos', 'git'],
+      },
+    })
+  })
+
   it.each([
     { pat: 'token', pinnedRepos: ['owner/repo'] },
     { pat: 'ghp_example', pinnedRepos: 'owner/repo' },
     { pat: 'ghp_example', pinnedRepos: ['owner/repo/path'] },
     { pat: 'ghp_example', pinnedRepos: ['owner/ repo'] },
-    { pat: 'ghp_example', host: 'https://github.example.com', pinnedRepos: ['owner/repo'] },
     { pat: 'ghp_example', pinnedRepos: ['owner/repo'], toolsets: ['all'] },
     { pat: 'ghp_example', pinnedRepos: ['owner/repo'], toolsets: [] },
     { pat: 'ghp_example', pinnedRepos: ['owner/repo'], toolsets: ['repos', 'repos'] },

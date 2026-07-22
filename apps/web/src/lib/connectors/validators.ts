@@ -58,6 +58,24 @@ export function validateConnectorType(type: string): type is ConnectorType {
   return CONNECTOR_TYPES.includes(type as ConnectorType)
 }
 
+/**
+ * Returns the config that should be persisted for a connector, normalized to
+ * the canonical shape its parser produces. For GitHub this trims the PAT,
+ * dedupes pinned repos, and drops stray keys so the stored record matches what
+ * every consumer re-parses. Callers must validate the config first; if
+ * normalization unexpectedly fails the original config is returned unchanged.
+ */
+export function normalizeConnectorConfigForPersistence(
+  type: ConnectorType,
+  config: Record<string, unknown>
+): Record<string, unknown> {
+  if (type === 'github') {
+    const parsed = parseGithubConnectorConfig(config)
+    if (parsed.ok) return { ...parsed.config }
+  }
+  return config
+}
+
 export function validateConnectorName(name: unknown): { valid: boolean; error?: string } {
   if (typeof name !== 'string') {
     return { valid: false, error: 'Name must be a string' }

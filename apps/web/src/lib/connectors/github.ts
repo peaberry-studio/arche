@@ -54,8 +54,6 @@ export function parseGithubConnectorConfig(
   )
   if (pinnedRepos.some((repo) => !isGithubPinnedRepo(repo))) return { ok: false }
 
-  if (config.host !== undefined) return { ok: false }
-
   const toolsets = parseToolsets(config.toolsets)
   if (!toolsets) return { ok: false }
 
@@ -63,10 +61,25 @@ export function parseGithubConnectorConfig(
     ok: true,
     config: {
       pat,
-      pinnedRepos: Array.from(new Set(pinnedRepos)),
+      pinnedRepos: dedupePinnedRepos(pinnedRepos),
       toolsets,
     },
   }
+}
+
+// GitHub repository names are case-insensitive, so `Acme/API` and `acme/api`
+// refer to the same repo. Dedupe case-insensitively while preserving the first
+// spelling the user entered.
+function dedupePinnedRepos(repos: string[]): string[] {
+  const seen = new Set<string>()
+  const deduped: string[] = []
+  for (const repo of repos) {
+    const key = repo.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    deduped.push(repo)
+  }
+  return deduped
 }
 
 export function getGithubMcpServerUrl(): string {

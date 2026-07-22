@@ -134,7 +134,8 @@ async function getLinkedRepositoriesForOwner(owner: WorkspaceOwner): Promise<str
     }
 
     return Array.from(new Set(repos)).sort((left, right) => left.localeCompare(right))
-  } catch {
+  } catch (error) {
+    console.warn('[workspace-runtime] Failed to load linked GitHub repositories', error)
     return []
   }
 }

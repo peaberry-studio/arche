@@ -42,6 +42,4 @@ export function getConnectorMcpServerUrl(type: ConnectorType, config: Record<str
     case 'umami':
       return null
   }
-
-  return null
 }
