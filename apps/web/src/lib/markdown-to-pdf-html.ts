@@ -1,10 +1,7 @@
 import fs from "node:fs"
 import path from "node:path"
 
-import rehypeKatex from "rehype-katex"
 import rehypeStringify from "rehype-stringify"
-import remarkGfm from "remark-gfm"
-import remarkMath from "remark-math"
 import remarkParse from "remark-parse"
 import remarkRehype from "remark-rehype"
 import { unified } from "unified"
@@ -17,7 +14,10 @@ import {
   buildVegaConfig,
 } from "@/components/workspace/chat-panel/visualization-theme"
 import { parseMarkdownFrontmatter } from "@/components/workspace/markdown-frontmatter"
-import remarkBracketMath from "@/components/workspace/remark-bracket-math"
+import {
+  workspaceRehypePlugins,
+  workspaceRemarkPlugins,
+} from "@/components/workspace/markdown-plugins"
 
 async function renderVegaLiteToSvg(spec: Record<string, unknown>): Promise<string> {
   const vega = await import("vega")
@@ -33,36 +33,47 @@ async function renderVegaLiteToSvg(spec: Record<string, unknown>): Promise<strin
   return svg
 }
 
-type VegaLiteReplacement = {
-  codeNode: Element
+type VegaLiteTarget = {
+  parent: Element | Root
+  index: number
   spec: Record<string, unknown>
+}
+
+function extractVegaLiteSpec(preNode: Element): Record<string, unknown> | null {
+  const codeChild = preNode.children.find(
+    (c): c is Element => c.type === "element" && (c as Element).tagName === "code",
+  ) as Element | undefined
+  if (!codeChild) return null
+
+  const classes = codeChild.properties?.className
+  if (!Array.isArray(classes) || !classes.includes("language-vega-lite")) return null
+
+  const textChild = codeChild.children.find(
+    (c): c is { type: "text"; value: string } => c.type === "text",
+  )
+  if (!textChild) return null
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(textChild.value.trim())
+  } catch {
+    return null
+  }
+
+  return parseChartSpec(parsed)
 }
 
 function rehypeVegaLiteToSvg() {
   return async (tree: Root) => {
-    const targets: VegaLiteReplacement[] = []
+    const targets: VegaLiteTarget[] = []
 
-    visit(tree, "element", (node: Element) => {
-      if (node.tagName !== "code") return
-      const classes = node.properties?.className
-      if (!Array.isArray(classes) || !classes.includes("language-vega-lite")) return
+    visit(tree, "element", (node: Element, index, parent) => {
+      if (node.tagName !== "pre" || index == null || !parent) return
 
-      const textChild = node.children.find(
-        (c: ElementContent): c is { type: "text"; value: string } => c.type === "text",
-      )
-      if (!textChild) return
-
-      let parsed: unknown
-      try {
-        parsed = JSON.parse(textChild.value.trim())
-      } catch {
-        return
-      }
-
-      const spec = parseChartSpec(parsed)
+      const spec = extractVegaLiteSpec(node)
       if (!spec) return
 
-      targets.push({ codeNode: node, spec })
+      targets.push({ parent: parent as Element | Root, index, spec })
     })
 
     if (targets.length === 0) return
@@ -81,37 +92,14 @@ function rehypeVegaLiteToSvg() {
       const svg = svgs[i]
       if (!svg) continue
 
-      const { codeNode } = targets[i]
-      const replacement: Element = {
+      const { parent, index } = targets[i]
+      parent.children[index] = {
         type: "element",
         tagName: "div",
         properties: { className: ["vega-chart"] },
         children: [{ type: "raw", value: svg } as unknown as ElementContent],
       }
-
-      replaceInTree(tree, codeNode, replacement)
     }
-  }
-}
-
-function replaceInTree(tree: Root, target: Element, replacement: Element): void {
-  visit(tree, "element", (node: Element) => {
-    if (!Array.isArray(node.children)) return
-
-    const index = node.children.indexOf(target as ElementContent)
-    if (index === -1) return
-
-    // If the code node is inside a <pre>, replace the <pre> in its parent
-    if (node.tagName === "pre") {
-      replaceInTree(tree, node, replacement)
-    } else {
-      node.children[index] = replacement
-    }
-  })
-
-  const rootIndex = tree.children.indexOf(target as ElementContent)
-  if (rootIndex !== -1) {
-    tree.children[rootIndex] = replacement
   }
 }
 
@@ -266,13 +254,11 @@ export async function markdownToPdfHtml(markdown: string): Promise<string> {
   const frontmatter = parseMarkdownFrontmatter(markdown)
   const katexCss = loadKatexCss()
 
-  const processor = unified()
-    .use(remarkParse)
-    .use(remarkGfm)
-    .use(remarkMath)
-    .use(remarkBracketMath)
-    .use(remarkRehype, { allowDangerousHtml: true })
-    .use(rehypeKatex)
+  let processor = unified().use(remarkParse)
+  for (const plugin of workspaceRemarkPlugins) processor = processor.use(plugin)
+  processor = processor.use(remarkRehype, { allowDangerousHtml: true })
+  for (const plugin of workspaceRehypePlugins) processor = processor.use(plugin)
+  processor = processor
     .use(rehypeVegaLiteToSvg)
     .use(rehypeStringify, { allowDangerousHtml: true })
 
