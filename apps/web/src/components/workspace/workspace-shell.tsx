@@ -794,6 +794,22 @@ export function WorkspaceShell({
     fileCacheRef.current = fileCache;
   }, [fileCache]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (isKnowledgeMode && activeFilePath) {
+      params.set("path", activeFilePath);
+    } else {
+      params.delete("path");
+    }
+    const query = params.toString();
+    window.history.replaceState(
+      window.history.state,
+      "",
+      query ? `/w/${slug}?${query}` : `/w/${slug}`
+    );
+  }, [activeFilePath, isKnowledgeMode, slug]);
+
   const refreshOpenFilesCache = useCallback(async () => {
     if (openFilePaths.length === 0) return;
 

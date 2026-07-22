@@ -1088,7 +1088,7 @@ describe("WorkspaceShell", () => {
 
     const params = new URLSearchParams(window.location.search);
     expect(params.get("mode")).toBe("flows");
-    expect(params.get("path")).toBe("docs/plan.md");
+    expect(params.get("path")).toBeNull();
 
     rerender(<WorkspaceShell slug="alice" initialWorkspaceMode="flows" />);
     rerender(<WorkspaceShell slug="alice" initialWorkspaceMode="knowledge" />);
