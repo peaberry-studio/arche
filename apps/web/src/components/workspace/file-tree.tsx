@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type MouseEvent } from "react";
+import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import { CaretRight, File, Folder, FolderOpen } from "@phosphor-icons/react";
 
 import { cn } from "@/lib/utils";
@@ -24,10 +24,35 @@ export function FileTree({ nodes, activePath, onSelect, onFileContextMenu }: Fil
     nodes.forEach((node) => {
       if (node.type === "directory") state[node.path] = true;
     });
+    if (activePath) {
+      const segments = activePath.split("/");
+      for (let i = 1; i < segments.length; i++) {
+        state[segments.slice(0, i).join("/")] = true;
+      }
+    }
     return state;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nodes]);
 
   const [expanded, setExpanded] = useState<TreeState>(initialExpanded);
+
+  useEffect(() => {
+    if (!activePath) return;
+    const segments = activePath.split("/");
+    if (segments.length <= 1) return;
+    setExpanded((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      for (let i = 1; i < segments.length; i++) {
+        const ancestor = segments.slice(0, i).join("/");
+        if (!next[ancestor]) {
+          next[ancestor] = true;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [activePath]);
 
   const toggle = (path: string) => {
     setExpanded((prev) => ({ ...prev, [path]: !prev[path] }));
