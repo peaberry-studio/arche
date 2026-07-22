@@ -254,7 +254,8 @@ export async function markdownToPdfHtml(markdown: string): Promise<string> {
   const frontmatter = parseMarkdownFrontmatter(markdown)
   const katexCss = loadKatexCss()
 
-  let processor = unified().use(remarkParse)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- unified's .use() types break across a for-loop reassignment
+  let processor: any = unified().use(remarkParse)
   for (const plugin of workspaceRemarkPlugins) processor = processor.use(plugin)
   processor = processor.use(remarkRehype, { allowDangerousHtml: true })
   for (const plugin of workspaceRehypePlugins) processor = processor.use(plugin)
