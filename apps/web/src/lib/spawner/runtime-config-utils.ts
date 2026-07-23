@@ -85,7 +85,7 @@ export function withLinkedRepositories(agentsMd: string, repos: string[]): strin
   const block =
     `\n\n## Linked Repositories\n\n` +
     `You have GitHub MCP tools (\`get_file_contents\`, \`search_code\`, ` +
-    `\`list_commits\`, \`get_commit\`, \`compare_commits\`) to query these ` +
+    `\`list_commits\`, \`get_commit\`) to query these ` +
     `repositories. Use \`main\` unless correlating across branches.\n\n` +
     `${list}\n`
 
