@@ -47,7 +47,7 @@ async function generatePdf(html: string): Promise<Uint8Array> {
     const pdf = await page.pdf({
       format: "A4",
       printBackground: true,
-      margin: { top: "1.8cm", right: "1.5cm", bottom: "1cm", left: "1.5cm" },
+      margin: { top: "2cm", right: "1.5cm", bottom: "1cm", left: "1.5cm" },
       displayHeaderFooter: true,
       headerTemplate: `
         <div style="width:100%; text-align:center; padding-top:4px;">

@@ -179,6 +179,7 @@ const MARKDOWN_STYLES = `
   }
 
   h1 { font-size: 1.6em; font-weight: 600; margin: 1.5em 0 0.75em; }
+  h1:first-child { margin-top: 0; }
   h2 { font-size: 1.35em; font-weight: 600; margin: 1.25em 0 0.5em; }
   h3 { font-size: 1.15em; font-weight: 600; margin: 1em 0 0.5em; }
   h4, h5, h6 { font-size: 1em; font-weight: 600; margin: 0.75em 0 0.25em; }
@@ -288,7 +289,6 @@ const MARKDOWN_STYLES = `
   }
 
   @page {
-    margin: 1cm 1.5cm;
     size: A4;
   }
 
