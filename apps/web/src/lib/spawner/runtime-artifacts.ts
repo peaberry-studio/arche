@@ -4,7 +4,9 @@ import * as path from 'node:path'
 
 import { readConfigRepoSnapshot } from '@/lib/config-repo-store'
 import { readCommonWorkspaceConfig, readConfigRepoFile } from '@/lib/common-workspace-config-store'
+import { decryptConfig } from '@/lib/connectors/crypto'
 import { getConnectorGatewayBaseUrl } from '@/lib/connectors/gateway-config'
+import { parseGithubConnectorConfig } from '@/lib/connectors/github'
 import { decryptProviderSecret } from '@/lib/providers/crypto'
 import { isOllamaSecret } from '@/lib/providers/ollama'
 import { getEffectiveCredentialForUser, getEnabledProviderCredentialsForUser } from '@/lib/providers/store'
@@ -15,7 +17,7 @@ import {
   withSystemSkillBundles,
 } from '@/lib/skills/system-skills'
 import type { SkillBundle } from '@/lib/skills/types'
-import { userService } from '@/lib/services'
+import { connectorService, userService } from '@/lib/services'
 import {
   applyDefaultAgentModel,
   injectAlwaysOnAgentTools,
@@ -27,6 +29,7 @@ import {
 import { buildMcpConfigForSlug } from '@/lib/spawner/mcp-config'
 import {
   withWorkspaceIdentity,
+  withLinkedRepositories,
   withWorkspacePermissionGuards,
 } from '@/lib/spawner/runtime-config-utils'
 import {
@@ -112,6 +115,29 @@ function normalizeRuntimeConfigForHash(configContent: string): string {
 
 async function getWorkspaceOwner(slug: string): Promise<WorkspaceOwner> {
   return userService.findIdentityBySlug(slug).catch(() => null)
+}
+
+async function getLinkedRepositoriesForOwner(owner: WorkspaceOwner): Promise<string[]> {
+  if (!owner) return []
+
+  try {
+    const connectors = await connectorService.findEnabledGithubConnectorsForUser(owner.id)
+    const repos: string[] = []
+
+    for (const connector of connectors) {
+      try {
+        const parsed = parseGithubConnectorConfig(decryptConfig(connector.config))
+        if (parsed.ok) repos.push(...parsed.config.pinnedRepos)
+      } catch {
+        continue
+      }
+    }
+
+    return Array.from(new Set(repos)).sort((left, right) => left.localeCompare(right))
+  } catch (error) {
+    console.warn('[workspace-runtime] Failed to load linked GitHub repositories', error)
+    return []
+  }
 }
 
 async function readOptionalRepoTextFile(repoDir: string, filePath: string): Promise<string | null> {
@@ -313,10 +339,11 @@ export async function buildWorkspaceAgentsMd(
   }
 
   const resolvedOwner = owner ?? (await getWorkspaceOwner(slug))
-  return withWorkspaceIdentity(agentsResult.content, {
+  const agentsMd = withWorkspaceIdentity(agentsResult.content, {
     slug: resolvedOwner?.slug ?? slug,
     email: resolvedOwner?.email,
   })
+  return withLinkedRepositories(agentsMd, await getLinkedRepositoriesForOwner(resolvedOwner))
 }
 
 export async function buildWorkspaceRuntimeArtifacts(

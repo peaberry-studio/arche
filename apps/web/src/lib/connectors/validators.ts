@@ -1,4 +1,5 @@
 import { getConnectorAuthType } from '@/lib/connectors/oauth-config'
+import { parseGithubConnectorConfig } from '@/lib/connectors/github'
 import { getLinearOAuthActor, getLinearOAuthScopeValidationError, isLinearOAuthActor } from '@/lib/connectors/linear'
 import { isOAuthConnectorType } from '@/lib/connectors/oauth'
 import { validateMetaAdsConnectorConfig } from '@/lib/connectors/meta-ads-config'
@@ -32,6 +33,7 @@ export const CONNECTOR_SCHEMAS: Record<ConnectorType, ConnectorConfigSchema> = {
     required: ['authType', 'appId', 'appSecret'],
     optional: ['permissions', 'selectedAdAccountIds', 'defaultAdAccountId', 'oauth'],
   },
+  github: { required: ['pat', 'pinnedRepos'], optional: ['toolsets'] },
   custom: {
     required: ['endpoint'],
     optional: [
@@ -54,6 +56,24 @@ export const CONNECTOR_SCHEMAS: Record<ConnectorType, ConnectorConfigSchema> = {
 
 export function validateConnectorType(type: string): type is ConnectorType {
   return CONNECTOR_TYPES.includes(type as ConnectorType)
+}
+
+/**
+ * Returns the config that should be persisted for a connector, normalized to
+ * the canonical shape its parser produces. For GitHub this trims the PAT,
+ * dedupes pinned repos, and drops stray keys so the stored record matches what
+ * every consumer re-parses. Callers must validate the config first; if
+ * normalization unexpectedly fails the original config is returned unchanged.
+ */
+export function normalizeConnectorConfigForPersistence(
+  type: ConnectorType,
+  config: Record<string, unknown>
+): Record<string, unknown> {
+  if (type === 'github') {
+    const parsed = parseGithubConnectorConfig(config)
+    if (parsed.ok) return { ...parsed.config }
+  }
+  return config
 }
 
 export function validateConnectorName(name: unknown): { valid: boolean; error?: string } {
@@ -92,6 +112,12 @@ export function validateConnectorConfig(
 ): ConnectorConfigValidationResult {
   if (type === 'meta-ads') {
     return validateMetaAdsConnectorConfig(config)
+  }
+
+  if (type === 'github') {
+    return parseGithubConnectorConfig(config).ok
+      ? { valid: true }
+      : { valid: false, message: 'Invalid GitHub connector configuration' }
   }
 
   if (getConnectorAuthType(config) === 'oauth' && isOAuthConnectorType(type)) {

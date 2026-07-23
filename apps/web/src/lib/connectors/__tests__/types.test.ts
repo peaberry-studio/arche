@@ -6,6 +6,7 @@ describe('connector types', () => {
   it('isConnectorType returns true for known types', () => {
     expect(isConnectorType('linear')).toBe(true)
     expect(isConnectorType('notion')).toBe(true)
+    expect(isConnectorType('github')).toBe(true)
     expect(isConnectorType('custom')).toBe(true)
   })
 
@@ -17,6 +18,7 @@ describe('connector types', () => {
   it('isSingleInstanceConnectorType returns true for single-instance types', () => {
     expect(isSingleInstanceConnectorType('linear')).toBe(true)
     expect(isSingleInstanceConnectorType('google_drive')).toBe(true)
+    expect(isSingleInstanceConnectorType('github')).toBe(true)
   })
 
   it('isSingleInstanceConnectorType returns false for multi-instance types', () => {

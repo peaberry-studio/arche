@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 
 import { AhrefsSection } from '@/components/connectors/add-connector/ahrefs/section'
 import { CustomSection } from '@/components/connectors/add-connector/custom/section'
+import { GithubSection } from '@/components/connectors/add-connector/github/section'
 import { GoogleWorkspaceSection } from '@/components/connectors/add-connector/google-workspace/section'
 import { LinearSection } from '@/components/connectors/add-connector/linear/section'
 import { MetaAdsSection } from '@/components/connectors/add-connector/meta-ads/section'
@@ -69,6 +70,7 @@ export function AddConnectorModal({
   const ahrefsRef = useRef<AddConnectorSectionHandle>(null)
   const umamiRef = useRef<AddConnectorSectionHandle>(null)
   const metaAdsRef = useRef<AddConnectorSectionHandle>(null)
+  const githubRef = useRef<AddConnectorSectionHandle>(null)
   const googleGmailRef = useRef<AddConnectorSectionHandle>(null)
   const googleDriveRef = useRef<AddConnectorSectionHandle>(null)
   const googleCalendarRef = useRef<AddConnectorSectionHandle>(null)
@@ -83,6 +85,7 @@ export function AddConnectorModal({
     ahrefs: ahrefsRef,
     umami: umamiRef,
     'meta-ads': metaAdsRef,
+    github: githubRef,
     google_gmail: googleGmailRef,
     google_drive: googleDriveRef,
     google_calendar: googleCalendarRef,
@@ -208,6 +211,17 @@ export function AddConnectorModal({
           ref={metaAdsRef}
           onStateChange={handleStateChange}
           isActive={activeType === 'meta-ads'}
+        />
+      ),
+    },
+    {
+      type: 'github',
+      node: (
+        <GithubSection
+          key={`github-${sessionKey}`}
+          ref={githubRef}
+          onStateChange={handleStateChange}
+          isActive={activeType === 'github'}
         />
       ),
     },

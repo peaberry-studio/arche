@@ -86,6 +86,13 @@ describe('getConnectorMcpServerUrl', () => {
     expect(getConnectorMcpServerUrl('umami', { baseUrl: 'https://api.umami.is/v1' })).toBeNull()
   })
 
+  it('returns the hosted GitHub MCP URL for valid GitHub connector config', () => {
+    expect(getConnectorMcpServerUrl('github', {
+      pat: 'github_pat_example',
+      pinnedRepos: ['acme/api'],
+    })).toBe('https://api.githubcopilot.com/mcp/')
+  })
+
   it('does not let stored OAuth MCP URLs influence hosted connector URLs except Linear and Notion', () => {
     expect(getConnectorMcpServerUrl('google_gmail', {
       authType: 'oauth',

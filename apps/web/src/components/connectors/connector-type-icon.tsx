@@ -1,4 +1,4 @@
-import { BarChart3, BookText, Boxes, Globe, Search, Ticket } from 'lucide-react'
+import { BarChart3, BookText, Boxes, Github, Globe, Search, Ticket } from 'lucide-react'
 
 import type { ConnectorType } from '@/lib/connectors/types'
 
@@ -19,6 +19,8 @@ export function ConnectorTypeIcon({ type, className }: ConnectorTypeIconProps) {
       return <Search className={className} />
     case 'umami':
       return <BarChart3 className={className} />
+    case 'github':
+      return <Github className={className} />
     case 'custom':
       return <Globe className={className} />
     default:

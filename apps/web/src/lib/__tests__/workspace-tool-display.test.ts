@@ -50,6 +50,11 @@ describe('workspace-tool-display', () => {
       groupLabel: 'Using Linear',
       commandLabel: 'get issue',
     })
+    expect(getWorkspaceToolDisplay('arche_github_conn123_list_commits')).toEqual({
+      isConnectorTool: true,
+      groupLabel: 'Using GitHub',
+      commandLabel: 'list commits',
+    })
   })
 
   it('leaves built-in tool names untouched', () => {
