@@ -170,7 +170,7 @@ function loadKatexCss(): string {
 const MARKDOWN_STYLES = `
   body {
     font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-    font-size: 11pt;
+    font-size: 9.5pt;
     line-height: 1.6;
     color: #1a1a1a;
     max-width: 100%;
