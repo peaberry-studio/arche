@@ -8,7 +8,7 @@ import { auditService, mcpSettingsService, rateLimitService } from '@/lib/servic
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-const MCP_MAX_BODY_BYTES = 1024 * 1024
+const MCP_MAX_BODY_BYTES = 10 * 1024 * 1024
 const MCP_PREAUTH_RATE_LIMIT_MAX = 300
 const MCP_PREAUTH_RATE_LIMIT_WINDOW_MS = 60 * 1000
 const MCP_TOKEN_RATE_LIMIT_MAX = 100
