@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { useEffect, useState, type MouseEvent } from "react";
 import { CaretRight, File, Folder, FolderOpen } from "@phosphor-icons/react";
 
 import { cn } from "@/lib/utils";
@@ -29,19 +29,15 @@ function getAncestorPaths(filePath: string): string[] {
 
 export function FileTree({ nodes, activePath, onSelect, onFileContextMenu }: FileTreeProps) {
   const [expanded, setExpanded] = useState<TreeState>({});
-  const seenNodesRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     setExpanded((prev) => {
       const next = { ...prev };
       let changed = false;
       for (const node of nodes) {
-        if (node.type === "directory" && !seenNodesRef.current.has(node.path)) {
-          seenNodesRef.current.add(node.path);
-          if (!next[node.path]) {
-            next[node.path] = true;
-            changed = true;
-          }
+        if (node.type === "directory" && !(node.path in prev)) {
+          next[node.path] = true;
+          changed = true;
         }
       }
       if (activePath) {
