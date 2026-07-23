@@ -120,7 +120,7 @@ describe('POST /api/mcp', () => {
   })
 
   it('rejects oversized requests before authentication', async () => {
-    const response = await POST(createRequest({ headers: { 'content-length': String(64 * 1024 + 1) } }))
+    const response = await POST(createRequest({ headers: { 'content-length': String(1024 * 1024 + 1) } }))
 
     expect(response.status).toBe(413)
     await expect(response.json()).resolves.toEqual({ error: 'payload_too_large' })

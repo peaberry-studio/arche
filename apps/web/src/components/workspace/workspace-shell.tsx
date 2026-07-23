@@ -794,6 +794,40 @@ export function WorkspaceShell({
     fileCacheRef.current = fileCache;
   }, [fileCache]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (isKnowledgeMode && activeFilePath) {
+      params.set("path", activeFilePath);
+    } else {
+      params.delete("path");
+    }
+    const query = params.toString();
+    window.history.replaceState(
+      window.history.state,
+      "",
+      query ? `/w/${slug}?${query}` : `/w/${slug}`
+    );
+  }, [activeFilePath, isKnowledgeMode, slug]);
+
+  useEffect(() => {
+    if (!safeInitialFilePath || fileCacheRef.current[safeInitialFilePath]) return;
+    void readWorkspaceFile(safeInitialFilePath).then((result) => {
+      if (!result) return;
+      setFileCache((prev) => ({
+        ...prev,
+        [safeInitialFilePath]: {
+          content: result.content,
+          type: result.type,
+          title: safeInitialFilePath.split("/").pop() ?? safeInitialFilePath,
+          updatedAt: "Just now",
+          size: `${(result.content.length / 1024).toFixed(1)} KB`,
+          hash: result.hash,
+        },
+      }));
+    });
+  }, [safeInitialFilePath, readWorkspaceFile]);
+
   const refreshOpenFilesCache = useCallback(async () => {
     if (openFilePaths.length === 0) return;
 
