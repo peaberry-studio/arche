@@ -119,7 +119,7 @@ export const POST = withAuth<{ error: string }>(
       const html = await markdownToPdfHtml(content)
       const pdf = await generatePdf(html)
 
-      return new Response(pdf, {
+      return new Response(Buffer.from(pdf), {
         status: 200,
         headers: {
           "Cache-Control": "no-store",
