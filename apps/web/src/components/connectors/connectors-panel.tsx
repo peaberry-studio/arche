@@ -6,6 +6,7 @@ import { AddConnectorModal } from '@/components/connectors/add-connector-modal'
 import { ConnectorList } from '@/components/connectors/connector-list'
 import { ConnectorToolPermissionsDialog } from '@/components/connectors/connector-tool-permissions-dialog'
 import { getConnectorErrorMessage } from '@/components/connectors/error-messages'
+import { GithubConnectorSettingsDialog } from '@/components/connectors/github-connector-settings-dialog'
 import { MetaAdsConnectorSettingsDialog } from '@/components/connectors/meta-ads-connector-settings-dialog'
 import { ZendeskConnectorSettingsDialog } from '@/components/connectors/zendesk-connector-settings-dialog'
 import type {
@@ -15,7 +16,7 @@ import type {
 } from '@/components/connectors/types'
 import { notifyWorkspaceConfigChanged } from '@/lib/runtime/config-status-events'
 
-type SettingsDialogVariant = 'generic' | 'meta-ads' | 'zendesk'
+type SettingsDialogVariant = 'generic' | 'github' | 'meta-ads' | 'zendesk'
 
 export type ConnectorsPanelHandle = {
   openAddModal: () => void
@@ -92,6 +93,8 @@ function formatTestResult(result: ConnectorTestResult): ConnectorTestState {
 
 function getSettingsDialogVariant(connector: ConnectorListItem | null): SettingsDialogVariant | null {
   switch (connector?.type) {
+    case 'github':
+      return 'github'
     case 'zendesk':
       return 'zendesk'
     case 'meta-ads':
@@ -385,6 +388,18 @@ export function ConnectorsPanel({ slug, oauthReturnTo, ref }: ConnectorsPanelPro
           onSaved={() => {
           notifyWorkspaceConfigChanged()
           void loadConnectors()
+        }}
+      />
+
+      <GithubConnectorSettingsDialog
+        open={settingsDialogVariant === 'github'}
+        slug={slug}
+        connectorId={settingsConnector?.id ?? null}
+        connectorName={settingsConnector?.name ?? null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSettingsConnector(null)
+          }
         }}
       />
 
