@@ -53,6 +53,84 @@ describe("FileTreePanel", () => {
     expect(onDownloadFile).toHaveBeenCalledWith("alpha.md");
   });
 
+  it("auto-expands top-level directories when nodes arrive", async () => {
+    render(
+      <FileTreePanel
+        nodes={nodes}
+        activePath={null}
+        onSelect={() => {}}
+      />
+    );
+
+    expect(await screen.findByRole("button", { name: /notes.md/i })).toBeTruthy();
+  });
+
+  it("expands ancestor directories of the active file path", async () => {
+    const deepNodes: WorkspaceFileNode[] = [
+      {
+        id: "docs",
+        name: "docs",
+        path: "docs",
+        type: "directory",
+        children: [
+          {
+            id: "docs/research",
+            name: "research",
+            path: "docs/research",
+            type: "directory",
+            children: [
+              {
+                id: "docs/research/analysis.md",
+                name: "analysis.md",
+                path: "docs/research/analysis.md",
+                type: "file",
+              },
+            ],
+          },
+        ],
+      },
+    ];
+
+    render(
+      <FileTreePanel
+        nodes={deepNodes}
+        activePath="docs/research/analysis.md"
+        onSelect={() => {}}
+      />
+    );
+
+    expect(await screen.findByRole("button", { name: /analysis.md/i })).toBeTruthy();
+  });
+
+  it("preserves user-collapsed directories on subsequent updates", async () => {
+    const onSelect = vi.fn();
+
+    const { rerender } = render(
+      <FileTreePanel
+        nodes={nodes}
+        activePath={null}
+        onSelect={onSelect}
+      />
+    );
+
+    const docsButton = await screen.findByRole("button", { name: /^docs$/i });
+    expect(screen.getByRole("button", { name: /notes.md/i })).toBeTruthy();
+
+    fireEvent.click(docsButton);
+
+    expect(screen.queryByRole("button", { name: /notes.md/i })).toBeNull();
+
+    rerender(
+      <FileTreePanel
+        nodes={nodes}
+        activePath="alpha.md"
+        onSelect={onSelect}
+      />
+    );
+
+    expect(screen.queryByRole("button", { name: /notes.md/i })).toBeNull();
+  });
+
   it("supports downloading files from search results too", async () => {
     const onDownloadFile = vi.fn();
 
