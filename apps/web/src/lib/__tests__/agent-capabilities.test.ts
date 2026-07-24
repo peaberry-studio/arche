@@ -649,6 +649,10 @@ describe('getConnectorCapabilityId', () => {
     expect(getConnectorCapabilityId('ahrefs', 'any-id')).toBe('globalahrefs')
   })
 
+  it('returns global id for GitHub type', () => {
+    expect(getConnectorCapabilityId('github', 'any-id')).toBe('globalgithub')
+  })
+
   it('returns global id for umami type', () => {
     expect(getConnectorCapabilityId('umami', 'any-id')).toBe('globalumami')
   })

@@ -11,6 +11,7 @@ import {
 } from '@/lib/connectors/require-connector-capability'
 import { isSingleInstanceConnectorType } from '@/lib/connectors/types'
 import {
+  normalizeConnectorConfigForPersistence,
   validateConnectorType,
   validateConnectorConfig,
   validateConnectorName,
@@ -237,9 +238,11 @@ export const POST = withAuth<ConnectorResponse | { error: string; message?: stri
       }
     }
 
+    const configToPersist = normalizeConnectorConfigForPersistence(type, config)
+
     let encryptedConfig: string
     try {
-      encryptedConfig = encryptConfig(config)
+      encryptedConfig = encryptConfig(configToPersist)
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to encrypt config'
       return NextResponse.json(

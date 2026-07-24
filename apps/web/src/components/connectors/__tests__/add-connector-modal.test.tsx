@@ -121,6 +121,64 @@ describe('AddConnectorModal', () => {
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 
+  it('saves a GitHub PAT and pinned repository through the connector API', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ id: 'conn-github' }), {
+        status: 201,
+        headers: { 'content-type': 'application/json' },
+      })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const onOpenChange = vi.fn()
+    const onSaved = vi.fn()
+
+    render(
+      <AddConnectorModal
+        slug="alice"
+        existingConnectors={[]}
+        open
+        onOpenChange={onOpenChange}
+        onSaved={onSaved}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /GitHub/i }))
+    expect(screen.getByRole('button', { name: 'Save connector' }).hasAttribute('disabled')).toBe(true)
+
+    fireEvent.change(screen.getByLabelText('Personal access token'), {
+      target: { value: 'github_pat_example' },
+    })
+    fireEvent.change(screen.getByLabelText('Pinned repositories'), {
+      target: { value: 'acme/api' },
+    })
+    fireEvent.keyDown(screen.getByLabelText('Pinned repositories'), { key: 'Enter' })
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Save connector' }).hasAttribute('disabled')).toBe(false)
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save connector' }))
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    })
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('/api/u/alice/connectors')
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(String(init.body))).toEqual({
+      type: 'github',
+      name: 'GitHub',
+      config: {
+        pat: 'github_pat_example',
+        pinnedRepos: ['acme/api'],
+        toolsets: ['repos', 'git'],
+      },
+    })
+    expect(onSaved).toHaveBeenCalledTimes(1)
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
   it('filters connectors by search query on the selection step', () => {
     const onOpenChange = vi.fn()
     const onSaved = vi.fn()

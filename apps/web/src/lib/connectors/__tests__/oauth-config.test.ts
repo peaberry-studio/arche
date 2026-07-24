@@ -207,6 +207,31 @@ describe('oauth-config', () => {
       })
       expect(result.oauth).toEqual({ provider: 'linear', accessToken: 'new' })
     })
+
+    it('preserves the stored GitHub pat when next config omits it', async () => {
+      mockIsOAuthConnectorType.mockReturnValue(false)
+      const { mergeConnectorConfigWithPreservedOAuth } = await import('@/lib/connectors/oauth-config')
+      const result = mergeConnectorConfigWithPreservedOAuth({
+        connectorType: 'github',
+        currentConfig: { pat: 'ghp_stored', pinnedRepos: ['owner/repo'] },
+        nextConfig: { pinnedRepos: ['owner/repo', 'owner/other'] },
+      })
+      expect(result).toEqual({
+        pat: 'ghp_stored',
+        pinnedRepos: ['owner/repo', 'owner/other'],
+      })
+    })
+
+    it('does not overwrite a GitHub pat provided in next config', async () => {
+      mockIsOAuthConnectorType.mockReturnValue(false)
+      const { mergeConnectorConfigWithPreservedOAuth } = await import('@/lib/connectors/oauth-config')
+      const result = mergeConnectorConfigWithPreservedOAuth({
+        connectorType: 'github',
+        currentConfig: { pat: 'ghp_stored', pinnedRepos: ['owner/repo'] },
+        nextConfig: { pat: 'ghp_new', pinnedRepos: ['owner/repo'] },
+      })
+      expect(result.pat).toBe('ghp_new')
+    })
   })
 
   describe('clearConnectorOAuthConfig', () => {

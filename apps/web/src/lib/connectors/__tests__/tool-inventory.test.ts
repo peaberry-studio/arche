@@ -176,6 +176,43 @@ describe('loadConnectorToolInventory', () => {
     )
   })
 
+  it('loads GitHub tools with the read-only and toolset restrictions', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        result: {
+          tools: [{ name: 'list_commits', description: 'List commits' }],
+        },
+      }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    mocks.getConnectorMcpServerUrl.mockReturnValue('https://api.githubcopilot.com/mcp/')
+
+    const result = await loadConnectorToolInventory({
+      type: 'github',
+      config: {
+        pat: 'github_pat_example',
+        pinnedRepos: ['acme/api'],
+      },
+    })
+
+    expect(result).toEqual({
+      ok: true,
+      tools: [{ name: 'list_commits', title: 'List commits', description: 'List commits' }],
+    })
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.githubcopilot.com/mcp/',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: 'Bearer github_pat_example',
+          'X-MCP-Readonly': 'true',
+          'X-MCP-Toolsets': 'repos,git',
+        }),
+      }),
+    )
+    expect(mocks.validateConnectorTestEndpoint).not.toHaveBeenCalled()
+  })
+
   it('uses API key auth for any remote connector inventory', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

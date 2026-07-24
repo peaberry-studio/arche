@@ -76,6 +76,7 @@ const SINGLE_INSTANCE_AGENT_CONNECTOR_CAPABILITY_IDS = {
   notion: 'globalnotion',
   zendesk: 'globalzendesk',
   ahrefs: 'globalahrefs',
+  github: 'globalgithub',
   umami: 'globalumami',
   google_gmail: 'globalgooglegmail',
   google_drive: 'globalgoogledrive',

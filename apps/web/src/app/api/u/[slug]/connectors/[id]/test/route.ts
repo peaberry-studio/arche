@@ -84,7 +84,9 @@ export const POST = withAuth<TestConnectionResult | { error: string }, { slug: s
       }
     }
 
-    const result = await testConnectorConnection(connector.type, config, { customEndpointUrl })
+    const result = await testConnectorConnection(connector.type, config, {
+      customEndpointUrl,
+    })
 
     if (result.ok && getConnectorAuthType(config) === 'oauth') {
       const message = result.message ?? 'Connection verified.'

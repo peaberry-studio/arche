@@ -99,6 +99,16 @@ export function mergeConnectorConfigWithPreservedOAuth(input: {
 }): ConnectorConfigRecord {
   const next = { ...input.nextConfig }
 
+  // GitHub PATs are stripped from API responses, so a client editing an existing
+  // connector (e.g. to add a pinned repo) sends config back without `pat`.
+  // Preserve the stored token so the merged config still validates.
+  if (input.connectorType === 'github' && next.pat === undefined) {
+    const currentPat = getString(input.currentConfig.pat)
+    if (currentPat) {
+      next.pat = currentPat
+    }
+  }
+
   if (getConnectorAuthType(next) !== 'oauth' || !isOAuthConnectorType(input.connectorType)) {
     return next
   }
