@@ -53,6 +53,43 @@ describe("FileTreePanel", () => {
     expect(onDownloadFile).toHaveBeenCalledWith("alpha.md");
   });
 
+  it("expands ancestor directories to reveal the active file", async () => {
+    const deepNodes: WorkspaceFileNode[] = [
+      {
+        id: "docs",
+        name: "docs",
+        path: "docs",
+        type: "directory",
+        children: [
+          {
+            id: "docs/research",
+            name: "research",
+            path: "docs/research",
+            type: "directory",
+            children: [
+              {
+                id: "docs/research/analysis.md",
+                name: "analysis.md",
+                path: "docs/research/analysis.md",
+                type: "file",
+              },
+            ],
+          },
+        ],
+      },
+    ];
+
+    render(
+      <FileTreePanel
+        nodes={deepNodes}
+        activePath="docs/research/analysis.md"
+        onSelect={() => {}}
+      />
+    );
+
+    expect(await screen.findByRole("button", { name: /analysis.md/i })).toBeTruthy();
+  });
+
   it("supports downloading files from search results too", async () => {
     const onDownloadFile = vi.fn();
 
