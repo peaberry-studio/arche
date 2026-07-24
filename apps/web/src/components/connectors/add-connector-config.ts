@@ -9,6 +9,11 @@ import {
   type CustomConnectorFormState,
 } from '@/components/connectors/add-connector/custom/config'
 import {
+  buildGithubConnectorConfig,
+  isGithubConnectorConfigurationComplete,
+  type GithubConnectorFormState,
+} from '@/components/connectors/add-connector/github/config'
+import {
   buildGoogleWorkspaceConnectorConfig,
   isGoogleWorkspaceConnectorConfigurationComplete,
   type GoogleWorkspaceConnectorFormState,
@@ -47,6 +52,7 @@ export {
 
 export type { AhrefsConnectorFormState } from '@/components/connectors/add-connector/ahrefs/config'
 export type { CustomConnectorFormState } from '@/components/connectors/add-connector/custom/config'
+export type { GithubConnectorFormState } from '@/components/connectors/add-connector/github/config'
 export type { GoogleWorkspaceConnectorFormState } from '@/components/connectors/add-connector/google-workspace/config'
 export type { LinearConnectorFormState } from '@/components/connectors/add-connector/linear/config'
 export type { NotionConnectorFormState } from '@/components/connectors/add-connector/notion/config'
@@ -61,6 +67,7 @@ export type ConnectorFormState =
   | AhrefsConnectorFormState
   | UmamiConnectorFormState
   | GoogleWorkspaceConnectorFormState
+  | GithubConnectorFormState
   | CustomConnectorFormState
 
 export function buildConnectorConfig(
@@ -79,6 +86,8 @@ export function buildConnectorConfig(
       return buildAhrefsConnectorConfig(state)
     case 'umami':
       return buildUmamiConnectorConfig(state)
+    case 'github':
+      return buildGithubConnectorConfig(state)
     case 'google_gmail':
     case 'google_drive':
     case 'google_calendar':
@@ -104,6 +113,8 @@ export function isConnectorConfigurationComplete(
       return isAhrefsConnectorConfigurationComplete(state)
     case 'umami':
       return isUmamiConnectorConfigurationComplete(state)
+    case 'github':
+      return isGithubConnectorConfigurationComplete(state)
     case 'google_gmail':
     case 'google_drive':
     case 'google_calendar':

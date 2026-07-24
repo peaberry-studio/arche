@@ -1,4 +1,9 @@
 import { parseAhrefsConnectorConfig } from '@/lib/connectors/ahrefs'
+import {
+  getGithubMcpHeaders,
+  getGithubMcpServerUrl,
+  parseGithubConnectorConfig,
+} from '@/lib/connectors/github'
 import { getGoogleWorkspaceMcpServerUrl, isGoogleWorkspaceConnectorType } from '@/lib/connectors/google-workspace'
 import { isMetaAdsConnectorReady, parseMetaAdsConnectorConfig } from '@/lib/connectors/meta-ads'
 import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
@@ -121,6 +126,21 @@ function buildLinearMcpServerConfig(input: {
   }
 }
 
+function buildGithubMcpServerConfig(
+  config: Record<string, unknown>
+): McpServerConfig | undefined {
+  const parsed = parseGithubConnectorConfig(config)
+  if (!parsed.ok) return undefined
+
+  return {
+    type: 'remote',
+    url: getGithubMcpServerUrl(),
+    enabled: true,
+    headers: getGithubMcpHeaders(parsed.config),
+    oauth: false,
+  }
+}
+
 function buildCustomMcpServerConfig(input: {
   connectorId: string
   config: Record<string, unknown>
@@ -228,6 +248,8 @@ export function buildConnectorMcpServerConfig(input: {
       return buildNotionMcpServerConfig(input)
     case 'linear':
       return buildLinearMcpServerConfig(input)
+    case 'github':
+      return buildGithubMcpServerConfig(input.config)
     case 'custom':
       return buildCustomMcpServerConfig(input)
     case 'zendesk':
@@ -246,6 +268,8 @@ export function buildConnectorMcpServerConfig(input: {
 }
 
 export function shouldExposeConnectorViaGateway(type: ConnectorType, config: Record<string, unknown>): boolean {
+  if (type === 'github') return false
+
   const parser = EMBEDDED_CONNECTOR_PARSERS[type]
   if (parser) return parser(config).ok
 

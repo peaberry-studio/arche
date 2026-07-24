@@ -18,6 +18,7 @@ export const sharedCoverageConfig = {
   exclude: sharedCoverageExclude,
   include: ['src/**/*.{ts,tsx}'],
   provider: 'v8' as const,
+  reportOnFailure: true,
   reporter: ['text', 'json-summary', 'html', 'lcov'],
 }
 

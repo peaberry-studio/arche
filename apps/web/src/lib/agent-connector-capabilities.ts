@@ -26,6 +26,7 @@ const SINGLE_INSTANCE_CONNECTOR_LABELS = {
   notion: 'Notion',
   zendesk: 'Zendesk',
   ahrefs: 'Ahrefs',
+  github: 'GitHub',
   umami: 'Umami',
   google_gmail: 'Gmail',
   google_drive: 'Google Drive',

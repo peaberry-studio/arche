@@ -1,4 +1,5 @@
 import { getAhrefsMcpTools, parseAhrefsConnectorConfig } from '@/lib/connectors/ahrefs'
+import { getGithubMcpHeaders, parseGithubConnectorConfig } from '@/lib/connectors/github'
 import { getMetaAdsMcpTools, parseMetaAdsConnectorConfig } from '@/lib/connectors/meta-ads'
 import { getConnectorMcpServerUrl } from '@/lib/connectors/mcp/server-url'
 import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
@@ -63,6 +64,13 @@ function buildRemoteHeaders(
     accept: 'application/json, text/event-stream',
     'content-type': 'application/json',
     ...(toStringRecord(config.headers) ?? {}),
+  }
+
+  if (type === 'github') {
+    const parsed = parseGithubConnectorConfig(config)
+    if (!parsed.ok) return null
+
+    return { ...headers, ...getGithubMcpHeaders(parsed.config) }
   }
 
   if (getConnectorAuthType(config) === 'oauth') {

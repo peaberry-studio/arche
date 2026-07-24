@@ -36,6 +36,10 @@ export type ConnectorMcpEntry = {
   enabled: boolean
 }
 
+export type ConnectorGithubEntry = {
+  config: string
+}
+
 export type ConnectorHashEntry = {
   id: string
   type: string
@@ -88,6 +92,14 @@ export function findEnabledMcpByUserId(userId: string): Promise<ConnectorMcpEntr
   return prisma.connector.findMany({
     where: { userId, enabled: true },
     select: { id: true, type: true, name: true, config: true, enabled: true },
+  })
+}
+
+export function findEnabledGithubConnectorsForUser(userId: string): Promise<ConnectorGithubEntry[]> {
+  return prisma.connector.findMany({
+    where: { userId, type: 'github', enabled: true },
+    select: { config: true },
+    orderBy: { id: 'asc' },
   })
 }
 

@@ -121,6 +121,7 @@ vi.mock('@/lib/connectors/validators', () => ({
   validateConnectorType: (...args: unknown[]) => mocks.validateConnectorTypeMock(...args),
   validateConnectorConfig: (...args: unknown[]) => mocks.validateConnectorConfigMock(...args),
   validateConnectorName: (...args: unknown[]) => mocks.validateConnectorNameMock(...args),
+  normalizeConnectorConfigForPersistence: (_type: unknown, config: unknown) => config,
 }))
 
 // ---------------------------------------------------------------------------

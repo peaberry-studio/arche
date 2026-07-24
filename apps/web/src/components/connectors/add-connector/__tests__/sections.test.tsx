@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AddConnectorSectionHandle } from '@/components/connectors/add-connector/section-types'
 import { CustomSection } from '@/components/connectors/add-connector/custom/section'
 import { GoogleWorkspaceSection } from '@/components/connectors/add-connector/google-workspace/section'
+import { GithubSection } from '@/components/connectors/add-connector/github/section'
 import { LinearSection } from '@/components/connectors/add-connector/linear/section'
 import { MetaAdsSection } from '@/components/connectors/add-connector/meta-ads/section'
 import { NotionSection } from '@/components/connectors/add-connector/notion/section'
@@ -185,6 +186,87 @@ describe('add connector sections', () => {
     const result = expectSuccessfulSubmission(ref)
     expect(result.name).toBe('Google Chat')
     expect(result.config).toEqual({ authType: 'oauth' })
+  })
+
+  it('submits a GitHub PAT and pinned repositories', () => {
+    const ref = createRef<AddConnectorSectionHandle>()
+    render(<GithubSection ref={ref} isActive onStateChange={vi.fn()} />)
+
+    fireEvent.change(screen.getByLabelText('Personal access token'), {
+      target: { value: 'github_pat_example' },
+    })
+    fireEvent.change(screen.getByLabelText('Pinned repositories'), {
+      target: { value: 'acme/api' },
+    })
+    fireEvent.keyDown(screen.getByLabelText('Pinned repositories'), { key: 'Enter' })
+
+    expect(getHandle(ref).isComplete()).toBe(true)
+    expect(expectSuccessfulSubmission(ref)).toMatchObject({
+      name: 'GitHub',
+      config: {
+        pat: 'github_pat_example',
+        pinnedRepos: ['acme/api'],
+        toolsets: ['repos', 'git'],
+      },
+    })
+  })
+
+  it('commits a valid repository left in the input when submitting without pressing Add', () => {
+    const ref = createRef<AddConnectorSectionHandle>()
+    render(<GithubSection ref={ref} isActive onStateChange={vi.fn()} />)
+
+    fireEvent.change(screen.getByLabelText('Personal access token'), {
+      target: { value: 'github_pat_example' },
+    })
+    fireEvent.change(screen.getByLabelText('Pinned repositories'), {
+      target: { value: 'acme/api' },
+    })
+    fireEvent.keyDown(screen.getByLabelText('Pinned repositories'), { key: 'Enter' })
+    // Second repo typed but not committed with Enter/Add.
+    fireEvent.change(screen.getByLabelText('Pinned repositories'), {
+      target: { value: 'acme/web' },
+    })
+
+    expect(expectSuccessfulSubmission(ref)).toMatchObject({
+      config: {
+        pat: 'github_pat_example',
+        pinnedRepos: ['acme/api', 'acme/web'],
+        toolsets: ['repos', 'git'],
+      },
+    })
+  })
+
+  it('validates GitHub repositories and becomes incomplete when the last repository is removed', () => {
+    const ref = createRef<AddConnectorSectionHandle>()
+    render(<GithubSection ref={ref} isActive onStateChange={vi.fn()} />)
+
+    fireEvent.change(screen.getByLabelText('Personal access token'), {
+      target: { value: 'github_pat_example' },
+    })
+    fireEvent.change(screen.getByLabelText('Pinned repositories'), {
+      target: { value: 'acme/api/path' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+
+    expect(screen.getByText('Enter a repository as owner/repository.')).toBeTruthy()
+    expect(getHandle(ref).isComplete()).toBe(false)
+
+    fireEvent.change(screen.getByLabelText('Pinned repositories'), {
+      target: { value: 'acme/api' },
+    })
+    fireEvent.keyDown(screen.getByLabelText('Pinned repositories'), { key: 'Enter' })
+    fireEvent.keyDown(screen.getByLabelText('Pinned repositories'), { key: 'Enter' })
+
+    expect(screen.getAllByRole('button', { name: 'Remove acme/api' })).toHaveLength(1)
+    expect(getHandle(ref).isComplete()).toBe(true)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove acme/api' }))
+
+    expect(getHandle(ref).isComplete()).toBe(false)
+    expect(getHandle(ref).getSubmission()).toEqual({
+      ok: false,
+      message: 'Add at least one pinned repository.',
+    })
   })
 
   it('submits Umami API-key and login configurations', () => {

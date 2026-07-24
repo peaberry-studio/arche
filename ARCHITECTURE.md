@@ -64,7 +64,7 @@ arche/
 | `User` | Accounts (email, slug, role, Argon2 hash, TOTP fields) |
 | `Session` | Sessions with token hash, expiration, IP, and user agent |
 | `Instance` | Containerized workspace (status, containerId, encrypted password, configSha) |
-| `Connector` | Per-user connector records with encrypted config. Supported connector types are defined in `apps/web/src/lib/connectors/types.ts`: Linear, Notion, Zendesk, Ahrefs, Umami, custom MCP, Meta Ads, and Google Workspace products (Gmail, Drive, Calendar, Chat, People) |
+| `Connector` | Per-user connector records with encrypted config. Supported connector types are defined in `apps/web/src/lib/connectors/types.ts`: Linear, Notion, Zendesk, Ahrefs, Umami, GitHub repositories, custom MCP, Meta Ads, and Google Workspace products (Gmail, Drive, Calendar, Chat, People) |
 | `ProviderCredential` | Per-user model provider credentials for providers such as OpenAI, Anthropic, Fireworks, OpenRouter, and OpenCode |
 | `ExternalIntegration` | Admin-managed integrations stored once for the deployment, such as Slack |
 | `SlackThreadBinding` | Mapping between Slack channel threads and OpenCode sessions |
@@ -102,6 +102,20 @@ Runtime behavior:
 - `kb-content` (bare repo): workspace knowledge base files
 - `kb-config` (bare repo): runtime `CommonWorkspaceConfig.json` + generated `AGENTS.md`
 - both repos start empty and are populated by kickstart on first setup
+
+### GitHub repositories as KB sources
+
+The GitHub connector wires GitHub's hosted remote MCP server (`api.githubcopilot.com/mcp/`)
+into a workspace using an encrypted personal access token. Its "pinned repositories"
+are **advisory, not an enforcement boundary**: they are injected into the workspace
+prompt (`AGENTS.md`) to guide agents toward the most relevant source, but they are
+**not** sent to the MCP server. The agent can read any repository the PAT can reach,
+and read-only access depends on GitHub honoring the `X-MCP-Readonly` header. The raw
+PAT is also embedded in the workspace MCP config (the same precedent as other API-key
+connectors), so it is readable by any code the agent runs there.
+
+**Accepted risk / mitigation:** scope the token, not the repo list. Use a fine-grained
+PAT whose read access is limited to exactly the repositories that should be reachable.
 
 ## Desktop Vault Model
 

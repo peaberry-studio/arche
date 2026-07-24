@@ -113,6 +113,7 @@ vi.mock('@/lib/connectors/validators', () => ({
     }
     return { valid: true }
   },
+  normalizeConnectorConfigForPersistence: (_type: unknown, config: unknown) => config,
 }))
 
 // ---------------------------------------------------------------------------
