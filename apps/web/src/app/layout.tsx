@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
 import { Geist, Geist_Mono, Space_Grotesk, Tinos } from "next/font/google";
+import { Toaster } from "sonner";
 import "katex/dist/katex.min.css";
 import "./globals.css";
 
@@ -78,6 +79,7 @@ export default async function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} ${spaceGrotesk.variable} ${tinos.variable} antialiased`}
       >
         {children}
+        <Toaster position="bottom-right" />
       </body>
     </html>
   );

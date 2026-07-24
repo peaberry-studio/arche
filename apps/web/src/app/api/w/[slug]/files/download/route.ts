@@ -1,38 +1,21 @@
 import { NextRequest } from "next/server"
 
 import { withAuth } from "@/lib/runtime/with-auth"
-import { workspaceAgentFetch } from "@/lib/workspace-agent-client"
-import { createWorkspaceAgentClient } from "@/lib/workspace-agent/client"
 import {
   inferAttachmentMimeType,
   sanitizeAttachmentFilename,
 } from "@/lib/workspace-attachments"
-import { isHiddenWorkspacePath, normalizeWorkspacePath } from "@/lib/workspace-paths"
+import {
+  isValidWorkspacePath,
+  jsonResponse,
+  readWorkspaceFile,
+} from "@/lib/workspace-file-response"
+import { normalizeWorkspacePath } from "@/lib/workspace-paths"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-type WorkspaceAgentReadResponse = {
-  ok: boolean
-  content?: string
-  encoding?: "utf-8" | "base64"
-  error?: string
-}
-
-function jsonResponse(status: number, payload: unknown) {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  })
-}
-
-function isValidDownloadPath(path: string): boolean {
-  if (!path) return false
-  if (isHiddenWorkspacePath(path)) return false
-  return path.split("/").every((segment) => segment !== "..")
-}
-
-function decodeWorkspaceFileContent(data: WorkspaceAgentReadResponse): Buffer | null {
+function decodeFileContent(data: { content?: string; encoding?: string }): Buffer | null {
   if (typeof data.content !== "string") return null
 
   if (data.encoding === "base64") {
@@ -50,45 +33,31 @@ function decodeWorkspaceFileContent(data: WorkspaceAgentReadResponse): Buffer | 
   return null
 }
 
-function buildContentDisposition(filename: string): string {
-  const fallbackName = sanitizeAttachmentFilename(filename)
-  return `attachment; filename="${fallbackName}"; filename*=UTF-8''${encodeURIComponent(filename)}`
-}
-
 export const GET = withAuth<{ error: string }>(
   { csrf: false },
   async (request: NextRequest, { slug }) => {
     const requestUrl = new URL(request.url)
     const normalizedPath = normalizeWorkspacePath(requestUrl.searchParams.get("path") ?? "")
-    if (!isValidDownloadPath(normalizedPath)) {
+    if (!isValidWorkspacePath(normalizedPath)) {
       return jsonResponse(400, { error: "invalid_path" })
     }
 
-    const agent = await createWorkspaceAgentClient(slug)
-    if (!agent) {
-      return jsonResponse(503, { error: "instance_unavailable" })
-    }
+    const result = await readWorkspaceFile(slug, normalizedPath)
+    if (!result.ok) return result.response
 
-    const response = await workspaceAgentFetch<WorkspaceAgentReadResponse>(agent, "/files/read", {
-      path: normalizedPath,
-    })
-
-    if (!response.ok) {
-      return jsonResponse(response.status === 404 ? 404 : 502, { error: response.error })
-    }
-
-    const content = decodeWorkspaceFileContent(response.data)
+    const content = decodeFileContent(result.data)
     if (!content) {
       return jsonResponse(502, { error: "invalid_file_content" })
     }
 
     const filename = normalizedPath.split("/").pop() ?? "download"
+    const safeName = sanitizeAttachmentFilename(filename)
 
     return new Response(new Uint8Array(content), {
       status: 200,
       headers: {
         "Cache-Control": "no-store",
-        "Content-Disposition": buildContentDisposition(filename),
+        "Content-Disposition": `attachment; filename="${safeName}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
         "Content-Type": inferAttachmentMimeType(filename),
       },
     })

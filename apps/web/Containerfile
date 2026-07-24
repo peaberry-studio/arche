@@ -2,7 +2,10 @@ FROM node:24.14.0-bookworm-slim AS base
 WORKDIR /app
 ENV NODE_ENV=production
 RUN apt-get update -y \
-  && apt-get install -y --no-install-recommends openssl ca-certificates git \
+  && apt-get install -y --no-install-recommends \
+    openssl ca-certificates git \
+    libnss3 libatk-bridge2.0-0 libdrm2 libxkbcommon0 libgbm1 \
+    libpango-1.0-0 libcairo2 libasound2 libxshmfence1 libx11-xcb1 \
   && rm -rf /var/lib/apt/lists/*
 RUN corepack enable
 

@@ -56,6 +56,9 @@ describe('RootLayout', () => {
     expect(htmlProps.suppressHydrationWarning).toBe(true)
     expect(bodyProps.className).toContain('font-geist-sans')
     expect(bodyProps.className).toContain('font-tinos')
-    expect(bodyProps.children).toEqual(<span>Layout child</span>)
+    const children = Array.isArray(bodyProps.children)
+      ? bodyProps.children
+      : [bodyProps.children]
+    expect(children[0]).toEqual(<span>Layout child</span>)
   })
 })
