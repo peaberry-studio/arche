@@ -131,6 +131,34 @@ describe("FileTreePanel", () => {
     expect(screen.queryByRole("button", { name: /notes.md/i })).toBeNull();
   });
 
+  it("expands a collapsed dir when navigating to a file inside it", async () => {
+    const onSelect = vi.fn();
+
+    const { rerender } = render(
+      <FileTreePanel
+        nodes={nodes}
+        activePath={null}
+        onSelect={onSelect}
+      />
+    );
+
+    const docsButton = await screen.findByRole("button", { name: /^docs$/i });
+    expect(screen.getByRole("button", { name: /notes.md/i })).toBeTruthy();
+
+    fireEvent.click(docsButton);
+    expect(screen.queryByRole("button", { name: /notes.md/i })).toBeNull();
+
+    rerender(
+      <FileTreePanel
+        nodes={nodes}
+        activePath="docs/notes.md"
+        onSelect={onSelect}
+      />
+    );
+
+    expect(await screen.findByRole("button", { name: /notes.md/i })).toBeTruthy();
+  });
+
   it("supports downloading files from search results too", async () => {
     const onDownloadFile = vi.fn();
 

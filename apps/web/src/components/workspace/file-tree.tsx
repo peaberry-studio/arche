@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { CaretRight, File, Folder, FolderOpen } from "@phosphor-icons/react";
 
 import { cn } from "@/lib/utils";
@@ -29,8 +29,13 @@ function getAncestorPaths(filePath: string): string[] {
 
 export function FileTree({ nodes, activePath, onSelect, onFileContextMenu }: FileTreeProps) {
   const [expanded, setExpanded] = useState<TreeState>({});
+  const userCollapsedRef = useRef(new Set<string>());
+  const prevActivePathRef = useRef(activePath);
 
   useEffect(() => {
+    const activePathChanged = activePath !== prevActivePathRef.current;
+    prevActivePathRef.current = activePath;
+
     setExpanded((prev) => {
       const next = { ...prev };
       let changed = false;
@@ -42,7 +47,10 @@ export function FileTree({ nodes, activePath, onSelect, onFileContextMenu }: Fil
       }
       if (activePath) {
         for (const ancestor of getAncestorPaths(activePath)) {
-          if (!next[ancestor]) {
+          if (activePathChanged) {
+            userCollapsedRef.current.delete(ancestor);
+          }
+          if (!next[ancestor] && !userCollapsedRef.current.has(ancestor)) {
             next[ancestor] = true;
             changed = true;
           }
@@ -53,7 +61,15 @@ export function FileTree({ nodes, activePath, onSelect, onFileContextMenu }: Fil
   }, [nodes, activePath]);
 
   const toggle = (path: string) => {
-    setExpanded((prev) => ({ ...prev, [path]: !prev[path] }));
+    setExpanded((prev) => {
+      const wasOpen = prev[path];
+      if (wasOpen) {
+        userCollapsedRef.current.add(path);
+      } else {
+        userCollapsedRef.current.delete(path);
+      }
+      return { ...prev, [path]: !wasOpen };
+    });
   };
 
   const renderNode = (node: WorkspaceFileNode, depth: number) => {
