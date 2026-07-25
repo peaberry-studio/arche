@@ -96,12 +96,22 @@ function exceedsGraticuleBudget(value: unknown): boolean {
 function inspectComplexity(
   value: unknown,
   repeatProduct: number,
+  depth: number,
   context: ComplexityContext,
 ): void {
   if (context.exceeded || !value || typeof value !== 'object') return
 
+  // The preflight runs before the sanitizing walk, so it needs the same depth budget.
+  // Without it a spec nested deeper than the JS stack crashes here instead of being
+  // rejected, and the throw escapes every caller — sanitizeVegaLiteSpec only guards the
+  // JSON.stringify above.
+  if (depth > MAX_SPEC_DEPTH) {
+    context.exceeded = true
+    return
+  }
+
   if (Array.isArray(value)) {
-    for (const entry of value) inspectComplexity(entry, repeatProduct, context)
+    for (const entry of value) inspectComplexity(entry, repeatProduct, depth + 1, context)
     return
   }
 
@@ -142,7 +152,7 @@ function inspectComplexity(
       }
     }
 
-    inspectComplexity(entry, localRepeatProduct, context)
+    inspectComplexity(entry, localRepeatProduct, depth + 1, context)
   }
 }
 
@@ -417,7 +427,7 @@ export function sanitizeVegaLiteSpec(input: unknown): SanitizedChart | null {
   if (serializedLength > MAX_SPEC_CHARS) return null
 
   const complexity: ComplexityContext = { compositionBranches: 0, exceeded: false }
-  inspectComplexity(input, 1, complexity)
+  inspectComplexity(input, 1, 0, complexity)
   if (complexity.exceeded) return null
 
   const context: WalkContext = {

@@ -356,6 +356,20 @@ describe('sanitizeVegaLiteSpec: resource budgets', () => {
     expect(sanitizeVegaLiteSpec({ mark: 'not-a-real-mark' })).not.toBeNull()
   })
 
+  it('rejects deep nesting without throwing, at every depth', () => {
+    // The complexity preflight runs before the sanitizing walk and recurses too. If only
+    // the walk carries a depth budget there is a band of depths — past the JS stack but
+    // within what JSON.stringify survives — where the preflight throws RangeError instead
+    // of rejecting, and the throw escapes into the caller's render.
+    for (const depth of [100, 1_000, 5_000, 20_000]) {
+      let deep: Record<string, unknown> = { mark: 'bar' }
+      for (let i = 0; i < depth; i += 1) deep = { spec: deep }
+
+      expect(() => sanitizeVegaLiteSpec(deep), `depth ${depth}`).not.toThrow()
+      expect(sanitizeVegaLiteSpec(deep), `depth ${depth}`).toBeNull()
+    }
+  })
+
   it('rejects a spec nested past the depth budget', () => {
     let deep: Record<string, unknown> = { mark: 'bar' }
     for (let i = 0; i < 70; i += 1) deep = { nested: deep }
