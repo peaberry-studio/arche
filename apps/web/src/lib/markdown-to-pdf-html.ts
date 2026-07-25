@@ -9,7 +9,7 @@ import { unified } from "unified"
 import type { Root, Element, ElementContent } from "hast"
 import { visit } from "unist-util-visit"
 
-import { parseChartSpec } from "@/components/workspace/chat-panel/chart-output"
+import { sanitizeVegaLiteSpec, type SanitizedChart } from "@/lib/vega/sanitize-spec"
 import {
   FALLBACK as FALLBACK_THEME,
   buildVegaConfig,
@@ -19,32 +19,24 @@ import {
   workspaceRehypePlugins,
   workspaceRemarkPlugins,
 } from "@/components/workspace/markdown-plugins"
+import {
+  renderVegaLiteToSvgInWorker,
+  type WorkspaceDataReader,
+} from "@/lib/vega-render-worker"
 
-const MAX_VEGA_CHARTS = 20
-
-async function renderVegaLiteToSvg(spec: Record<string, unknown>): Promise<string> {
-  const vega = await import("vega")
-  const vegaLite = await import("vega-lite")
-
-  const config = buildVegaConfig(FALLBACK_THEME)
-  const specWithConfig = { ...spec, config }
-  const compiled = vegaLite.compile(specWithConfig as Parameters<typeof vegaLite.compile>[0])
-  const runtime = vega.parse(compiled.spec)
-  const view = new vega.View(runtime, { renderer: "none" })
-  try {
-    return await view.toSVG()
-  } finally {
-    view.finalize()
-  }
-}
+// A document is bounded by total rendering time rather than a chart count, so a report
+// with many small figures is not truncated while one pathological spec still cannot
+// stall the export.
+const VEGA_DOCUMENT_BUDGET_MS = 30_000
+const VEGA_CHART_TIMEOUT_MS = 10_000
 
 type VegaLiteTarget = {
   parent: Element | Root
   index: number
-  spec: Record<string, unknown>
+  chart: SanitizedChart
 }
 
-function extractVegaLiteSpec(preNode: Element): Record<string, unknown> | null {
+function extractVegaLiteChart(preNode: Element): SanitizedChart | null {
   const codeChild = preNode.children.find(
     (c): c is Element => c.type === "element" && (c as Element).tagName === "code",
   ) as Element | undefined
@@ -65,31 +57,45 @@ function extractVegaLiteSpec(preNode: Element): Record<string, unknown> | null {
     return null
   }
 
-  return parseChartSpec(parsed)
+  return sanitizeVegaLiteSpec(parsed)
 }
 
-function rehypeVegaLiteToSvg() {
+function rehypeVegaLiteToSvg(readWorkspaceData?: WorkspaceDataReader) {
   return async (tree: Root) => {
     const targets: VegaLiteTarget[] = []
 
     visit(tree, "element", (node: Element, index, parent) => {
       if (node.tagName !== "pre" || index == null || !parent) return
 
-      const spec = extractVegaLiteSpec(node)
-      if (!spec) return
+      const chart = extractVegaLiteChart(node)
+      if (!chart) return
 
-      targets.push({ parent: parent as Element | Root, index, spec })
+      targets.push({ parent: parent as Element | Root, index, chart })
     })
 
     if (targets.length === 0) return
 
-    const capped = targets.slice(0, MAX_VEGA_CHARTS)
+    const deadline = Date.now() + VEGA_DOCUMENT_BUDGET_MS
 
-    for (const target of capped) {
+    for (const target of targets) {
+      if (Date.now() > deadline) break
+
       let svg: string | null = null
       try {
-        svg = await renderVegaLiteToSvg(target.spec)
-      } catch {
+        svg = await renderVegaLiteToSvgInWorker({
+          chart: target.chart,
+          config: buildVegaConfig(FALLBACK_THEME),
+          timeoutMs: VEGA_CHART_TIMEOUT_MS,
+          readWorkspaceData,
+        })
+      } catch (error) {
+        // The chart stays as its original code block. This is also the only signal for a
+        // worker that never started — ESM `eval` workers need Node >= 22.12, so on an
+        // older local runtime every chart would otherwise silently become a code block.
+        console.warn(
+          "Chart rendering failed during PDF export:",
+          error instanceof Error ? error.message : error,
+        )
         continue
       }
 
@@ -103,43 +109,18 @@ function rehypeVegaLiteToSvg() {
   }
 }
 
+// rehypeSanitize runs before rehypeVegaLiteToSvg, and charts are injected afterwards as
+// raw nodes that rehypeStringify emits verbatim, so no chart SVG ever passes through this
+// schema. It therefore only needs to cover what the markdown pipeline itself produces:
+// KaTeX spans and the wrapper elements. (Sanitizing chart SVG would mean sanitizing the
+// SVG string directly, or reordering the plugins — deliberately not done here.)
 const pdfSanitizeSchema = {
   ...defaultSchema,
-  tagNames: [
-    ...(defaultSchema.tagNames ?? []),
-    "svg", "path", "rect", "circle", "ellipse", "line", "polyline", "polygon",
-    "g", "defs", "clipPath", "use", "text", "tspan", "title", "desc",
-    "linearGradient", "radialGradient", "stop", "pattern", "mask", "image",
-    "marker",
-    "span", "div",
-  ],
+  tagNames: [...(defaultSchema.tagNames ?? []), "span", "div"],
   attributes: {
     ...defaultSchema.attributes,
     div: [...(defaultSchema.attributes?.div ?? []), "className", "style"],
     span: [...(defaultSchema.attributes?.span ?? []), "className", "style", "aria-hidden"],
-    svg: ["xmlns", "viewBox", "width", "height", "class", "style", "role", "aria-*", "fill", "stroke", "overflow", "preserveAspectRatio"],
-    path: ["d", "fill", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin", "opacity", "transform", "class", "style", "clip-path"],
-    rect: ["x", "y", "width", "height", "rx", "ry", "fill", "stroke", "stroke-width", "opacity", "transform", "class", "style", "clip-path"],
-    circle: ["cx", "cy", "r", "fill", "stroke", "stroke-width", "opacity", "transform", "class"],
-    ellipse: ["cx", "cy", "rx", "ry", "fill", "stroke", "stroke-width", "opacity", "transform", "class"],
-    line: ["x1", "y1", "x2", "y2", "stroke", "stroke-width", "opacity", "transform", "class"],
-    polyline: ["points", "fill", "stroke", "stroke-width", "opacity", "transform", "class"],
-    polygon: ["points", "fill", "stroke", "stroke-width", "opacity", "transform", "class"],
-    g: ["transform", "class", "style", "clip-path", "opacity", "fill", "stroke"],
-    defs: [],
-    clipPath: ["id"],
-    use: ["href", "x", "y", "width", "height"],
-    text: ["x", "y", "dx", "dy", "text-anchor", "dominant-baseline", "font-size", "font-family", "font-weight", "font-style", "fill", "opacity", "transform", "class", "style"],
-    tspan: ["x", "y", "dx", "dy", "text-anchor", "font-size", "font-family", "font-weight", "fill", "class"],
-    title: [],
-    desc: [],
-    linearGradient: ["id", "x1", "y1", "x2", "y2", "gradientUnits", "gradientTransform"],
-    radialGradient: ["id", "cx", "cy", "r", "fx", "fy", "gradientUnits"],
-    stop: ["offset", "stop-color", "stop-opacity"],
-    pattern: ["id", "x", "y", "width", "height", "patternUnits", "patternTransform"],
-    mask: ["id", "x", "y", "width", "height", "maskUnits"],
-    image: ["x", "y", "width", "height", "href", "preserveAspectRatio"],
-    marker: ["id", "markerWidth", "markerHeight", "refX", "refY", "orient", "markerUnits"],
   },
 }
 
@@ -302,7 +283,10 @@ const MARKDOWN_STYLES = `
   }
 `
 
-export async function markdownToPdfHtml(markdown: string): Promise<string> {
+export async function markdownToPdfHtml(
+  markdown: string,
+  options?: { readWorkspaceData?: WorkspaceDataReader },
+): Promise<string> {
   const frontmatter = parseMarkdownFrontmatter(markdown)
   const katexCss = loadKatexCss()
 
@@ -313,7 +297,7 @@ export async function markdownToPdfHtml(markdown: string): Promise<string> {
   for (const plugin of workspaceRehypePlugins) processor = processor.use(plugin)
   processor = processor
     .use(rehypeSanitize, pdfSanitizeSchema)
-    .use(rehypeVegaLiteToSvg)
+    .use(rehypeVegaLiteToSvg, options?.readWorkspaceData)
     .use(rehypeStringify, { allowDangerousHtml: true })
 
   const result = await processor.process(frontmatter.body)

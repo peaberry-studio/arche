@@ -17,7 +17,11 @@ const embedMock = vi.hoisted(() => vi.fn(async (...[element]: [HTMLElement, unkn
   return { finalize: vi.fn() }
 }))
 
-vi.mock('vega-embed', () => ({ default: embedMock }))
+const vegaStub = vi.hoisted(() => ({
+  loader: () => ({ sanitize: async (uri: string) => ({ href: String(uri) }) }),
+}))
+
+vi.mock('vega-embed', () => ({ default: embedMock, vega: vegaStub }))
 
 afterEach(() => {
   cleanup();

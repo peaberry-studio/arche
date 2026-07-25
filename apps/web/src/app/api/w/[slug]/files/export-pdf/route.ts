@@ -2,7 +2,9 @@ import { NextRequest } from "next/server"
 
 import { withAuth } from "@/lib/runtime/with-auth"
 import { markdownToPdfHtml } from "@/lib/markdown-to-pdf-html"
+import { createWorkspaceDataReader } from "@/lib/vega-render-worker"
 import {
+  decodeWorkspaceFileText,
   isValidWorkspacePath,
   jsonResponse,
   readWorkspaceFile,
@@ -98,24 +100,21 @@ export const POST = withAuth<{ error: string }>(
       const result = await readWorkspaceFile(slug, normalizedPath)
       if (!result.ok) return result.response
 
-      let content = result.data.content
-      if (typeof content !== "string") {
+      const content = decodeWorkspaceFileText(result.data)
+      if (content === null) {
         return jsonResponse(502, { error: "invalid_file_content" })
-      }
-
-      if (result.data.encoding === "base64") {
-        try {
-          content = Buffer.from(content, "base64").toString("utf-8")
-        } catch {
-          return jsonResponse(502, { error: "invalid_file_content" })
-        }
       }
 
       if (Buffer.byteLength(content, "utf-8") > MAX_MARKDOWN_BYTES) {
         return jsonResponse(413, { error: "file_too_large" })
       }
 
-      const html = await markdownToPdfHtml(content)
+      // Charts may reference workspace files by relative path, exactly as they do in the
+      // app. Resolution goes through the same validation as any other workspace read, so
+      // a spec cannot reach outside the workspace or off the machine.
+      const html = await markdownToPdfHtml(content, {
+        readWorkspaceData: createWorkspaceDataReader(slug),
+      })
       const pdf = await generatePdf(html)
 
       return new Response(Buffer.from(pdf), {

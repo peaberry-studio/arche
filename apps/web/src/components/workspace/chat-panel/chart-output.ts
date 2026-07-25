@@ -1,218 +1,19 @@
 import { isRecord } from '@/lib/records'
+import { sanitizeVegaLiteSpec, type SanitizedChart } from '@/lib/vega/sanitize-spec'
 
-const CHART_SCHEMA = 'https://vega.github.io/schema/vega-lite/v5.json'
-const MAX_ROWS = 1000
-const MAX_COLUMNS = 50
 const MAX_TITLE_CHARS = 160
 const MAX_SOURCE_NOTE_CHARS = 300
-const URL_PATTERN = /\b(?:https?:\/\/|www\.)|\b(?:javascript|data):/i
-const HTML_PATTERN = /[<>]/
-const MAX_DIMENSION = 2000
-const SAFE_MARKS = new Set([
-  'arc',
-  'area',
-  'bar',
-  'circle',
-  'errorband',
-  'errorbar',
-  'line',
-  'point',
-  'rect',
-  'rule',
-  'square',
-  'text',
-  'tick',
-  'trail',
-])
-const SAFE_AUTOSIZE_CONTAINS = new Set(['content', 'padding'])
-const SAFE_AUTOSIZE_KEYS = new Set(['contains', 'type'])
-const SAFE_AUTOSIZE_TYPES = new Set(['fit', 'none', 'pad'])
-const SAFE_TOP_LEVEL_SPEC_KEYS = new Set([
-  '$schema',
-  'autosize',
-  'background',
-  'config',
-  'data',
-  'encoding',
-  'height',
-  'layer',
-  'mark',
-  'resolve',
-  'spacing',
-  'title',
-  'transform',
-  'width',
-])
-// transform/resolve/config pass through: Vega expressions are sandboxed (no DOM/network); hasUnsafeSpecValue blocks url/href/src and HTML in strings.
-const UNSAFE_SPEC_KEYS = new Set(['href', 'src', 'url'])
 
-type ChartAutosize = {
-  contains?: string
-  type?: string
-}
-
-export type ChartSpec = Record<string, unknown>
-
-export type ChartOutput = {
+/** The `arche-chart/v1` envelope emitted by the chart_create / chart_render tools. */
+export type ChartOutput = SanitizedChart & {
   title: string
   sourceNote?: string
-  spec: ChartSpec
 }
 
-const getString = (value: unknown) => (typeof value === 'string' && value.trim() ? value.trim() : undefined)
-
-function isSafeString(value: string, allowSchema = false): boolean {
-  if (allowSchema) return value === CHART_SCHEMA
-  return !HTML_PATTERN.test(value) && !URL_PATTERN.test(value)
-}
-
-function getSafeString(value: unknown, maxChars: number): string | undefined {
-  const text = getString(value)
+function getBoundedString(value: unknown, maxChars: number): string | undefined {
+  const text = typeof value === 'string' && value.trim() ? value.trim() : undefined
   if (!text || text.length > maxChars) return undefined
-  return isSafeString(text) ? text : undefined
-}
-
-function isRecordArray(value: unknown): value is Record<string, unknown>[] {
-  return Array.isArray(value) && value.every(isRecord)
-}
-
-function hasTooManyColumns(values: Record<string, unknown>[]): boolean {
-  const columns = new Set<string>()
-
-  for (const row of values) {
-    for (const key of Object.keys(row)) {
-      columns.add(key)
-      if (columns.size > MAX_COLUMNS) return true
-    }
-  }
-
-  return false
-}
-
-function hasUnsafeSpecValue(value: unknown, key = ''): boolean {
-  if (UNSAFE_SPEC_KEYS.has(key.toLowerCase())) return true
-
-  if (typeof value === 'string') {
-    return !isSafeString(value, key === '$schema')
-  }
-
-  if (typeof value === 'number') return !Number.isFinite(value)
-  if (!value || typeof value !== 'object') return false
-
-  if (Array.isArray(value)) {
-    return value.some((entry) => hasUnsafeSpecValue(entry, key))
-  }
-
-  return Object.entries(value).some(([entryKey, entryValue]) => hasUnsafeSpecValue(entryValue, entryKey))
-}
-
-function hasUnsupportedTopLevelSpecKey(spec: Record<string, unknown>): boolean {
-  return Object.keys(spec).some((key) => !SAFE_TOP_LEVEL_SPEC_KEYS.has(key))
-}
-
-function resolveMarkType(mark: unknown): string | undefined {
-  if (typeof mark === 'string') return mark
-  if (isRecord(mark) && typeof mark.type === 'string') return mark.type
-  return undefined
-}
-
-function resolveTitleText(title: unknown): string | undefined {
-  if (typeof title === 'string') return title
-  if (isRecord(title) && typeof title.text === 'string') return title.text
-  return undefined
-}
-
-function validateMarks(spec: Record<string, unknown>): boolean {
-  if (spec.mark !== undefined) {
-    const markType = resolveMarkType(spec.mark)
-    if (markType === undefined || !SAFE_MARKS.has(markType)) return false
-  }
-
-  if (spec.layer !== undefined) {
-    if (!Array.isArray(spec.layer) || spec.layer.length === 0) return false
-    for (const layer of spec.layer) {
-      if (!isRecord(layer)) return false
-      const markType = resolveMarkType(layer.mark)
-      if (markType === undefined || !SAFE_MARKS.has(markType)) return false
-    }
-  }
-
-  return spec.mark !== undefined || spec.layer !== undefined
-}
-
-function getSafeDimension(value: unknown): number | string | undefined {
-  if (value === 'container') return value
-  if (typeof value !== 'number') return undefined
-  return Number.isFinite(value) && value > 0 && value <= MAX_DIMENSION ? value : undefined
-}
-
-function getSafeAutosize(value: unknown): ChartAutosize | undefined {
-  if (!isRecord(value)) return undefined
-  if (Object.keys(value).some((key) => !SAFE_AUTOSIZE_KEYS.has(key))) return undefined
-
-  const autosize: ChartAutosize = {}
-  if (value.type !== undefined) {
-    if (typeof value.type !== 'string' || !SAFE_AUTOSIZE_TYPES.has(value.type)) return undefined
-    autosize.type = value.type
-  }
-  if (value.contains !== undefined) {
-    if (typeof value.contains !== 'string' || !SAFE_AUTOSIZE_CONTAINS.has(value.contains)) return undefined
-    autosize.contains = value.contains
-  }
-
-  return autosize
-}
-
-export function parseChartSpec(spec: unknown): ChartSpec | null {
-  if (!isRecord(spec)) return null
-  if (hasUnsupportedTopLevelSpecKey(spec)) return null
-  if (spec.$schema !== CHART_SCHEMA) return null
-  if (!validateMarks(spec)) return null
-
-  if (spec.data !== undefined) {
-    if (!isRecord(spec.data)) return null
-    if (!isRecordArray(spec.data.values)) return null
-    if (spec.data.values.length === 0 || spec.data.values.length > MAX_ROWS) return null
-    if (hasTooManyColumns(spec.data.values)) return null
-  }
-
-  if (spec.encoding !== undefined && !isRecord(spec.encoding)) return null
-
-  if (hasUnsafeSpecValue(spec)) return null
-
-  if (spec.title !== undefined) {
-    const titleText = resolveTitleText(spec.title)
-    if (titleText === undefined) return null
-    const safeTitle = getSafeString(titleText, MAX_TITLE_CHARS)
-    if (!safeTitle) return null
-  }
-
-  const width = spec.width === undefined ? undefined : getSafeDimension(spec.width)
-  if (spec.width !== undefined && width === undefined) return null
-
-  const height = spec.height === undefined ? undefined : getSafeDimension(spec.height)
-  if (spec.height !== undefined && height === undefined) return null
-
-  const autosize = spec.autosize === undefined ? undefined : getSafeAutosize(spec.autosize)
-  if (spec.autosize !== undefined && !autosize) return null
-
-  const cleaned: Record<string, unknown> = { $schema: CHART_SCHEMA }
-
-  if (spec.data !== undefined) cleaned.data = { values: spec.data.values }
-  if (spec.encoding !== undefined) cleaned.encoding = spec.encoding
-  if (spec.mark !== undefined) cleaned.mark = spec.mark
-  if (spec.layer !== undefined) cleaned.layer = spec.layer
-  if (spec.transform !== undefined) cleaned.transform = spec.transform
-  if (spec.resolve !== undefined) cleaned.resolve = spec.resolve
-  if (spec.spacing !== undefined) cleaned.spacing = spec.spacing
-  if (spec.background !== undefined) cleaned.background = spec.background
-  if (spec.config !== undefined) cleaned.config = spec.config
-  if (spec.title !== undefined) cleaned.title = spec.title
-  if (autosize) cleaned.autosize = autosize
-  if (height !== undefined) cleaned.height = height
-  if (width !== undefined) cleaned.width = width
-
-  return cleaned
+  return text
 }
 
 export function parseChartOutput(rawOutput?: string): ChartOutput | null {
@@ -229,16 +30,16 @@ export function parseChartOutput(rawOutput?: string): ChartOutput | null {
   if (!isRecord(parsed) || parsed.ok !== true || parsed.format !== 'arche-chart/v1') return null
   if (!isRecord(parsed.chart)) return null
 
-  const title = getSafeString(parsed.chart.title, MAX_TITLE_CHARS)
+  const title = getBoundedString(parsed.chart.title, MAX_TITLE_CHARS)
   if (!title) return null
 
   const sourceNote = parsed.chart.sourceNote === undefined
     ? undefined
-    : getSafeString(parsed.chart.sourceNote, MAX_SOURCE_NOTE_CHARS)
+    : getBoundedString(parsed.chart.sourceNote, MAX_SOURCE_NOTE_CHARS)
   if (parsed.chart.sourceNote !== undefined && !sourceNote) return null
 
-  const spec = parseChartSpec(parsed.chart.spec)
-  if (!spec) return null
+  const sanitized = sanitizeVegaLiteSpec(parsed.chart.spec)
+  if (!sanitized) return null
 
-  return sourceNote ? { title, sourceNote, spec } : { title, spec }
+  return sourceNote ? { ...sanitized, title, sourceNote } : { ...sanitized, title }
 }

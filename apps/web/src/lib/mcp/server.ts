@@ -18,6 +18,7 @@ import {
   readAgentsGuide,
   readSkillResource,
 } from '@/lib/mcp/workspace-tools'
+import { validateVegaLiteSpec } from '@/lib/mcp/vega-lite-validation'
 import { isRecord } from '@/lib/records'
 import type { RuntimeUser } from '@/lib/runtime/types'
 import { listSkills, readSkill } from '@/lib/skills/skill-store'
@@ -141,8 +142,26 @@ export async function handleMcpJsonRpcRequest(input: {
   }
 }
 
+const KB_ARTICLE_MARKDOWN_CAPABILITIES = (action: string) =>
+  `${action} Supports KaTeX math ($...$, $$...$$) and \`\`\`vega-lite fenced charts. ` +
+  'The complete Vega-Lite grammar is supported (https://vega.github.io/vega-lite/docs/): every mark including ' +
+  'geoshape/image/boxplot, multi-view composition via layer/facet/repeat/hconcat/vconcat/concat, every transform, ' +
+  'interactive params and selections, projections, and Vega expressions. Prefer inline `data.values`; a `data.url` may ' +
+  'use a workspace-relative path. Call validate_vega_lite_spec first if unsure. Follow the Markdown Capabilities ' +
+  'section of AGENTS.md for chart quality standards. Requires kb:write.'
+
 function buildToolDefinitions(scopes: readonly string[], user: RuntimeUser): ToolDefinition[] {
-  const tools: ToolDefinition[] = []
+  const tools: ToolDefinition[] = [
+    defineTool({
+      name: 'validate_vega_lite_spec',
+      description:
+        'Compile a Vega-Lite JSON spec and report errors and warnings without writing anything. ' +
+        'Use before embedding a ```vega-lite block in an article. The full Vega-Lite grammar is supported, ' +
+        'so a failure here means the spec is wrong, not that a feature is unavailable.',
+      args: { spec: { type: 'string', required: true } },
+      handler: (a) => validateVegaLiteSpec(str(a, 'spec')),
+    }),
+  ]
 
   if (hasMcpScope(scopes, MCP_SCOPE_AGENTS_READ)) {
     tools.push(
@@ -209,13 +228,13 @@ function buildToolDefinitions(scopes: readonly string[], user: RuntimeUser): Too
     tools.push(
       defineTool({
         name: 'create_kb_article',
-        description: 'Create a new markdown knowledge-base article. Supports KaTeX math ($...$, $$...$$) and vega-lite fenced charts; follow the Markdown Capabilities section of AGENTS.md for chart quality standards. Requires kb:write.',
+        description: KB_ARTICLE_MARKDOWN_CAPABILITIES('Create a new markdown knowledge-base article.'),
         args: { path: { type: 'string', required: true }, content: { type: 'string', required: true } },
         handler: (a) => createKbArticle({ path: str(a, 'path'), content: str(a, 'content') }),
       }),
       defineTool({
         name: 'update_kb_article',
-        description: 'Update an existing markdown knowledge-base article. Supports KaTeX math ($...$, $$...$$) and vega-lite fenced charts; follow the Markdown Capabilities section of AGENTS.md for chart quality standards. Requires kb:write.',
+        description: KB_ARTICLE_MARKDOWN_CAPABILITIES('Update an existing markdown knowledge-base article.'),
         args: { path: { type: 'string', required: true }, content: { type: 'string', required: true } },
         handler: (a) => updateKbArticle({ path: str(a, 'path'), content: str(a, 'content') }),
       }),

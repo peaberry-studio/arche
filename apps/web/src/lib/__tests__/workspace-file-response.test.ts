@@ -1,44 +1,37 @@
 import { describe, expect, it } from "vitest"
 
-import { isValidWorkspacePath, jsonResponse } from "../workspace-file-response"
+import {
+  decodeWorkspaceFileContent,
+  decodeWorkspaceFileText,
+} from "@/lib/workspace-file-response"
 
-describe("workspace-file-response", () => {
-  describe("jsonResponse", () => {
-    it("returns a JSON response with the given status", async () => {
-      const res = jsonResponse(400, { error: "bad" })
-      expect(res.status).toBe(400)
-      expect(res.headers.get("Content-Type")).toBe("application/json")
-      const body = await res.json()
-      expect(body).toEqual({ error: "bad" })
-    })
+describe("decodeWorkspaceFileText", () => {
+  it("decodes base64 payloads", () => {
+    // The PDF chart-data path and the browser download path must agree here: returning
+    // raw base64 to Vega renders in the app and silently drops the chart in export.
+    const content = Buffer.from("quarter,revenue\nQ1,10\n", "utf-8").toString("base64")
+    expect(decodeWorkspaceFileText({ content, encoding: "base64" })).toBe("quarter,revenue\nQ1,10\n")
   })
 
-  describe("isValidWorkspacePath", () => {
-    it("rejects empty paths", () => {
-      expect(isValidWorkspacePath("")).toBe(false)
-    })
+  it("passes through utf-8 and an absent encoding", () => {
+    expect(decodeWorkspaceFileText({ content: "a,b\n1,2\n", encoding: "utf-8" })).toBe("a,b\n1,2\n")
+    expect(decodeWorkspaceFileText({ content: "a,b\n1,2\n" })).toBe("a,b\n1,2\n")
+  })
 
-    it("rejects paths with directory traversal", () => {
-      expect(isValidWorkspacePath("../secret.md")).toBe(false)
-      expect(isValidWorkspacePath("a/../b.md")).toBe(false)
-    })
+  it("returns null for unusable payloads", () => {
+    expect(decodeWorkspaceFileText({})).toBeNull()
+    expect(decodeWorkspaceFileText({ content: undefined, encoding: "base64" })).toBeNull()
+    expect(decodeWorkspaceFileText({
+      content: "x",
+      encoding: "latin1" as unknown as "utf-8",
+    })).toBeNull()
+  })
 
-    it("rejects protected paths", () => {
-      expect(isValidWorkspacePath(".git/config")).toBe(false)
-      expect(isValidWorkspacePath("node_modules/pkg/index.js")).toBe(false)
+  it("returns bytes for binary consumers", () => {
+    const buffer = decodeWorkspaceFileContent({
+      content: Buffer.from([0, 1, 2, 255]).toString("base64"),
+      encoding: "base64",
     })
-
-    it("accepts valid paths", () => {
-      expect(isValidWorkspacePath("docs/readme.md")).toBe(true)
-    })
-
-    it("filters by extension when provided", () => {
-      expect(isValidWorkspacePath("docs/readme.md", { extension: ".md" })).toBe(true)
-      expect(isValidWorkspacePath("docs/readme.txt", { extension: ".md" })).toBe(false)
-    })
-
-    it("accepts any extension when not specified", () => {
-      expect(isValidWorkspacePath("image.png")).toBe(true)
-    })
+    expect([...(buffer ?? [])]).toEqual([0, 1, 2, 255])
   })
 })

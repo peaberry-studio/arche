@@ -42,7 +42,9 @@ const nextConfig: NextConfig = {
       ],
     },
   }),
-  serverExternalPackages: ["dockerode", "better-sqlite3", "@prisma/adapter-better-sqlite3", "argon2", "@slack/bolt"],
+  // vega* must stay external: PDF charts render inside a worker_thread whose source is an
+  // opaque string to the bundler, so it resolves these from node_modules at runtime.
+  serverExternalPackages: ["dockerode", "better-sqlite3", "@prisma/adapter-better-sqlite3", "argon2", "@slack/bolt", "vega", "vega-lite", "vega-interpreter"],
   experimental: {
     proxyClientMaxBodySize: "110mb",
   },

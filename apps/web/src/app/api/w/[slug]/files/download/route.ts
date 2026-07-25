@@ -6,6 +6,7 @@ import {
   sanitizeAttachmentFilename,
 } from "@/lib/workspace-attachments"
 import {
+  decodeWorkspaceFileContent,
   isValidWorkspacePath,
   jsonResponse,
   readWorkspaceFile,
@@ -14,24 +15,6 @@ import { normalizeWorkspacePath } from "@/lib/workspace-paths"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
-
-function decodeFileContent(data: { content?: string; encoding?: string }): Buffer | null {
-  if (typeof data.content !== "string") return null
-
-  if (data.encoding === "base64") {
-    try {
-      return Buffer.from(data.content, "base64")
-    } catch {
-      return null
-    }
-  }
-
-  if (data.encoding === "utf-8" || data.encoding === undefined) {
-    return Buffer.from(data.content, "utf-8")
-  }
-
-  return null
-}
 
 export const GET = withAuth<{ error: string }>(
   { csrf: false },
@@ -45,7 +28,7 @@ export const GET = withAuth<{ error: string }>(
     const result = await readWorkspaceFile(slug, normalizedPath)
     if (!result.ok) return result.response
 
-    const content = decodeFileContent(result.data)
+    const content = decodeWorkspaceFileContent(result.data)
     if (!content) {
       return jsonResponse(502, { error: "invalid_file_content" })
     }

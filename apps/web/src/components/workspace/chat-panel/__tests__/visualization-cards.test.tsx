@@ -18,7 +18,11 @@ const mermaidRenderMock = vi.hoisted(() => vi.fn(async () => ({
 })))
 const sanitizeMock = vi.hoisted(() => vi.fn((svg: string) => svg))
 
-vi.mock('vega-embed', () => ({ default: embedMock }))
+const vegaStub = vi.hoisted(() => ({
+  loader: () => ({ sanitize: async (uri: string) => ({ href: String(uri) }) }),
+}))
+
+vi.mock('vega-embed', () => ({ default: embedMock, vega: vegaStub }))
 vi.mock('mermaid', () => ({
   default: {
     initialize: mermaidInitializeMock,
@@ -39,6 +43,9 @@ const chart: ChartOutput = {
       y: { field: 'revenue', type: 'quantitative' },
     },
   },
+  warnings: [],
+  inlineRows: 1,
+  dataUrls: [],
 }
 
 const diagram: DiagramOutput = {
@@ -69,13 +76,22 @@ describe('visualization cards', () => {
     await waitFor(() => expect(embedMock).toHaveBeenCalled())
     const embedOptions = embedMock.mock.calls[0]?.[2]
     expect(embedOptions).toMatchObject({
-      actions: false,
+      // `ast: true` keeps Vega expressions on the interpreter, so no codegen is needed
+      // and the app's CSP can keep withholding 'unsafe-eval'.
       ast: true,
-      defaultStyle: false,
+      defaultStyle: true,
+      hover: true,
       mode: 'vega-lite',
       renderer: 'svg',
-      tooltip: false,
     })
+    // The Vega editor action would POST the spec and its inline data off-origin.
+    expect(embedOptions?.actions).toEqual({
+      compiled: true,
+      editor: false,
+      export: true,
+      source: true,
+    })
+    expect(embedOptions?.tooltip).toMatchObject({ sanitize: expect.any(Function) })
     expect(embedOptions?.config).toMatchObject({
       background: 'transparent',
       axis: expect.objectContaining({ gridColor: expect.any(String) }),

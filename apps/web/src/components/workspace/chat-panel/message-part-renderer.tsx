@@ -93,6 +93,7 @@ const TOOL_LABELS: Record<string, string> = {
   task: 'Delegating',
   email_draft: 'Drafting email',
   chart_create: 'Creating chart',
+  chart_render: 'Rendering chart',
   diagram_create: 'Creating diagram',
   flow_propose: 'Proposing flow',
   learning_propose: 'Proposing KB learning',
@@ -253,6 +254,7 @@ function getToolDisplay(
         meta: agentLabel && taskDescription ? taskDescription : undefined,
       }
     }
+    case 'chart_render':
     case 'chart_create': {
       const title = getString(input?.title)
       const type = getString(input?.type)
@@ -640,7 +642,7 @@ export function ToolGroup({
     }
   }
 
-  if (tool === 'chart_create') {
+  if (tool === 'chart_create' || tool === 'chart_render') {
     let latestChart: ChartOutput | null = null
 
     for (let index = parts.length - 1; index >= 0; index -= 1) {
@@ -655,7 +657,7 @@ export function ToolGroup({
     }
 
     if (latestChart) {
-      return <ChartCard chart={latestChart} isRunning={isRunning} />
+      return <ChartCard chart={latestChart} isRunning={isRunning} workspaceSlug={slug} />
     }
   }
 

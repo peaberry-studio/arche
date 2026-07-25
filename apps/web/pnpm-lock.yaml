@@ -225,6 +225,9 @@ importers:
       vega-embed:
         specifier: 7.1.0
         version: 7.1.0(vega-lite@6.4.3(vega@6.2.0))(vega@6.2.0)
+      vega-interpreter:
+        specifier: 2.2.1
+        version: 2.2.1
       vega-lite:
         specifier: 6.4.3
         version: 6.4.3(vega@6.2.0)

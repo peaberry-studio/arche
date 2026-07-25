@@ -2,16 +2,20 @@ import { z } from 'zod'
 
 import { toToolOutput } from '../shared/attachment-tools.js'
 
-const MAX_ROWS = 1000
-const MAX_COLUMNS = 50
+// chart_create is the convenience path for simple single-series charts; full grammar and
+// large data belong in chart_render. These bounds are deliberately tighter than the
+// renderer's (which counts rows, not cells): the point is to stop this tool normalizing
+// and transporting a payload that only exists because the wrong tool was reached for.
+const MAX_ROWS = 200000
+const MAX_TOTAL_CELLS = 1000000
+const MAX_SERIALIZED_CHARS = 8 * 1024 * 1024
 const MAX_TITLE_CHARS = 160
 const MAX_FIELD_CHARS = 80
 const MAX_CELL_STRING_CHARS = 500
 const MAX_SOURCE_NOTE_CHARS = 300
-const VEGA_LITE_SCHEMA = 'https://vega.github.io/schema/vega-lite/v5.json'
+const VEGA_LITE_SCHEMA = 'https://vega.github.io/schema/vega-lite/v6.json'
 
 const CHART_TYPES = ['bar', 'line', 'area', 'scatter', 'pie']
-const UNSAFE_TEXT_PATTERN = /[<>]|\b(?:https?:\/\/|www\.)|\b(?:javascript|data):/i
 const CHART_INPUT_EXAMPLE = {
   type: 'bar',
   title: 'Variation by segment',
@@ -30,15 +34,16 @@ const CHART_INPUT_CONTRACT_HINT = [
   `Example input: ${JSON.stringify(CHART_INPUT_EXAMPLE)}`,
 ].join(' ')
 const INVALID_CHART_INPUT_REASON_HINTS = {
-  column_limit_exceeded: `The data field can include at most ${MAX_COLUMNS} distinct columns across all rows.`,
   invalid_chart_type: `The type field must be one of: ${CHART_TYPES.join(', ')}.`,
   missing_field: 'Every data row must include both the xField and yField keys.',
   non_finite_numeric: 'Numeric chart values must be finite; do not pass Infinity or NaN.',
   pie_negative_value: 'Pie charts require every yField value to be zero or greater.',
   row_limit_exceeded: `The data field can include at most ${MAX_ROWS} rows.`,
+  cell_limit_exceeded: `The data field can include at most ${MAX_TOTAL_CELLS} cells (rows x columns); use chart_render with a fenced spec for larger datasets.`,
+  payload_too_large: `The serialized chart must stay under ${MAX_SERIALIZED_CHARS} characters; use chart_render with a fenced spec for larger datasets.`,
   scatter_x_not_numeric: 'Scatter charts require every xField value to be a finite number.',
   schema_validation_failed: 'The input did not match the chart_create argument schema.',
-  unsafe_text: 'Use plain text only for title, field names, row strings, and sourceNote; do not include HTML or URLs.',
+  text_limit_exceeded: `Titles are limited to ${MAX_TITLE_CHARS} characters, field names to ${MAX_FIELD_CHARS}, cell strings to ${MAX_CELL_STRING_CHARS}, and row keys must be unique.`,
   y_not_numeric: 'Every yField value must be a finite number.',
 }
 
@@ -68,7 +73,6 @@ function normalizeSafeText(value, maxChars, allowEmpty = false) {
   const text = normalizeLineEndings(value)
   if (!allowEmpty && !text) return null
   if (text.length > maxChars) return null
-  if (UNSAFE_TEXT_PATTERN.test(text)) return null
   return text
 }
 
@@ -77,7 +81,7 @@ function isValidCellValue(value) {
   if (typeof value === 'number') return Number.isFinite(value)
   if (typeof value === 'boolean') return true
   if (typeof value !== 'string') return false
-  return value.length <= MAX_CELL_STRING_CHARS && !UNSAFE_TEXT_PATTERN.test(value)
+  return value.length <= MAX_CELL_STRING_CHARS
 }
 
 function normalizeRows(rows) {
@@ -90,17 +94,20 @@ function normalizeRows(rows) {
 
     for (const [rawKey, value] of Object.entries(row)) {
       const key = normalizeSafeText(rawKey, MAX_FIELD_CHARS)
-      if (!key || rowKeys.has(key)) return { ok: false, reason: 'unsafe_text' }
-      if (!isValidCellValue(value)) return { ok: false, reason: 'unsafe_text' }
+      if (!key || rowKeys.has(key)) return { ok: false, reason: 'text_limit_exceeded' }
+      if (!isValidCellValue(value)) return { ok: false, reason: 'text_limit_exceeded' }
 
       rowKeys.add(key)
       columns.add(key)
-      if (columns.size > MAX_COLUMNS) return { ok: false, reason: 'column_limit_exceeded' }
 
       nextRow[key] = typeof value === 'string' ? normalizeLineEndings(value) : value
     }
 
     normalizedRows.push(nextRow)
+  }
+
+  if (normalizedRows.length * Math.max(columns.size, 1) > MAX_TOTAL_CELLS) {
+    return { ok: false, reason: 'cell_limit_exceeded' }
   }
 
   return { ok: true, columns, rows: normalizedRows }
@@ -173,7 +180,7 @@ function normalizeChartInput(input) {
   const normalizedData = normalizeRows(input.data)
 
   if (!title || !xField || !yField || sourceNote === null) {
-    return { ok: false, reason: 'unsafe_text' }
+    return { ok: false, reason: 'text_limit_exceeded' }
   }
 
   if (!normalizedData.ok) {
@@ -243,7 +250,7 @@ export const create = {
     xField: z.string().min(1).max(MAX_FIELD_CHARS).describe('Field name for the x-axis or category labels.'),
     yField: z.string().min(1).max(MAX_FIELD_CHARS).describe('Numeric field name for the y-axis or values.'),
     data: z.array(chartRowSchema).min(1).max(MAX_ROWS).describe(
-      'Required inline chart data as row objects. Maximum 1000 rows and 50 columns.',
+      `Required inline chart data as row objects. Maximum ${MAX_ROWS} rows.`,
     ),
     sourceNote: z.string().max(MAX_SOURCE_NOTE_CHARS).optional().describe(
       'Optional plain-text note explaining the data source. Do not put the chart data here.',
@@ -261,8 +268,7 @@ export const create = {
     }
 
     const chartInput = normalized.value
-
-    return toToolOutput({
+    const payload = {
       ok: true,
       format: 'arche-chart/v1',
       chart: {
@@ -270,6 +276,79 @@ export const create = {
         sourceNote: chartInput.sourceNote,
         spec: buildSpec(chartInput),
       },
+    }
+
+    if (JSON.stringify(payload).length > MAX_SERIALIZED_CHARS) {
+      return invalidChartInputOutput('payload_too_large')
+    }
+
+    return toToolOutput(payload)
+  },
+}
+
+function invalidSpecOutput(reason, hint) {
+  return toToolOutput({
+    ok: false,
+    error: 'invalid_chart_spec',
+    reason,
+    hint,
+  })
+}
+
+export const render = {
+  description: [
+    'Render a raw Vega-Lite specification in chat.',
+    'The complete Vega-Lite grammar is supported (https://vega.github.io/vega-lite/docs/):',
+    'every mark including geoshape, image and boxplot; multi-view composition via layer, facet, repeat,',
+    'hconcat, vconcat and concat; every transform; interactive params and selections; projections; and expressions.',
+    'Use this instead of chart_create whenever the chart is anything beyond a single-series bar/line/area/scatter/pie.',
+    'For charts that should persist in a document (KB articles, reports), prefer vega-lite fenced code blocks in markdown; see AGENTS.md Markdown Capabilities.',
+  ].join(' '),
+  args: {
+    title: z.string().min(1).max(MAX_TITLE_CHARS).describe('Short chart title shown above the chart.'),
+    spec: z.string().min(1).describe(
+      'The Vega-Lite specification as a raw JSON object string. Prefer inline data.values.',
+    ),
+    sourceNote: z.string().max(MAX_SOURCE_NOTE_CHARS).optional().describe(
+      'Optional short note explaining the data source.',
+    ),
+  },
+  async execute(args) {
+    const title = normalizeSafeText(args?.title, MAX_TITLE_CHARS)
+    if (!title) {
+      return invalidSpecOutput('invalid_title', `Provide a plain-text title of at most ${MAX_TITLE_CHARS} characters.`)
+    }
+
+    const sourceNote = args?.sourceNote === undefined
+      ? undefined
+      : normalizeSafeText(args.sourceNote, MAX_SOURCE_NOTE_CHARS, true)
+    if (sourceNote === null) {
+      return invalidSpecOutput('invalid_source_note', `sourceNote is limited to ${MAX_SOURCE_NOTE_CHARS} characters.`)
+    }
+
+    const rawSpec = typeof args?.spec === 'string' ? args.spec.trim() : ''
+    if (!rawSpec || rawSpec.length > MAX_SERIALIZED_CHARS) {
+      return invalidSpecOutput('invalid_spec_size', `The spec must be non-empty and under ${MAX_SERIALIZED_CHARS} characters.`)
+    }
+
+    let spec
+    try {
+      spec = JSON.parse(rawSpec)
+    } catch (error) {
+      return invalidSpecOutput('invalid_json', `The spec must be a single raw JSON object. ${error.message}`)
+    }
+
+    if (!spec || typeof spec !== 'object' || Array.isArray(spec)) {
+      return invalidSpecOutput('invalid_json', 'The spec must be a JSON object, not an array or primitive.')
+    }
+
+    // Arche's renderer applies the authoritative security pass (URL scheme filtering,
+    // loader stripping, resource budgets) before embedding, so this tool only has to
+    // guarantee it is emitting a well-formed envelope.
+    return toToolOutput({
+      ok: true,
+      format: 'arche-chart/v1',
+      chart: { title, sourceNote: sourceNote || undefined, spec },
     })
   },
 }

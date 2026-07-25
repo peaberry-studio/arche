@@ -1,10 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
-import {
-  parseChartOutput,
-  parseChartSpec,
-} from '@/components/workspace/chat-panel/chart-output'
+import { parseChartOutput } from '@/components/workspace/chat-panel/chart-output'
 import { parseDiagramOutput } from '@/components/workspace/chat-panel/diagram-output'
+import { VEGA_LITE_SCHEMA } from '@/lib/vega/sanitize-spec'
 
 const chartSpec = {
   $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
@@ -25,350 +23,49 @@ describe('parseChartOutput', () => {
     const result = parseChartOutput(JSON.stringify({
       ok: true,
       format: 'arche-chart/v1',
-      chart: {
-        title: 'Revenue',
-        sourceNote: 'Forecast',
-        spec: chartSpec,
-      },
+      chart: { title: 'Revenue', sourceNote: 'Forecast', spec: chartSpec },
     }))
 
+    // parseChartOutput returns the canonical chart model so tool cards get the same
+    // spec, warnings and row cost that markdown charts do.
     expect(result).toEqual({
       title: 'Revenue',
       sourceNote: 'Forecast',
-      spec: chartSpec,
+      spec: { ...chartSpec, $schema: VEGA_LITE_SCHEMA },
+      warnings: [],
+      inlineRows: 1,
+      dataUrls: [],
     })
   })
 
-  it('rejects invalid or unsafe chart tool output', () => {
+  it('rejects a malformed envelope', () => {
     expect(parseChartOutput('not-json')).toBeNull()
     expect(parseChartOutput(JSON.stringify({ ok: true, format: 'other', chart: {} }))).toBeNull()
+    expect(parseChartOutput(JSON.stringify({ ok: true, format: 'arche-chart/v1' }))).toBeNull()
     expect(parseChartOutput(JSON.stringify({
       ok: true,
       format: 'arche-chart/v1',
-      chart: { title: '<b>Revenue</b>', spec: chartSpec },
-    }))).toBeNull()
-    expect(parseChartOutput(JSON.stringify({
-      ok: true,
-      format: 'arche-chart/v1',
-      chart: {
-        title: 'Revenue',
-        spec: { ...chartSpec, data: { url: 'https://example.com/data.json', values: [] } },
-      },
+      chart: { spec: chartSpec },
     }))).toBeNull()
   })
 
-  it('rejects unsupported top-level Vega-Lite spec keys', () => {
-    expect(parseChartOutput(JSON.stringify({
+  it('accepts titles containing angle brackets (React escapes them on render)', () => {
+    const result = parseChartOutput(JSON.stringify({
       ok: true,
       format: 'arche-chart/v1',
-      chart: {
-        title: 'Revenue',
-        spec: {
-          ...chartSpec,
-          params: [{ name: 'select', select: { type: 'point' } }],
-        },
-      },
-    }))).toBeNull()
+      chart: { title: 'p99 < 100ms', spec: chartSpec },
+    }))
+
+    expect(result?.title).toBe('p99 < 100ms')
   })
 
-  it('rejects invalid allowed Vega-Lite layout fields', () => {
-    for (const spec of [
-      { ...chartSpec, width: 5000 },
-      { ...chartSpec, autosize: { type: 'fit', resize: true } },
+  it('rejects an over-long title or source note', () => {
+    for (const chart of [
+      { title: 'x'.repeat(161), spec: chartSpec },
+      { title: 'Revenue', sourceNote: 'y'.repeat(301), spec: chartSpec },
     ]) {
-      expect(parseChartOutput(JSON.stringify({
-        ok: true,
-        format: 'arche-chart/v1',
-        chart: {
-          title: 'Revenue',
-          spec,
-        },
-      }))).toBeNull()
+      expect(parseChartOutput(JSON.stringify({ ok: true, format: 'arche-chart/v1', chart }))).toBeNull()
     }
-  })
-})
-
-describe('parseChartSpec', () => {
-  it('parses a valid simple bar spec', () => {
-    const result = parseChartSpec(chartSpec)
-    expect(result).toEqual(chartSpec)
-  })
-
-  it('parses a valid line spec with extended marks', () => {
-    const spec = {
-      $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
-      data: { values: [{ x: 1, y: 2 }] },
-      mark: 'line',
-      encoding: {
-        x: { field: 'x', type: 'quantitative' },
-        y: { field: 'y', type: 'quantitative' },
-      },
-    }
-    expect(parseChartSpec(spec)).toEqual(spec)
-  })
-
-  it('parses extended mark types: rule, rect, text, tick, errorband, errorbar, circle, square, trail', () => {
-    for (const mark of ['rule', 'rect', 'text', 'tick', 'errorband', 'errorbar', 'circle', 'square', 'trail']) {
-      const spec = {
-        $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
-        data: { values: [{ x: 1, y: 2 }] },
-        mark,
-        encoding: {
-          x: { field: 'x', type: 'quantitative' },
-          y: { field: 'y', type: 'quantitative' },
-        },
-      }
-      expect(parseChartSpec(spec)).toEqual(spec)
-    }
-  })
-
-  it('parses a valid layered spec where each layer has a safe mark', () => {
-    const spec = {
-      $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
-      data: { values: [{ x: 1, y: 2 }] },
-      layer: [
-        { mark: 'line', encoding: { x: { field: 'x', type: 'quantitative' }, y: { field: 'y', type: 'quantitative' } } },
-        { mark: 'point', encoding: { x: { field: 'x', type: 'quantitative' }, y: { field: 'y', type: 'quantitative' } } },
-      ],
-    }
-    expect(parseChartSpec(spec)).toEqual(spec)
-  })
-
-  it('parses a valid spec with transform', () => {
-    const spec = {
-      $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
-      data: { values: [{ x: 1, y: 2 }] },
-      transform: [{ calculate: 'datum.x + datum.y', as: 'z' }],
-      mark: 'bar',
-      encoding: {
-        x: { field: 'x', type: 'nominal' },
-        y: { field: 'y', type: 'quantitative' },
-      },
-    }
-    expect(parseChartSpec(spec)).toEqual(spec)
-  })
-
-  it('parses a valid spec with resolve and spacing', () => {
-    const spec = {
-      $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
-      data: { values: [{ x: 1, y: 2 }] },
-      resolve: { scale: { y: 'independent' } },
-      spacing: 20,
-      mark: 'bar',
-      encoding: {
-        x: { field: 'x', type: 'nominal' },
-        y: { field: 'y', type: 'quantitative' },
-      },
-    }
-    expect(parseChartSpec(spec)).toEqual(spec)
-  })
-
-  it('rejects a non-record spec', () => {
-    expect(parseChartSpec(null)).toBeNull()
-    expect(parseChartSpec('not an object')).toBeNull()
-    expect(parseChartSpec([1, 2, 3])).toBeNull()
-  })
-
-  it('accepts a spec with a background key', () => {
-    const spec = { ...chartSpec, background: 'white' }
-    expect(parseChartSpec(spec)).toEqual(spec)
-  })
-
-  it('rejects an unsupported top-level key', () => {
-    expect(parseChartSpec({ ...chartSpec, description: 'a chart' })).toBeNull()
-  })
-
-  it('rejects spec with params (not in allowlist)', () => {
-    expect(parseChartSpec({
-      ...chartSpec,
-      params: [{ name: 'select', select: { type: 'point' } }],
-    })).toBeNull()
-  })
-
-  it('rejects a spec with a wrong $schema', () => {
-    expect(parseChartSpec({ ...chartSpec, $schema: 'https://example.com/other.json' })).toBeNull()
-  })
-
-  it('rejects a spec with neither mark nor layer', () => {
-    expect(parseChartSpec({
-      $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
-      data: { values: [{ x: 1 }] },
-      encoding: { x: { field: 'x', type: 'quantitative' } },
-    })).toBeNull()
-  })
-
-  it('rejects a spec with an unsupported top-level mark', () => {
-    expect(parseChartSpec({ ...chartSpec, mark: 'geoshape' })).toBeNull()
-  })
-
-  it('accepts a spec with an object-form title', () => {
-    const spec = {
-      ...chartSpec,
-      title: { text: 'Figure 1 — Throughput', anchor: 'start', fontSize: 16 },
-    }
-    expect(parseChartSpec(spec)).toEqual(spec)
-  })
-
-  it('rejects a spec with an object-form title containing unsafe text', () => {
-    expect(parseChartSpec({
-      ...chartSpec,
-      title: { text: '<b>Evil</b>', anchor: 'start' },
-    })).toBeNull()
-  })
-
-  it('rejects a spec with a non-string, non-object title', () => {
-    expect(parseChartSpec({ ...chartSpec, title: 42 })).toBeNull()
-  })
-
-  it('accepts a spec with an object-form mark (mark.type validated)', () => {
-    const spec = {
-      ...chartSpec,
-      mark: { type: 'bar', color: '#4C78A8', cornerRadiusEnd: 3 },
-    }
-    expect(parseChartSpec(spec)).toEqual(spec)
-  })
-
-  it('rejects a spec with an object-form mark whose type is unsupported', () => {
-    expect(parseChartSpec({ ...chartSpec, mark: { type: 'geoshape' } })).toBeNull()
-  })
-
-  it('rejects a spec with a non-string, non-object mark', () => {
-    expect(parseChartSpec({ ...chartSpec, mark: 42 })).toBeNull()
-  })
-
-  it('accepts a spec with a config key', () => {
-    const spec = {
-      ...chartSpec,
-      config: {
-        axis: { labelFontSize: 12, titleFontSize: 13 },
-        view: { stroke: null },
-      },
-    }
-    expect(parseChartSpec(spec)).toEqual(spec)
-  })
-
-  it('rejects a config with an unsafe url key', () => {
-    const spec = {
-      ...chartSpec,
-      config: { url: 'https://evil.example.com' },
-    }
-    expect(parseChartSpec(spec)).toBeNull()
-  })
-
-  it('rejects a layered spec with an unsupported mark in a layer', () => {
-    const spec = {
-      $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
-      data: { values: [{ x: 1, y: 2 }] },
-      layer: [
-        { mark: 'line', encoding: {} },
-        { mark: 'geoshape', encoding: {} },
-      ],
-    }
-    expect(parseChartSpec(spec)).toBeNull()
-  })
-
-  it('accepts a layered spec with object-form marks in layers', () => {
-    const spec = {
-      $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
-      data: { values: [{ x: 1, y: 2 }] },
-      layer: [
-        { mark: { type: 'line', color: '#E45756' }, encoding: {} },
-        { mark: { type: 'point', filled: true }, encoding: {} },
-      ],
-    }
-    expect(parseChartSpec(spec)).toEqual(spec)
-  })
-
-  it('rejects a layered spec where a layer has no mark', () => {
-    const spec = {
-      $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
-      data: { values: [{ x: 1, y: 2 }] },
-      layer: [
-        { mark: 'line', encoding: {} },
-        { encoding: {} },
-      ],
-    }
-    expect(parseChartSpec(spec)).toBeNull()
-  })
-
-  it('rejects a layered spec with a non-array layer', () => {
-    const spec = {
-      $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
-      data: { values: [{ x: 1, y: 2 }] },
-      layer: { mark: 'line' },
-    }
-    expect(parseChartSpec(spec)).toBeNull()
-  })
-
-  it('rejects a layered spec with an empty layer array', () => {
-    const spec = {
-      $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
-      data: { values: [{ x: 1, y: 2 }] },
-      layer: [],
-    }
-    expect(parseChartSpec(spec)).toBeNull()
-  })
-
-  it('rejects a spec with a url key in a layer encoding', () => {
-    const spec = {
-      $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
-      data: { values: [{ x: 1, y: 2 }] },
-      layer: [
-        {
-          mark: 'bar',
-          encoding: {
-            x: { field: 'x', type: 'nominal' },
-            y: { field: 'y', type: 'quantitative', url: 'https://example.com' },
-          },
-        },
-      ],
-    }
-    expect(parseChartSpec(spec)).toBeNull()
-  })
-
-  it('rejects a spec with html in a string value', () => {
-    expect(parseChartSpec({ ...chartSpec, title: '<b>Revenue</b>' })).toBeNull()
-  })
-
-  it('rejects a spec with a url in data values', () => {
-    const spec = {
-      $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
-      data: { values: [{ href: 'https://example.com' }] },
-      mark: 'bar',
-      encoding: { x: { field: 'x', type: 'nominal' } },
-    }
-    expect(parseChartSpec(spec)).toBeNull()
-  })
-
-  it('rejects a spec with too many rows', () => {
-    const values = Array.from({ length: 1001 }, (_, i) => ({ x: i, y: i }))
-    const spec = {
-      $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
-      data: { values },
-      mark: 'bar',
-      encoding: { x: { field: 'x', type: 'quantitative' } },
-    }
-    expect(parseChartSpec(spec)).toBeNull()
-  })
-
-  it('rejects a spec with too many columns', () => {
-    const row: Record<string, unknown> = {}
-    for (let i = 0; i < 51; i++) row[`col${i}`] = i
-    const spec = {
-      $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
-      data: { values: [row] },
-      mark: 'bar',
-      encoding: { x: { field: 'col0', type: 'quantitative' } },
-    }
-    expect(parseChartSpec(spec)).toBeNull()
-  })
-
-  it('rejects a spec with invalid width', () => {
-    expect(parseChartSpec({ ...chartSpec, width: 5000 })).toBeNull()
-  })
-
-  it('rejects a spec with invalid autosize', () => {
-    expect(parseChartSpec({ ...chartSpec, autosize: { type: 'invalid' } })).toBeNull()
   })
 })
 

@@ -1,17 +1,8 @@
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it } from "vitest"
 
-vi.mock("vega", () => ({
-  parse: vi.fn(() => ({})),
-  View: class MockView {
-    toSVG = vi.fn().mockResolvedValue('<svg xmlns="http://www.w3.org/2000/svg"><rect/></svg>')
-    finalize = vi.fn()
-  },
-}))
-
-vi.mock("vega-lite", () => ({
-  compile: vi.fn(() => ({ spec: {} })),
-}))
-
+// Deliberately unmocked. Charts render through a real worker thread running real vega and
+// vega-lite: mocking them previously hid a regression where every exported chart came out
+// blank because vega.parse was not asked for expression ASTs.
 import { markdownToPdfHtml } from "../markdown-to-pdf-html"
 
 describe("markdownToPdfHtml", () => {
@@ -63,11 +54,107 @@ describe("markdownToPdfHtml", () => {
     expect(html).toContain("<svg")
   })
 
-  it("leaves invalid vega-lite specs as code blocks", async () => {
+  it("renders real chart content, not an empty SVG", async () => {
+    const spec = JSON.stringify({
+      data: { values: [{ quarter: "Q1", revenue: 10 }, { quarter: "Q2", revenue: 20 }] },
+      mark: "bar",
+      encoding: {
+        x: { field: "quarter", type: "nominal" },
+        y: { field: "revenue", type: "quantitative" },
+      },
+    })
+    const html = await markdownToPdfHtml("```vega-lite\n" + spec + "\n```")
+
+    expect(html).toContain('class="vega-chart"')
+    // Axis labels only appear when expressions actually evaluated.
+    expect(html).toContain("Q1")
+    expect(html).toContain("Q2")
+    expect(html).toMatch(/<(path|rect)/)
+  })
+
+  it("renders charts that depend on Vega expressions", async () => {
+    const spec = JSON.stringify({
+      data: { values: [{ x: 1 }, { x: 2 }, { x: 3 }] },
+      transform: [{ calculate: "datum.x * 10", as: "scaled" }],
+      mark: "point",
+      encoding: {
+        x: { field: "x", type: "quantitative" },
+        y: { field: "scaled", type: "quantitative" },
+      },
+    })
+    const html = await markdownToPdfHtml("```vega-lite\n" + spec + "\n```")
+
+    expect(html).toContain('class="vega-chart"')
+    expect(html).toMatch(/<(path|circle)/)
+  })
+
+  it("resolves workspace-relative data urls through the supplied reader", async () => {
+    const spec = JSON.stringify({
+      data: { url: "data/revenue.csv", format: { type: "csv" } },
+      mark: "bar",
+      encoding: {
+        x: { field: "quarter", type: "nominal" },
+        y: { field: "revenue", type: "quantitative" },
+      },
+    })
+    const reads: string[] = []
+    const html = await markdownToPdfHtml("```vega-lite\n" + spec + "\n```", {
+      readWorkspaceData: async (dataPath) => {
+        reads.push(dataPath)
+        return "quarter,revenue\nQ1,10\nQ2,20\n"
+      },
+    })
+
+    expect(reads).toEqual(["data/revenue.csv"])
+    expect(html).toContain('class="vega-chart"')
+    expect(html).toContain("Q1")
+  })
+
+  it("refuses remote data urls and workspace escapes", async () => {
+    for (const url of ["https://evil.example.com/x.csv", "../../etc/passwd"]) {
+      const spec = JSON.stringify({
+        data: { url, format: { type: "csv" } },
+        mark: "bar",
+        encoding: { x: { field: "a", type: "nominal" } },
+      })
+      const html = await markdownToPdfHtml("```vega-lite\n" + spec + "\n```", {
+        readWorkspaceData: async () => "a\n1\n",
+      })
+
+      expect(html).not.toContain('class="vega-chart"')
+      expect(html).toContain("<code")
+    }
+  })
+
+  it("leaves specs Vega-Lite cannot compile as code blocks", async () => {
     const md = '```vega-lite\n{"invalid": true}\n```'
     const html = await markdownToPdfHtml(md)
     expect(html).not.toContain('class="vega-chart"')
     expect(html).toContain("<code")
+  })
+
+  it("leaves non-JSON vega-lite blocks as code blocks", async () => {
+    const html = await markdownToPdfHtml("```vega-lite\nnot json\n```")
+    expect(html).not.toContain('class="vega-chart"')
+    expect(html).toContain("<code")
+  })
+
+  it("renders multi-view and geographic specs the old allowlist rejected", async () => {
+    const enc = { x: { field: "x", type: "quantitative" }, y: { field: "x", type: "quantitative" } }
+
+    for (const spec of [
+      { data: { values: [{ x: 1 }] }, hconcat: [{ mark: "bar", encoding: enc }, { mark: "line", encoding: enc }] },
+      { data: { values: [{ x: 1 }] }, mark: "geoshape", projection: { type: "albersUsa" } },
+      {
+        data: { values: [{ a: 1, b: 2 }] },
+        repeat: { column: ["a", "b"] },
+        spec: { mark: "point", encoding: { x: { field: { repeat: "column" }, type: "quantitative" } } },
+      },
+      { data: { values: [{ x: 1 }] }, mark: "boxplot", encoding: { x: { field: "x", type: "quantitative" } } },
+    ]) {
+      const html = await markdownToPdfHtml("```vega-lite\n" + JSON.stringify(spec) + "\n```")
+      expect(html).toContain('class="vega-chart"')
+    }
   })
 
   it("inlines KaTeX CSS in the head", async () => {
