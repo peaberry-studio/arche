@@ -2,6 +2,8 @@ import { normalizeWorkspacePath } from '@/lib/workspace-paths'
 
 const URL_SCHEME_PATTERN = /^([a-z][a-z0-9+.-]*):/
 
+export const MAX_WORKSPACE_CHART_DATA_BYTES = 8 * 1024 * 1024
+
 /**
  * Browsers strip control characters before parsing a URL scheme, so `java\nscript:` has
  * to be read as `javascript:` here too. Every scheme decision in the app goes through
@@ -29,7 +31,7 @@ export function isInlineImageUri(value: string): boolean {
  * article without the app ever making an outbound request on the spec's behalf.
  */
 export function workspaceDataUrl(slug: string, path: string): string {
-  return `/api/w/${encodeURIComponent(slug)}/files/download?path=${encodeURIComponent(path)}`
+  return `/api/w/${encodeURIComponent(slug)}/files/download?path=${encodeURIComponent(path)}&chart=1`
 }
 
 /**

@@ -2,7 +2,10 @@ import { Worker } from "node:worker_threads"
 
 import type { Config } from "vega-embed"
 
-import { resolveWorkspaceDataPath } from "@/lib/vega-data-path"
+import {
+  MAX_WORKSPACE_CHART_DATA_BYTES,
+  resolveWorkspaceDataPath,
+} from "@/lib/vega-data-path"
 import type { SanitizedChart } from "@/lib/vega/sanitize-spec"
 import {
   decodeWorkspaceFileText,
@@ -35,7 +38,21 @@ const { expressionInterpreter } = await import('vega-interpreter')
 
 function createFileLoader(files) {
   const loader = vega.loader()
-  loader.sanitize = async (uri) => ({ href: String(uri) })
+  const defaultSanitize = loader.sanitize.bind(loader)
+  loader.sanitize = async (uri, options) => {
+    const rawUri = String(uri)
+    const normalized = rawUri.replace(/[\\u0000-\\u001f\\u007f]/g, '').trim().toLowerCase()
+    const scheme = /^([a-z][a-z0-9+.-]*):/.exec(normalized)?.[1] ?? null
+
+    if (options?.context === 'href' && scheme && !['http', 'https', 'mailto'].includes(scheme)) {
+      throw new Error('Unsupported chart link scheme: ' + scheme)
+    }
+    if (options?.context === 'image' && !normalized.startsWith('data:image/')) {
+      throw new Error('Only inline data images are available during PDF export.')
+    }
+
+    return defaultSanitize(rawUri, options)
+  }
   loader.http = async (uri) => { throw new Error('Network access is not available to chart specs: ' + uri) }
   loader.file = async (uri) => { throw new Error('File access is not available to chart specs: ' + uri) }
   loader.load = async (uri) => {
@@ -60,7 +77,11 @@ try {
     loader: createFileLoader(files),
   })
   try {
-    parentPort.postMessage({ ok: true, svg: await view.toSVG() })
+    const svg = await view.toSVG()
+    if (svg.length > 16 * 1024 * 1024) {
+      throw new Error('Rendered chart SVG exceeds the 16 MB output limit.')
+    }
+    parentPort.postMessage({ ok: true, svg })
   } finally {
     view.finalize()
   }
@@ -70,11 +91,19 @@ try {
 `
 
 /** Reads a workspace-relative file for a chart \`data.url\`; null when unavailable. */
-export type WorkspaceDataReader = (path: string) => Promise<string | null>
+export type WorkspaceDataReader = (
+  path: string,
+  signal?: AbortSignal,
+) => Promise<string | null>
 
-// Mirrors the sanitizer's 8 MB spec budget: a spec must not be able to dodge its cost
-// bound simply by moving the data into a referenced file.
-const MAX_CHART_DATA_BYTES = 8 * 1024 * 1024
+const MAX_REFERENCED_DATA_FILES = 16
+const WORKER_MEMORY_LIMIT_MB = 256
+
+function abortReason(signal: AbortSignal): Error {
+  return signal.reason instanceof Error
+    ? signal.reason
+    : new Error("Chart data loading was cancelled.")
+}
 
 /**
  * Builds the canonical WorkspaceDataReader for a workspace. Validation and decoding match
@@ -83,18 +112,18 @@ const MAX_CHART_DATA_BYTES = 8 * 1024 * 1024
  * An oversized file throws: the caller degrades that chart to a code block, not the export.
  */
 export function createWorkspaceDataReader(slug: string): WorkspaceDataReader {
-  return async (dataPath) => {
+  return async (dataPath, signal) => {
     if (!isValidWorkspacePath(dataPath)) return null
 
-    const dataResult = await readWorkspaceFile(slug, dataPath)
+    const dataResult = await readWorkspaceFile(slug, dataPath, signal)
     if (!dataResult.ok) return null
 
     const decoded = decodeWorkspaceFileText(dataResult.data)
     if (decoded === null) return null
 
-    if (Buffer.byteLength(decoded, "utf-8") > MAX_CHART_DATA_BYTES) {
+    if (Buffer.byteLength(decoded, "utf-8") > MAX_WORKSPACE_CHART_DATA_BYTES) {
       throw new Error(
-        `Chart data file ${dataPath} exceeds the ${MAX_CHART_DATA_BYTES / (1024 * 1024)} MB limit.`,
+        `Chart data file ${dataPath} exceeds the ${MAX_WORKSPACE_CHART_DATA_BYTES / (1024 * 1024)} MB limit.`,
       )
     }
 
@@ -111,22 +140,37 @@ export function createWorkspaceDataReader(slug: string): WorkspaceDataReader {
 async function loadReferencedFiles(
   dataUrls: readonly string[],
   readWorkspaceData?: WorkspaceDataReader,
+  signal?: AbortSignal,
 ): Promise<Record<string, string>> {
   if (dataUrls.length === 0) return {}
 
   if (!readWorkspaceData) {
     throw new Error("This chart references workspace data, which is unavailable in this context.")
   }
+  if (dataUrls.length > MAX_REFERENCED_DATA_FILES) {
+    throw new Error(`A chart may reference at most ${MAX_REFERENCED_DATA_FILES} workspace data files.`)
+  }
 
   const files: Record<string, string> = {}
+  let totalBytes = 0
 
   for (const uri of dataUrls) {
+    if (signal?.aborted) throw abortReason(signal)
+
     const path = resolveWorkspaceDataPath(uri)
     if (!path) throw new Error(`Blocked a data URL that escapes the workspace: ${uri}`)
 
-    const content = await readWorkspaceData(path)
+    const content = await readWorkspaceData(path, signal)
+    if (signal?.aborted) throw abortReason(signal)
     if (content === null) {
       throw new Error(`Workspace file referenced by a chart spec could not be read: ${path}`)
+    }
+
+    totalBytes += Buffer.byteLength(content, "utf-8")
+    if (totalBytes > MAX_WORKSPACE_CHART_DATA_BYTES) {
+      throw new Error(
+        `Chart data files exceed the ${MAX_WORKSPACE_CHART_DATA_BYTES / (1024 * 1024)} MB aggregate limit.`,
+      )
     }
 
     files[uri] = content
@@ -149,10 +193,30 @@ export async function renderVegaLiteToSvgInWorker(input: {
   const expired = () =>
     new Error(`Chart rendering exceeded ${Math.round(input.timeoutMs / 1000)}s and was cancelled.`)
 
-  const files = await Promise.race([
-    loadReferencedFiles(input.chart.dataUrls, input.readWorkspaceData),
-    new Promise<never>((_, reject) => setTimeout(() => reject(expired()), input.timeoutMs).unref?.()),
-  ])
+  const abortController = new AbortController()
+  let loadTimer: ReturnType<typeof setTimeout> | undefined
+  const loadTimeout = new Promise<never>((_, reject) => {
+    loadTimer = setTimeout(() => {
+      const error = expired()
+      reject(error)
+      abortController.abort(error)
+    }, input.timeoutMs)
+    loadTimer.unref?.()
+  })
+
+  let files: Record<string, string>
+  try {
+    files = await Promise.race([
+      loadReferencedFiles(
+        input.chart.dataUrls,
+        input.readWorkspaceData,
+        abortController.signal,
+      ),
+      loadTimeout,
+    ])
+  } finally {
+    if (loadTimer) clearTimeout(loadTimer)
+  }
 
   const remainingMs = deadline - Date.now()
   if (remainingMs <= 0) throw expired()
@@ -162,6 +226,10 @@ export async function renderVegaLiteToSvgInWorker(input: {
     workerData: { spec: input.chart.spec, config: input.config, files },
     // The worker only computes; it has no reason to see the process environment.
     env: {},
+    resourceLimits: {
+      maxOldGenerationSizeMb: WORKER_MEMORY_LIMIT_MB,
+      stackSizeMb: 4,
+    },
   })
 
   try {

@@ -73,7 +73,7 @@ describe("createWorkspaceDataReader", () => {
     const read = createWorkspaceDataReader("my-space")
 
     await expect(read("data/rev.csv")).resolves.toBe("quarter,revenue\nQ1,10\n")
-    expect(readWorkspaceFileMock).toHaveBeenCalledWith("my-space", "data/rev.csv")
+    expect(readWorkspaceFileMock).toHaveBeenCalledWith("my-space", "data/rev.csv", undefined)
   })
 
   it("decodes base64 exactly as the browser's download route does", async () => {
@@ -134,7 +134,7 @@ describe("renderVegaLiteToSvgInWorker", () => {
   it("terminates a spec whose synchronous render blows the budget", async () => {
     // A wide repeat product: only a few hundred rows, so no row budget can see it, and
     // the work is entirely synchronous. A timer alone could never interrupt this.
-    const fields = Array.from({ length: 40 }, (_, i) => `f${i}`)
+    const fields = Array.from({ length: 20 }, (_, i) => `f${i}`)
     const values = Array.from({ length: 400 }, () =>
       Object.fromEntries(fields.map((f) => [f, Math.random()])),
     )
@@ -154,7 +154,7 @@ describe("renderVegaLiteToSvgInWorker", () => {
           },
         }),
         config: {},
-        timeoutMs: 1_500,
+        timeoutMs: 500,
       }),
     ).rejects.toThrow(/exceeded 2s and was cancelled|exceeded 1s and was cancelled/)
 
@@ -178,6 +178,62 @@ describe("renderVegaLiteToSvgInWorker", () => {
     })
 
     expect(svg).toContain("Q1")
+  })
+
+  it("aborts workspace reads when the chart deadline expires", async () => {
+    let aborted = false
+
+    await expect(
+      renderVegaLiteToSvgInWorker({
+        chart: chartOf({ data: { url: "data/slow.csv" }, mark: "bar", encoding }),
+        config: {},
+        timeoutMs: 30,
+        readWorkspaceData: async (_path, signal) =>
+          new Promise<string>((resolve, reject) => {
+            const timer = setTimeout(() => resolve("x\n1\n"), 1_000)
+            signal?.addEventListener("abort", () => {
+              clearTimeout(timer)
+              aborted = true
+              reject(signal.reason)
+            })
+          }),
+      }),
+    ).rejects.toThrow(/exceeded/)
+
+    expect(aborted).toBe(true)
+  })
+
+  it("bounds referenced workspace data in aggregate", async () => {
+    await expect(
+      renderVegaLiteToSvgInWorker({
+        chart: chartOf({
+          layer: [
+            { data: { url: "a.csv" }, mark: "bar", encoding },
+            { data: { url: "b.csv" }, mark: "bar", encoding },
+          ],
+        }),
+        config: {},
+        timeoutMs: 20_000,
+        readWorkspaceData: async () => "x".repeat(5 * 1024 * 1024),
+      }),
+    ).rejects.toThrow(/aggregate limit/)
+  })
+
+  it("rejects data-driven unsafe links in exported SVG", async () => {
+    await expect(
+      renderVegaLiteToSvgInWorker({
+        chart: chartOf({
+          data: { values: [{ x: 1, href: "javascript:alert(1)" }] },
+          mark: "point",
+          encoding: {
+            x: { field: "x", type: "quantitative" },
+            href: { field: "href", type: "nominal" },
+          },
+        }),
+        config: {},
+        timeoutMs: 20_000,
+      }),
+    ).rejects.toThrow()
   })
 
   it("refuses a data url that escapes the workspace", async () => {

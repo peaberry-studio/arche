@@ -84,12 +84,13 @@ describe('visualization cards', () => {
       mode: 'vega-lite',
       renderer: 'svg',
     })
-    // The Vega editor action would POST the spec and its inline data off-origin.
+    // Source actions serialize attacker-controlled specs into popup documents; the
+    // editor action would also POST the spec and its inline data off-origin.
     expect(embedOptions?.actions).toEqual({
-      compiled: true,
+      compiled: false,
       editor: false,
       export: true,
-      source: true,
+      source: false,
     })
     expect(embedOptions?.tooltip).toMatchObject({ sanitize: expect.any(Function) })
     expect(embedOptions?.config).toMatchObject({

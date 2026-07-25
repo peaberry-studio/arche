@@ -40,12 +40,12 @@ describe('isAbsoluteUri', () => {
 describe('workspaceDataUrl', () => {
   it('builds a same-origin URL against the workspace file route', () => {
     expect(workspaceDataUrl('my-space', 'data/latency.csv'))
-      .toBe('/api/w/my-space/files/download?path=data%2Flatency.csv')
+      .toBe('/api/w/my-space/files/download?path=data%2Flatency.csv&chart=1')
   })
 
   it('encodes slugs and paths', () => {
     expect(workspaceDataUrl('a b', 'dir name/file .csv'))
-      .toBe('/api/w/a%20b/files/download?path=dir%20name%2Ffile%20.csv')
+      .toBe('/api/w/a%20b/files/download?path=dir%20name%2Ffile%20.csv&chart=1')
   })
 })
 

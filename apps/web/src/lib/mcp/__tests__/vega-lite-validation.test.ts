@@ -70,6 +70,22 @@ describe('validateVegaLiteSpec', () => {
     expect(result).toMatchObject({ ok: false, error: 'rejected' })
   })
 
+  it('rejects repeat products that would monopolize compilation', async () => {
+    const fields = Array.from({ length: 21 }, (_, i) => `f${i}`)
+    const result = await validateVegaLiteSpec(JSON.stringify({
+      repeat: { row: fields, column: fields },
+      spec: {
+        mark: 'point',
+        encoding: {
+          x: { field: { repeat: 'column' }, type: 'quantitative' },
+          y: { field: { repeat: 'row' }, type: 'quantitative' },
+        },
+      },
+    }))
+
+    expect(result).toMatchObject({ ok: false, error: 'rejected' })
+  })
+
   it('reports what the security pass stripped', async () => {
     const result = await validateVegaLiteSpec(JSON.stringify({
       data: { values: [{ x: 1, y: 2 }] },

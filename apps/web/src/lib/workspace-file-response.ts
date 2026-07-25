@@ -65,15 +65,19 @@ type ReadResult =
 export async function readWorkspaceFile(
   slug: string,
   normalizedPath: string,
+  signal?: AbortSignal,
 ): Promise<ReadResult> {
   const agent = await createWorkspaceAgentClient(slug)
   if (!agent) {
     return { ok: false, response: jsonResponse(503, { error: "instance_unavailable" }) }
   }
 
-  const response = await workspaceAgentFetch<WorkspaceAgentReadResponse>(agent, "/files/read", {
-    path: normalizedPath,
-  })
+  const response = await workspaceAgentFetch<WorkspaceAgentReadResponse>(
+    agent,
+    "/files/read",
+    { path: normalizedPath },
+    { signal },
+  )
 
   if (!response.ok) {
     return {

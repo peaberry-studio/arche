@@ -47,7 +47,7 @@ type VegaFigureProps = {
 export function VegaFigure({ chart, className, errorMessage, workspaceSlug }: VegaFigureProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [error, setError] = useState<RenderError | null>(null)
-  const { spec, warnings, inlineRows } = chart
+  const { spec, warnings, inlineRows, dataUrls } = chart
 
   useEffect(() => {
     const container = containerRef.current
@@ -65,9 +65,9 @@ export function VegaFigure({ chart, className, errorMessage, workspaceSlug }: Ve
         const theme = resolveVisualizationTheme()
 
         const options: EmbedOptions = {
-          // Export and view-source are read-only and useful. The Vega editor action is
-          // deliberately off: it POSTs the spec and its inline data to an external site.
-          actions: { compiled: true, editor: false, export: true, source: true },
+          // Keep local image export, but disable actions that serialize the spec into a
+          // popup document or POST it and its inline data to an external site.
+          actions: { compiled: false, editor: false, export: true, source: false },
           ast: true,
           config: buildVegaConfig(theme),
           // vega-embed scopes its stylesheet under `.vega-embed`; without it the actions
@@ -75,7 +75,8 @@ export function VegaFigure({ chart, className, errorMessage, workspaceSlug }: Ve
           defaultStyle: true,
           hover: true,
           mode: 'vega-lite',
-          renderer: inlineRows > CANVAS_ROW_THRESHOLD ? 'canvas' : 'svg',
+          renderer:
+            inlineRows > CANVAS_ROW_THRESHOLD || dataUrls.length > 0 ? 'canvas' : 'svg',
           tooltip: {
             sanitize: escapeTooltipValue,
             theme: theme.isDark ? 'dark' : 'light',
@@ -112,7 +113,7 @@ export function VegaFigure({ chart, className, errorMessage, workspaceSlug }: Ve
       finalize?.()
       if (container) container.innerHTML = ''
     }
-  }, [spec, inlineRows, errorMessage, workspaceSlug])
+  }, [spec, inlineRows, dataUrls.length, errorMessage, workspaceSlug])
 
   return (
     <div className={className}>

@@ -60,6 +60,22 @@ describe('VegaFigure', () => {
     expect(embedMock.mock.calls[0]?.[2]).toMatchObject({ renderer: 'svg' })
   })
 
+  it('uses canvas when the row count of workspace data is unknown', async () => {
+    render(<VegaFigure chart={chartOf({ dataUrls: ['data/large.csv'] })} />)
+
+    await waitFor(() => expect(embedMock).toHaveBeenCalled())
+    expect(embedMock.mock.calls[0]?.[2]).toMatchObject({ renderer: 'canvas' })
+  })
+
+  it('does not enable vega-embed source popups', async () => {
+    render(<VegaFigure chart={chartOf()} />)
+
+    await waitFor(() => expect(embedMock).toHaveBeenCalled())
+    expect(embedMock.mock.calls[0]?.[2]).toMatchObject({
+      actions: { compiled: false, editor: false, export: true, source: false },
+    })
+  })
+
   it('passes no loader when there is no workspace', async () => {
     render(<VegaFigure chart={chartOf()} />)
 
@@ -76,7 +92,7 @@ describe('VegaFigure', () => {
     }
 
     expect(await loader.sanitize('data/latency.csv', {})).toEqual({
-      href: '/api/w/my-space/files/download?path=data%2Flatency.csv',
+      href: '/api/w/my-space/files/download?path=data%2Flatency.csv&chart=1',
     })
   })
 

@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server"
 
 import { withAuth } from "@/lib/runtime/with-auth"
+import { MAX_WORKSPACE_CHART_DATA_BYTES } from "@/lib/vega-data-path"
 import {
   inferAttachmentMimeType,
   sanitizeAttachmentFilename,
@@ -31,6 +32,12 @@ export const GET = withAuth<{ error: string }>(
     const content = decodeWorkspaceFileContent(result.data)
     if (!content) {
       return jsonResponse(502, { error: "invalid_file_content" })
+    }
+    if (
+      requestUrl.searchParams.get("chart") === "1" &&
+      content.byteLength > MAX_WORKSPACE_CHART_DATA_BYTES
+    ) {
+      return jsonResponse(413, { error: "file_too_large" })
     }
 
     const filename = normalizedPath.split("/").pop() ?? "download"

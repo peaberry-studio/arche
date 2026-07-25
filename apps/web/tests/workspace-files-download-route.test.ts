@@ -20,10 +20,11 @@ function session(slug: string, role: Role = "USER") {
   }
 }
 
-async function callDownload(path: string, slug = "alice") {
+async function callDownload(path: string, slug = "alice", chart = false) {
   const { GET } = await import("@/app/api/w/[slug]/files/download/route")
+  const chartQuery = chart ? "&chart=1" : ""
   const request = new Request(
-    `http://localhost/api/w/${slug}/files/download?path=${encodeURIComponent(path)}`
+    `http://localhost/api/w/${slug}/files/download?path=${encodeURIComponent(path)}${chartQuery}`
   )
   const response = await GET(request as never, { params: Promise.resolve({ slug }) })
 
@@ -95,6 +96,32 @@ describe("workspace file download route", () => {
     expect(response.headers.get("Content-Disposition")).toContain(
       'attachment; filename="notes.md"'
     )
+  })
+
+  it("rejects oversized files requested as chart data", async () => {
+    mockGetAuthenticatedUser.mockResolvedValue(session("alice"))
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            content: "x".repeat(8 * 1024 * 1024 + 1),
+            encoding: "utf-8",
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }
+        )
+      )
+    )
+
+    const response = await callDownload("data/large.csv", "alice", true)
+
+    expect(response.status).toBe(413)
+    expect(JSON.parse(response.text)).toEqual({ error: "file_too_large" })
   })
 
   it("returns 503 when the workspace agent is unavailable", async () => {

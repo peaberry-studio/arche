@@ -1,3 +1,4 @@
+import { compileVegaLiteSpecInWorker } from '@/lib/mcp/vega-lite-compile-worker'
 import { sanitizeVegaLiteSpec } from '@/lib/vega/sanitize-spec'
 
 export type VegaLiteValidationResult =
@@ -34,22 +35,15 @@ export async function validateVegaLiteSpec(rawSpec: string): Promise<VegaLiteVal
     return {
       ok: false,
       error: 'rejected',
-      message: 'The spec is not a JSON object, or exceeds the 8 MB / 200k inline row / 64 nesting-level budget.',
+      message:
+        'The spec is not a JSON object, or exceeds a size, row, nesting, composition, dimension, or generator budget.',
       hint: 'Split large data across several figures or articles rather than downsampling.',
     }
   }
 
-  const [vega, vegaLite] = await Promise.all([import('vega'), import('vega-lite')])
-
-  const compileWarnings: string[] = []
-  const logger = vega.logger(vega.Warn)
-  logger.warn = (...args: unknown[]) => {
-    compileWarnings.push(args.map((arg) => String(arg)).join(' '))
-    return logger
-  }
-
+  let compileWarnings: string[]
   try {
-    vegaLite.compile(sanitized.spec as unknown as Parameters<typeof vegaLite.compile>[0], { logger })
+    compileWarnings = await compileVegaLiteSpecInWorker(sanitized.spec)
   } catch (error) {
     return {
       ok: false,

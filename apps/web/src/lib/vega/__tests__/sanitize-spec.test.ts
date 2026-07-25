@@ -416,4 +416,29 @@ describe('sanitizeVegaLiteSpec: resource budgets', () => {
     for (let i = 0; i < 120; i += 1) row[`col${i}`] = i
     expect(sanitizeVegaLiteSpec({ data: { values: [row] }, mark: 'bar' })).not.toBeNull()
   })
+
+  it('bounds repeat view multiplication', () => {
+    const fields = Array.from({ length: 21 }, (_, i) => `f${i}`)
+    const unit = {
+      mark: 'point',
+      encoding: { x: { field: { repeat: 'column' }, type: 'quantitative' } },
+    }
+
+    expect(sanitizeVegaLiteSpec({
+      repeat: { row: fields, column: fields },
+      spec: unit,
+    })).toBeNull()
+    expect(sanitizeVegaLiteSpec({
+      repeat: { row: fields.slice(0, 20), column: fields.slice(0, 20) },
+      spec: unit,
+    })).not.toBeNull()
+  })
+
+  it('bounds dimensions and generated graticules', () => {
+    expect(sanitizeVegaLiteSpec({ width: 10_001, mark: 'point' })).toBeNull()
+    expect(sanitizeVegaLiteSpec({
+      data: { graticule: { stepMinor: [0.01, 0.01] } },
+      mark: 'geoshape',
+    })).toBeNull()
+  })
 })

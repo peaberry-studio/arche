@@ -14,6 +14,10 @@ export const VEGA_LITE_SCHEMA = 'https://vega.github.io/schema/vega-lite/v6.json
 const MAX_SPEC_CHARS = 8 * 1024 * 1024
 const MAX_SPEC_DEPTH = 64
 const MAX_TOTAL_ROWS = 200_000
+const MAX_REPEAT_VIEWS = 400
+const MAX_COMPOSITION_BRANCHES = 1_000
+const MAX_DIMENSION = 10_000
+const MAX_GRATICULE_LINES = 10_000
 
 const HREF_SCHEMES = new Set(['http', 'https', 'mailto'])
 
@@ -47,6 +51,99 @@ type WalkContext = {
   rows: number
   depthExceeded: boolean
   dataUrls: Set<string>
+}
+
+type ComplexityContext = {
+  compositionBranches: number
+  exceeded: boolean
+}
+
+function repeatViewCount(value: unknown): number {
+  if (Array.isArray(value)) return Math.max(value.length, 1)
+  if (!isRecord(value)) return 1
+
+  let count = 1
+  for (const key of ['row', 'column', 'layer']) {
+    const entries = value[key]
+    if (Array.isArray(entries)) count *= Math.max(entries.length, 1)
+  }
+  return count
+}
+
+function exceedsGraticuleBudget(value: unknown): boolean {
+  if (!isRecord(value)) return false
+
+  for (const key of ['step', 'stepMajor', 'stepMinor']) {
+    const step = value[key]
+    if (!Array.isArray(step) || step.length < 2) continue
+
+    const [longitude, latitude] = step
+    if (typeof longitude !== 'number' || typeof latitude !== 'number') continue
+    if (longitude <= 0 || latitude <= 0) continue
+
+    const lines = Math.ceil(360 / longitude) + Math.ceil(180 / latitude)
+    if (lines > MAX_GRATICULE_LINES) return true
+  }
+
+  return false
+}
+
+/**
+ * Vega-Lite composition can multiply a tiny input into thousands of views before row
+ * budgets become relevant. This preflight bounds that syntactic expansion, dimensions,
+ * and generated graticules without restricting which grammar features may be used.
+ */
+function inspectComplexity(
+  value: unknown,
+  repeatProduct: number,
+  context: ComplexityContext,
+): void {
+  if (context.exceeded || !value || typeof value !== 'object') return
+
+  if (Array.isArray(value)) {
+    for (const entry of value) inspectComplexity(entry, repeatProduct, context)
+    return
+  }
+
+  if (!isRecord(value)) return
+
+  const localRepeatProduct = repeatProduct * repeatViewCount(value.repeat)
+  if (localRepeatProduct > MAX_REPEAT_VIEWS) {
+    context.exceeded = true
+    return
+  }
+
+  for (const [key, entry] of Object.entries(value)) {
+    // Inline rows and named datasets are opaque user data, not specification structure.
+    if (key === 'values' || key === 'datasets') continue
+
+    if (
+      (key === 'width' || key === 'height') &&
+      typeof entry === 'number' &&
+      (!Number.isFinite(entry) || entry <= 0 || entry > MAX_DIMENSION)
+    ) {
+      context.exceeded = true
+      return
+    }
+
+    if (key === 'graticule' && exceedsGraticuleBudget(entry)) {
+      context.exceeded = true
+      return
+    }
+
+    if (
+      (key === 'layer' || key === 'concat' || key === 'hconcat' || key === 'vconcat') &&
+      Array.isArray(entry)
+    ) {
+      context.compositionBranches += entry.length
+      if (context.compositionBranches > MAX_COMPOSITION_BRANCHES) {
+        context.exceeded = true
+        return
+      }
+    }
+
+    inspectComplexity(entry, localRepeatProduct, context)
+  }
 }
 
 /**
@@ -318,6 +415,10 @@ export function sanitizeVegaLiteSpec(input: unknown): SanitizedChart | null {
     return null
   }
   if (serializedLength > MAX_SPEC_CHARS) return null
+
+  const complexity: ComplexityContext = { compositionBranches: 0, exceeded: false }
+  inspectComplexity(input, 1, complexity)
+  if (complexity.exceeded) return null
 
   const context: WalkContext = {
     warnings: new Set(),

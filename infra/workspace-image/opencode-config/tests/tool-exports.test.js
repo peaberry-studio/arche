@@ -12,7 +12,7 @@ import * as sessionHistoryTools from '../tools/session_history.js'
 import * as spreadsheetTools from '../tools/spreadsheet.js'
 
 test('tool modules only export executable tool definitions', () => {
-  assert.deepEqual(Object.keys(chartTools).sort(), ['create'])
+  assert.deepEqual(Object.keys(chartTools).sort(), ['create', 'render'])
   assert.deepEqual(Object.keys(diagramTools).sort(), ['create'])
   assert.deepEqual(Object.keys(documentTools).sort(), ['inspect'])
   assert.deepEqual(Object.keys(emailTools).sort(), ['draft'])
