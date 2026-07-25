@@ -781,12 +781,36 @@ export function WorkspaceShell({
     return normalized;
   }, [initialFilePath]);
 
-  const [openFilePaths, setOpenFilePaths] = useState<string[]>(
-    safeInitialFilePath ? [safeInitialFilePath] : []
-  );
-  const [activeFilePath, setActiveFilePath] = useState<string | null>(
-    safeInitialFilePath
-  );
+  const openFilesStorageKey = `arche.workspace.${slug}.openFiles`;
+
+  const [openFilePaths, setOpenFilePaths] = useState<string[]>(() => {
+    if (typeof window === "undefined") return safeInitialFilePath ? [safeInitialFilePath] : [];
+    try {
+      const stored = window.localStorage.getItem(openFilesStorageKey);
+      if (!stored) return safeInitialFilePath ? [safeInitialFilePath] : [];
+      const parsed = JSON.parse(stored) as { paths?: string[]; active?: string | null };
+      const paths = Array.isArray(parsed.paths) ? parsed.paths.filter((p): p is string => typeof p === "string") : [];
+      if (safeInitialFilePath && !paths.includes(safeInitialFilePath)) {
+        paths.push(safeInitialFilePath);
+      }
+      return paths.length > 0 ? paths : safeInitialFilePath ? [safeInitialFilePath] : [];
+    } catch {
+      return safeInitialFilePath ? [safeInitialFilePath] : [];
+    }
+  });
+
+  const [activeFilePath, setActiveFilePath] = useState<string | null>(() => {
+    if (safeInitialFilePath) return safeInitialFilePath;
+    if (typeof window === "undefined") return null;
+    try {
+      const stored = window.localStorage.getItem(openFilesStorageKey);
+      if (!stored) return null;
+      const parsed = JSON.parse(stored) as { paths?: string[]; active?: string | null };
+      return typeof parsed.active === "string" ? parsed.active : null;
+    } catch {
+      return null;
+    }
+  });
   const [fileCache, setFileCache] = useState<FileContentCache>({});
   const fileCacheRef = useRef(fileCache);
 
@@ -811,22 +835,55 @@ export function WorkspaceShell({
   }, [activeFilePath, isKnowledgeMode, slug]);
 
   useEffect(() => {
-    if (!safeInitialFilePath || fileCacheRef.current[safeInitialFilePath]) return;
-    void readWorkspaceFile(safeInitialFilePath).then((result) => {
-      if (!result) return;
-      setFileCache((prev) => ({
-        ...prev,
-        [safeInitialFilePath]: {
-          content: result.content,
-          type: result.type,
-          title: safeInitialFilePath.split("/").pop() ?? safeInitialFilePath,
-          updatedAt: "Just now",
-          size: `${(result.content.length / 1024).toFixed(1)} KB`,
-          hash: result.hash,
-        },
-      }));
+    if (typeof window === "undefined") return;
+    try {
+      if (openFilePaths.length === 0) {
+        window.localStorage.removeItem(openFilesStorageKey);
+      } else {
+        window.localStorage.setItem(
+          openFilesStorageKey,
+          JSON.stringify({ paths: openFilePaths, active: activeFilePath })
+        );
+      }
+    } catch {
+      // ignore storage errors
+    }
+  }, [openFilePaths, activeFilePath, openFilesStorageKey]);
+
+  const initialOpenFilePathsRef = useRef(openFilePaths);
+  useEffect(() => {
+    const pathsToLoad = initialOpenFilePathsRef.current.filter(
+      (p) => !fileCacheRef.current[p]
+    );
+    if (pathsToLoad.length === 0) return;
+    void Promise.all(
+      pathsToLoad.map((filePath) =>
+        readWorkspaceFile(filePath).then((result) => {
+          if (!result) return null;
+          return { filePath, result };
+        })
+      )
+    ).then((results) => {
+      const loaded = results.filter(
+        (r): r is NonNullable<typeof r> => r !== null
+      );
+      if (loaded.length === 0) return;
+      setFileCache((prev) => {
+        const next = { ...prev };
+        for (const { filePath, result } of loaded) {
+          next[filePath] = {
+            content: result.content,
+            type: result.type,
+            title: filePath.split("/").pop() ?? filePath,
+            updatedAt: "Just now",
+            size: `${(result.content.length / 1024).toFixed(1)} KB`,
+            hash: result.hash,
+          };
+        }
+        return next;
+      });
     });
-  }, [safeInitialFilePath, readWorkspaceFile]);
+  }, [readWorkspaceFile]);
 
   const refreshOpenFilesCache = useCallback(async () => {
     if (openFilePaths.length === 0) return;
