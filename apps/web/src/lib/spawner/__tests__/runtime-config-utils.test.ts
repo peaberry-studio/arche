@@ -1,6 +1,37 @@
 import { describe, expect, it } from 'vitest'
 
-import { withLinkedRepositories } from '@/lib/spawner/runtime-config-utils'
+import { withLinkedRepositories, withWorkspacePermissionGuards } from '@/lib/spawner/runtime-config-utils'
+
+describe('withWorkspacePermissionGuards', () => {
+  it('overrides workspace attempts to permit OpenCode configuration edits and shell commands', () => {
+    const config = withWorkspacePermissionGuards({
+      permission: {
+        bash: 'ask',
+        edit: {
+          '**/.opencode/**': 'allow',
+          'notes/**': 'allow',
+        },
+      },
+    })
+    const permission = config.permission as {
+      bash: Record<string, string>
+      edit: Record<string, string>
+    }
+
+    expect(permission.edit).toMatchObject({
+      '.opencode': 'deny',
+      '.opencode/**': 'deny',
+      '**/.opencode': 'deny',
+      '**/.opencode/**': 'deny',
+      'notes/**': 'allow',
+    })
+    expect(permission.bash).toMatchObject({
+      '*': 'ask',
+      '*.opencode': 'deny',
+      '*.opencode/*': 'deny',
+    })
+  })
+})
 
 describe('withLinkedRepositories', () => {
   it('returns the original instructions when no repositories are linked', () => {

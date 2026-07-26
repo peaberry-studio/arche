@@ -110,6 +110,8 @@ describe('createDefaultCommonWorkspaceConfig', () => {
     expect(validateCommonWorkspaceConfig(config)).toEqual({ ok: true })
     expect(config.default_agent).toBe('assistant')
     expect(config.agent?.assistant?.mode).toBe('primary')
+    expect(config.agent?.assistant?.steps).toBe(120)
+    expect(config.agent?.assistant?.permission).toMatchObject({ doom_loop: 'deny' })
   })
 })
 

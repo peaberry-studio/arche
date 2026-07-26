@@ -180,6 +180,41 @@ describe('session-execution extended', () => {
       ])
     })
 
+    it('does not confirm termination while a discovered child remains busy', async () => {
+      vi.useFakeTimers()
+
+      try {
+        const abort = vi.fn().mockResolvedValue({ data: true })
+        const children = vi.fn()
+          .mockResolvedValueOnce({ data: [{ id: 'child-1' }] })
+          .mockResolvedValueOnce({ data: [] })
+        const status = vi.fn().mockResolvedValue({
+          data: {
+            'child-1': { type: 'busy' },
+            'session-1': { type: 'idle' },
+          },
+        })
+
+        const { abortSessionFamilyAndConfirmIdle } = await import('@/lib/opencode/session-execution')
+        const promise = abortSessionFamilyAndConfirmIdle({
+          client: { session: { abort, children, status } } as Parameters<
+            typeof abortSessionFamilyAndConfirmIdle
+          >[0]['client'],
+          rootSessionId: 'session-1',
+        })
+
+        await vi.advanceTimersByTimeAsync(10_000)
+
+        await expect(promise).resolves.toBe(false)
+        expect(abort.mock.calls.map(([input]) => input.sessionID)).toEqual([
+          'child-1',
+          'session-1',
+        ])
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
     it('does not confirm termination when descendant discovery fails', async () => {
       const abort = vi.fn().mockResolvedValue({ data: true })
       const children = vi.fn().mockRejectedValue(new Error('children unavailable'))

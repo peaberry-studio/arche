@@ -271,7 +271,24 @@ export function useWorkspaceMessageActions({
       })
     );
     abortSessionStream(currentActiveSessionId);
-    await abortSessionAction(slug, currentActiveSessionId);
+    const abortResult = await abortSessionAction(slug, currentActiveSessionId);
+    if (!abortResult.ok && abortResult.error === "execution_termination_unconfirmed") {
+      updateSessionMessages(currentActiveSessionId, (prev) =>
+        prev.map((message) => {
+          if (
+            message.role !== "assistant" ||
+            message.statusInfo?.detail !== "cancelled"
+          ) {
+            return message;
+          }
+
+          return {
+            ...message,
+            statusInfo: { status: "error", detail: abortResult.error },
+          };
+        })
+      );
+    }
   }, [abortSessionStream, activeSessionIdRef, slug, updateSessionMessages]);
 
   return {

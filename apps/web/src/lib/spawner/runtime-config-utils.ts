@@ -19,6 +19,7 @@ const WORKSPACE_BASH_DENY_RULES: Record<string, 'deny'> = {
   '*.gitignore*': 'deny',
   '*.gitkeep*': 'deny',
   '*opencode.json*': 'deny',
+  '*.opencode': 'deny',
   '*.opencode/*': 'deny',
   '*AGENTS.md*': 'deny',
   '*agents.md*': 'deny',

@@ -56,6 +56,26 @@ describe('applyAgentExecutionGuards', () => {
     expect(agents.worker.steps).toBe(20)
   })
 
+  it('uses safe caps for invalid limits and denies delegation without an explicit tools map', () => {
+    const config = {
+      default_agent: 'assistant',
+      agent: {
+        assistant: { steps: 0 },
+        worker: { mode: 'subagent', steps: '20' },
+      },
+    }
+
+    const result = applyAgentExecutionGuards(config)
+    const agents = result.agent as Record<string, Record<string, unknown>>
+
+    expect(agents.assistant.steps).toBe(120)
+    expect(agents.worker.steps).toBe(40)
+    expect(agents.worker.permission).toMatchObject({
+      doom_loop: 'deny',
+      task: 'deny',
+    })
+  })
+
   it('prevents delegation instructions for agents without task access', () => {
     const config = {
       default_agent: 'assistant',
