@@ -876,13 +876,17 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     try {
       mocks.createUpstreamSessionStatusReader.mockReturnValue(vi.fn().mockResolvedValue(null))
       mocks.getSilentStreamOutcome.mockReturnValue('stream_timeout')
-      vi.stubGlobal('fetch', vi.fn((url: string | URL) => {
+      const fetchMock = vi.fn((url: string | URL) => {
         if (String(url) === 'http://test-slug:3000/event') {
           return Promise.resolve(new Response(new ReadableStream<Uint8Array>(), { status: 200 }))
         }
+        if (String(url) === 'http://test-slug:3000/session/s1/abort') {
+          return Promise.resolve(new Response(null, { status: 200 }))
+        }
 
         return Promise.reject(new Error(`unexpected fetch ${String(url)}`))
-      }))
+      })
+      vi.stubGlobal('fetch', fetchMock)
 
       const { POST } = await import('../route')
       const res = await POST(makePostRequest({ sessionId: 's1', runId: 'run-1' }), params())
@@ -893,6 +897,13 @@ describe('POST /api/w/[slug]/chat/stream', () => {
 
       expect(text).toContain('stream_timeout')
       expect(mocks.messageRunService.markRunFailed).toHaveBeenCalledWith('run-1', 'stream_timeout')
+      expect(fetchMock).toHaveBeenCalledWith(
+        'http://test-slug:3000/session/s1/abort',
+        {
+          method: 'POST',
+          headers: { Authorization: 'Basic b3BlbmNvZGU6c2VjcmV0' },
+        },
+      )
     } finally {
       vi.useRealTimers()
     }

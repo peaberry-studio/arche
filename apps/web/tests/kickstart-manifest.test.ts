@@ -83,7 +83,12 @@ describe('kickstart artifact generation', () => {
 
     const config = JSON.parse(built.artifacts.configContent) as {
       default_agent: string
-      agent: Record<string, { mode: string; prompt: string }>
+      agent: Record<string, {
+        mode: string
+        permission: Record<string, string>
+        prompt: string
+        steps: number
+      }>
     }
 
     expect(config.default_agent).toBe('assistant')
@@ -91,6 +96,13 @@ describe('kickstart artifact generation', () => {
       'assistant',
       'knowledge-curator',
     ])
+    expect(config.agent.assistant.steps).toBe(120)
+    expect(config.agent.assistant.permission.doom_loop).toBe('deny')
+    expect(config.agent['knowledge-curator'].steps).toBe(40)
+    expect(config.agent['knowledge-curator'].permission).toMatchObject({
+      doom_loop: 'deny',
+      task: 'deny',
+    })
 
     const profileFile = built.artifacts.kbFiles.find(
       (file) => file.path === 'Company/00 - Company Profile.md'

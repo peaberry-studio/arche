@@ -15,6 +15,7 @@ const RUN_TIMEOUT_MS = 30 * 60 * 1000
 const ACTIVITY_TOUCH_INTERVAL_MS = 20_000
 const INSTANCE_START_POLL_INTERVAL_MS = 2_000
 const IDLE_WITHOUT_ASSISTANT_GRACE_MS = 15_000
+const ABORT_CONFIRMATION_TIMEOUT_MS = 10_000
 
 export type SessionExecutionClient = NonNullable<Awaited<ReturnType<typeof createInstanceClient>>>
 export type SessionMessageCursor = {
@@ -138,6 +139,26 @@ function recordSessionRunUsageBestEffort(input: {
     source: usageInput.source,
     userId: usageInput.userId,
   }, '[opencode/session-execution]')
+}
+
+async function recordLatestSessionRunUsageBestEffort(input: {
+  client: SessionExecutionClient
+  cursor?: SessionMessageCursor
+  sessionId: string
+  usage?: SessionRunUsageInput
+}): Promise<void> {
+  if (!input.usage) return
+
+  const response = await input.client.session.messages(
+    { sessionID: input.sessionId },
+    { throwOnError: true },
+  ).catch(() => null)
+  if (!response) return
+
+  recordSessionRunUsageBestEffort({
+    messages: getMessagesSinceCursor(response.data, input.cursor),
+    usage: input.usage,
+  })
 }
 
 function firstString(values: unknown[]): string | null {
@@ -355,6 +376,71 @@ export async function createSessionPromptRun(params: {
   })
 }
 
+async function listDescendantSessionIds(
+  client: SessionExecutionClient,
+  rootSessionId: string,
+): Promise<string[]> {
+  const sessionIds = [rootSessionId]
+  const visited = new Set(sessionIds)
+
+  for (let index = 0; index < sessionIds.length; index += 1) {
+    const parentSessionId = sessionIds[index]
+    let response: Awaited<ReturnType<SessionExecutionClient['session']['children']>> | null = null
+    try {
+      response = await client.session.children(
+        { sessionID: parentSessionId },
+        { throwOnError: true },
+      )
+    } catch {
+      response = null
+    }
+
+    for (const child of response?.data ?? []) {
+      if (visited.has(child.id)) continue
+      visited.add(child.id)
+      sessionIds.push(child.id)
+    }
+  }
+
+  return sessionIds
+}
+
+export async function abortSessionFamilyAndConfirmIdle(params: {
+  client: SessionExecutionClient
+  rootSessionId: string
+}): Promise<boolean> {
+  const sessionIds = await listDescendantSessionIds(params.client, params.rootSessionId)
+
+  for (const sessionId of [...sessionIds].reverse()) {
+    await params.client.session.abort(
+      { sessionID: sessionId },
+      { throwOnError: true },
+    ).catch((error) => {
+      console.warn('[opencode/session-execution] Failed to abort session', { error, sessionId })
+    })
+  }
+
+  const deadline = Date.now() + ABORT_CONFIRMATION_TIMEOUT_MS
+  while (Date.now() < deadline) {
+    const response = await params.client.session.status({}, { throwOnError: true }).catch(() => null)
+    if (response) {
+      const allIdle = sessionIds.every((sessionId) => {
+        const status = response.data?.[sessionId]
+        return !status || status.type === 'idle'
+      })
+      if (allIdle) return true
+    }
+
+    await sleep(RUN_POLL_INTERVAL_MS)
+  }
+
+  console.warn('[opencode/session-execution] Session abort was not confirmed', {
+    rootSessionId: params.rootSessionId,
+    sessionIds,
+  })
+  return false
+}
+
 export async function waitForSessionToComplete(params: {
   client: SessionExecutionClient
   cursor?: SessionMessageCursor
@@ -375,7 +461,14 @@ export async function waitForSessionToComplete(params: {
     }
 
     const pulseFailure = await params.onPulse?.().catch(() => null)
-    if (pulseFailure) return pulseFailure
+    if (pulseFailure) {
+      await recordLatestSessionRunUsageBestEffort(params)
+      await abortSessionFamilyAndConfirmIdle({
+        client: params.client,
+        rootSessionId: params.sessionId,
+      })
+      return pulseFailure
+    }
 
     const [statusResult, messagesResult] = await Promise.all([
       params.client.session.status({}, { throwOnError: true }),
@@ -393,9 +486,7 @@ export async function waitForSessionToComplete(params: {
         continue
       }
 
-      if (!outcome) {
-        recordSessionRunUsageBestEffort({ messages, usage: params.usage })
-      }
+      recordSessionRunUsageBestEffort({ messages, usage: params.usage })
       return outcome
     }
 
@@ -404,12 +495,18 @@ export async function waitForSessionToComplete(params: {
       !assistantSeen &&
       Date.now() - startedAt >= IDLE_WITHOUT_ASSISTANT_GRACE_MS
     ) {
+      await recordLatestSessionRunUsageBestEffort(params)
       return 'flow_no_assistant_message'
     }
 
     await sleep(RUN_POLL_INTERVAL_MS)
   }
 
+  await recordLatestSessionRunUsageBestEffort(params)
+  await abortSessionFamilyAndConfirmIdle({
+    client: params.client,
+    rootSessionId: params.sessionId,
+  })
   return 'flow_run_timeout'
 }
 

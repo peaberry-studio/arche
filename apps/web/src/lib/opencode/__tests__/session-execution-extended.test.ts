@@ -121,9 +121,15 @@ describe('session-execution extended', () => {
       vi.useFakeTimers()
 
       try {
-        const status = vi.fn().mockResolvedValue({
-          data: { 'session-1': { type: 'busy' } },
+        let aborted = false
+        const abort = vi.fn().mockImplementation(async () => {
+          aborted = true
+          return { data: true }
         })
+        const children = vi.fn().mockResolvedValue({ data: [] })
+        const status = vi.fn().mockImplementation(async () => ({
+          data: { 'session-1': { type: aborted ? 'idle' : 'busy' } },
+        }))
         const messages = vi.fn().mockResolvedValue({
           data: [],
         })
@@ -131,7 +137,7 @@ describe('session-execution extended', () => {
         const { waitForSessionToComplete } = await import('@/lib/opencode/session-execution')
         const promise = waitForSessionToComplete({
           client: {
-            session: { messages, status },
+            session: { abort, children, messages, status },
           } as Parameters<typeof waitForSessionToComplete>[0]['client'],
           sessionId: 'session-1',
           slug: 'slack-bot',
@@ -141,9 +147,37 @@ describe('session-execution extended', () => {
         const result = await promise
 
         expect(result).toBe('flow_run_timeout')
+        expect(abort).toHaveBeenCalledWith(
+          { sessionID: 'session-1' },
+          { throwOnError: true },
+        )
       } finally {
         vi.useRealTimers()
       }
+    })
+
+    it('aborts child sessions before the root and confirms the family is idle', async () => {
+      const abort = vi.fn().mockResolvedValue({ data: true })
+      const children = vi.fn()
+        .mockResolvedValueOnce({ data: [{ id: 'child-1' }] })
+        .mockResolvedValueOnce({ data: [{ id: 'grandchild-1' }] })
+        .mockResolvedValueOnce({ data: [] })
+      const status = vi.fn().mockResolvedValue({ data: {} })
+
+      const { abortSessionFamilyAndConfirmIdle } = await import('@/lib/opencode/session-execution')
+      const result = await abortSessionFamilyAndConfirmIdle({
+        client: { session: { abort, children, status } } as Parameters<
+          typeof abortSessionFamilyAndConfirmIdle
+        >[0]['client'],
+        rootSessionId: 'session-1',
+      })
+
+      expect(result).toBe(true)
+      expect(abort.mock.calls.map(([input]) => input.sessionID)).toEqual([
+        'grandchild-1',
+        'child-1',
+        'session-1',
+      ])
     })
 
     it('calls onPulse during execution', async () => {

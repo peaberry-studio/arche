@@ -605,6 +605,25 @@ export const POST = withAuth(
           }, '[chat/stream]')
         }
 
+        const abortRuntimeSession = async () => {
+          const response = await fetch(`${baseUrl}/session/${sessionId}/abort`, {
+            method: 'POST',
+            headers: {
+              Authorization: authHeader,
+            },
+          }).catch((error) => {
+            console.warn('[chat/stream] Failed to abort timed out session', { error, sessionId })
+            return null
+          })
+
+          if (response && !response.ok) {
+            console.warn('[chat/stream] Timed out session abort was rejected', {
+              sessionId,
+              status: response.status,
+            })
+          }
+        }
+
         const finalizeFromIdle = () => {
           if (aborted) return
 
@@ -622,6 +641,7 @@ export const POST = withAuth(
           if (outcome !== 'complete') {
             emitStatus('error', undefined, outcome)
             sendEvent('error', { error: outcome })
+            recordRunUsage()
             markRunFailed(outcome)
             aborted = true
             return
@@ -677,6 +697,8 @@ export const POST = withAuth(
 
                 emitStatus('error', undefined, 'stream_timeout')
                 sendEvent('error', { error: 'stream_timeout' })
+                recordRunUsage()
+                await abortRuntimeSession()
                 markRunFailed('stream_timeout')
                 aborted = true
               }
@@ -780,6 +802,7 @@ export const POST = withAuth(
 
                     emitStatus('error', undefined, errorMessage)
                     sendEvent('error', { error: errorMessage })
+                    recordRunUsage()
                     markRunFailed(errorMessage)
                     aborted = true
                     break

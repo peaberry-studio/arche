@@ -81,6 +81,11 @@ function buildConfig(agents: ResolvedAgent[]): CommonWorkspaceConfig {
       description: agent.description,
       mode: agent.id === defaultAgentId ? 'primary' : 'subagent',
       model: agent.model,
+      permission: {
+        doom_loop: 'deny',
+        ...(agent.id === defaultAgentId ? {} : { task: 'deny' }),
+      },
+      steps: agent.id === defaultAgentId ? 120 : 40,
       temperature: agent.temperature,
       prompt: agent.prompt,
       tools: buildToolsConfig(agent.tools),
