@@ -18,10 +18,6 @@ import type { LearningTrigger } from '@/types/learning'
 const LEARNING_SESSION_TITLE_MAX_LENGTH = 160
 const LEARNING_RUN_CANCELLED_ERROR = 'learning_run_cancelled'
 
-function cancellationLogError(error: unknown): string {
-  return error instanceof Error && error.name ? error.name : 'unknown_error'
-}
-
 export type LearningRunExecutionInput = {
   runId: string
   slug: string
@@ -94,16 +90,10 @@ export async function executeLearningRun(input: LearningRunExecutionInput): Prom
 
     await setLearningRunInternalSessionId({ runId: input.runId, internalSessionId: sessionId })
 
-    const abortIfCancelled = async (): Promise<string | null> => {
+    const getCancellationFailure = async (): Promise<string | null> => {
       const run = await findLearningRunForUser({ runId: input.runId, userId: input.userId })
       if (run?.status !== 'cancelled') return null
 
-      await Promise.resolve(client.session.abort({ sessionID: sessionId })).catch((error) => {
-        console.warn('[learning/run-executor] Failed to abort cancelled learning session', {
-          error: cancellationLogError(error),
-          runId: input.runId,
-        })
-      })
       return LEARNING_RUN_CANCELLED_ERROR
     }
 
@@ -131,7 +121,7 @@ export async function executeLearningRun(input: LearningRunExecutionInput): Prom
       failure = await waitForSessionToComplete({
         client,
         cursor,
-        onPulse: abortIfCancelled,
+        onPulse: getCancellationFailure,
         sessionId,
         slug: input.slug,
         usage: { messageRunId: promptRun.run.id, source: 'learning', userId: input.userId },

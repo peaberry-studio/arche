@@ -573,8 +573,9 @@ describe('desktopWorkspaceHost', () => {
     )
     const runtimeConfig = JSON.parse(String(configCall?.[1])) as {
       agent?: Record<string, {
-        permission?: { skill?: Record<string, string> }
+        permission?: { doom_loop?: string; skill?: Record<string, string>; task?: string }
         prompt?: string
+        steps?: number
         tools?: Record<string, boolean>
       }>
       mcp?: Record<string, unknown>
@@ -608,8 +609,12 @@ describe('desktopWorkspaceHost', () => {
     expect(runtimeConfig.agent?.linear?.tools?.['arche_linear_user999_*']).toBe(true)
     expect(runtimeConfig.agent?.linear?.tools?.['arche_linear_admin111_*']).toBeUndefined()
     expect(runtimeConfig.agent?.linear?.tools?.skill).toBe(true)
+    expect(runtimeConfig.agent?.linear?.tools?.task).toBe(false)
+    expect(runtimeConfig.agent?.linear?.steps).toBe(40)
+    expect(runtimeConfig.agent?.linear?.permission?.doom_loop).toBe('deny')
+    expect(runtimeConfig.agent?.linear?.permission?.task).toBe('deny')
     expect(runtimeConfig.agent?.linear?.permission?.skill?.['arche-flow-authoring']).toBe('allow')
-    expect(runtimeConfig.agent?.linear?.prompt).toContain('## Delegation constraint')
+    expect(runtimeConfig.agent?.linear?.prompt).not.toContain('## Delegation constraint')
   })
 
   it('returns already_running when workspace is already started', async () => {

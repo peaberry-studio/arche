@@ -180,6 +180,29 @@ describe('session-execution extended', () => {
       ])
     })
 
+    it('aborts the session family when a pulse reports a failure', async () => {
+      const abort = vi.fn().mockResolvedValue({ data: true })
+      const children = vi.fn().mockResolvedValue({ data: [] })
+      const messages = vi.fn().mockResolvedValue({ data: [] })
+      const status = vi.fn().mockResolvedValue({ data: {} })
+
+      const { waitForSessionToComplete } = await import('@/lib/opencode/session-execution')
+      const result = await waitForSessionToComplete({
+        client: {
+          session: { abort, children, messages, status },
+        } as Parameters<typeof waitForSessionToComplete>[0]['client'],
+        onPulse: vi.fn().mockResolvedValue('flow_run_cancelled'),
+        sessionId: 'session-1',
+        slug: 'slack-bot',
+      })
+
+      expect(result).toBe('flow_run_cancelled')
+      expect(abort).toHaveBeenCalledWith(
+        { sessionID: 'session-1' },
+        { throwOnError: true },
+      )
+    })
+
     it('calls onPulse during execution', async () => {
       vi.useFakeTimers()
 

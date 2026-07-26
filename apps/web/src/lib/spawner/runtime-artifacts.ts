@@ -220,8 +220,8 @@ async function buildBaseWorkspaceConfig(
   baseConfig = injectAlwaysOnAgentTools(baseConfig)
   baseConfig = injectSystemSkillAccess(baseConfig, [SYSTEM_FLOW_AUTHORING_SKILL_NAME])
   baseConfig = applyDefaultAgentModel(baseConfig)
-  baseConfig = injectSelfDelegationGuards(baseConfig)
-  return applyAgentExecutionGuards(baseConfig)
+  baseConfig = applyAgentExecutionGuards(baseConfig)
+  return injectSelfDelegationGuards(baseConfig)
 }
 
 function cloneProviderGatewayConfig(providerGatewayConfig: Record<string, unknown>): Record<string, unknown> {

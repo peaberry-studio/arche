@@ -394,7 +394,7 @@ describe('runFlowPromptAndReadOutput', () => {
     expect(client.session.promptAsync).not.toHaveBeenCalled()
   })
 
-  it('aborts the OpenCode session when cancellation is detected while waiting', async () => {
+  it('returns cancellation to the shared session waiter', async () => {
     const client = createClient()
     mocks.findRunStatusById
       .mockResolvedValueOnce({ status: FlowRunStatus.running })
@@ -414,7 +414,7 @@ describe('runFlowPromptAndReadOutput', () => {
       slug: 'alice',
     })).resolves.toEqual({ ok: false, error: 'flow_run_cancelled' })
 
-    expect(client.session.abort).toHaveBeenCalledWith({ sessionID: 'session-1' })
+    expect(client.session.abort).not.toHaveBeenCalled()
     expect(mocks.extendFlowLease).not.toHaveBeenCalled()
     expect(mocks.readLatestAssistantText).not.toHaveBeenCalled()
   })

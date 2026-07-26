@@ -899,10 +899,11 @@ describe('POST /api/w/[slug]/chat/stream', () => {
       expect(mocks.messageRunService.markRunFailed).toHaveBeenCalledWith('run-1', 'stream_timeout')
       expect(fetchMock).toHaveBeenCalledWith(
         'http://test-slug:3000/session/s1/abort',
-        {
+        expect.objectContaining({
           method: 'POST',
           headers: { Authorization: 'Basic b3BlbmNvZGU6c2VjcmV0' },
-        },
+          signal: expect.any(AbortSignal),
+        }),
       )
     } finally {
       vi.useRealTimers()

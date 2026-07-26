@@ -25,6 +25,9 @@ export type CommonWorkspaceConfig = {
   [key: string]: unknown
 }
 
+export const PRIMARY_AGENT_STEP_LIMIT = 120
+export const SUBAGENT_STEP_LIMIT = 40
+
 export function createDefaultCommonWorkspaceConfig(): CommonWorkspaceConfig {
   return {
     $schema: 'https://opencode.ai/config.json',
@@ -38,7 +41,7 @@ export function createDefaultCommonWorkspaceConfig(): CommonWorkspaceConfig {
         permission: {
           doom_loop: 'deny',
         },
-        steps: 120,
+        steps: PRIMARY_AGENT_STEP_LIMIT,
         temperature: 0.2,
         prompt: 'You are a helpful assistant.',
         tools: {

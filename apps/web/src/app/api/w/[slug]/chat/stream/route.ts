@@ -29,6 +29,7 @@ const STREAM_RELEVANT_EVENT_TICK_MS = 1000
 const SEND_STREAM_RELEVANT_EVENT_TIMEOUT_MS = 20_000
 const RESUME_STREAM_RELEVANT_EVENT_TIMEOUT_MS = 12_000
 const PROMPT_START_TIMEOUT_MS = 60_000
+const SESSION_ABORT_TIMEOUT_MS = 3_000
 
 type StreamRequestBody = {
   attachments: MessageAttachmentInput[]
@@ -611,6 +612,7 @@ export const POST = withAuth(
             headers: {
               Authorization: authHeader,
             },
+            signal: AbortSignal.any([request.signal, AbortSignal.timeout(SESSION_ABORT_TIMEOUT_MS)]),
           }).catch((error) => {
             console.warn('[chat/stream] Failed to abort timed out session', { error, sessionId })
             return null

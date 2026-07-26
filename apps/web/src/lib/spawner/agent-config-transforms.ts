@@ -2,14 +2,13 @@ import { MCP_TOOL_PATTERN } from '@/lib/agent-capabilities'
 import type { ConnectorToolPermissionMap } from '@/lib/connectors/tool-permissions'
 import { CONNECTOR_TYPES, isSingleInstanceConnectorType, type ConnectorType } from '@/lib/connectors/types'
 import { isRecord } from '@/lib/records'
+import { PRIMARY_AGENT_STEP_LIMIT, SUBAGENT_STEP_LIMIT } from '@/lib/workspace-config'
 
 const CONNECTOR_TYPE_PATTERN = CONNECTOR_TYPES.join('|')
 const MCP_SERVER_KEY_PATTERN = new RegExp(`^arche_(${CONNECTOR_TYPE_PATTERN})_([^_]+)$`)
 const ALWAYS_ENABLED_TOOLS = ['email_draft', 'chart_create', 'diagram_create', 'flow_propose', 'session_history_query', 'learning_propose'] as const
 const PERMISSION_ACTIONS = new Set(['allow', 'ask', 'deny'])
 const CUSTOM_CONNECTOR_KEY_PREFIX = 'arche_custom_'
-const PRIMARY_AGENT_STEP_LIMIT = 120
-const SUBAGENT_STEP_LIMIT = 40
 
 function isToolMap(value: unknown): value is Record<string, boolean> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)

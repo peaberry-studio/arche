@@ -431,17 +431,10 @@ export async function runFlowPromptAndReadOutput(params: {
   }
 
   let lastLeaseExtensionAt = 0
-  const abortIfCancelled = async (): Promise<string | null> => {
+  const getCancellationFailure = async (): Promise<string | null> => {
     const run = await flowService.findRunStatusById(params.runId)
     if (run?.status !== FlowRunStatus.cancelled) return null
 
-    await Promise.resolve(params.client.session.abort({ sessionID: params.sessionId })).catch((error) => {
-      console.warn('[flows] Failed to abort cancelled flow session', {
-        error,
-        runId: params.runId,
-        sessionId: params.sessionId,
-      })
-    })
     return FLOW_RUN_CANCELLED_ERROR
   }
 
@@ -449,7 +442,7 @@ export async function runFlowPromptAndReadOutput(params: {
     client: params.client,
     cursor,
     onPulse: async () => {
-      const cancellation = await abortIfCancelled()
+      const cancellation = await getCancellationFailure()
       if (cancellation) return cancellation
 
       if (Date.now() - lastLeaseExtensionAt < LEASE_EXTENSION_INTERVAL_MS) {

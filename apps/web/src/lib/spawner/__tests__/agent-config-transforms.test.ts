@@ -55,6 +55,21 @@ describe('applyAgentExecutionGuards', () => {
     expect(agents.assistant.steps).toBe(60)
     expect(agents.worker.steps).toBe(20)
   })
+
+  it('prevents delegation instructions for agents without task access', () => {
+    const config = {
+      default_agent: 'assistant',
+      agent: {
+        assistant: { mode: 'primary', tools: { task: true } },
+        worker: { mode: 'subagent', prompt: 'Handle work.', tools: { task: true } },
+      },
+    }
+
+    const result = injectSelfDelegationGuards(applyAgentExecutionGuards(config))
+    const agents = result.agent as Record<string, Record<string, unknown>>
+
+    expect(agents.worker.prompt).toBe('Handle work.')
+  })
 })
 
 describe('applyDefaultAgentModel', () => {
