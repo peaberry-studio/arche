@@ -180,6 +180,27 @@ describe('session-execution extended', () => {
       ])
     })
 
+    it('does not confirm termination when descendant discovery fails', async () => {
+      const abort = vi.fn().mockResolvedValue({ data: true })
+      const children = vi.fn().mockRejectedValue(new Error('children unavailable'))
+      const status = vi.fn()
+
+      const { abortSessionFamilyAndConfirmIdle } = await import('@/lib/opencode/session-execution')
+      const result = await abortSessionFamilyAndConfirmIdle({
+        client: { session: { abort, children, status } } as Parameters<
+          typeof abortSessionFamilyAndConfirmIdle
+        >[0]['client'],
+        rootSessionId: 'session-1',
+      })
+
+      expect(result).toBe(false)
+      expect(abort).toHaveBeenCalledWith(
+        { sessionID: 'session-1' },
+        { throwOnError: true },
+      )
+      expect(status).not.toHaveBeenCalled()
+    })
+
     it('aborts the session family when a pulse reports a failure', async () => {
       const abort = vi.fn().mockResolvedValue({ data: true })
       const children = vi.fn().mockResolvedValue({ data: [] })
@@ -201,6 +222,28 @@ describe('session-execution extended', () => {
         { sessionID: 'session-1' },
         { throwOnError: true },
       )
+    })
+
+    it('returns an unconfirmed termination error when a pulse cannot stop the family', async () => {
+      const abort = vi.fn().mockResolvedValue({ data: true })
+      const children = vi.fn().mockRejectedValue(new Error('children unavailable'))
+      const messages = vi.fn().mockResolvedValue({ data: [] })
+      const status = vi.fn()
+
+      const {
+        EXECUTION_TERMINATION_UNCONFIRMED_ERROR,
+        waitForSessionToComplete,
+      } = await import('@/lib/opencode/session-execution')
+      const result = await waitForSessionToComplete({
+        client: {
+          session: { abort, children, messages, status },
+        } as Parameters<typeof waitForSessionToComplete>[0]['client'],
+        onPulse: vi.fn().mockResolvedValue('flow_run_cancelled'),
+        sessionId: 'session-1',
+        slug: 'slack-bot',
+      })
+
+      expect(result).toBe(EXECUTION_TERMINATION_UNCONFIRMED_ERROR)
     })
 
     it('calls onPulse during execution', async () => {

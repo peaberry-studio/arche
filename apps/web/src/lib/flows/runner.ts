@@ -20,6 +20,7 @@ import type { FlowDefinition } from '@/lib/flows/types'
 import { validateFlowDefinition } from '@/lib/flows/validation'
 import { createInstanceClient } from '@/lib/opencode/client'
 import {
+  EXECUTION_TERMINATION_UNCONFIRMED_ERROR,
   ensureWorkspaceRunningForExecution,
   type SessionExecutionClient,
 } from '@/lib/opencode/session-execution'
@@ -396,24 +397,30 @@ async function executeClaimedFlowRun(
   } catch (error) {
     outcome = { status: 'failed', error: error instanceof Error ? error.message : 'flow_run_failed' }
   } finally {
-    finalization = await finalizeRun({
-      flow,
-      leaseOwner: flow.leaseOwner ?? '',
-      outcome,
-      run,
-      sessionId,
-      sessionTitle,
-      slug: slug ?? '',
-      trigger,
-    }).catch(() => ({ retryScheduled: false }))
+    const terminationUnconfirmed =
+      outcome.status === 'failed' && outcome.error === EXECUTION_TERMINATION_UNCONFIRMED_ERROR
+    if (terminationUnconfirmed) {
+      console.error('[flows] Keeping flow lease after unconfirmed runtime termination', { flowId: flow.id })
+    } else {
+      finalization = await finalizeRun({
+        flow,
+        leaseOwner: flow.leaseOwner ?? '',
+        outcome,
+        run,
+        sessionId,
+        sessionTitle,
+        slug: slug ?? '',
+        trigger,
+      }).catch(() => ({ retryScheduled: false }))
 
-    const result = await flowService.releaseFlowLease(
-      flow.id,
-      flow.leaseOwner ?? '',
-      outcome.status === 'waiting_for_human' || finalization.retryScheduled ? undefined : new Date(),
-    ).catch(() => null)
-    if (result && result.count !== 1) {
-      console.warn('[flows] Flow lease release skipped because ownership changed', { flowId: flow.id })
+      const result = await flowService.releaseFlowLease(
+        flow.id,
+        flow.leaseOwner ?? '',
+        outcome.status === 'waiting_for_human' || finalization.retryScheduled ? undefined : new Date(),
+      ).catch(() => null)
+      if (result && result.count !== 1) {
+        console.warn('[flows] Flow lease release skipped because ownership changed', { flowId: flow.id })
+      }
     }
   }
 }

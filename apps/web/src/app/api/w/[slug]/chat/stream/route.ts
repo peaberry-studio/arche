@@ -4,7 +4,12 @@ import { getIdleFinalizationOutcome, getSilentStreamOutcome } from '@/app/api/w/
 import { createUpstreamSessionStatusReader } from '@/app/api/w/[slug]/chat/stream/status-reader'
 import { AUTO_LEARNING_MIN_MESSAGES, canQueueAutoLearningRun, dispatchLearningRunExecution, maybeQueueAutoLearningRun } from '@/lib/learning/service'
 import { getInstanceUrl } from '@/lib/opencode/client'
+import { createConfiguredOpencodeClient } from '@/lib/opencode/client-factory'
 import { ensureProviderAccessFreshForExecution } from '@/lib/opencode/providers'
+import {
+  abortSessionFamilyAndConfirmIdle,
+  EXECUTION_TERMINATION_UNCONFIRMED_ERROR,
+} from '@/lib/opencode/session-execution'
 import {
   buildWorkspacePromptParts,
   normalizeContextPaths,
@@ -29,8 +34,6 @@ const STREAM_RELEVANT_EVENT_TICK_MS = 1000
 const SEND_STREAM_RELEVANT_EVENT_TIMEOUT_MS = 20_000
 const RESUME_STREAM_RELEVANT_EVENT_TIMEOUT_MS = 12_000
 const PROMPT_START_TIMEOUT_MS = 60_000
-const SESSION_ABORT_TIMEOUT_MS = 3_000
-
 type StreamRequestBody = {
   attachments: MessageAttachmentInput[]
   contextPaths: string[]
@@ -606,23 +609,20 @@ export const POST = withAuth(
           }, '[chat/stream]')
         }
 
-        const abortRuntimeSession = async () => {
-          const response = await fetch(`${baseUrl}/session/${sessionId}/abort`, {
-            method: 'POST',
-            headers: {
-              Authorization: authHeader,
-            },
-            signal: AbortSignal.any([request.signal, AbortSignal.timeout(SESSION_ABORT_TIMEOUT_MS)]),
-          }).catch((error) => {
-            console.warn('[chat/stream] Failed to abort timed out session', { error, sessionId })
-            return null
-          })
-
-          if (response && !response.ok) {
-            console.warn('[chat/stream] Timed out session abort was rejected', {
-              sessionId,
-              status: response.status,
+        const abortRuntimeSession = async (): Promise<boolean> => {
+          try {
+            const client = await createConfiguredOpencodeClient({ authHeader, baseUrl })
+            const terminated = await abortSessionFamilyAndConfirmIdle({
+              client,
+              rootSessionId: sessionId,
             })
+            if (!terminated) {
+              console.warn('[chat/stream] Timed out session could not be confirmed idle', { sessionId })
+            }
+            return terminated
+          } catch {
+            console.warn('[chat/stream] Timed out session termination failed', { sessionId })
+            return false
           }
         }
 
@@ -697,11 +697,16 @@ export const POST = withAuth(
                   continue
                 }
 
-                emitStatus('error', undefined, 'stream_timeout')
-                sendEvent('error', { error: 'stream_timeout' })
                 recordRunUsage()
-                await abortRuntimeSession()
-                markRunFailed('stream_timeout')
+                const terminated = await abortRuntimeSession()
+                const failure = terminated
+                  ? 'stream_timeout'
+                  : EXECUTION_TERMINATION_UNCONFIRMED_ERROR
+                emitStatus('error', undefined, failure)
+                sendEvent('error', { error: failure })
+                if (terminated) {
+                  markRunFailed(failure)
+                }
                 aborted = true
               }
               continue

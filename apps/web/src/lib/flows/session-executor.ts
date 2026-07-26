@@ -2,6 +2,7 @@ import { FlowRunStatus } from '@prisma/client'
 
 import {
   captureSessionMessageCursor,
+  EXECUTION_TERMINATION_UNCONFIRMED_ERROR,
   readLatestAssistantText,
   waitForSessionToComplete,
   type SessionExecutionClient,
@@ -465,7 +466,7 @@ export async function runFlowPromptAndReadOutput(params: {
   })
 
   if (failure) {
-    if (messageRunId) {
+    if (messageRunId && failure !== EXECUTION_TERMINATION_UNCONFIRMED_ERROR) {
       await messageRunService.markRunFailed(messageRunId, failure).catch(() => undefined)
     }
     return { ok: false, error: failure }

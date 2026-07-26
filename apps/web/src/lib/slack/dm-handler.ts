@@ -2,6 +2,7 @@ import { createInstanceClient } from '@/lib/opencode/client'
 import {
   captureSessionMessageCursor,
   createSessionPromptRun,
+  EXECUTION_TERMINATION_UNCONFIRMED_ERROR,
   ensureWorkspaceRunningForExecution,
   isOpenCodeSessionNotFoundError,
   readLatestAssistantText,
@@ -693,7 +694,9 @@ async function sendSlackDmPromptToSession(args: {
     })
 
     if (failure) {
-      await messageRunService.markRunFailed(runId, failure)
+      if (failure !== EXECUTION_TERMINATION_UNCONFIRMED_ERROR) {
+        await messageRunService.markRunFailed(runId, failure)
+      }
       return mapSlackFailureToMessage(failure)
     }
 

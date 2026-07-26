@@ -17,6 +17,8 @@ const INSTANCE_START_POLL_INTERVAL_MS = 2_000
 const IDLE_WITHOUT_ASSISTANT_GRACE_MS = 15_000
 const ABORT_CONFIRMATION_TIMEOUT_MS = 10_000
 
+export const EXECUTION_TERMINATION_UNCONFIRMED_ERROR = 'execution_termination_unconfirmed'
+
 export type SessionExecutionClient = NonNullable<Awaited<ReturnType<typeof createInstanceClient>>>
 export type SessionMessageCursor = {
   messageCount: number
@@ -376,67 +378,101 @@ export async function createSessionPromptRun(params: {
   })
 }
 
+type DescendantSessionDiscovery = {
+  complete: boolean
+  sessionIds: string[]
+}
+
+async function awaitBeforeDeadline<T>(promise: Promise<T>, deadline: number): Promise<T | null> {
+  const remainingMs = deadline - Date.now()
+  if (remainingMs <= 0) return null
+
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => resolve(null), remainingMs)
+    void promise.then(
+      (result) => {
+        clearTimeout(timeout)
+        resolve(result)
+      },
+      () => {
+        clearTimeout(timeout)
+        resolve(null)
+      },
+    )
+  })
+}
+
 async function listDescendantSessionIds(
   client: SessionExecutionClient,
   rootSessionId: string,
-): Promise<string[]> {
+  deadline: number,
+): Promise<DescendantSessionDiscovery> {
   const sessionIds = [rootSessionId]
   const visited = new Set(sessionIds)
 
   for (let index = 0; index < sessionIds.length; index += 1) {
     const parentSessionId = sessionIds[index]
-    let response: Awaited<ReturnType<SessionExecutionClient['session']['children']>> | null = null
-    try {
-      response = await client.session.children(
+    const response = await awaitBeforeDeadline(
+      client.session.children(
         { sessionID: parentSessionId },
         { throwOnError: true },
-      )
-    } catch {
-      response = null
-    }
+      ),
+      deadline,
+    )
+    if (!response) return { complete: false, sessionIds }
 
-    for (const child of response?.data ?? []) {
+    for (const child of response.data ?? []) {
       if (visited.has(child.id)) continue
       visited.add(child.id)
       sessionIds.push(child.id)
     }
   }
 
-  return sessionIds
+  return { complete: true, sessionIds }
 }
 
 export async function abortSessionFamilyAndConfirmIdle(params: {
   client: SessionExecutionClient
   rootSessionId: string
 }): Promise<boolean> {
-  const sessionIds = await listDescendantSessionIds(params.client, params.rootSessionId)
+  const deadline = Date.now() + ABORT_CONFIRMATION_TIMEOUT_MS
+  const discovery = await listDescendantSessionIds(params.client, params.rootSessionId, deadline)
 
-  for (const sessionId of [...sessionIds].reverse()) {
-    await params.client.session.abort(
-      { sessionID: sessionId },
-      { throwOnError: true },
-    ).catch((error) => {
-      console.warn('[opencode/session-execution] Failed to abort session', { error, sessionId })
-    })
+  for (const sessionId of [...discovery.sessionIds].reverse()) {
+    await awaitBeforeDeadline(
+      params.client.session.abort(
+        { sessionID: sessionId },
+        { throwOnError: true },
+      ),
+      deadline,
+    )
   }
 
-  const deadline = Date.now() + ABORT_CONFIRMATION_TIMEOUT_MS
+  if (!discovery.complete) {
+    console.warn('[opencode/session-execution] Session descendants could not be fully discovered', {
+      rootSessionId: params.rootSessionId,
+    })
+    return false
+  }
+
   while (Date.now() < deadline) {
-    const response = await params.client.session.status({}, { throwOnError: true }).catch(() => null)
+    const response = await awaitBeforeDeadline(
+      params.client.session.status({}, { throwOnError: true }),
+      deadline,
+    )
     if (response) {
-      const allIdle = sessionIds.every((sessionId) => {
+      const allIdle = discovery.sessionIds.every((sessionId) => {
         const status = response.data?.[sessionId]
         return !status || status.type === 'idle'
       })
       if (allIdle) return true
     }
 
-    await sleep(RUN_POLL_INTERVAL_MS)
+    await sleep(Math.min(RUN_POLL_INTERVAL_MS, Math.max(0, deadline - Date.now())))
   }
 
   console.warn('[opencode/session-execution] Session abort was not confirmed', {
     rootSessionId: params.rootSessionId,
-    sessionIds,
   })
   return false
 }
@@ -463,11 +499,11 @@ export async function waitForSessionToComplete(params: {
     const pulseFailure = await params.onPulse?.().catch(() => null)
     if (pulseFailure) {
       await recordLatestSessionRunUsageBestEffort(params)
-      await abortSessionFamilyAndConfirmIdle({
+      const terminated = await abortSessionFamilyAndConfirmIdle({
         client: params.client,
         rootSessionId: params.sessionId,
       })
-      return pulseFailure
+      return terminated ? pulseFailure : EXECUTION_TERMINATION_UNCONFIRMED_ERROR
     }
 
     const [statusResult, messagesResult] = await Promise.all([
@@ -503,11 +539,11 @@ export async function waitForSessionToComplete(params: {
   }
 
   await recordLatestSessionRunUsageBestEffort(params)
-  await abortSessionFamilyAndConfirmIdle({
+  const terminated = await abortSessionFamilyAndConfirmIdle({
     client: params.client,
     rootSessionId: params.sessionId,
   })
-  return 'flow_run_timeout'
+  return terminated ? 'flow_run_timeout' : EXECUTION_TERMINATION_UNCONFIRMED_ERROR
 }
 
 export async function readLatestAssistantText(

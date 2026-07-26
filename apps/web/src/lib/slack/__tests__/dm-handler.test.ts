@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   sessionExecution: {
     captureSessionMessageCursor: vi.fn(),
     createSessionPromptRun: vi.fn(),
+    EXECUTION_TERMINATION_UNCONFIRMED_ERROR: 'execution_termination_unconfirmed',
     ensureWorkspaceRunningForExecution: vi.fn(),
     isOpenCodeSessionNotFoundError: vi.fn(),
     readLatestAssistantText: vi.fn(),
@@ -74,6 +75,7 @@ vi.mock('@/lib/opencode/client', () => ({
 vi.mock('@/lib/opencode/session-execution', () => ({
   captureSessionMessageCursor: (...args: unknown[]) => mocks.sessionExecution.captureSessionMessageCursor(...args),
   createSessionPromptRun: (...args: unknown[]) => mocks.sessionExecution.createSessionPromptRun(...args),
+  EXECUTION_TERMINATION_UNCONFIRMED_ERROR: mocks.sessionExecution.EXECUTION_TERMINATION_UNCONFIRMED_ERROR,
   ensureWorkspaceRunningForExecution: (...args: unknown[]) => mocks.sessionExecution.ensureWorkspaceRunningForExecution(...args),
   isOpenCodeSessionNotFoundError: (...args: unknown[]) => mocks.sessionExecution.isOpenCodeSessionNotFoundError(...args),
   readLatestAssistantText: (...args: unknown[]) => mocks.sessionExecution.readLatestAssistantText(...args),

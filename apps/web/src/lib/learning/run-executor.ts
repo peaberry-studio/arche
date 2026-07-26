@@ -9,6 +9,7 @@ import { createInstanceClient } from '@/lib/opencode/client'
 import {
   captureSessionMessageCursor,
   createSessionPromptRun,
+  EXECUTION_TERMINATION_UNCONFIRMED_ERROR,
   ensureWorkspaceRunningForExecution,
   waitForSessionToComplete,
 } from '@/lib/opencode/session-execution'
@@ -135,6 +136,10 @@ export async function executeLearningRun(input: LearningRunExecutionInput): Prom
     if (failure) {
       if (failure === LEARNING_RUN_CANCELLED_ERROR) {
         await messageRunService.markRunAborted(promptRun.run.id).catch(() => undefined)
+        return { ok: false, error: failure }
+      }
+
+      if (failure === EXECUTION_TERMINATION_UNCONFIRMED_ERROR) {
         return { ok: false, error: failure }
       }
 

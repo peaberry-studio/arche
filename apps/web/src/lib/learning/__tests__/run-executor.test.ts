@@ -32,6 +32,7 @@ vi.mock('@/lib/opencode/session-execution', () => ({
   ensureWorkspaceRunningForExecution: mocks.ensureWorkspaceRunningForExecution,
   createSessionPromptRun: mocks.createSessionPromptRun,
   captureSessionMessageCursor: mocks.captureSessionMessageCursor,
+  EXECUTION_TERMINATION_UNCONFIRMED_ERROR: 'execution_termination_unconfirmed',
   waitForSessionToComplete: mocks.waitForSessionToComplete,
 }))
 
@@ -129,6 +130,18 @@ describe('executeLearningRun', () => {
       error: 'APIError: Provider returned error 400',
     })
     expect(mocks.markLearningRunSucceeded).not.toHaveBeenCalled()
+  })
+
+  it('keeps learning and message runs active when termination is unconfirmed', async () => {
+    mocks.waitForSessionToComplete.mockResolvedValue('execution_termination_unconfirmed')
+
+    await expect(executeLearningRun(baseInput)).resolves.toEqual({
+      ok: false,
+      error: 'execution_termination_unconfirmed',
+    })
+
+    expect(mocks.markRunFailed).not.toHaveBeenCalled()
+    expect(mocks.markLearningRunFailed).not.toHaveBeenCalled()
   })
 
   it('does not execute a run another dispatch already claimed', async () => {
