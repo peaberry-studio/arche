@@ -587,13 +587,13 @@ async function executeSlackDmPromptAndReply(args: {
       slug: args.slug,
       userId: args.userId,
     })
-    const finalText = formatSlackMessages(
+    const messages = formatSlackMessages(
       formatSlackReply(replyText, [args.messagePrefix]),
       [`<@${args.slackUserId}>`],
     )
 
     await slackService.touchDmSessionBinding(args.bindingId, new Date())
-    await finalizeSlackDmReply(args.client, args.channel, placeholderTs, finalText)
+    await finalizeSlackDmReply(args.client, args.channel, placeholderTs, messages)
     await slackService.markLastError(null).catch(() => undefined)
   } catch (error) {
     if (args.staleSessionRecovery && isOpenCodeSessionNotFoundError(error)) {
@@ -613,13 +613,13 @@ async function executeSlackDmPromptAndReply(args: {
           slug: args.slug,
           userId: args.userId,
         })
-        const finalText = formatSlackMessages(
+        const messages = formatSlackMessages(
           formatSlackReply(replyText, [args.messagePrefix, STALE_DM_SESSION_MESSAGE]),
           [`<@${args.staleSessionRecovery.slackUserId}>`],
         )
 
         await slackService.touchDmSessionBinding(session.binding.id, new Date())
-        await finalizeSlackDmReply(args.client, args.channel, placeholderTs, finalText)
+        await finalizeSlackDmReply(args.client, args.channel, placeholderTs, messages)
         await slackService.markLastError(null).catch(() => undefined)
         return
       } catch (retryError) {

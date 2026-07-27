@@ -2,7 +2,7 @@ const MAX_SLACK_MESSAGE_LENGTH = 3_500
 const PLACEHOLDER_PATTERN = /\uE000(\d+)\uE001/g
 const SAFE_LINK_PROTOCOLS = new Set(['http:', 'https:', 'mailto:'])
 
-export function formatSlackMessages(text: string, authorizedMentions: string[] = []): string[] {
+export function formatSlackMessages(text: string, authorizedMentions: readonly string[] = []): string[] {
   const normalized = text
     .replace(/\r\n?/g, '\n')
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
@@ -11,7 +11,7 @@ export function formatSlackMessages(text: string, authorizedMentions: string[] =
   return splitSlackMessage(mrkdwn)
 }
 
-function formatBlocks(text: string, authorizedMentions: Set<string>): string {
+function formatBlocks(text: string, authorizedMentions: ReadonlySet<string>): string {
   const lines = text.split('\n')
   const output: string[] = []
   let codeFence: { marker: string; lines: string[] } | null = null
@@ -43,7 +43,7 @@ function formatBlocks(text: string, authorizedMentions: Set<string>): string {
   return output.join('\n').trim()
 }
 
-function formatLine(line: string, authorizedMentions: Set<string>): string {
+function formatLine(line: string, authorizedMentions: ReadonlySet<string>): string {
   const heading = line.match(/^ {0,3}#{1,6}\s+(.+)$/)
   if (heading?.[1]) {
     return `*${formatInline(heading[1], authorizedMentions)}*`
@@ -62,7 +62,7 @@ function formatLine(line: string, authorizedMentions: Set<string>): string {
   return formatInline(line, authorizedMentions)
 }
 
-function formatInline(text: string, authorizedMentions: Set<string>): string {
+function formatInline(text: string, authorizedMentions: ReadonlySet<string>): string {
   const protectedValues: string[] = []
   const protect = (value: string): string => {
     protectedValues.push(value)
