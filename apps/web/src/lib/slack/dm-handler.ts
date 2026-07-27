@@ -11,6 +11,7 @@ import { openCodeSessionExists } from '@/lib/opencode/session-utils'
 import { auditService, messageRunService, slackService, userService } from '@/lib/services'
 import type { SlackPendingDmDecisionRecord } from '@/lib/services/slack'
 import { buildSlackDmPrompt } from '@/lib/slack/dm-prompt'
+import { formatSlackMessages } from '@/lib/slack/formatter'
 import type {
   SlackActionTarget,
   SlackChatClient,
@@ -209,6 +210,7 @@ export async function handleNewSlackDmCommand(args: {
       messageText,
       opencodeClient: session.opencodeClient,
       sessionId: session.sessionId,
+      slackUserId: body.user_id,
       slug: resolution.user.slug,
       userId: resolution.user.id,
       staleSessionRecovery: {
@@ -327,6 +329,7 @@ async function continueSlackDmDecision(
     messagePrefix: session.messagePrefix,
     opencodeClient: session.opencodeClient,
     sessionId: session.sessionId,
+    slackUserId: decision.slackUserId,
     slug: owner.slug,
     userId: binding.executionUserId,
     staleSessionRecovery: {
@@ -377,6 +380,7 @@ async function startNewSlackDmDecision(
     messageText: decision.messageText,
     opencodeClient: session.opencodeClient,
     sessionId: session.sessionId,
+    slackUserId: decision.slackUserId,
     slug: resolution.user.slug,
     userId: resolution.user.id,
     staleSessionRecovery: {
@@ -414,6 +418,7 @@ async function startNewSlackDmConversation(args: {
     messageText: args.messageText,
     opencodeClient: session.opencodeClient,
     sessionId: session.sessionId,
+    slackUserId: args.slackUserId,
     slug: args.user.slug,
     userId: args.user.id,
     staleSessionRecovery: {
@@ -452,6 +457,7 @@ async function continueSlackDmConversation(args: {
     messageText: args.messageText,
     opencodeClient: session.opencodeClient,
     sessionId: session.sessionId,
+    slackUserId: args.slackUserId,
     slug: args.user.slug,
     userId: args.user.id,
     staleSessionRecovery: {
@@ -560,6 +566,7 @@ async function executeSlackDmPromptAndReply(args: {
   messageText: string
   opencodeClient: NonNullable<Awaited<ReturnType<typeof createInstanceClient>>>
   sessionId: string
+  slackUserId: string
   slug: string
   userId: string
   messagePrefix?: string
@@ -580,7 +587,10 @@ async function executeSlackDmPromptAndReply(args: {
       slug: args.slug,
       userId: args.userId,
     })
-    const finalText = formatSlackReply(replyText, [args.messagePrefix])
+    const finalText = formatSlackMessages(
+      formatSlackReply(replyText, [args.messagePrefix]),
+      [`<@${args.slackUserId}>`],
+    )
 
     await slackService.touchDmSessionBinding(args.bindingId, new Date())
     await finalizeSlackDmReply(args.client, args.channel, placeholderTs, finalText)
@@ -603,7 +613,10 @@ async function executeSlackDmPromptAndReply(args: {
           slug: args.slug,
           userId: args.userId,
         })
-        const finalText = formatSlackReply(replyText, [args.messagePrefix, STALE_DM_SESSION_MESSAGE])
+        const finalText = formatSlackMessages(
+          formatSlackReply(replyText, [args.messagePrefix, STALE_DM_SESSION_MESSAGE]),
+          [`<@${args.staleSessionRecovery.slackUserId}>`],
+        )
 
         await slackService.touchDmSessionBinding(session.binding.id, new Date())
         await finalizeSlackDmReply(args.client, args.channel, placeholderTs, finalText)

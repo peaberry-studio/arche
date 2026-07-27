@@ -1,0 +1,61 @@
+import { describe, expect, it } from 'vitest'
+
+import { formatSlackMessages } from '@/lib/slack/formatter'
+
+describe('formatSlackMessages', () => {
+  it('converts common Markdown constructs to Slack mrkdwn', () => {
+    const [message] = formatSlackMessages([
+      '# Summary',
+      '',
+      '**Bold**, *italic*, and ~~removed~~.',
+      '[Arche](https://arche.example/docs?a=1&b=2)',
+      '- first',
+      '> quoted',
+    ].join('\n'))
+
+    expect(message).toBe([
+      '*Summary*',
+      '',
+      '*Bold*, _italic_, and ~removed~.',
+      '<https://arche.example/docs?a=1&amp;b=2|Arche>',
+      '• first',
+      '> quoted',
+    ].join('\n'))
+  })
+
+  it('preserves code content without formatting or Slack escaping', () => {
+    const [message] = formatSlackMessages('Use `**x** <tag> & value` here.\n\n```ts\nconst x = "<tag> & **raw**"\n```')
+
+    expect(message).toBe('Use `**x** <tag> & value` here.\n\n```\nconst x = "<tag> & **raw**"\n```')
+  })
+
+  it('escapes Slack controls and only preserves authorized user mentions', () => {
+    const [message] = formatSlackMessages(
+      '<script> & <!channel> <@U123> <@U999> @channel @here',
+      ['<@U123>'],
+    )
+
+    expect(message).toBe('&lt;script&gt; &amp; &lt;!channel&gt; <@U123> &lt;@U999&gt; @channel @here')
+  })
+
+  it('leaves unsafe and malformed links inactive without throwing', () => {
+    expect(formatSlackMessages('[click](javascript:alert) <broken')[0]).toBe(
+      '[click](javascript:alert) &lt;broken',
+    )
+  })
+
+  it('splits long Unicode responses into messages of at most 3,500 visible characters', () => {
+    const messages = formatSlackMessages(`Intro\n\n${'🙂'.repeat(7_001)}`)
+
+    expect(messages.length).toBeGreaterThan(2)
+    expect(messages.every((message) => Array.from(message).length <= 3_500)).toBe(true)
+    expect(messages.join('').replace('Intro', '')).toContain('🙂'.repeat(7_001))
+  })
+
+  it('closes and reopens fenced code blocks when splitting them', () => {
+    const messages = formatSlackMessages(`\`\`\`\n${'x'.repeat(7_000)}\n\`\`\``)
+
+    expect(messages).toHaveLength(3)
+    expect(messages.every((message) => message.startsWith('```\n') && message.endsWith('\n```'))).toBe(true)
+  })
+})

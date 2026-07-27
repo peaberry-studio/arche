@@ -177,6 +177,10 @@ describe('slack socket utils', () => {
     await finalizeSlackReply(client, 'C1', '100.1', '111.222', 'done')
     expect(client.chat.update).toHaveBeenCalledWith({ channel: 'C1', text: 'done', ts: '111.222' })
 
+    await finalizeSlackReply(client, 'C1', '100.1', '111.223', ['first', 'second'])
+    expect(client.chat.update).toHaveBeenCalledWith({ channel: 'C1', text: 'first', ts: '111.223' })
+    expect(client.chat.postMessage).toHaveBeenCalledWith({ channel: 'C1', text: 'second', thread_ts: '100.1' })
+
     await finalizeSlackReply(client, 'C1', '100.1', null, 'fallback')
     expect(client.chat.postMessage).toHaveBeenCalledWith({
       channel: 'C1',
@@ -196,6 +200,10 @@ describe('slack socket utils', () => {
 
     await finalizeSlackDmReply(client, 'D1', '111.222', 'done')
     expect(client.chat.update).toHaveBeenCalledWith({ channel: 'D1', text: 'done', ts: '111.222' })
+
+    await finalizeSlackDmReply(client, 'D1', '111.223', ['first', 'second'])
+    expect(client.chat.update).toHaveBeenCalledWith({ channel: 'D1', text: 'first', ts: '111.223' })
+    expect(client.chat.postMessage).toHaveBeenCalledWith({ channel: 'D1', text: 'second' })
 
     await finalizeSlackDmReply(client, 'D1', null, 'fallback')
     expect(client.chat.postMessage).toHaveBeenCalledWith({ channel: 'D1', text: 'fallback' })

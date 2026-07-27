@@ -10,6 +10,7 @@ import {
 import { openCodeSessionExists } from '@/lib/opencode/session-utils'
 import { messageRunService, slackService } from '@/lib/services'
 import { buildSlackContext } from '@/lib/slack/context'
+import { formatSlackMessages } from '@/lib/slack/formatter'
 import { buildSlackPrompt } from '@/lib/slack/prompt'
 import { ensureSlackServiceUser } from '@/lib/slack/service-user'
 import { withSlackThreadLock } from '@/lib/slack/socket-locks'
@@ -131,7 +132,11 @@ export async function handleSlackThreadEvent(args: {
         })
       }
 
-      await finalizeSlackReply(args.client, args.channel, args.threadTs, placeholderTs, formatSlackThreadReply(replyText, messagePrefix))
+      const messages = formatSlackMessages(
+        formatSlackThreadReply(replyText, messagePrefix),
+        context.mentionTokens,
+      )
+      await finalizeSlackReply(args.client, args.channel, args.threadTs, placeholderTs, messages)
       await slackService.markLastError(null).catch(() => undefined)
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'slack_error'

@@ -2009,7 +2009,7 @@ describe('slack socket manager', () => {
 
     expect(client.chat.update).toHaveBeenCalledWith({
       channel: 'C123',
-      text: 'I cannot answer in Slack yet because this workspace has no provider credentials configured. Add a provider API key in Settings > Providers and try again.',
+      text: 'I cannot answer in Slack yet because this workspace has no provider credentials configured. Add a provider API key in Settings &gt; Providers and try again.',
       ts: 'reply-1',
     })
     expect(readLatestAssistantTextMock).not.toHaveBeenCalled()

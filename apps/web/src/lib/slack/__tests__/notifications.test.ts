@@ -158,7 +158,7 @@ describe('Slack notifications', () => {
       expect.objectContaining({
         body: JSON.stringify({
           channel: 'D123',
-          text: 'Report\n\nView session: https://arche.example/w/alice?session=s1',
+          text: 'Report\n\n<https://arche.example/w/alice?session=s1|View session>',
         }),
       }),
     )

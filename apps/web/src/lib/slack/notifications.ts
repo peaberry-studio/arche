@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import { auditService, slackService } from '@/lib/services'
 import type { SlackNotificationTarget } from '@/lib/services/slack'
+import { formatSlackMessages } from '@/lib/slack/formatter'
 import { callSlackApi, type SlackApiObject } from '@/lib/slack/web-api'
 
 type SlackUserLookupResponse = SlackApiObject & {
@@ -165,7 +166,7 @@ async function sendDmNotification(args: {
     throw new Error('Failed to open Slack DM')
   }
 
-  await postSlackMessage(args.botToken, dmChannelId, buildNotificationMessage(args.text, args.sessionLink))
+  await postSlackMessages(args.botToken, dmChannelId, buildNotificationMessage(args.text, args.sessionLink))
 }
 
 async function sendChannelNotification(args: {
@@ -180,17 +181,19 @@ async function sendChannelNotification(args: {
     throw new Error('Channel not in allowlist')
   }
 
-  await postSlackMessage(args.botToken, args.channelId, buildNotificationMessage(args.text, args.sessionLink))
+  await postSlackMessages(args.botToken, args.channelId, buildNotificationMessage(args.text, args.sessionLink))
 }
 
-async function postSlackMessage(botToken: string, channelId: string, text: string): Promise<void> {
-  await callSlackApi('chat.postMessage', botToken, {
-    body: {
-      channel: channelId,
-      text,
-    },
-    contentType: 'json',
-  })
+async function postSlackMessages(botToken: string, channelId: string, text: string): Promise<void> {
+  for (const message of formatSlackMessages(text)) {
+    await callSlackApi('chat.postMessage', botToken, {
+      body: {
+        channel: channelId,
+        text: message,
+      },
+      contentType: 'json',
+    })
+  }
 }
 
 function buildNotificationMessage(text: string, sessionLink?: string): string {
@@ -198,7 +201,7 @@ function buildNotificationMessage(text: string, sessionLink?: string): string {
     return text
   }
 
-  return `${text}\n\nView session: ${sessionLink}`
+  return `${text}\n\n[View session](${sessionLink})`
 }
 
 function formatTargetLabel(target: SlackNotificationTarget): string {
