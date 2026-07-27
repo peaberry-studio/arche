@@ -14,7 +14,7 @@ export async function executeSlackNode(params: Pick<FlowNodeExecutorParams, 'flo
   let text: string
   if (params.node.messageMode === 'previous_output') {
     if (!params.previousOutput?.trim()) {
-      return { ok: false, error: 'slack_message_previous_output_missing', steps: params.steps }
+      return { ok: false, status: 'failed', error: 'slack_message_previous_output_missing', steps: params.steps }
     }
     text = params.previousOutput
   } else if (params.node.messageMode === 'template') {
@@ -24,7 +24,7 @@ export async function executeSlackNode(params: Pick<FlowNodeExecutorParams, 'flo
       runId: params.run.id,
       steps: params.steps,
     }))
-    if (!rendered.ok) return { ok: false, error: rendered.error, steps: params.steps }
+    if (!rendered.ok) return { ok: false, status: 'failed', error: rendered.error, steps: params.steps }
     text = rendered.value
   } else {
     text = params.node.messageTemplate
@@ -54,7 +54,7 @@ export async function executeSlackNode(params: Pick<FlowNodeExecutorParams, 'flo
       finishedAt: new Date(),
       status: FlowRunStepStatus.failed,
     }))
-    return { ok: false, error: message, steps }
+    return { ok: false, status: 'failed', error: message, steps }
   }
 
   if (!result.ok) {
@@ -63,7 +63,7 @@ export async function executeSlackNode(params: Pick<FlowNodeExecutorParams, 'flo
       finishedAt: new Date(),
       status: FlowRunStepStatus.failed,
     }))
-    return { ok: false, error: result.error, steps }
+    return { ok: false, status: 'failed', error: result.error, steps }
   }
 
   if (result.failed > 0) {
@@ -74,7 +74,7 @@ export async function executeSlackNode(params: Pick<FlowNodeExecutorParams, 'flo
       rawOutput: text,
       status: FlowRunStepStatus.failed,
     }))
-    return { ok: false, error: detail, steps }
+    return { ok: false, status: 'failed', error: detail, steps }
   }
 
   steps = replaceStep(steps, await flowService.updateRunStepByRunIdAndNodeId(params.run.id, params.node.id, {

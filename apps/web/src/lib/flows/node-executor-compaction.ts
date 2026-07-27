@@ -18,7 +18,7 @@ export async function executeCompactionNode(params: Omit<FlowNodeExecutorParams,
     steps: params.steps,
   })
   const rendered = renderFlowTemplate(params.node.promptTemplate, context)
-  if (!rendered.ok) return { ok: false, error: rendered.error, steps: params.steps }
+  if (!rendered.ok) return { ok: false, status: 'failed', error: rendered.error, steps: params.steps }
 
   let steps = replaceStep(params.steps, await flowService.upsertRunStep({
     input: toPrismaJson({ prompt: rendered.value }),
@@ -49,20 +49,20 @@ export async function executeCompactionNode(params: Omit<FlowNodeExecutorParams,
       finishedAt: new Date(),
       status: FlowRunStepStatus.failed,
     }))
-    return { ok: false, error: message, steps }
+    return { ok: false, status: 'failed', error: message, steps }
   }
   if (!result.ok) {
     if (result.type === 'termination_unconfirmed') {
-      return { ok: false, terminationUnconfirmed: true, cause: result.cause, steps }
+      return { ok: false, status: 'termination_unconfirmed', cause: result.cause, steps }
     }
-    if (isFlowRunCancellation(result.error)) return { ok: false, error: result.error, steps }
+    if (isFlowRunCancellation(result.error)) return { ok: false, status: 'failed', error: result.error, steps }
 
     steps = replaceStep(steps, await flowService.updateRunStepByRunIdAndNodeId(params.run.id, params.node.id, {
       error: result.error,
       finishedAt: new Date(),
       status: FlowRunStepStatus.failed,
     }))
-    return { ok: false, error: result.error, steps }
+    return { ok: false, status: 'failed', error: result.error, steps }
   }
 
   steps = replaceStep(steps, await flowService.updateRunStepByRunIdAndNodeId(params.run.id, params.node.id, {

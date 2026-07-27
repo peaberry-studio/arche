@@ -134,6 +134,10 @@ export async function executeLearningRun(input: LearningRunExecutionInput): Prom
     }
 
     if (completion.status === 'termination_unconfirmed') {
+      console.warn('[learning/run-executor] Runtime termination unconfirmed', {
+        cause: completion.cause,
+        runId: input.runId,
+      })
       return {
         ok: false,
         error: EXECUTION_TERMINATION_UNCONFIRMED_ERROR,

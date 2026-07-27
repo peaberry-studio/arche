@@ -33,12 +33,13 @@ export type FlowNodeExecutorOk = {
 export type FlowNodeExecutorFailure =
   | {
     ok: false
+    status: 'failed'
     error: string
     steps: FlowRunStepRecord[]
   }
   | {
     ok: false
-    terminationUnconfirmed: true
+    status: 'termination_unconfirmed'
     cause: string
     steps: FlowRunStepRecord[]
   }

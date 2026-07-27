@@ -20,7 +20,7 @@ export async function executeAgentNode(params: Omit<FlowNodeExecutorParams, 'nod
     steps: params.steps,
   })
   const rendered = renderFlowTemplate(params.node.promptTemplate, context)
-  if (!rendered.ok) return { ok: false, error: rendered.error, steps: params.steps }
+  if (!rendered.ok) return { ok: false, status: 'failed', error: rendered.error, steps: params.steps }
 
   let steps = replaceStep(params.steps, await flowService.upsertRunStep({
     input: toPrismaJson({ prompt: rendered.value }),
@@ -52,20 +52,20 @@ export async function executeAgentNode(params: Omit<FlowNodeExecutorParams, 'nod
       finishedAt: new Date(),
       status: FlowRunStepStatus.failed,
     }))
-    return { ok: false, error: message, steps }
+    return { ok: false, status: 'failed', error: message, steps }
   }
   if (!rawResult.ok) {
     if (rawResult.type === 'termination_unconfirmed') {
-      return { ok: false, terminationUnconfirmed: true, cause: rawResult.cause, steps }
+      return { ok: false, status: 'termination_unconfirmed', cause: rawResult.cause, steps }
     }
-    if (isFlowRunCancellation(rawResult.error)) return { ok: false, error: rawResult.error, steps }
+    if (isFlowRunCancellation(rawResult.error)) return { ok: false, status: 'failed', error: rawResult.error, steps }
 
     steps = replaceStep(steps, await flowService.updateRunStepByRunIdAndNodeId(params.run.id, params.node.id, {
       error: rawResult.error,
       finishedAt: new Date(),
       status: FlowRunStepStatus.failed,
     }))
-    return { ok: false, error: rawResult.error, steps }
+    return { ok: false, status: 'failed', error: rawResult.error, steps }
   }
 
   let compactedOutput: string | null = null
@@ -96,13 +96,13 @@ export async function executeAgentNode(params: Omit<FlowNodeExecutorParams, 'nod
         rawOutput: rawResult.output,
         status: FlowRunStepStatus.failed,
       }))
-      return { ok: false, error: message, steps }
+      return { ok: false, status: 'failed', error: message, steps }
     }
     if (!compactResult.ok) {
       if (compactResult.type === 'termination_unconfirmed') {
-        return { ok: false, terminationUnconfirmed: true, cause: compactResult.cause, steps }
+        return { ok: false, status: 'termination_unconfirmed', cause: compactResult.cause, steps }
       }
-      if (isFlowRunCancellation(compactResult.error)) return { ok: false, error: compactResult.error, steps }
+      if (isFlowRunCancellation(compactResult.error)) return { ok: false, status: 'failed', error: compactResult.error, steps }
 
       steps = replaceStep(steps, await flowService.updateRunStepByRunIdAndNodeId(params.run.id, params.node.id, {
         error: compactResult.error,
@@ -110,7 +110,7 @@ export async function executeAgentNode(params: Omit<FlowNodeExecutorParams, 'nod
         rawOutput: rawResult.output,
         status: FlowRunStepStatus.failed,
       }))
-      return { ok: false, error: compactResult.error, steps }
+      return { ok: false, status: 'failed', error: compactResult.error, steps }
     }
 
     compactedOutput = compactResult.output
