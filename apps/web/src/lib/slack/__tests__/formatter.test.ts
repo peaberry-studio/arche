@@ -68,6 +68,12 @@ describe('formatSlackMessages', () => {
     expect(formatSlackMessages('\uE0000\uE001 **bold**')[0]).toBe('\uE0000\uE001 *bold*')
   })
 
+  it('restores code spans nested inside link labels', () => {
+    expect(formatSlackMessages('[`code`](https://example.com)')[0]).toBe(
+      '<https://example.com|`code`>',
+    )
+  })
+
   it('splits long Unicode responses into messages of at most 3,500 visible characters', () => {
     const messages = formatSlackMessages(`Intro\n\n${'🙂'.repeat(7_001)}`)
 

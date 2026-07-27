@@ -84,7 +84,15 @@ function formatInline(text: string, authorizedMentions: ReadonlySet<string>): st
     .replace(/__([^_\n]+)__/g, '*$1*')
     .replace(/~~([^~\n]+)~~/g, '~$1~')
 
-  return formatted.replace(PLACEHOLDER_PATTERN, (_, index: string) => protectedValues[Number(index)] ?? '')
+  let restored = formatted
+  while (restored.includes('\u0000')) {
+    const next = restored.replace(PLACEHOLDER_PATTERN, (_, index: string) => protectedValues[Number(index)] ?? '')
+    if (next === restored) {
+      break
+    }
+    restored = next
+  }
+  return restored
 }
 
 function protectCodeSpans(text: string, protect: (value: string) => string): string {
