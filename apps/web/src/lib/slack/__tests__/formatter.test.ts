@@ -29,6 +29,10 @@ describe('formatSlackMessages', () => {
     expect(message).toBe('Use `**x** <tag> & value` here.\n\n```\nconst x = "<tag> & **raw**"\n```')
   })
 
+  it('keeps Slack controls inert when a code span contains a backtick', () => {
+    expect(formatSlackMessages('``code`<@U123>``', ['<@U123>'])[0]).toBe('`code`&lt;@U123&gt;`')
+  })
+
   it('escapes Slack controls and only preserves authorized user mentions', () => {
     const [message] = formatSlackMessages(
       '<script> & <!channel> <@U123> <@U999> @channel @here',
@@ -42,6 +46,16 @@ describe('formatSlackMessages', () => {
     expect(formatSlackMessages('[click](javascript:alert) <broken')[0]).toBe(
       '[click](javascript:alert) &lt;broken',
     )
+  })
+
+  it('encodes Slack control characters inside otherwise safe links', () => {
+    expect(formatSlackMessages('[click](https://arche.example/<@U999>)', ['<@U999>'])[0]).toBe(
+      '<https://arche.example/%3C@U999%3E|click>',
+    )
+  })
+
+  it('preserves Unicode that matches the internal placeholder format', () => {
+    expect(formatSlackMessages('\uE0000\uE001 **bold**')[0]).toBe('\uE0000\uE001 *bold*')
   })
 
   it('splits long Unicode responses into messages of at most 3,500 visible characters', () => {

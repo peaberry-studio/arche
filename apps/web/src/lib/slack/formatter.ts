@@ -1,5 +1,5 @@
 const MAX_SLACK_MESSAGE_LENGTH = 3_500
-const PLACEHOLDER_PATTERN = /\uE000(\d+)\uE001/g
+const PLACEHOLDER_PATTERN = /\u0000(\d+)\u0000/g
 const SAFE_LINK_PROTOCOLS = new Set(['http:', 'https:', 'mailto:'])
 
 export function formatSlackMessages(text: string, authorizedMentions: readonly string[] = []): string[] {
@@ -66,18 +66,17 @@ function formatInline(text: string, authorizedMentions: ReadonlySet<string>): st
   const protectedValues: string[] = []
   const protect = (value: string): string => {
     protectedValues.push(value)
-    return `\uE000${protectedValues.length - 1}\uE001`
+    return `\u0000${protectedValues.length - 1}\u0000`
   }
 
-  let formatted = text.replace(/<@[A-Z0-9]+>/gi, (mention) => (
-    authorizedMentions.has(mention) ? protect(mention) : mention
-  ))
-
-  formatted = protectCodeSpans(formatted, protect)
+  let formatted = protectCodeSpans(text, protect)
   formatted = formatted.replace(/\[([^\]\n]+)]\(([^\s)]+)(?:\s+['"][^'"]*['"])?\)/g, (match, label: string, url: string) => {
     const slackLink = formatLink(label, url)
     return slackLink ? protect(slackLink) : match
   })
+  formatted = formatted.replace(/<@[A-Z0-9]+>/gi, (mention) => (
+    authorizedMentions.has(mention) ? protect(mention) : mention
+  ))
 
   formatted = escapeSlackText(formatted)
     .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1_$2_')
@@ -93,7 +92,8 @@ function protectCodeSpans(text: string, protect: (value: string) => string): str
     const content = value.startsWith(' ') && value.endsWith(' ') && value.trim()
       ? value.slice(1, -1)
       : value
-    return protect(`\`${content}\``)
+    const safeContent = content.includes('`') ? escapeSlackText(content) : content
+    return protect(`\`${safeContent}\``)
   })
 }
 
@@ -104,7 +104,11 @@ function formatLink(label: string, rawUrl: string): string | null {
       return null
     }
 
-    const safeUrl = rawUrl.replace(/&/g, '&amp;').replace(/>/g, '%3E').replace(/\|/g, '%7C')
+    const safeUrl = rawUrl
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '%3C')
+      .replace(/>/g, '%3E')
+      .replace(/\|/g, '%7C')
     const safeLabel = escapeSlackText(label).replace(/\|/g, '¦')
     return `<${safeUrl}|${safeLabel}>`
   } catch {
