@@ -129,7 +129,8 @@ describe("workspace file download route", () => {
 
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
+      // A Response body is single-use, so mint a fresh one per call.
+      vi.fn().mockImplementation(async () =>
         new Response(
           JSON.stringify({ ok: true, content: "small", encoding: "utf-8" }),
           { status: 200, headers: { "Content-Type": "application/json" } }
