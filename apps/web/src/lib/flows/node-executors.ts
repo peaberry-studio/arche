@@ -15,6 +15,10 @@ import { isFlowRunCancellation } from '@/lib/flows/node-executor-utils'
 export type { FlowNodeExecutionResult } from '@/lib/flows/node-executor-types'
 
 function failureToExecutionResult(result: FlowNodeExecutorFailure): FlowNodeExecutionResult {
+  if ('terminationUnconfirmed' in result) {
+    return { status: 'termination_unconfirmed', cause: result.cause, steps: result.steps }
+  }
+
   return isFlowRunCancellation(result.error)
     ? { status: 'cancelled', steps: result.steps }
     : { status: 'failed', error: result.error, steps: result.steps }

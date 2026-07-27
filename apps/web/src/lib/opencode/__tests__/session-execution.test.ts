@@ -77,7 +77,7 @@ describe('session execution helpers', () => {
 
       await vi.advanceTimersByTimeAsync(16_000)
 
-      await expect(runPromise).resolves.toBe('flow_no_assistant_message')
+      await expect(runPromise).resolves.toEqual({ status: 'failed', error: 'flow_no_assistant_message' })
     } finally {
       vi.useRealTimers()
     }
@@ -192,7 +192,7 @@ describe('session execution helpers', () => {
       } as Parameters<typeof waitForSessionToComplete>[0]['client'],
       sessionId: 'session-1',
       slug: 'slack-bot',
-    })).resolves.toBe('provider_auth_missing')
+    })).resolves.toEqual({ status: 'failed', error: 'provider_auth_missing' })
   })
 
   it('detects provider auth failures from the assistant error message', async () => {
@@ -227,7 +227,7 @@ describe('session execution helpers', () => {
       } as Parameters<typeof waitForSessionToComplete>[0]['client'],
       sessionId: 'session-1',
       slug: 'slack-bot',
-    })).resolves.toBe('provider_auth_missing')
+    })).resolves.toEqual({ status: 'failed', error: 'provider_auth_missing' })
   })
 
   it('does not treat unrelated assistant errors as provider auth failures', async () => {
@@ -262,7 +262,7 @@ describe('session execution helpers', () => {
       } as Parameters<typeof waitForSessionToComplete>[0]['client'],
       sessionId: 'session-1',
       slug: 'slack-bot',
-    })).resolves.toBeNull()
+    })).resolves.toEqual({ status: 'completed' })
   })
 
   it('surfaces the runtime error when the assistant failed without visible output', async () => {
@@ -297,7 +297,7 @@ describe('session execution helpers', () => {
       } as Parameters<typeof waitForSessionToComplete>[0]['client'],
       sessionId: 'session-1',
       slug: 'slack-bot',
-    })).resolves.toBe('MessageAbortedError: The operation was aborted.')
+    })).resolves.toEqual({ status: 'failed', error: 'MessageAbortedError: The operation was aborted.' })
   })
 
   it('surfaces provider 400 errors with their message detail', async () => {
@@ -332,7 +332,10 @@ describe('session execution helpers', () => {
       } as Parameters<typeof waitForSessionToComplete>[0]['client'],
       sessionId: 'session-1',
       slug: 'slack-bot',
-    })).resolves.toBe('APIError: Provider returned error 400: The referenced name `#/$defs/CustomGroupOperator` does not match a display_name.')
+    })).resolves.toEqual({
+      status: 'failed',
+      error: 'APIError: Provider returned error 400: The referenced name `#/$defs/CustomGroupOperator` does not match a display_name.',
+    })
   })
 
   it('records provider run usage from completed assistant step-finish parts', async () => {
@@ -371,7 +374,7 @@ describe('session execution helpers', () => {
       sessionId: 'session-1',
       slug: 'slack-bot',
       usage: { messageRunId: 'message-run-1', source: 'flow', userId: 'user-1' },
-    })).resolves.toBeNull()
+    })).resolves.toEqual({ status: 'completed' })
 
     await vi.waitFor(() => expect(recordProviderRunUsageMock).toHaveBeenCalledWith({
       costUsd: 0.75,
@@ -404,7 +407,7 @@ describe('session execution helpers', () => {
       sessionId: 'session-1',
       slug: 'slack-bot',
       usage: { messageRunId: 'message-run-1', source: 'flow', userId: 'user-1' },
-    })).resolves.toBeNull()
+    })).resolves.toEqual({ status: 'completed' })
 
     expect(recordProviderRunUsageMock).not.toHaveBeenCalled()
   })
@@ -448,7 +451,7 @@ describe('session execution helpers', () => {
       } as Parameters<typeof waitForSessionToComplete>[0]['client'],
       sessionId: 'session-1',
       slug: 'slack-bot',
-    })).resolves.toBe('flow_no_assistant_message')
+    })).resolves.toEqual({ status: 'failed', error: 'flow_no_assistant_message' })
   })
 
   it('keeps polling while an idle assistant message still has a running tool', async () => {
@@ -499,7 +502,7 @@ describe('session execution helpers', () => {
 
       await vi.advanceTimersByTimeAsync(2_000)
 
-      await expect(promise).resolves.toBeNull()
+      await expect(promise).resolves.toEqual({ status: 'completed' })
       expect(messages).toHaveBeenCalledTimes(4)
     } finally {
       vi.useRealTimers()
@@ -539,7 +542,7 @@ describe('session execution helpers', () => {
       } as Parameters<typeof waitForSessionToComplete>[0]['client'],
       sessionId: 'session-1',
       slug: 'slack-bot',
-    })).resolves.toBe('permission denied')
+    })).resolves.toEqual({ status: 'failed', error: 'permission denied' })
   })
 
   it('refreshes provider access when execution reuses a running workspace', async () => {

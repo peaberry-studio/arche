@@ -30,7 +30,7 @@ export type LearningRunExecutionInput = {
 
 export type LearningRunExecutionResult =
   | { ok: true }
-  | { ok: false; error: string }
+  | { ok: false; error: string; cause?: string }
 
 function buildLearningSessionTitle(title: string): string {
   const base = `Learning | ${title.trim() || 'Session'}`
@@ -108,7 +108,7 @@ export async function executeLearningRun(input: LearningRunExecutionInput): Prom
       throw new Error('session_busy')
     }
 
-    let failure: string | null
+    let completion: Awaited<ReturnType<typeof waitForSessionToComplete>>
     try {
       const cursor = await captureSessionMessageCursor(client, sessionId)
       await client.session.promptAsync(
@@ -119,7 +119,7 @@ export async function executeLearningRun(input: LearningRunExecutionInput): Prom
         { throwOnError: true },
       )
 
-      failure = await waitForSessionToComplete({
+      completion = await waitForSessionToComplete({
         client,
         cursor,
         onPulse: getCancellationFailure,
@@ -133,19 +133,23 @@ export async function executeLearningRun(input: LearningRunExecutionInput): Prom
       throw error
     }
 
-    if (failure) {
-      if (failure === LEARNING_RUN_CANCELLED_ERROR) {
+    if (completion.status === 'termination_unconfirmed') {
+      return {
+        ok: false,
+        error: EXECUTION_TERMINATION_UNCONFIRMED_ERROR,
+        cause: completion.cause,
+      }
+    }
+
+    if (completion.status === 'failed') {
+      if (completion.error === LEARNING_RUN_CANCELLED_ERROR) {
         await messageRunService.markRunAborted(promptRun.run.id).catch(() => undefined)
-        return { ok: false, error: failure }
+        return { ok: false, error: completion.error }
       }
 
-      if (failure === EXECUTION_TERMINATION_UNCONFIRMED_ERROR) {
-        return { ok: false, error: failure }
-      }
-
-      await messageRunService.markRunFailed(promptRun.run.id, failure).catch(() => undefined)
-      await markLearningRunFailed({ runId: input.runId, error: failure })
-      return { ok: false, error: failure }
+      await messageRunService.markRunFailed(promptRun.run.id, completion.error).catch(() => undefined)
+      await markLearningRunFailed({ runId: input.runId, error: completion.error })
+      return { ok: false, error: completion.error }
     }
 
     await messageRunService.markRunSucceeded(promptRun.run.id).catch(() => undefined)

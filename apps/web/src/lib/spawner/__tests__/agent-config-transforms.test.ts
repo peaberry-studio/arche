@@ -30,6 +30,7 @@ describe('applyAgentExecutionGuards', () => {
     const agents = result.agent as Record<string, Record<string, unknown>>
 
     expect(agents.assistant.steps).toBe(120)
+    expect(agents.assistant.mode).toBe('primary')
     expect(agents.assistant.permission).toEqual({ '*': 'ask', doom_loop: 'deny' })
     expect(agents.worker.steps).toBe(40)
     expect(agents.worker.permission).toEqual({
@@ -54,6 +55,31 @@ describe('applyAgentExecutionGuards', () => {
 
     expect(agents.assistant.steps).toBe(60)
     expect(agents.worker.steps).toBe(20)
+  })
+
+  it('normalizes the default all-mode agent while restricting other all-mode agents', () => {
+    const config = {
+      default_agent: 'assistant',
+      agent: {
+        assistant: { mode: 'all', steps: 200, tools: { task: true } },
+        utility: { mode: 'all', steps: 80, tools: { task: true } },
+      },
+    }
+
+    const result = applyAgentExecutionGuards(config)
+    const agents = result.agent as Record<string, Record<string, unknown>>
+
+    expect(agents.assistant).toMatchObject({
+      mode: 'primary',
+      steps: 120,
+      tools: { task: true },
+    })
+    expect(agents.utility).toMatchObject({
+      mode: 'all',
+      steps: 40,
+      tools: { task: false },
+    })
+    expect(agents.utility.permission).toMatchObject({ task: 'deny' })
   })
 
   it('uses safe caps for invalid limits and denies delegation without an explicit tools map', () => {

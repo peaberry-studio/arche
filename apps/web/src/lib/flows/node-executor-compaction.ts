@@ -52,6 +52,9 @@ export async function executeCompactionNode(params: Omit<FlowNodeExecutorParams,
     return { ok: false, error: message, steps }
   }
   if (!result.ok) {
+    if (result.type === 'termination_unconfirmed') {
+      return { ok: false, terminationUnconfirmed: true, cause: result.cause, steps }
+    }
     if (isFlowRunCancellation(result.error)) return { ok: false, error: result.error, steps }
 
     steps = replaceStep(steps, await flowService.updateRunStepByRunIdAndNodeId(params.run.id, params.node.id, {

@@ -104,7 +104,7 @@ describe('docker', () => {
       })
       expect(writtenConfig.permission?.bash).toMatchObject({
         '*AGENTS.md*': 'deny',
-        '*.opencode/*': 'deny',
+        '*.opencode*': 'deny',
         '*.gitkeep*': 'deny',
         'npm install*': 'deny',
         'pnpm add*': 'deny',

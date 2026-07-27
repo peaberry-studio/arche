@@ -80,7 +80,7 @@ describe('executeLearningRun', () => {
     mocks.createInstanceClient.mockResolvedValue(makeClient())
     mocks.createSessionPromptRun.mockResolvedValue({ ok: true, run: { id: 'message-run-1' } })
     mocks.captureSessionMessageCursor.mockResolvedValue({ messageCount: 0 })
-    mocks.waitForSessionToComplete.mockResolvedValue(null)
+    mocks.waitForSessionToComplete.mockResolvedValue({ status: 'completed' })
   })
 
   it('runs the curator in a hidden session and marks the run succeeded', async () => {
@@ -117,7 +117,10 @@ describe('executeLearningRun', () => {
   })
 
   it('stores the real failure when the curator session fails', async () => {
-    mocks.waitForSessionToComplete.mockResolvedValue('APIError: Provider returned error 400')
+    mocks.waitForSessionToComplete.mockResolvedValue({
+      status: 'failed',
+      error: 'APIError: Provider returned error 400',
+    })
 
     await expect(executeLearningRun(baseInput)).resolves.toEqual({
       ok: false,
@@ -133,11 +136,15 @@ describe('executeLearningRun', () => {
   })
 
   it('keeps learning and message runs active when termination is unconfirmed', async () => {
-    mocks.waitForSessionToComplete.mockResolvedValue('execution_termination_unconfirmed')
+    mocks.waitForSessionToComplete.mockResolvedValue({
+      status: 'termination_unconfirmed',
+      cause: 'learning_run_cancelled',
+    })
 
     await expect(executeLearningRun(baseInput)).resolves.toEqual({
       ok: false,
       error: 'execution_termination_unconfirmed',
+      cause: 'learning_run_cancelled',
     })
 
     expect(mocks.markRunFailed).not.toHaveBeenCalled()
@@ -182,7 +189,10 @@ describe('executeLearningRun', () => {
       updatedAt: '2026-01-01T00:00:00.000Z',
     })
     mocks.waitForSessionToComplete.mockImplementationOnce(
-      async (params: { onPulse?: () => Promise<string | null | void> }) => (await params.onPulse?.()) ?? null,
+      async (params: { onPulse?: () => Promise<string | null | void> }) => {
+        const error = await params.onPulse?.()
+        return error ? { status: 'failed', error } : { status: 'completed' }
+      },
     )
 
     await expect(executeLearningRun(baseInput)).resolves.toEqual({ ok: false, error: 'learning_run_cancelled' })

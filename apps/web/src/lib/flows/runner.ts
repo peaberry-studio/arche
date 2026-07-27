@@ -20,7 +20,6 @@ import type { FlowDefinition } from '@/lib/flows/types'
 import { validateFlowDefinition } from '@/lib/flows/validation'
 import { createInstanceClient } from '@/lib/opencode/client'
 import {
-  EXECUTION_TERMINATION_UNCONFIRMED_ERROR,
   ensureWorkspaceRunningForExecution,
   type SessionExecutionClient,
 } from '@/lib/opencode/session-execution'
@@ -34,6 +33,7 @@ type FlowExecutionOutcome =
   | { status: 'succeeded' }
   | { status: 'waiting_for_human'; nodeId: string }
   | { status: 'failed'; error: string }
+  | { status: 'termination_unconfirmed'; cause: string }
 
 type FlowExecutionUser = {
   id: string
@@ -162,6 +162,9 @@ async function executeFlowNodes(params: {
     steps = result.steps
     if (result.status === 'cancelled') return { status: 'cancelled' }
     if (result.status === 'failed') return { status: 'failed', error: result.error }
+    if (result.status === 'termination_unconfirmed') {
+      return { status: 'termination_unconfirmed', cause: result.cause }
+    }
     if (result.status === 'waiting_for_human') return { status: 'waiting_for_human', nodeId: result.nodeId }
 
     previousOutput = result.previousOutput
@@ -216,6 +219,10 @@ async function finalizeRun(params: {
     createFlowActorScope({ id: params.flow.userId, role: 'USER' }, params.flow.userId),
   )
   if (params.outcome.status === 'cancelled' || currentRun?.status === FlowRunStatus.cancelled) {
+    return { retryScheduled: false }
+  }
+
+  if (params.outcome.status === 'termination_unconfirmed') {
     return { retryScheduled: false }
   }
 
@@ -397,10 +404,11 @@ async function executeClaimedFlowRun(
   } catch (error) {
     outcome = { status: 'failed', error: error instanceof Error ? error.message : 'flow_run_failed' }
   } finally {
-    const terminationUnconfirmed =
-      outcome.status === 'failed' && outcome.error === EXECUTION_TERMINATION_UNCONFIRMED_ERROR
-    if (terminationUnconfirmed) {
-      console.error('[flows] Keeping flow lease after unconfirmed runtime termination', { flowId: flow.id })
+    if (outcome.status === 'termination_unconfirmed') {
+      console.error('[flows] Runtime termination unconfirmed; preserving flow run state', {
+        cause: outcome.cause,
+        flowId: flow.id,
+      })
     } else {
       finalization = await finalizeRun({
         flow,
@@ -608,24 +616,31 @@ async function resumeClaimedFlowRun(params: {
   } catch (error) {
     outcome = { status: 'failed', error: error instanceof Error ? error.message : 'flow_resume_failed' }
   } finally {
-    finalization = await finalizeRun({
-      flow: params.flow,
-      leaseOwner: params.flow.leaseOwner ?? '',
-      outcome,
-      run: params.run,
-      sessionId: params.run.openCodeSessionId,
-      sessionTitle: params.run.sessionTitle,
-      slug: slug ?? '',
-      trigger: FlowRunTrigger.resume,
-    }).catch(() => ({ retryScheduled: false }))
+    if (outcome.status === 'termination_unconfirmed') {
+      console.error('[flows] Runtime termination unconfirmed; preserving flow run state', {
+        cause: outcome.cause,
+        flowId: params.flow.id,
+      })
+    } else {
+      finalization = await finalizeRun({
+        flow: params.flow,
+        leaseOwner: params.flow.leaseOwner ?? '',
+        outcome,
+        run: params.run,
+        sessionId: params.run.openCodeSessionId,
+        sessionTitle: params.run.sessionTitle,
+        slug: slug ?? '',
+        trigger: FlowRunTrigger.resume,
+      }).catch(() => ({ retryScheduled: false }))
 
-    const result = await flowService.releaseFlowLease(
-      params.flow.id,
-      params.flow.leaseOwner ?? '',
-      outcome.status === 'waiting_for_human' || finalization.retryScheduled ? undefined : new Date(),
-    ).catch(() => null)
-    if (result && result.count !== 1) {
-      console.warn('[flows] Flow lease release skipped because ownership changed', { flowId: params.flow.id })
+      const result = await flowService.releaseFlowLease(
+        params.flow.id,
+        params.flow.leaseOwner ?? '',
+        outcome.status === 'waiting_for_human' || finalization.retryScheduled ? undefined : new Date(),
+      ).catch(() => null)
+      if (result && result.count !== 1) {
+        console.warn('[flows] Flow lease release skipped because ownership changed', { flowId: params.flow.id })
+      }
     }
   }
 }

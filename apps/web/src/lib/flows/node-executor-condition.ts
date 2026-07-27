@@ -270,6 +270,9 @@ export async function executeConditionNode(params: Omit<FlowNodeExecutorParams, 
     return { ok: false, error: message, steps }
   }
   if (!aiResult.ok) {
+    if (aiResult.type === 'termination_unconfirmed') {
+      return { ok: false, terminationUnconfirmed: true, cause: aiResult.cause, steps }
+    }
     if (isFlowRunCancellation(aiResult.error)) return { ok: false, error: aiResult.error, steps }
 
     steps = replaceStep(steps, await flowService.updateRunStepByRunIdAndNodeId(params.run.id, params.node.id, {

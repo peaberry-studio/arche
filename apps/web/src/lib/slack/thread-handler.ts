@@ -203,7 +203,7 @@ async function sendSlackThreadPromptToSession(args: {
       { throwOnError: true },
     )
 
-    const failure = await waitForSessionToComplete({
+    const completion = await waitForSessionToComplete({
       client: args.opencodeClient,
       cursor: sessionCursor,
       sessionId: args.sessionId,
@@ -211,11 +211,14 @@ async function sendSlackThreadPromptToSession(args: {
       usage: { messageRunId: runId, source: 'slack_thread', userId: args.userId },
     })
 
-    if (failure) {
-      if (failure !== EXECUTION_TERMINATION_UNCONFIRMED_ERROR) {
-        await messageRunService.markRunFailed(runId, failure)
-      }
-      return mapSlackFailureToMessage(failure)
+    if (completion.status === 'termination_unconfirmed') {
+      console.warn('[slack] Runtime termination unconfirmed', { cause: completion.cause })
+      return mapSlackFailureToMessage(EXECUTION_TERMINATION_UNCONFIRMED_ERROR)
+    }
+
+    if (completion.status === 'failed') {
+      await messageRunService.markRunFailed(runId, completion.error)
+      return mapSlackFailureToMessage(completion.error)
     }
 
     await messageRunService.markRunSucceeded(runId)

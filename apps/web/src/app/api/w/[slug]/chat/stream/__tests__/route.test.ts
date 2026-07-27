@@ -938,6 +938,7 @@ describe('POST /api/w/[slug]/chat/stream', () => {
       const text = await textPromise
 
       expect(text).toContain('execution_termination_unconfirmed')
+      expect(text).toContain('stream_timeout')
       expect(mocks.messageRunService.markRunFailed).not.toHaveBeenCalled()
     } finally {
       vi.useRealTimers()

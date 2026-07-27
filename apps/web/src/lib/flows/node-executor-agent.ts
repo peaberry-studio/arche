@@ -55,6 +55,9 @@ export async function executeAgentNode(params: Omit<FlowNodeExecutorParams, 'nod
     return { ok: false, error: message, steps }
   }
   if (!rawResult.ok) {
+    if (rawResult.type === 'termination_unconfirmed') {
+      return { ok: false, terminationUnconfirmed: true, cause: rawResult.cause, steps }
+    }
     if (isFlowRunCancellation(rawResult.error)) return { ok: false, error: rawResult.error, steps }
 
     steps = replaceStep(steps, await flowService.updateRunStepByRunIdAndNodeId(params.run.id, params.node.id, {
@@ -96,6 +99,9 @@ export async function executeAgentNode(params: Omit<FlowNodeExecutorParams, 'nod
       return { ok: false, error: message, steps }
     }
     if (!compactResult.ok) {
+      if (compactResult.type === 'termination_unconfirmed') {
+        return { ok: false, terminationUnconfirmed: true, cause: compactResult.cause, steps }
+      }
       if (isFlowRunCancellation(compactResult.error)) return { ok: false, error: compactResult.error, steps }
 
       steps = replaceStep(steps, await flowService.updateRunStepByRunIdAndNodeId(params.run.id, params.node.id, {

@@ -172,6 +172,45 @@ describe('runtime artifacts', () => {
     ])
   })
 
+  it('normalizes the default all-mode agent before serializing runtime config', async () => {
+    await createRuntimeRepo({
+      'CommonWorkspaceConfig.json': JSON.stringify({
+        default_agent: 'assistant',
+        agent: {
+          assistant: { mode: 'all', tools: { task: true } },
+          utility: { mode: 'all', tools: { task: true } },
+        },
+      }),
+    })
+
+    const {
+      buildWorkspaceRuntimeArtifacts,
+      getWebProviderGatewayConfig,
+    } = await loadRuntimeArtifactsModule()
+
+    const artifacts = await buildWorkspaceRuntimeArtifacts('alice', getWebProviderGatewayConfig())
+    const config = JSON.parse(artifacts.opencodeConfigContent) as {
+      agent?: Record<string, {
+        mode?: string
+        permission?: Record<string, string>
+        steps?: number
+        tools?: Record<string, boolean>
+      }>
+    }
+
+    expect(config.agent?.assistant).toMatchObject({
+      mode: 'primary',
+      steps: 120,
+      tools: { task: true },
+    })
+    expect(config.agent?.utility).toMatchObject({
+      mode: 'all',
+      steps: 40,
+      tools: { task: false },
+    })
+    expect(config.agent?.utility?.permission).toMatchObject({ task: 'deny' })
+  })
+
   it('injects the built-in flow authoring skill and grants runtime agent access', async () => {
     await createRuntimeRepo({
       'CommonWorkspaceConfig.json': JSON.stringify({

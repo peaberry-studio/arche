@@ -703,7 +703,10 @@ export const POST = withAuth(
                   ? 'stream_timeout'
                   : EXECUTION_TERMINATION_UNCONFIRMED_ERROR
                 emitStatus('error', undefined, failure)
-                sendEvent('error', { error: failure })
+                sendEvent('error', terminated ? { error: failure } : {
+                  cause: 'stream_timeout',
+                  error: failure,
+                })
                 if (terminated) {
                   markRunFailed(failure)
                 }

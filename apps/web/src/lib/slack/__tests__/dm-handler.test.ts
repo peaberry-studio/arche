@@ -162,6 +162,7 @@ describe('Slack DM handler', () => {
       ok: true,
       run: { id: 'run-1' },
     })
+    mocks.sessionExecution.waitForSessionToComplete.mockResolvedValue({ status: 'completed' })
     mocks.sessionExecution.isOpenCodeSessionNotFoundError.mockReturnValue(false)
     mocks.messageRunService.markRunFailed.mockResolvedValue(undefined)
     mocks.messageRunService.markRunSucceeded.mockResolvedValue(undefined)

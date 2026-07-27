@@ -27,8 +27,7 @@ describe('withWorkspacePermissionGuards', () => {
     })
     expect(permission.bash).toMatchObject({
       '*': 'ask',
-      '*.opencode': 'deny',
-      '*.opencode/*': 'deny',
+      '*.opencode*': 'deny',
     })
   })
 })

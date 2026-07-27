@@ -19,6 +19,11 @@ const ABORT_CONFIRMATION_TIMEOUT_MS = 10_000
 
 export const EXECUTION_TERMINATION_UNCONFIRMED_ERROR = 'execution_termination_unconfirmed'
 
+export type SessionCompletionResult =
+  | { status: 'completed' }
+  | { status: 'failed'; error: string }
+  | { status: 'termination_unconfirmed'; cause: string }
+
 export type SessionExecutionClient = NonNullable<Awaited<ReturnType<typeof createInstanceClient>>>
 export type SessionMessageCursor = {
   messageCount: number
@@ -385,7 +390,10 @@ type DescendantSessionDiscovery = {
 
 async function awaitBeforeDeadline<T>(promise: Promise<T>, deadline: number): Promise<T | null> {
   const remainingMs = deadline - Date.now()
-  if (remainingMs <= 0) return null
+  if (remainingMs <= 0) {
+    void promise.catch(() => undefined)
+    return null
+  }
 
   return new Promise((resolve) => {
     const timeout = setTimeout(() => resolve(null), remainingMs)
@@ -484,7 +492,7 @@ export async function waitForSessionToComplete(params: {
   slug: string
   onPulse?: () => Promise<string | null | void>
   usage?: SessionRunUsageInput
-}): Promise<string | null> {
+}): Promise<SessionCompletionResult> {
   const deadline = Date.now() + RUN_TIMEOUT_MS
   const startedAt = Date.now()
   let lastActivityTouchAt = 0
@@ -503,7 +511,9 @@ export async function waitForSessionToComplete(params: {
         client: params.client,
         rootSessionId: params.sessionId,
       })
-      return terminated ? pulseFailure : EXECUTION_TERMINATION_UNCONFIRMED_ERROR
+      return terminated
+        ? { status: 'failed', error: pulseFailure }
+        : { status: 'termination_unconfirmed', cause: pulseFailure }
     }
 
     const [statusResult, messagesResult] = await Promise.all([
@@ -523,7 +533,7 @@ export async function waitForSessionToComplete(params: {
       }
 
       recordSessionRunUsageBestEffort({ messages, usage: params.usage })
-      return outcome
+      return outcome ? { status: 'failed', error: outcome } : { status: 'completed' }
     }
 
     if (
@@ -532,7 +542,7 @@ export async function waitForSessionToComplete(params: {
       Date.now() - startedAt >= IDLE_WITHOUT_ASSISTANT_GRACE_MS
     ) {
       await recordLatestSessionRunUsageBestEffort(params)
-      return 'flow_no_assistant_message'
+      return { status: 'failed', error: 'flow_no_assistant_message' }
     }
 
     await sleep(RUN_POLL_INTERVAL_MS)
@@ -543,7 +553,9 @@ export async function waitForSessionToComplete(params: {
     client: params.client,
     rootSessionId: params.sessionId,
   })
-  return terminated ? 'flow_run_timeout' : EXECUTION_TERMINATION_UNCONFIRMED_ERROR
+  return terminated
+    ? { status: 'failed', error: 'flow_run_timeout' }
+    : { status: 'termination_unconfirmed', cause: 'flow_run_timeout' }
 }
 
 export async function readLatestAssistantText(

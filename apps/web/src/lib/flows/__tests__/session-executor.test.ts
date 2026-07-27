@@ -74,7 +74,7 @@ describe('runFlowPromptAndReadOutput', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.captureSessionMessageCursor.mockResolvedValue({ messageCount: 3 })
-    mocks.waitForSessionToComplete.mockResolvedValue(null)
+    mocks.waitForSessionToComplete.mockResolvedValue({ status: 'completed' })
     mocks.readLatestAssistantText.mockResolvedValue('assistant output')
     mocks.extendFlowLease.mockResolvedValue({ count: 1 })
     mocks.findRunStatusById.mockResolvedValue({ status: FlowRunStatus.running })
@@ -116,7 +116,7 @@ describe('runFlowPromptAndReadOutput', () => {
     })
     mocks.waitForSessionToComplete.mockImplementation(async (params) => {
       expect(params.usage).toEqual({ messageRunId: 'message-run-1', source: 'flow', userId: 'user-1' })
-      return null
+      return { status: 'completed' }
     })
 
     await expect(runFlowPromptAndReadOutput({
@@ -152,7 +152,7 @@ describe('runFlowPromptAndReadOutput', () => {
       sessionId: 'session-1',
       slug: 'alice',
       userId: 'user-1',
-    })).resolves.toEqual({ ok: false, error: 'session_busy' })
+    })).resolves.toEqual({ ok: false, type: 'failed', error: 'session_busy' })
 
     expect(mocks.captureSessionMessageCursor).not.toHaveBeenCalled()
     expect(client.session.promptAsync).not.toHaveBeenCalled()
@@ -170,7 +170,7 @@ describe('runFlowPromptAndReadOutput', () => {
       runId: 'run-1',
       sessionId: 'session-1',
       slug: 'alice',
-    })).resolves.toEqual({ ok: false, error: 'flow_run_cancelled' })
+    })).resolves.toEqual({ ok: false, type: 'failed', error: 'flow_run_cancelled' })
 
     expect(mocks.captureSessionMessageCursor).not.toHaveBeenCalled()
     expect(client.session.promptAsync).not.toHaveBeenCalled()
@@ -192,7 +192,7 @@ describe('runFlowPromptAndReadOutput', () => {
       runId: 'run-1',
       sessionId: 'session-1',
       slug: 'alice',
-    })).resolves.toEqual({ ok: false, error: 'flow_agent_model_unavailable:writer:opencode/missing-model' })
+    })).resolves.toEqual({ ok: false, type: 'failed', error: 'flow_agent_model_unavailable:writer:opencode/missing-model' })
 
     expect(mocks.captureSessionMessageCursor).not.toHaveBeenCalled()
     expect(client.session.promptAsync).not.toHaveBeenCalled()
@@ -296,7 +296,7 @@ describe('runFlowPromptAndReadOutput', () => {
       runId: 'run-1',
       sessionId: 'session-1',
       slug: 'alice',
-    })).resolves.toEqual({ ok: false, error: 'flow_mcp_connector_unavailable:Mixpanel' })
+    })).resolves.toEqual({ ok: false, type: 'failed', error: 'flow_mcp_connector_unavailable:Mixpanel' })
 
     expect(mocks.captureSessionMessageCursor).not.toHaveBeenCalled()
     expect(client.session.promptAsync).not.toHaveBeenCalled()
@@ -342,7 +342,7 @@ describe('runFlowPromptAndReadOutput', () => {
 
     await vi.advanceTimersByTimeAsync(1)
 
-    await expect(resultPromise).resolves.toEqual({ ok: false, error: 'flow_mcp_connector_unavailable:Mixpanel' })
+    await expect(resultPromise).resolves.toEqual({ ok: false, type: 'failed', error: 'flow_mcp_connector_unavailable:Mixpanel' })
     expect(mocks.captureSessionMessageCursor).not.toHaveBeenCalled()
     expect(client.session.promptAsync).not.toHaveBeenCalled()
   })
@@ -390,7 +390,7 @@ describe('runFlowPromptAndReadOutput', () => {
 
     await vi.advanceTimersByTimeAsync(1)
 
-    await expect(resultPromise).resolves.toEqual({ ok: false, error: 'flow_mcp_connector_unavailable:Mixpanel' })
+    await expect(resultPromise).resolves.toEqual({ ok: false, type: 'failed', error: 'flow_mcp_connector_unavailable:Mixpanel' })
     expect(client.mcp.status).toHaveBeenCalledTimes(2)
     expect(client.session.promptAsync).not.toHaveBeenCalled()
   })
@@ -402,7 +402,7 @@ describe('runFlowPromptAndReadOutput', () => {
       .mockResolvedValueOnce({ status: FlowRunStatus.cancelled })
     mocks.waitForSessionToComplete.mockImplementation(async (params: { onPulse?: () => Promise<string | null | void> }) => {
       const result = await params.onPulse?.()
-      return result ?? null
+      return result ? { status: 'failed', error: result } : { status: 'completed' }
     })
 
     await expect(runFlowPromptAndReadOutput({
@@ -413,7 +413,7 @@ describe('runFlowPromptAndReadOutput', () => {
       runId: 'run-1',
       sessionId: 'session-1',
       slug: 'alice',
-    })).resolves.toEqual({ ok: false, error: 'flow_run_cancelled' })
+    })).resolves.toEqual({ ok: false, type: 'failed', error: 'flow_run_cancelled' })
 
     expect(client.session.abort).not.toHaveBeenCalled()
     expect(mocks.extendFlowLease).not.toHaveBeenCalled()
@@ -423,7 +423,7 @@ describe('runFlowPromptAndReadOutput', () => {
   it('extends the flow lease while waiting for completion', async () => {
     mocks.waitForSessionToComplete.mockImplementation(async (params: { onPulse?: () => Promise<string | null | void> }) => {
       await params.onPulse?.()
-      return null
+      return { status: 'completed' }
     })
 
     await runFlowPromptAndReadOutput({
@@ -443,7 +443,7 @@ describe('runFlowPromptAndReadOutput', () => {
     mocks.extendFlowLease.mockResolvedValue({ count: 0 })
     mocks.waitForSessionToComplete.mockImplementation(async (params: { onPulse?: () => Promise<string | null | void> }) => {
       const result = await params.onPulse?.()
-      return result ?? null
+      return result ? { status: 'failed', error: result } : { status: 'completed' }
     })
 
     await expect(runFlowPromptAndReadOutput({
@@ -454,13 +454,13 @@ describe('runFlowPromptAndReadOutput', () => {
       runId: 'run-1',
       sessionId: 'session-1',
       slug: 'alice',
-    })).resolves.toEqual({ ok: false, error: 'flow_lease_lost' })
+    })).resolves.toEqual({ ok: false, type: 'failed', error: 'flow_lease_lost' })
 
     expect(mocks.readLatestAssistantText).not.toHaveBeenCalled()
   })
 
   it('returns completion failures without reading output', async () => {
-    mocks.waitForSessionToComplete.mockResolvedValue('flow_run_timeout')
+    mocks.waitForSessionToComplete.mockResolvedValue({ status: 'failed', error: 'flow_run_timeout' })
 
     await expect(runFlowPromptAndReadOutput({
       client: createClient(),
@@ -470,7 +470,7 @@ describe('runFlowPromptAndReadOutput', () => {
       runId: 'run-1',
       sessionId: 'session-1',
       slug: 'alice',
-    })).resolves.toEqual({ ok: false, error: 'flow_run_timeout' })
+    })).resolves.toEqual({ ok: false, type: 'failed', error: 'flow_run_timeout' })
 
     expect(mocks.readLatestAssistantText).not.toHaveBeenCalled()
   })
@@ -499,7 +499,7 @@ describe('runFlowPromptAndReadOutput', () => {
     const client = createClient()
     client.session.status = vi.fn().mockResolvedValue({ data: { 'session-1': { type: 'idle' } } })
     mocks.messageRunService.createActiveRunAfterRuntimeStateCheck.mockResolvedValue({ ok: true, run: { id: 'message-run-1' } })
-    mocks.waitForSessionToComplete.mockResolvedValue('flow_run_timeout')
+    mocks.waitForSessionToComplete.mockResolvedValue({ status: 'failed', error: 'flow_run_timeout' })
 
     await expect(runFlowPromptAndReadOutput({
       client,
@@ -510,7 +510,7 @@ describe('runFlowPromptAndReadOutput', () => {
       sessionId: 'session-1',
       slug: 'alice',
       userId: 'user-1',
-    })).resolves.toEqual({ ok: false, error: 'flow_run_timeout' })
+    })).resolves.toEqual({ ok: false, type: 'failed', error: 'flow_run_timeout' })
 
     expect(mocks.messageRunService.markRunFailed).toHaveBeenCalledWith('message-run-1', 'flow_run_timeout')
   })
@@ -519,7 +519,10 @@ describe('runFlowPromptAndReadOutput', () => {
     const client = createClient()
     client.session.status = vi.fn().mockResolvedValue({ data: { 'session-1': { type: 'idle' } } })
     mocks.messageRunService.createActiveRunAfterRuntimeStateCheck.mockResolvedValue({ ok: true, run: { id: 'message-run-1' } })
-    mocks.waitForSessionToComplete.mockResolvedValue('execution_termination_unconfirmed')
+    mocks.waitForSessionToComplete.mockResolvedValue({
+      status: 'termination_unconfirmed',
+      cause: 'flow_run_timeout',
+    })
 
     await expect(runFlowPromptAndReadOutput({
       client,
@@ -530,7 +533,11 @@ describe('runFlowPromptAndReadOutput', () => {
       sessionId: 'session-1',
       slug: 'alice',
       userId: 'user-1',
-    })).resolves.toEqual({ ok: false, error: 'execution_termination_unconfirmed' })
+    })).resolves.toEqual({
+      ok: false,
+      type: 'termination_unconfirmed',
+      cause: 'flow_run_timeout',
+    })
 
     expect(mocks.messageRunService.markRunFailed).not.toHaveBeenCalled()
   })
@@ -546,7 +553,7 @@ describe('runFlowPromptAndReadOutput', () => {
       runId: 'run-1',
       sessionId: 'session-1',
       slug: 'alice',
-    })).resolves.toEqual({ ok: false, error: 'flow_no_assistant_output' })
+    })).resolves.toEqual({ ok: false, type: 'failed', error: 'flow_no_assistant_output' })
   })
 })
 
