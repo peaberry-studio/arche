@@ -2,8 +2,6 @@ import { normalizeWorkspacePath } from '@/lib/workspace-paths'
 
 const URL_SCHEME_PATTERN = /^([a-z][a-z0-9+.-]*):/
 
-export const MAX_WORKSPACE_CHART_DATA_BYTES = 8 * 1024 * 1024
-
 /**
  * Browsers strip control characters before parsing a URL scheme, so `java\nscript:` has
  * to be read as `javascript:` here too. Every scheme decision in the app goes through
@@ -30,8 +28,15 @@ export function isInlineImageUri(value: string): boolean {
  * instead of the raw `data.url`, so a spec can reference files committed alongside an
  * article without the app ever making an outbound request on the spec's behalf.
  */
-export function workspaceDataUrl(slug: string, path: string): string {
-  return `/api/w/${encodeURIComponent(slug)}/files/download?path=${encodeURIComponent(path)}&chart=1`
+export function workspaceDataUrl(
+  slug: string,
+  path: string,
+  options?: { maxBytes?: number },
+): string {
+  const base = `/api/w/${encodeURIComponent(slug)}/files/download?path=${encodeURIComponent(path)}`
+  // maxBytes asks the route to 413 rather than stream a larger body. It is a client-side
+  // budget, not a security boundary: the caller can only restrict what it receives.
+  return options?.maxBytes ? `${base}&maxBytes=${options.maxBytes}` : base
 }
 
 /**

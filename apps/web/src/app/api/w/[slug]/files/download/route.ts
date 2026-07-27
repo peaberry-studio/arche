@@ -1,7 +1,6 @@
 import { NextRequest } from "next/server"
 
 import { withAuth } from "@/lib/runtime/with-auth"
-import { MAX_WORKSPACE_CHART_DATA_BYTES } from "@/lib/vega-data-path"
 import {
   inferAttachmentMimeType,
   sanitizeAttachmentFilename,
@@ -33,11 +32,18 @@ export const GET = withAuth<{ error: string }>(
     if (!content) {
       return jsonResponse(502, { error: "invalid_file_content" })
     }
-    if (
-      requestUrl.searchParams.get("chart") === "1" &&
-      content.byteLength > MAX_WORKSPACE_CHART_DATA_BYTES
-    ) {
-      return jsonResponse(413, { error: "file_too_large" })
+    // A client may cap the response it is willing to receive (chart data loaders do, so
+    // an oversized file fails fast instead of streaming). Restriction only — the cap can
+    // never expand what the route serves, so the value needs no trust.
+    const maxBytesParam = requestUrl.searchParams.get("maxBytes")
+    if (maxBytesParam !== null) {
+      const maxBytes = Number(maxBytesParam)
+      if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) {
+        return jsonResponse(400, { error: "invalid_max_bytes" })
+      }
+      if (content.byteLength > maxBytes) {
+        return jsonResponse(413, { error: "file_too_large" })
+      }
     }
 
     const filename = normalizedPath.split("/").pop() ?? "download"

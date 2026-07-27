@@ -356,6 +356,36 @@ describe('sanitizeVegaLiteSpec: resource budgets', () => {
     expect(sanitizeVegaLiteSpec({ mark: 'not-a-real-mark' })).not.toBeNull()
   })
 
+  it('tracks the repeat product per path, not globally', () => {
+    // Two sibling 15x15 repeats are 225 views each — fine. A global accumulator would
+    // wrongly reject them at 450; only nesting multiplies.
+    const fields = Array.from({ length: 15 }, (_, i) => `f${i}`)
+    const repeated = {
+      repeat: { row: fields, column: fields },
+      spec: { mark: 'point', encoding: { x: { field: { repeat: 'column' }, type: 'quantitative' } } },
+    }
+
+    expect(sanitizeVegaLiteSpec({
+      data: { values: [{ f0: 1 }] },
+      hconcat: [repeated, repeated],
+    })).not.toBeNull()
+  })
+
+  it('compounds nested repeat products along a path', () => {
+    // 5 outer x 100 inner = 500 views > 400, even though each level alone is under budget.
+    const outer = Array.from({ length: 5 }, (_, i) => `o${i}`)
+    const inner = Array.from({ length: 100 }, (_, i) => `i${i}`)
+
+    expect(sanitizeVegaLiteSpec({
+      data: { values: [{ o0: 1 }] },
+      repeat: { row: outer },
+      spec: {
+        repeat: { column: inner },
+        spec: { mark: 'point' },
+      },
+    })).toBeNull()
+  })
+
   it('rejects deep nesting without throwing, at every depth', () => {
     // The complexity preflight runs before the sanitizing walk and recurses too. If only
     // the walk carries a depth budget there is a band of depths — past the JS stack but

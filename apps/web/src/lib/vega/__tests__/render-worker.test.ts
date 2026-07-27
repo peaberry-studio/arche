@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import { createWorkspaceDataReader, renderVegaLiteToSvgInWorker } from "@/lib/vega-render-worker"
+import { createWorkspaceDataReader, renderVegaLiteToSvgInWorker } from "@/lib/vega/render-worker"
 import { sanitizeVegaLiteSpec } from "@/lib/vega/sanitize-spec"
 import { readWorkspaceFile } from "@/lib/workspace-file-response"
 

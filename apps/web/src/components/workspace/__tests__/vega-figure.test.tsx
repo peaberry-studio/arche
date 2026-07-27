@@ -92,7 +92,7 @@ describe('VegaFigure', () => {
     }
 
     expect(await loader.sanitize('data/latency.csv', {})).toEqual({
-      href: '/api/w/my-space/files/download?path=data%2Flatency.csv&chart=1',
+      href: '/api/w/my-space/files/download?path=data%2Flatency.csv&maxBytes=8388608',
     })
   })
 

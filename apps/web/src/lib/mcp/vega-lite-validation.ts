@@ -1,4 +1,4 @@
-import { compileVegaLiteSpecInWorker } from '@/lib/mcp/vega-lite-compile-worker'
+import { compileVegaLiteSpecInWorker } from '@/lib/vega/compile-worker'
 import { sanitizeVegaLiteSpec } from '@/lib/vega/sanitize-spec'
 
 export type VegaLiteValidationResult =

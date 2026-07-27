@@ -1,12 +1,8 @@
-import { Worker } from "node:worker_threads"
-
 import type { Config } from "vega-embed"
 
-import {
-  MAX_WORKSPACE_CHART_DATA_BYTES,
-  resolveWorkspaceDataPath,
-} from "@/lib/vega-data-path"
-import type { SanitizedChart } from "@/lib/vega/sanitize-spec"
+import { runEphemeralWorker } from "@/lib/vega/ephemeral-worker"
+import { resolveWorkspaceDataPath } from "@/lib/vega/data-path"
+import { MAX_WORKSPACE_CHART_DATA_BYTES, type SanitizedChart } from "@/lib/vega/sanitize-spec"
 import {
   decodeWorkspaceFileText,
   isValidWorkspacePath,
@@ -221,39 +217,15 @@ export async function renderVegaLiteToSvgInWorker(input: {
   const remainingMs = deadline - Date.now()
   if (remainingMs <= 0) throw expired()
 
-  const worker = new Worker(WORKER_SOURCE, {
-    eval: true,
+  const message = await runEphemeralWorker<{ ok: boolean; svg?: string; message?: string }>({
+    source: WORKER_SOURCE,
     workerData: { spec: input.chart.spec, config: input.config, files },
-    // The worker only computes; it has no reason to see the process environment.
-    env: {},
-    resourceLimits: {
-      maxOldGenerationSizeMb: WORKER_MEMORY_LIMIT_MB,
-      stackSizeMb: 4,
-    },
+    timeoutMs: remainingMs,
+    timeoutMessage: expired().message,
+    label: "Chart rendering",
+    memoryLimitMb: WORKER_MEMORY_LIMIT_MB,
   })
 
-  try {
-    return await new Promise<string>((resolve, reject) => {
-      const timer = setTimeout(() => reject(expired()), remainingMs)
-
-      worker.once("message", (message: { ok: boolean; svg?: string; message?: string }) => {
-        clearTimeout(timer)
-        if (message.ok && typeof message.svg === "string") resolve(message.svg)
-        else reject(new Error(message.message ?? "Chart rendering failed."))
-      })
-
-      worker.once("error", (error: Error) => {
-        clearTimeout(timer)
-        reject(error)
-      })
-
-      worker.once("exit", (code: number) => {
-        clearTimeout(timer)
-        reject(new Error(`Chart rendering worker exited early with code ${code}.`))
-      })
-    })
-  } finally {
-    // Terminate unconditionally: on timeout this is what actually stops the work.
-    void worker.terminate()
-  }
+  if (message.ok && typeof message.svg === "string") return message.svg
+  throw new Error(message.message ?? "Chart rendering failed.")
 }

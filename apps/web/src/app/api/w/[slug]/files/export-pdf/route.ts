@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 
 import { withAuth } from "@/lib/runtime/with-auth"
 import { markdownToPdfHtml } from "@/lib/markdown-to-pdf-html"
-import { createWorkspaceDataReader } from "@/lib/vega-render-worker"
+import { createWorkspaceDataReader } from "@/lib/vega/render-worker"
 import {
   decodeWorkspaceFileText,
   isValidWorkspacePath,

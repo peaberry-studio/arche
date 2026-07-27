@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { isAbsoluteUri, resolveWorkspaceDataPath, workspaceDataUrl } from '@/lib/vega-data-path'
+import { isAbsoluteUri, resolveWorkspaceDataPath, workspaceDataUrl } from '@/lib/vega/data-path'
 
 describe('resolveWorkspaceDataPath', () => {
   it('normalizes workspace-relative paths', () => {
@@ -40,12 +40,15 @@ describe('isAbsoluteUri', () => {
 describe('workspaceDataUrl', () => {
   it('builds a same-origin URL against the workspace file route', () => {
     expect(workspaceDataUrl('my-space', 'data/latency.csv'))
-      .toBe('/api/w/my-space/files/download?path=data%2Flatency.csv&chart=1')
+      .toBe('/api/w/my-space/files/download?path=data%2Flatency.csv')
   })
 
   it('encodes slugs and paths', () => {
     expect(workspaceDataUrl('a b', 'dir name/file .csv'))
-      .toBe('/api/w/a%20b/files/download?path=dir%20name%2Ffile%20.csv&chart=1')
+      .toBe('/api/w/a%20b/files/download?path=dir%20name%2Ffile%20.csv')
+
+    expect(workspaceDataUrl('my-space', 'data/latency.csv', { maxBytes: 1024 }))
+      .toBe('/api/w/my-space/files/download?path=data%2Flatency.csv&maxBytes=1024')
   })
 })
 

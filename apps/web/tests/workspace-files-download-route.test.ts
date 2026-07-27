@@ -20,9 +20,9 @@ function session(slug: string, role: Role = "USER") {
   }
 }
 
-async function callDownload(path: string, slug = "alice", chart = false) {
+async function callDownload(path: string, slug = "alice", maxBytes?: number | string) {
   const { GET } = await import("@/app/api/w/[slug]/files/download/route")
-  const chartQuery = chart ? "&chart=1" : ""
+  const chartQuery = maxBytes === undefined ? "" : `&maxBytes=${maxBytes}`
   const request = new Request(
     `http://localhost/api/w/${slug}/files/download?path=${encodeURIComponent(path)}${chartQuery}`
   )
@@ -98,7 +98,7 @@ describe("workspace file download route", () => {
     )
   })
 
-  it("rejects oversized files requested as chart data", async () => {
+  it("rejects files larger than a client-requested byte cap", async () => {
     mockGetAuthenticatedUser.mockResolvedValue(session("alice"))
 
     vi.stubGlobal(
@@ -118,10 +118,29 @@ describe("workspace file download route", () => {
       )
     )
 
-    const response = await callDownload("data/large.csv", "alice", true)
+    const response = await callDownload("data/large.csv", "alice", 8 * 1024 * 1024)
 
     expect(response.status).toBe(413)
     expect(JSON.parse(response.text)).toEqual({ error: "file_too_large" })
+  })
+
+  it("rejects a malformed maxBytes cap", async () => {
+    mockGetAuthenticatedUser.mockResolvedValue(session("alice"))
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({ ok: true, content: "small", encoding: "utf-8" }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+    )
+
+    for (const cap of ["-1", "0", "NaN", "1.5", "not-a-number"]) {
+      const response = await callDownload("data/small.csv", "alice", cap)
+      expect(response.status, `maxBytes=${cap}`).toBe(400)
+    }
   })
 
   it("returns 503 when the workspace agent is unavailable", async () => {

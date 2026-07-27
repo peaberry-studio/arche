@@ -1,4 +1,4 @@
-import { getUrlScheme, isAbsoluteUri, isInlineImageUri } from '@/lib/vega-data-path'
+import { getUrlScheme, isAbsoluteUri, isInlineImageUri } from '@/lib/vega/data-path'
 import { isRecord } from '@/lib/records'
 
 // Vega-Lite version shipped by the app. Every spec's `$schema` is rewritten to this
@@ -14,6 +14,10 @@ export const VEGA_LITE_SCHEMA = 'https://vega.github.io/schema/vega-lite/v6.json
 const MAX_SPEC_CHARS = 8 * 1024 * 1024
 const MAX_SPEC_DEPTH = 64
 const MAX_TOTAL_ROWS = 200_000
+// A spec must not dodge its cost bound by moving data into a referenced file. Enforced
+// per file and in aggregate by the PDF reader, and requested by the browser loader via
+// the download route's maxBytes parameter.
+export const MAX_WORKSPACE_CHART_DATA_BYTES = 8 * 1024 * 1024
 const MAX_REPEAT_VIEWS = 400
 const MAX_COMPOSITION_BRANCHES = 1_000
 const MAX_DIMENSION = 10_000
@@ -49,13 +53,12 @@ type UrlPolicy = 'href' | 'resource'
 type WalkContext = {
   warnings: Set<string>
   rows: number
-  depthExceeded: boolean
+  budgetExceeded: boolean
   dataUrls: Set<string>
-}
-
-type ComplexityContext = {
+  /** Cumulative `layer`/`concat` branch count across the whole spec. */
   compositionBranches: number
-  exceeded: boolean
+  /** Multiplicative `repeat` view count along the current path, saved/restored per node. */
+  repeatProduct: number
 }
 
 function repeatViewCount(value: unknown): number {
@@ -89,74 +92,6 @@ function exceedsGraticuleBudget(value: unknown): boolean {
 }
 
 /**
- * Vega-Lite composition can multiply a tiny input into thousands of views before row
- * budgets become relevant. This preflight bounds that syntactic expansion, dimensions,
- * and generated graticules without restricting which grammar features may be used.
- */
-function inspectComplexity(
-  value: unknown,
-  repeatProduct: number,
-  depth: number,
-  context: ComplexityContext,
-): void {
-  if (context.exceeded || !value || typeof value !== 'object') return
-
-  // The preflight runs before the sanitizing walk, so it needs the same depth budget.
-  // Without it a spec nested deeper than the JS stack crashes here instead of being
-  // rejected, and the throw escapes every caller — sanitizeVegaLiteSpec only guards the
-  // JSON.stringify above.
-  if (depth > MAX_SPEC_DEPTH) {
-    context.exceeded = true
-    return
-  }
-
-  if (Array.isArray(value)) {
-    for (const entry of value) inspectComplexity(entry, repeatProduct, depth + 1, context)
-    return
-  }
-
-  if (!isRecord(value)) return
-
-  const localRepeatProduct = repeatProduct * repeatViewCount(value.repeat)
-  if (localRepeatProduct > MAX_REPEAT_VIEWS) {
-    context.exceeded = true
-    return
-  }
-
-  for (const [key, entry] of Object.entries(value)) {
-    // Inline rows and named datasets are opaque user data, not specification structure.
-    if (key === 'values' || key === 'datasets') continue
-
-    if (
-      (key === 'width' || key === 'height') &&
-      typeof entry === 'number' &&
-      (!Number.isFinite(entry) || entry <= 0 || entry > MAX_DIMENSION)
-    ) {
-      context.exceeded = true
-      return
-    }
-
-    if (key === 'graticule' && exceedsGraticuleBudget(entry)) {
-      context.exceeded = true
-      return
-    }
-
-    if (
-      (key === 'layer' || key === 'concat' || key === 'hconcat' || key === 'vconcat') &&
-      Array.isArray(entry)
-    ) {
-      context.compositionBranches += entry.length
-      if (context.compositionBranches > MAX_COMPOSITION_BRANCHES) {
-        context.exceeded = true
-        return
-      }
-    }
-
-    inspectComplexity(entry, localRepeatProduct, depth + 1, context)
-  }
-}
-
-/**
  * Vega renders the `href` channel into an SVG anchor. This catches literal values; hrefs
  * produced by an expression only exist after render, so VegaFigure re-checks at click
  * time and that guard is the authoritative one.
@@ -187,8 +122,9 @@ function walkNode(
   context: WalkContext,
   recurse: (entry: unknown, depth: number) => unknown,
 ): WalkStep {
+  if (context.budgetExceeded) return { kind: 'done', value: undefined }
   if (depth > MAX_SPEC_DEPTH) {
-    context.depthExceeded = true
+    context.budgetExceeded = true
     return { kind: 'done', value: undefined }
   }
   if (Array.isArray(value)) {
@@ -228,6 +164,33 @@ function takeInlineData(value: unknown, context: WalkContext): unknown {
   }
 
   return value
+}
+
+/**
+ * Vega-Lite composition can multiply a tiny input into thousands of views before row
+ * budgets become relevant. Charged where the walk meets the keys, so one walker owns
+ * every budget: syntactic view expansion, dimensions and generated graticules are
+ * bounded without restricting which grammar features may be used.
+ */
+function chargeCompositionBudgets(key: string, entry: unknown, context: WalkContext): void {
+  if (
+    (key === 'width' || key === 'height') &&
+    typeof entry === 'number' &&
+    (!Number.isFinite(entry) || entry <= 0 || entry > MAX_DIMENSION)
+  ) {
+    context.budgetExceeded = true
+    return
+  }
+
+  if (
+    (key === 'layer' || key === 'concat' || key === 'hconcat' || key === 'vconcat') &&
+    Array.isArray(entry)
+  ) {
+    context.compositionBranches += entry.length
+    if (context.compositionBranches > MAX_COMPOSITION_BRANCHES) {
+      context.budgetExceeded = true
+    }
+  }
 }
 
 /** `data.sequence` generates rows without listing them; charge the generated count. */
@@ -289,7 +252,13 @@ function sanitizeDataDefinition(value: unknown, depth: number, context: WalkCont
       continue
     }
 
-    // `format`, `name`, `graticule` carry no resources.
+    if (key === 'graticule') {
+      if (exceedsGraticuleBudget(entry)) context.budgetExceeded = true
+      result.graticule = entry
+      continue
+    }
+
+    // `format` and `name` carry no resources.
     result[key] = entry
   }
 
@@ -380,9 +349,25 @@ function sanitizeSpecValue(value: unknown, depth: number, context: WalkContext):
   const step = walkNode(value, depth, context, (entry, d) => sanitizeSpecValue(entry, d, context))
   if (step.kind === 'done') return step.value
 
+  // `repeat` multiplies every view in this node's subtree, and nested repeats compound,
+  // so the product is tracked along the walk path and restored on the way out.
+  const repeatEntry = step.entries.find(([key]) => key === 'repeat')
+  const repeatFactor = repeatEntry ? repeatViewCount(repeatEntry[1]) : 1
+  const parentRepeatProduct = context.repeatProduct
+  if (repeatFactor > 1) {
+    context.repeatProduct = parentRepeatProduct * repeatFactor
+    if (context.repeatProduct > MAX_REPEAT_VIEWS) {
+      context.budgetExceeded = true
+      return undefined
+    }
+  }
+
   const result: Record<string, unknown> = {}
 
   for (const [key, entry] of step.entries) {
+    chargeCompositionBudgets(key, entry, context)
+    if (context.budgetExceeded) break
+
     switch (key) {
       case 'loader':
         context.warnings.add(WARN_LOADER)
@@ -407,6 +392,7 @@ function sanitizeSpecValue(value: unknown, depth: number, context: WalkContext):
     }
   }
 
+  context.repeatProduct = parentRepeatProduct
   return result
 }
 
@@ -426,19 +412,17 @@ export function sanitizeVegaLiteSpec(input: unknown): SanitizedChart | null {
   }
   if (serializedLength > MAX_SPEC_CHARS) return null
 
-  const complexity: ComplexityContext = { compositionBranches: 0, exceeded: false }
-  inspectComplexity(input, 1, 0, complexity)
-  if (complexity.exceeded) return null
-
   const context: WalkContext = {
     warnings: new Set(),
     rows: 0,
-    depthExceeded: false,
+    budgetExceeded: false,
+    compositionBranches: 0,
+    repeatProduct: 1,
     dataUrls: new Set(),
   }
   const sanitized = sanitizeSpecValue(input, 0, context)
 
-  if (context.depthExceeded || !isRecord(sanitized)) return null
+  if (context.budgetExceeded || !isRecord(sanitized)) return null
   if (context.rows > MAX_TOTAL_ROWS) return null
 
   return {

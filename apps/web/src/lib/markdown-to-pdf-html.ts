@@ -22,7 +22,7 @@ import {
 import {
   renderVegaLiteToSvgInWorker,
   type WorkspaceDataReader,
-} from "@/lib/vega-render-worker"
+} from "@/lib/vega/render-worker"
 
 // A document is bounded by total rendering time rather than a chart count, so a report
 // with many small figures is not truncated while one pathological spec still cannot

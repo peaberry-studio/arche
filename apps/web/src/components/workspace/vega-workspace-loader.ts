@@ -3,7 +3,8 @@
 import { useParams, usePathname } from 'next/navigation'
 import type { EmbedOptions } from 'vega-embed'
 
-import { isAbsoluteUri, resolveWorkspaceDataPath, workspaceDataUrl } from '@/lib/vega-data-path'
+import { isAbsoluteUri, resolveWorkspaceDataPath, workspaceDataUrl } from '@/lib/vega/data-path'
+import { MAX_WORKSPACE_CHART_DATA_BYTES } from '@/lib/vega/sanitize-spec'
 
 type VegaNamespace = (typeof import('vega-embed'))['vega']
 
@@ -44,7 +45,7 @@ export function buildWorkspaceLoader(
     const path = resolveWorkspaceDataPath(rawUri)
     if (!path) throw new Error(`Blocked a data URL that escapes the workspace: ${rawUri}`)
 
-    return { href: workspaceDataUrl(slug, path) }
+    return { href: workspaceDataUrl(slug, path, { maxBytes: MAX_WORKSPACE_CHART_DATA_BYTES }) }
   }
 
   return loader
