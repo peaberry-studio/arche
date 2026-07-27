@@ -818,6 +818,41 @@ describe('slack socket manager', () => {
     stopSlackSocketManager()
   })
 
+  it('formats and posts every Slack thread reply chunk with context-authorized mentions', async () => {
+    const client = createSlackClient()
+    readLatestAssistantTextMock.mockResolvedValue(`**Bold** <@U123> <@U999>\n\n${'x'.repeat(3_501)}`)
+    const { handleSlackThreadEvent } = await import('../thread-handler')
+
+    await handleSlackThreadEvent({
+      channel: 'C123',
+      client,
+      event: {
+        channel: 'C123',
+        text: '<@U999> hello',
+        ts: '100.1',
+        user: 'U123',
+      },
+      eventTs: '100.1',
+      isMention: true,
+      savedBotUserId: 'U999',
+      threadTs: '100.1',
+    })
+
+    expect(client.chat.update).toHaveBeenCalledWith({
+      channel: 'C123',
+      text: '*Bold* <@U123> &lt;@U999&gt;',
+      ts: 'reply-1',
+    })
+    expect(client.chat.postMessage).toHaveBeenNthCalledWith(
+      2,
+      { channel: 'C123', text: 'x'.repeat(3_500), thread_ts: '100.1' },
+    )
+    expect(client.chat.postMessage).toHaveBeenNthCalledWith(
+      3,
+      { channel: 'C123', text: 'x', thread_ts: '100.1' },
+    )
+  })
+
   it('starts a new Slack thread conversation when the binding points at a deleted session', async () => {
     const promptAsyncMock = vi.fn().mockResolvedValue({})
     const sessionCreateMock = vi.fn().mockResolvedValue({ data: { id: 'thread-session-new' } })

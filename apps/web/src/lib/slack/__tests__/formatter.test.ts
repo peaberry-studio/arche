@@ -42,6 +42,16 @@ describe('formatSlackMessages', () => {
     expect(message).toBe('&lt;script&gt; &amp; &lt;!channel&gt; <@U123> &lt;@U999&gt; @channel @here')
   })
 
+  it('requires an exact authorized mention token', () => {
+    expect(formatSlackMessages('Hello <@u123>', ['<@U123>'])[0]).toBe('Hello &lt;@u123&gt;')
+  })
+
+  it('normalizes line endings and removes control characters while preserving Unicode', () => {
+    expect(formatSlackMessages('Hello\r\nПривет\u0007 <tag> &')[0]).toBe(
+      'Hello\nПривет &lt;tag&gt; &amp;',
+    )
+  })
+
   it('leaves unsafe and malformed links inactive without throwing', () => {
     expect(formatSlackMessages('[click](javascript:alert) <broken')[0]).toBe(
       '[click](javascript:alert) &lt;broken',
