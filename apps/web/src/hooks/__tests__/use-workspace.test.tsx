@@ -1952,6 +1952,44 @@ describe("useWorkspace", () => {
     });
   });
 
+  it("shows the unconfirmed termination error when cancellation cannot stop the session", async () => {
+    opencodeMocks.listMessagesAction.mockResolvedValue({
+      ok: true,
+      messages: [
+        {
+          id: "assistant-pending",
+          sessionId: "s1",
+          role: "assistant",
+          content: "",
+          timestamp: "now",
+          parts: [],
+          pending: true,
+        },
+      ],
+    });
+    opencodeMocks.abortSessionAction.mockResolvedValue({
+      ok: false,
+      error: "execution_termination_unconfirmed",
+    });
+
+    const { result } = renderHook(() =>
+      useWorkspace({ slug: "alice", pollInterval: 0 })
+    );
+
+    await waitFor(() => {
+      expect(result.current.messages[0]?.pending).toBe(true);
+    });
+
+    await act(async () => {
+      await result.current.abortSession();
+    });
+
+    expect(result.current.messages[0]?.statusInfo).toEqual({
+      status: "error",
+      detail: "execution_termination_unconfirmed",
+    });
+  });
+
   it("answers permission requests and updates the active message state", async () => {
     let permissionBody: { sessionId?: string; response?: string } | null = null;
 

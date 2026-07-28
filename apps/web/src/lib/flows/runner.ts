@@ -33,6 +33,11 @@ type FlowExecutionOutcome =
   | { status: 'succeeded' }
   | { status: 'waiting_for_human'; nodeId: string }
   | { status: 'failed'; error: string }
+  | { status: 'termination_unconfirmed'; cause: string }
+
+// A run whose runtime termination could not be confirmed must never be finalized:
+// the excluded arm keeps that invariant enforced by the compiler instead of by a guard.
+type FlowSettleableOutcome = Exclude<FlowExecutionOutcome, { status: 'termination_unconfirmed' }>
 
 type FlowExecutionUser = {
   id: string
@@ -161,6 +166,9 @@ async function executeFlowNodes(params: {
     steps = result.steps
     if (result.status === 'cancelled') return { status: 'cancelled' }
     if (result.status === 'failed') return { status: 'failed', error: result.error }
+    if (result.status === 'termination_unconfirmed') {
+      return { status: 'termination_unconfirmed', cause: result.cause }
+    }
     if (result.status === 'waiting_for_human') return { status: 'waiting_for_human', nodeId: result.nodeId }
 
     previousOutput = result.previousOutput
@@ -200,7 +208,7 @@ async function continueRun(params: {
 async function finalizeRun(params: {
   flow: FlowRecord
   leaseOwner: string
-  outcome: FlowExecutionOutcome
+  outcome: FlowSettleableOutcome
   run: FlowRunRecord
   sessionId: string | null
   sessionTitle: string | null
@@ -335,6 +343,45 @@ async function finalizeRun(params: {
   return { retryScheduled: false }
 }
 
+async function settleFlowRun(params: {
+  flow: FlowRecord
+  outcome: FlowExecutionOutcome
+  run: FlowRunRecord
+  sessionId: string | null
+  sessionTitle: string | null
+  slug: string
+  trigger: FlowRunTrigger
+}): Promise<void> {
+  if (params.outcome.status === 'termination_unconfirmed') {
+    console.error('[flows] Runtime termination unconfirmed; preserving flow run state', {
+      cause: params.outcome.cause,
+      flowId: params.flow.id,
+    })
+    return
+  }
+
+  const leaseOwner = params.flow.leaseOwner ?? ''
+  const finalization = await finalizeRun({
+    flow: params.flow,
+    leaseOwner,
+    outcome: params.outcome,
+    run: params.run,
+    sessionId: params.sessionId,
+    sessionTitle: params.sessionTitle,
+    slug: params.slug,
+    trigger: params.trigger,
+  }).catch(() => ({ retryScheduled: false }))
+
+  const result = await flowService.releaseFlowLease(
+    params.flow.id,
+    leaseOwner,
+    params.outcome.status === 'waiting_for_human' || finalization.retryScheduled ? undefined : new Date(),
+  ).catch(() => null)
+  if (result && result.count !== 1) {
+    console.warn('[flows] Flow lease release skipped because ownership changed', { flowId: params.flow.id })
+  }
+}
+
 async function executeClaimedFlowRun(
   flow: FlowClaimedRecord,
   trigger: FlowRunTrigger,
@@ -344,7 +391,6 @@ async function executeClaimedFlowRun(
   let sessionTitle: string | null = run.sessionTitle
   let slug: string | null = null
   let outcome: FlowExecutionOutcome = { status: 'failed', error: 'flow_run_failed' }
-  let finalization: { retryScheduled: boolean } = { retryScheduled: false }
 
   try {
     const executionUserId = run.executionUserId ?? flow.userId
@@ -396,25 +442,15 @@ async function executeClaimedFlowRun(
   } catch (error) {
     outcome = { status: 'failed', error: error instanceof Error ? error.message : 'flow_run_failed' }
   } finally {
-    finalization = await finalizeRun({
+    await settleFlowRun({
       flow,
-      leaseOwner: flow.leaseOwner ?? '',
       outcome,
       run,
       sessionId,
       sessionTitle,
       slug: slug ?? '',
       trigger,
-    }).catch(() => ({ retryScheduled: false }))
-
-    const result = await flowService.releaseFlowLease(
-      flow.id,
-      flow.leaseOwner ?? '',
-      outcome.status === 'waiting_for_human' || finalization.retryScheduled ? undefined : new Date(),
-    ).catch(() => null)
-    if (result && result.count !== 1) {
-      console.warn('[flows] Flow lease release skipped because ownership changed', { flowId: flow.id })
-    }
+    })
   }
 }
 
@@ -559,7 +595,6 @@ async function resumeClaimedFlowRun(params: {
 }): Promise<void> {
   let outcome: FlowExecutionOutcome = { status: 'failed', error: 'flow_resume_failed' }
   let slug: string | null = null
-  let finalization: { retryScheduled: boolean } = { retryScheduled: false }
 
   try {
     const executionUserId = params.run.executionUserId ?? params.flow.userId
@@ -601,24 +636,14 @@ async function resumeClaimedFlowRun(params: {
   } catch (error) {
     outcome = { status: 'failed', error: error instanceof Error ? error.message : 'flow_resume_failed' }
   } finally {
-    finalization = await finalizeRun({
+    await settleFlowRun({
       flow: params.flow,
-      leaseOwner: params.flow.leaseOwner ?? '',
       outcome,
       run: params.run,
       sessionId: params.run.openCodeSessionId,
       sessionTitle: params.run.sessionTitle,
       slug: slug ?? '',
       trigger: FlowRunTrigger.resume,
-    }).catch(() => ({ retryScheduled: false }))
-
-    const result = await flowService.releaseFlowLease(
-      params.flow.id,
-      params.flow.leaseOwner ?? '',
-      outcome.status === 'waiting_for_human' || finalization.retryScheduled ? undefined : new Date(),
-    ).catch(() => null)
-    if (result && result.count !== 1) {
-      console.warn('[flows] Flow lease release skipped because ownership changed', { flowId: params.flow.id })
-    }
+    })
   }
 }

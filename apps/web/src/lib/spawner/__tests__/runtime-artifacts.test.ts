@@ -152,6 +152,7 @@ describe('runtime artifacts', () => {
 
     expect(readConfigRepoSnapshotMock).toHaveBeenCalledTimes(1)
     expect(config.permission?.edit?.['opencode.json']).toBe('deny')
+    expect(config.permission?.edit?.['**/.opencode/**']).toBe('deny')
     expect(config.provider?.fireworks?.options?.baseURL).toBe(
       'http://web:3000/api/internal/providers/fireworks'
     )
@@ -169,6 +170,45 @@ describe('runtime artifacts', () => {
       'pdf-processing',
       'arche-flow-authoring',
     ])
+  })
+
+  it('normalizes the default all-mode agent before serializing runtime config', async () => {
+    await createRuntimeRepo({
+      'CommonWorkspaceConfig.json': JSON.stringify({
+        default_agent: 'assistant',
+        agent: {
+          assistant: { mode: 'all', tools: { task: true } },
+          utility: { mode: 'all', tools: { task: true } },
+        },
+      }),
+    })
+
+    const {
+      buildWorkspaceRuntimeArtifacts,
+      getWebProviderGatewayConfig,
+    } = await loadRuntimeArtifactsModule()
+
+    const artifacts = await buildWorkspaceRuntimeArtifacts('alice', getWebProviderGatewayConfig())
+    const config = JSON.parse(artifacts.opencodeConfigContent) as {
+      agent?: Record<string, {
+        mode?: string
+        permission?: Record<string, string>
+        steps?: number
+        tools?: Record<string, boolean>
+      }>
+    }
+
+    expect(config.agent?.assistant).toMatchObject({
+      mode: 'primary',
+      steps: 120,
+      tools: { task: true },
+    })
+    expect(config.agent?.utility).toMatchObject({
+      mode: 'all',
+      steps: 40,
+      tools: { task: false },
+    })
+    expect(config.agent?.utility?.permission).toMatchObject({ task: 'deny' })
   })
 
   it('injects the built-in flow authoring skill and grants runtime agent access', async () => {

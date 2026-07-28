@@ -408,6 +408,11 @@ describe("ChatPanelMessages", () => {
           content: "Known failure",
           statusInfo: { status: "error", detail: "unauthorized" },
         }),
+        assistantMessage([], {
+          id: "err-termination",
+          content: "Termination failure",
+          statusInfo: { status: "error", detail: "execution_termination_unconfirmed" },
+        }),
       ],
     });
 
@@ -416,6 +421,8 @@ describe("ChatPanelMessages", () => {
     expect(screen.getByText("Model overloaded")).toBeTruthy();
     expect(screen.getByText("Upstream API failed!")).toBeTruthy();
     expect(screen.getByText("Session expired")).toBeTruthy();
+    expect(screen.getByText("Couldn't confirm the response stopped")).toBeTruthy();
+    expect(screen.getByText("The assistant may still be running. Wait a moment before sending another message.")).toBeTruthy();
   });
 
   it("renders additional tool display branches and expanded multi-call details", () => {

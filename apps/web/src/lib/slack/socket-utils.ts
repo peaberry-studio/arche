@@ -168,6 +168,9 @@ export function mapSlackFailureToMessage(error: string): string {
   if (error === 'session_busy') {
     return 'That conversation is already working on a reply. Wait for it to finish, then send your next message.'
   }
+  if (error === 'execution_termination_unconfirmed') {
+    return 'I could not confirm the previous response stopped. It may still be running, so wait a moment before sending another message.'
+  }
 
   return 'I hit an error while preparing the Slack reply. Please try again.'
 }

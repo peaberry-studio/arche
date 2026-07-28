@@ -13,6 +13,11 @@ vi.mock('@/lib/opencode/client', () => ({
   getInstanceUrl: vi.fn(() => 'http://opencode-alice:4096'),
 }))
 
+vi.mock('@/lib/opencode/session-execution', () => ({
+  abortSessionFamilyAndConfirmIdle: vi.fn(),
+  EXECUTION_TERMINATION_UNCONFIRMED_ERROR: 'execution_termination_unconfirmed',
+}))
+
 vi.mock('@/lib/opencode/transform', () => ({
   extractTextContent: vi.fn((parts: unknown[]) => {
     const first = (parts as { type: string; text?: string }[]).find((p) => p.type === 'text')
@@ -72,6 +77,7 @@ vi.mock('@/lib/workspace-agent/client', () => ({
 
 import { getSession } from '@/lib/runtime/session'
 import { createInstanceClient } from '@/lib/opencode/client'
+import { abortSessionFamilyAndConfirmIdle } from '@/lib/opencode/session-execution'
 import { flowService, instanceService, messageRunService, slackService, userService } from '@/lib/services'
 import { createWorkspaceAgentClient } from '@/lib/workspace-agent/client'
 
@@ -99,6 +105,7 @@ import {
 
 const mockGetSession = vi.mocked(getSession)
 const mockCreateInstanceClient = vi.mocked(createInstanceClient)
+const mockAbortSessionFamilyAndConfirmIdle = vi.mocked(abortSessionFamilyAndConfirmIdle)
 const mockInstanceService = vi.mocked(instanceService)
 const mockSlackService = vi.mocked(slackService)
 const mockUserService = vi.mocked(userService)
@@ -153,6 +160,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   mockGetSession.mockResolvedValue(fakeSession)
   mockCreateInstanceClient.mockResolvedValue(makeClient())
+  mockAbortSessionFamilyAndConfirmIdle.mockResolvedValue(true)
   mockSessionStatus.mockResolvedValue({ data: {} })
   mockMessageRunService.abortActiveRun.mockResolvedValue(undefined)
   mockSlackService.deleteSessionBindingsByOpenCodeSessionId.mockResolvedValue({ dm: 0, thread: 0 })
@@ -925,14 +933,28 @@ describe('abortSessionAction', () => {
   })
 
   it('aborts session successfully', async () => {
-    mockSessionAbort.mockResolvedValue(undefined)
     const result = await abortSessionAction('alice', 'sess-1')
     expect(result).toEqual({ ok: true })
-    expect(mockSessionAbort).toHaveBeenCalledWith({ sessionID: 'sess-1' })
+    expect(mockAbortSessionFamilyAndConfirmIdle).toHaveBeenCalledWith({
+      client: await mockCreateInstanceClient.mock.results[0].value,
+      rootSessionId: 'sess-1',
+    })
+    expect(mockMessageRunService.abortActiveRun).toHaveBeenCalledWith('alice', 'sess-1')
+  })
+
+  it('keeps the active run locked when termination cannot be confirmed', async () => {
+    mockAbortSessionFamilyAndConfirmIdle.mockResolvedValue(false)
+
+    await expect(abortSessionAction('alice', 'sess-1')).resolves.toEqual({
+      ok: false,
+      error: 'execution_termination_unconfirmed',
+    })
+
+    expect(mockMessageRunService.abortActiveRun).not.toHaveBeenCalled()
   })
 
   it('handles exceptions', async () => {
-    mockSessionAbort.mockRejectedValue(new Error('abort err'))
+    mockAbortSessionFamilyAndConfirmIdle.mockRejectedValue(new Error('abort err'))
     const result = await abortSessionAction('alice', 'sess-1')
     expect(result).toEqual({ ok: false, error: 'abort err' })
   })

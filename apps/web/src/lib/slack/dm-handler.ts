@@ -2,6 +2,7 @@ import { createInstanceClient } from '@/lib/opencode/client'
 import {
   captureSessionMessageCursor,
   createSessionPromptRun,
+  EXECUTION_TERMINATION_UNCONFIRMED_ERROR,
   ensureWorkspaceRunningForExecution,
   isOpenCodeSessionNotFoundError,
   readLatestAssistantText,
@@ -697,7 +698,7 @@ async function sendSlackDmPromptToSession(args: {
       { throwOnError: true },
     )
 
-    const failure = await waitForSessionToComplete({
+    const completion = await waitForSessionToComplete({
       client: args.opencodeClient,
       cursor: sessionCursor,
       sessionId: args.sessionId,
@@ -705,12 +706,14 @@ async function sendSlackDmPromptToSession(args: {
       usage: { messageRunId: runId, source: 'slack_dm', userId: args.userId },
     })
 
-    if (failure) {
-      if (failure === 'flow_run_timeout') {
-        await args.opencodeClient.session.abort({ sessionID: args.sessionId }).catch(() => undefined)
-      }
-      await messageRunService.markRunFailed(runId, failure)
-      return mapSlackFailureToMessage(failure)
+    if (completion.status === 'termination_unconfirmed') {
+      console.warn('[slack] Runtime termination unconfirmed', { cause: completion.cause })
+      return mapSlackFailureToMessage(EXECUTION_TERMINATION_UNCONFIRMED_ERROR)
+    }
+
+    if (completion.status === 'failed') {
+      await messageRunService.markRunFailed(runId, completion.error)
+      return mapSlackFailureToMessage(completion.error)
     }
 
     await messageRunService.markRunSucceeded(runId)

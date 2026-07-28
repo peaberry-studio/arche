@@ -19,6 +19,7 @@ import {
 import type { SkillBundle } from '@/lib/skills/types'
 import { connectorService, userService } from '@/lib/services'
 import {
+  applyAgentExecutionGuards,
   applyDefaultAgentModel,
   injectAlwaysOnAgentTools,
   injectCustomConnectorHints,
@@ -219,6 +220,7 @@ async function buildBaseWorkspaceConfig(
   baseConfig = injectAlwaysOnAgentTools(baseConfig)
   baseConfig = injectSystemSkillAccess(baseConfig, [SYSTEM_FLOW_AUTHORING_SKILL_NAME])
   baseConfig = applyDefaultAgentModel(baseConfig)
+  baseConfig = applyAgentExecutionGuards(baseConfig)
   return injectSelfDelegationGuards(baseConfig)
 }
 

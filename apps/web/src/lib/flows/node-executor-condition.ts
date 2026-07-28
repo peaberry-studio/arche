@@ -223,7 +223,7 @@ export async function executeConditionNode(params: Omit<FlowNodeExecutorParams, 
       finishedAt: new Date(),
       status: FlowRunStepStatus.failed,
     }))
-    return { ok: false, error: 'condition_has_no_targets', steps }
+    return { ok: false, status: 'failed', error: 'condition_has_no_targets', steps }
   }
 
   const context = buildFlowTemplateContext({
@@ -239,7 +239,7 @@ export async function executeConditionNode(params: Omit<FlowNodeExecutorParams, 
       finishedAt: new Date(),
       status: FlowRunStepStatus.failed,
     }))
-    return { ok: false, error: rendered.error, steps }
+    return { ok: false, status: 'failed', error: rendered.error, steps }
   }
 
   const prompt = [
@@ -267,17 +267,20 @@ export async function executeConditionNode(params: Omit<FlowNodeExecutorParams, 
       finishedAt: new Date(),
       status: FlowRunStepStatus.failed,
     }))
-    return { ok: false, error: message, steps }
+    return { ok: false, status: 'failed', error: message, steps }
   }
   if (!aiResult.ok) {
-    if (isFlowRunCancellation(aiResult.error)) return { ok: false, error: aiResult.error, steps }
+    if (aiResult.type === 'termination_unconfirmed') {
+      return { ok: false, status: 'termination_unconfirmed', cause: aiResult.cause, steps }
+    }
+    if (isFlowRunCancellation(aiResult.error)) return { ok: false, status: 'failed', error: aiResult.error, steps }
 
     steps = replaceStep(steps, await flowService.updateRunStepByRunIdAndNodeId(params.run.id, params.node.id, {
       error: aiResult.error,
       finishedAt: new Date(),
       status: FlowRunStepStatus.failed,
     }))
-    return { ok: false, error: aiResult.error, steps }
+    return { ok: false, status: 'failed', error: aiResult.error, steps }
   }
 
   const nextNodeId = extractAiTarget(aiResult.output, outgoingTargets)
@@ -288,7 +291,7 @@ export async function executeConditionNode(params: Omit<FlowNodeExecutorParams, 
       rawOutput: truncateInvalidTargetOutput(aiResult.output),
       status: FlowRunStepStatus.failed,
     }))
-    return { ok: false, error: 'condition_ai_invalid_target', steps }
+    return { ok: false, status: 'failed', error: 'condition_ai_invalid_target', steps }
   }
 
   steps = replaceStep(steps, await flowService.updateRunStepByRunIdAndNodeId(params.run.id, params.node.id, {
