@@ -814,9 +814,11 @@ export function WorkspaceShell({
   }, [initialFilePath]);
 
   const [openFilePaths, setOpenFilePaths] = useState<string[]>(() => {
-    if (safeInitialFilePath) return [safeInitialFilePath];
     const stored = loadStoredOpenFiles(openFilesStorageKey);
-    return stored?.openFilePaths ?? [];
+    const storedPaths = stored?.openFilePaths ?? [];
+    if (!safeInitialFilePath) return storedPaths;
+    if (storedPaths.includes(safeInitialFilePath)) return storedPaths;
+    return [...storedPaths, safeInitialFilePath];
   });
   const [activeFilePath, setActiveFilePath] = useState<string | null>(() => {
     if (safeInitialFilePath) return safeInitialFilePath;
