@@ -2,6 +2,7 @@ type WorkspaceHrefOptions = {
   mode?: "chat" | "knowledge" | "flows";
   sessionId?: string | null;
   settings?: string | null;
+  path?: string | null;
 };
 
 export function getWorkspaceHref(slug: string, options: WorkspaceHrefOptions = {}): string {
@@ -17,6 +18,10 @@ export function getWorkspaceHref(slug: string, options: WorkspaceHrefOptions = {
 
   if (options.settings) {
     params.set("settings", options.settings);
+  }
+
+  if (options.path) {
+    params.set("path", options.path);
   }
 
   const query = params.toString();

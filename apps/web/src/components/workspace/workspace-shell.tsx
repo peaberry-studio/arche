@@ -144,6 +144,37 @@ const persistLayout = (storageKey: string, cookieName: string, state: StoredLayo
   persistWorkspacePanelState(storageKey, cookieName, state);
 };
 
+type StoredOpenFilesState = {
+  openFilePaths: string[];
+  activeFilePath: string | null;
+};
+
+function getOpenFilesStorageKey(scope: string): string {
+  return `arche.workspace.${scope}.open-files`;
+}
+
+function loadStoredOpenFiles(key: string): StoredOpenFilesState | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as StoredOpenFilesState;
+    if (!Array.isArray(parsed.openFilePaths)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function persistOpenFiles(key: string, state: StoredOpenFilesState): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(key, JSON.stringify(state));
+  } catch {
+    // ignore storage errors
+  }
+}
+
 function resolveRootSessionId(
   sessionId: string | null,
   sessionsById: Map<string, WorkspaceSession>
@@ -247,6 +278,7 @@ export function WorkspaceShell({
   const resolvedPersistenceScope = persistenceScope ?? slug;
   const layoutCookieName = getWorkspaceLayoutCookieName(resolvedPersistenceScope);
   const layoutStorageKey = getWorkspaceLayoutStorageKey(resolvedPersistenceScope);
+  const openFilesStorageKey = getOpenFilesStorageKey(resolvedPersistenceScope);
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>(initialWorkspaceMode);
   const isKnowledgeMode = workspaceMode === "knowledge";
   const isFlowsMode = workspaceMode === "flows";
@@ -781,18 +813,44 @@ export function WorkspaceShell({
     return normalized;
   }, [initialFilePath]);
 
-  const [openFilePaths, setOpenFilePaths] = useState<string[]>(
-    safeInitialFilePath ? [safeInitialFilePath] : []
-  );
-  const [activeFilePath, setActiveFilePath] = useState<string | null>(
-    safeInitialFilePath
-  );
+  const [openFilePaths, setOpenFilePaths] = useState<string[]>(() => {
+    if (safeInitialFilePath) return [safeInitialFilePath];
+    const stored = loadStoredOpenFiles(openFilesStorageKey);
+    return stored?.openFilePaths ?? [];
+  });
+  const [activeFilePath, setActiveFilePath] = useState<string | null>(() => {
+    if (safeInitialFilePath) return safeInitialFilePath;
+    const stored = loadStoredOpenFiles(openFilesStorageKey);
+    if (!stored?.activeFilePath) return stored?.openFilePaths?.[0] ?? null;
+    return stored.openFilePaths.includes(stored.activeFilePath)
+      ? stored.activeFilePath
+      : stored.openFilePaths[0] ?? null;
+  });
   const [fileCache, setFileCache] = useState<FileContentCache>({});
   const fileCacheRef = useRef(fileCache);
 
   useEffect(() => {
     fileCacheRef.current = fileCache;
   }, [fileCache]);
+
+  useEffect(() => {
+    persistOpenFiles(openFilesStorageKey, { openFilePaths, activeFilePath });
+  }, [openFilesStorageKey, openFilePaths, activeFilePath]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const params = new URLSearchParams(window.location.search);
+
+    if (activeFilePath) {
+      params.set("path", activeFilePath);
+    } else {
+      params.delete("path");
+    }
+
+    const query = params.toString();
+    window.history.replaceState(window.history.state, "", query ? `/w/${slug}?${query}` : `/w/${slug}`);
+  }, [activeFilePath, slug]);
 
   const refreshOpenFilesCache = useCallback(async () => {
     if (openFilePaths.length === 0) return;
