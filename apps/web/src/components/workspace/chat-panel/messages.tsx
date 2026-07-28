@@ -61,6 +61,10 @@ const CHAT_ERROR_MESSAGES: Record<string, { title: string; description?: string 
     title: "Response cancelled",
     description: "The message was stopped before it finished.",
   },
+  execution_termination_unconfirmed: {
+    title: "Couldn't confirm the response stopped",
+    description: "The assistant may still be running. Wait a moment before sending another message.",
+  },
   forbidden: {
     title: "Permission denied",
     description: "You are not allowed to perform this action.",

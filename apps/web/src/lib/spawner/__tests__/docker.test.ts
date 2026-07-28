@@ -98,11 +98,13 @@ describe('docker', () => {
         '.gitkeep': 'deny',
         '**/.gitkeep': 'deny',
         'opencode.json': 'deny',
+        '**/.opencode/**': 'deny',
         'AGENTS.md': 'deny',
         'node_modules/*': 'deny',
       })
       expect(writtenConfig.permission?.bash).toMatchObject({
         '*AGENTS.md*': 'deny',
+        '*.opencode*': 'deny',
         '*.gitkeep*': 'deny',
         'npm install*': 'deny',
         'pnpm add*': 'deny',

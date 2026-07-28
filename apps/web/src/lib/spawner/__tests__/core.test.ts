@@ -684,7 +684,7 @@ describe('isSlowStart', () => {
 })
 
 describe('startInstance - agent config transforms', () => {
-  it('remaps connector IDs and injects self-delegation guards', async () => {
+  it('remaps connector IDs and applies agent execution guards', async () => {
     await writeSnapshotRepoFile(
       'CommonWorkspaceConfig.json',
       JSON.stringify({
@@ -746,6 +746,10 @@ describe('startInstance - agent config transforms', () => {
     expect(linearTools.email_draft).toBe(true)
     expect(linearTools.flow_propose).toBe(true)
     expect(linearTools.skill).toBe(true)
+    expect(linearTools.task).toBe(false)
+    expect(parsed.agent.linear.steps).toBe(40)
+    expect(parsed.agent.linear.permission.doom_loop).toBe('deny')
+    expect(parsed.agent.linear.permission.task).toBe('deny')
     expect(parsed.agent.linear.permission.skill['arche-flow-authoring']).toBe('allow')
 
     const assistantTools = parsed.agent.assistant.tools
@@ -755,8 +759,7 @@ describe('startInstance - agent config transforms', () => {
     expect(parsed.agent.assistant.permission.skill['arche-flow-authoring']).toBe('allow')
 
     const linearPrompt = parsed.agent.linear.prompt as string
-    expect(linearPrompt).toContain('## Delegation constraint')
-    expect(linearPrompt).toContain('MUST NEVER use the task tool to invoke yourself ("linear")')
+    expect(linearPrompt).not.toContain('## Delegation constraint')
 
     const assistantPrompt = parsed.agent.assistant.prompt as string
     expect(assistantPrompt).not.toContain('Delegation constraint')

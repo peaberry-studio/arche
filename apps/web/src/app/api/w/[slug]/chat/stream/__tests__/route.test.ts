@@ -17,6 +17,8 @@ const mocks = vi.hoisted(() => ({
     markRunSucceeded: vi.fn(),
   },
   providerUsageService: { recordProviderRunUsage: vi.fn() },
+  abortSessionFamilyAndConfirmIdle: vi.fn(),
+  createConfiguredOpencodeClient: vi.fn(),
   decryptPassword: vi.fn(() => 'secret'),
   getInstanceUrl: vi.fn(() => 'http://test-slug:3000'),
   ensureProviderAccessFreshForExecution: vi.fn(),
@@ -73,7 +75,14 @@ vi.mock('@/lib/services', () => ({
 }))
 vi.mock('@/lib/spawner/crypto', () => ({ decryptPassword: mocks.decryptPassword }))
 vi.mock('@/lib/opencode/client', () => ({ getInstanceUrl: mocks.getInstanceUrl }))
+vi.mock('@/lib/opencode/client-factory', () => ({
+  createConfiguredOpencodeClient: mocks.createConfiguredOpencodeClient,
+}))
 vi.mock('@/lib/opencode/providers', () => ({ ensureProviderAccessFreshForExecution: mocks.ensureProviderAccessFreshForExecution }))
+vi.mock('@/lib/opencode/session-execution', () => ({
+  abortSessionFamilyAndConfirmIdle: mocks.abortSessionFamilyAndConfirmIdle,
+  EXECUTION_TERMINATION_UNCONFIRMED_ERROR: 'execution_termination_unconfirmed',
+}))
 vi.mock('@/lib/workspace-agent/client', () => ({ getWorkspaceAgentUrl: mocks.getWorkspaceAgentUrl }))
 vi.mock('@/lib/providers/catalog', () => ({
   isProviderId: mocks.isProviderId,
@@ -123,6 +132,8 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     mocks.validateSameOrigin.mockReturnValue({ ok: true })
     mocks.validateDesktopToken.mockReturnValue(true)
     mocks.decryptPassword.mockReturnValue('secret')
+    mocks.createConfiguredOpencodeClient.mockResolvedValue({})
+    mocks.abortSessionFamilyAndConfirmIdle.mockResolvedValue(true)
     mocks.getInstanceUrl.mockReturnValue('http://test-slug:3000')
     mocks.ensureProviderAccessFreshForExecution.mockResolvedValue(undefined)
     mocks.getWorkspaceAgentUrl.mockReturnValue('http://agent:3000')
@@ -876,6 +887,41 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     try {
       mocks.createUpstreamSessionStatusReader.mockReturnValue(vi.fn().mockResolvedValue(null))
       mocks.getSilentStreamOutcome.mockReturnValue('stream_timeout')
+      const fetchMock = vi.fn((url: string | URL) => {
+        if (String(url) === 'http://test-slug:3000/event') {
+          return Promise.resolve(new Response(new ReadableStream<Uint8Array>(), { status: 200 }))
+        }
+        return Promise.reject(new Error(`unexpected fetch ${String(url)}`))
+      })
+      vi.stubGlobal('fetch', fetchMock)
+
+      const { POST } = await import('../route')
+      const res = await POST(makePostRequest({ sessionId: 's1', runId: 'run-1' }), params())
+      const textPromise = res.text()
+
+      await vi.advanceTimersByTimeAsync(21_000)
+      const text = await textPromise
+
+      expect(text).toContain('stream_timeout')
+      expect(mocks.messageRunService.markRunFailed).toHaveBeenCalledWith('run-1', 'stream_timeout')
+      expect(mocks.createConfiguredOpencodeClient).toHaveBeenCalledWith({
+        authHeader: 'Basic b3BlbmNvZGU6c2VjcmV0',
+        baseUrl: 'http://test-slug:3000',
+      })
+      expect(mocks.abortSessionFamilyAndConfirmIdle).toHaveBeenCalledWith(
+        expect.objectContaining({ rootSessionId: 's1' }),
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps the run active when timed-out session termination is unconfirmed', async () => {
+    vi.useFakeTimers()
+    try {
+      mocks.createUpstreamSessionStatusReader.mockReturnValue(vi.fn().mockResolvedValue(null))
+      mocks.getSilentStreamOutcome.mockReturnValue('stream_timeout')
+      mocks.abortSessionFamilyAndConfirmIdle.mockResolvedValue(false)
       vi.stubGlobal('fetch', vi.fn((url: string | URL) => {
         if (String(url) === 'http://test-slug:3000/event') {
           return Promise.resolve(new Response(new ReadableStream<Uint8Array>(), { status: 200 }))
@@ -891,8 +937,9 @@ describe('POST /api/w/[slug]/chat/stream', () => {
       await vi.advanceTimersByTimeAsync(21_000)
       const text = await textPromise
 
+      expect(text).toContain('execution_termination_unconfirmed')
       expect(text).toContain('stream_timeout')
-      expect(mocks.messageRunService.markRunFailed).toHaveBeenCalledWith('run-1', 'stream_timeout')
+      expect(mocks.messageRunService.markRunFailed).not.toHaveBeenCalled()
     } finally {
       vi.useRealTimers()
     }

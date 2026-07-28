@@ -351,6 +351,21 @@ describe('triggerFlowNow', () => {
     expect(mocks.markRunSucceeded).toHaveBeenCalledWith('run-1', expect.objectContaining({ openCodeSessionId: 'session-1' }))
   })
 
+  it('keeps the flow run and lease active when runtime termination is unconfirmed', async () => {
+    mocks.userFindByIdSelect.mockResolvedValue({ slug: 'alice' })
+    mocks.runFlowPromptAndReadOutput.mockResolvedValue({
+      ok: false,
+      type: 'termination_unconfirmed',
+      cause: 'flow_run_timeout',
+    })
+
+    await runClaimedFlow(createClaimedFlow(), FlowRunTrigger.manual)
+
+    expect(mocks.markRunFailed).not.toHaveBeenCalled()
+    expect(mocks.markRunRetryScheduled).not.toHaveBeenCalled()
+    expect(mocks.releaseFlowLease).not.toHaveBeenCalled()
+  })
+
   it('runs shared manual flows in the execution user workspace', async () => {
     mocks.claimFlowForImmediateRun.mockResolvedValue(createClaimedFlow())
     mocks.createRun.mockResolvedValue(createRunRecord({ executionUserId: 'user-2' }))
@@ -891,6 +906,47 @@ describe('triggerFlowNow', () => {
 
     await vi.waitFor(() => expect(mocks.markRunSucceeded).toHaveBeenCalledWith('run-1', expect.objectContaining({ openCodeSessionId: 'session-1' })))
     expect(mocks.ensureWorkspaceRunningForExecution).toHaveBeenCalledWith('alice', 'user-1')
+  })
+
+  it('keeps a resumed flow run and lease active when termination is unconfirmed', async () => {
+    const waitingRun = createWaitingRun()
+    const refreshedRun = {
+      ...waitingRun,
+      status: FlowRunStatus.running,
+      steps: [createStepRecord({
+        humanResponse: 'Approved',
+        nodeId: 'human-1',
+        nodeName: 'Human',
+        nodeType: FlowNodeType.human,
+        status: FlowRunStepStatus.succeeded,
+      })],
+    }
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    mocks.findRunByIdForScope
+      .mockResolvedValueOnce(waitingRun)
+      .mockResolvedValueOnce(refreshedRun)
+    mocks.claimFlowLeaseById.mockResolvedValue(waitingRun.flow)
+    mocks.userFindByIdSelect.mockResolvedValue({ slug: 'alice' })
+    mocks.runFlowPromptAndReadOutput.mockResolvedValueOnce({
+      ok: false,
+      type: 'termination_unconfirmed',
+      cause: 'flow_run_timeout',
+    })
+
+    try {
+      await expect(resumeFlowRun({ humanResponse: 'Approved', runId: 'run-1', userId: 'user-1' }))
+        .resolves.toMatchObject({ ok: true, run: { id: 'run-1' } })
+
+      await vi.waitFor(() => expect(consoleErrorSpy).toHaveBeenCalledWith(
+        '[flows] Runtime termination unconfirmed; preserving flow run state',
+        { cause: 'flow_run_timeout', flowId: 'flow-1' },
+      ))
+      expect(mocks.markRunFailed).not.toHaveBeenCalled()
+      expect(mocks.markRunRetryScheduled).not.toHaveBeenCalled()
+      expect(mocks.releaseFlowLease).not.toHaveBeenCalled()
+    } finally {
+      consoleErrorSpy.mockRestore()
+    }
   })
 
   it('marks invalid definitions failed and skips finalizing cancelled runs', async () => {

@@ -2,6 +2,7 @@ import { MCP_TOOL_PATTERN } from '@/lib/agent-capabilities'
 import type { ConnectorToolPermissionMap } from '@/lib/connectors/tool-permissions'
 import { CONNECTOR_TYPES, isSingleInstanceConnectorType, type ConnectorType } from '@/lib/connectors/types'
 import { isRecord } from '@/lib/records'
+import { PRIMARY_AGENT_STEP_LIMIT, SUBAGENT_STEP_LIMIT } from '@/lib/workspace-config'
 
 const CONNECTOR_TYPE_PATTERN = CONNECTOR_TYPES.join('|')
 const MCP_SERVER_KEY_PATTERN = new RegExp(`^arche_(${CONNECTOR_TYPE_PATTERN})_([^_]+)$`)
@@ -24,10 +25,10 @@ export function applyDefaultAgentModel(
   const configWithoutDefaultModel = { ...config }
   delete configWithoutDefaultModel.default_model
 
-  const agents = config.agent as Record<string, Record<string, unknown>> | undefined
-  if (!agents || typeof agents !== 'object') return configWithoutDefaultModel
+  const agents = isRecord(config.agent) ? config.agent : null
+  if (!agents) return configWithoutDefaultModel
 
-  const nextAgents: Record<string, Record<string, unknown>> = {}
+  const nextAgents: Record<string, unknown> = {}
   let changed = false
 
   for (const [agentId, agent] of Object.entries(agents)) {
@@ -65,6 +66,50 @@ function isPermissionAction(value: unknown): value is 'allow' | 'ask' | 'deny' {
   return typeof value === 'string' && PERMISSION_ACTIONS.has(value)
 }
 
+export function applyAgentExecutionGuards(
+  config: Record<string, unknown>,
+): Record<string, unknown> {
+  const agents = isRecord(config.agent) ? config.agent : null
+  if (!agents) return config
+
+  const defaultAgentId = typeof config.default_agent === 'string' ? config.default_agent : null
+  const nextAgents: Record<string, unknown> = {}
+
+  for (const [agentId, agent] of Object.entries(agents)) {
+    if (!isRecord(agent)) {
+      nextAgents[agentId] = agent
+      continue
+    }
+
+    const isDefaultAgent = agentId === defaultAgentId
+    const isPrimary = agent.mode === 'primary' || isDefaultAgent
+    const stepLimit = isPrimary ? PRIMARY_AGENT_STEP_LIMIT : SUBAGENT_STEP_LIMIT
+    const configuredSteps = typeof agent.steps === 'number' && Number.isInteger(agent.steps) && agent.steps > 0
+      ? agent.steps
+      : stepLimit
+    const permission = toPermissionMap(agent.permission)
+    permission.doom_loop = 'deny'
+
+    const nextAgent: Record<string, unknown> = {
+      ...agent,
+      ...(isDefaultAgent ? { mode: 'primary' } : {}),
+      permission,
+      steps: Math.min(configuredSteps, stepLimit),
+    }
+
+    if (!isPrimary) {
+      permission.task = 'deny'
+      if (isToolMap(agent.tools)) {
+        nextAgent.tools = { ...agent.tools, task: false }
+      }
+    }
+
+    nextAgents[agentId] = nextAgent
+  }
+
+  return { ...config, agent: nextAgents }
+}
+
 function expandConnectorToolPolicy(input: {
   serverKey: string
   enabled: boolean
@@ -89,14 +134,14 @@ function expandConnectorToolPolicy(input: {
 export function injectAlwaysOnAgentTools(
   config: Record<string, unknown>,
 ): Record<string, unknown> {
-  const agents = config.agent as Record<string, Record<string, unknown>> | undefined
-  if (!agents || typeof agents !== 'object') return config
+  const agents = isRecord(config.agent) ? config.agent : null
+  if (!agents) return config
 
-  const nextAgents: Record<string, Record<string, unknown>> = {}
+  const nextAgents: Record<string, unknown> = {}
   let changed = false
 
   for (const [agentId, agent] of Object.entries(agents)) {
-    if (!agent || typeof agent !== 'object') {
+    if (!isRecord(agent)) {
       nextAgents[agentId] = agent
       continue
     }
@@ -136,14 +181,14 @@ export function injectSystemSkillAccess(
   const uniqueSkillIds = Array.from(new Set(skillIds)).filter((skillId) => skillId.trim().length > 0)
   if (uniqueSkillIds.length === 0) return config
 
-  const agents = config.agent as Record<string, Record<string, unknown>> | undefined
-  if (!agents || typeof agents !== 'object') return config
+  const agents = isRecord(config.agent) ? config.agent : null
+  if (!agents) return config
 
-  const nextAgents: Record<string, Record<string, unknown>> = {}
+  const nextAgents: Record<string, unknown> = {}
   let changed = false
 
   for (const [agentId, agent] of Object.entries(agents)) {
-    if (!agent || typeof agent !== 'object') {
+    if (!isRecord(agent)) {
       nextAgents[agentId] = agent
       continue
     }
@@ -273,14 +318,14 @@ export function injectCustomConnectorHints(
   config: Record<string, unknown>,
   connectorDisplayNames: Record<string, string>,
 ): Record<string, unknown> {
-  const agents = config.agent as Record<string, Record<string, unknown>> | undefined
-  if (!agents || typeof agents !== 'object') return config
+  const agents = isRecord(config.agent) ? config.agent : null
+  if (!agents) return config
 
-  const nextAgents: Record<string, Record<string, unknown>> = {}
+  const nextAgents: Record<string, unknown> = {}
   let changed = false
 
   for (const [agentId, agent] of Object.entries(agents)) {
-    if (!agent || typeof agent !== 'object') {
+    if (!isRecord(agent)) {
       nextAgents[agentId] = agent
       continue
     }
@@ -315,16 +360,16 @@ export function injectCustomConnectorHints(
 export function injectSelfDelegationGuards(
   config: Record<string, unknown>,
 ): Record<string, unknown> {
-  const agents = config.agent as Record<string, Record<string, unknown>> | undefined
-  if (!agents || typeof agents !== 'object') return config
+  const agents = isRecord(config.agent) ? config.agent : null
+  if (!agents) return config
 
   const agentIds = Object.keys(agents)
-  const nextAgents: Record<string, Record<string, unknown>> = {}
+  const nextAgents: Record<string, unknown> = {}
   let changed = false
 
   for (const agentId of agentIds) {
     const agent = agents[agentId]
-    if (!agent || typeof agent !== 'object') {
+    if (!isRecord(agent)) {
       nextAgents[agentId] = agent
       continue
     }
@@ -334,8 +379,7 @@ export function injectSelfDelegationGuards(
       continue
     }
 
-    const tools = agent.tools as Record<string, boolean> | undefined
-    if (!tools || tools.task !== true) {
+    if (!isToolMap(agent.tools) || agent.tools.task !== true) {
       nextAgents[agentId] = agent
       continue
     }
@@ -365,8 +409,8 @@ export function remapAgentConnectorTools(
   connectorToolPermissions?: Record<string, ConnectorToolPermissionMap>,
   connectorAliases?: Record<string, string>,
 ): Record<string, unknown> {
-  const agents = config.agent as Record<string, Record<string, unknown>> | undefined
-  if (!agents || typeof agents !== 'object') return config
+  const agents = isRecord(config.agent) ? config.agent : null
+  if (!agents) return config
 
   const userConnectorsByType = new Map<string, string[]>()
   for (const key of userMcpKeys) {
@@ -378,16 +422,16 @@ export function remapAgentConnectorTools(
     userConnectorsByType.set(type, existing)
   }
 
-  const nextAgents: Record<string, Record<string, unknown>> = {}
+  const nextAgents: Record<string, unknown> = {}
   let changed = false
 
   for (const [agentId, agent] of Object.entries(agents)) {
-    if (!agent || typeof agent !== 'object') {
+    if (!isRecord(agent)) {
       nextAgents[agentId] = agent
       continue
     }
 
-    const tools = agent.tools as Record<string, boolean> | undefined
+    const tools = isToolMap(agent.tools) ? agent.tools : null
     if (!tools) {
       nextAgents[agentId] = agent
       continue

@@ -3,6 +3,8 @@ import {
   type OpenCodeAgentToolId,
 } from '@/lib/agent-capabilities'
 import {
+  PRIMARY_AGENT_STEP_LIMIT,
+  SUBAGENT_STEP_LIMIT,
   type CommonAgentConfig,
   type CommonWorkspaceConfig,
   validateCommonWorkspaceConfig,
@@ -76,11 +78,17 @@ function buildConfig(agents: ResolvedAgent[]): CommonWorkspaceConfig {
     : agents[0]?.id
 
   const configAgents = agents.reduce<Record<string, CommonAgentConfig>>((acc, agent) => {
+    const isPrimary = agent.id === defaultAgentId
     acc[agent.id] = {
       display_name: agent.displayName,
       description: agent.description,
-      mode: agent.id === defaultAgentId ? 'primary' : 'subagent',
+      mode: isPrimary ? 'primary' : 'subagent',
       model: agent.model,
+      permission: {
+        doom_loop: 'deny',
+        ...(isPrimary ? {} : { task: 'deny' }),
+      },
+      steps: isPrimary ? PRIMARY_AGENT_STEP_LIMIT : SUBAGENT_STEP_LIMIT,
       temperature: agent.temperature,
       prompt: agent.prompt,
       tools: buildToolsConfig(agent.tools),

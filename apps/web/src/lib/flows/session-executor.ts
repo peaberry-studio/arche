@@ -45,6 +45,11 @@ type RuntimeProvider = {
   models?: Record<string, unknown>
 }
 
+export type FlowPromptResult =
+  | { ok: true; output: string }
+  | { ok: false; type: 'failed'; error: string }
+  | { ok: false; type: 'termination_unconfirmed'; cause: string }
+
 type RuntimeClientWithConfig = SessionExecutionClient & {
   app?: {
     agents?: (parameters?: unknown, options?: unknown) => Promise<{ data?: unknown }>
@@ -363,10 +368,10 @@ export async function runFlowPromptAndReadOutput(params: {
   mcpReadinessInitialDelayMs?: number
   mcpReadinessStatusTimeoutMs?: number
   mcpReadinessTimeoutMs?: number
-}): Promise<{ ok: true; output: string } | { ok: false; error: string }> {
+}): Promise<FlowPromptResult> {
   const existingRun = await flowService.findRunStatusById(params.runId)
   if (existingRun?.status === FlowRunStatus.cancelled) {
-    return { ok: false, error: FLOW_RUN_CANCELLED_ERROR }
+    return { ok: false, type: 'failed', error: FLOW_RUN_CANCELLED_ERROR }
   }
 
   const unavailableAgentModel = await getUnavailableAgentModelError({
@@ -374,7 +379,7 @@ export async function runFlowPromptAndReadOutput(params: {
     client: params.client,
   })
   if (unavailableAgentModel) {
-    return { ok: false, error: unavailableAgentModel }
+    return { ok: false, type: 'failed', error: unavailableAgentModel }
   }
 
   const unavailableMcpConnector = await getUnavailableMcpConnectorError({
@@ -386,7 +391,7 @@ export async function runFlowPromptAndReadOutput(params: {
     timeoutMs: params.mcpReadinessTimeoutMs,
   })
   if (unavailableMcpConnector) {
-    return { ok: false, error: unavailableMcpConnector }
+    return { ok: false, type: 'failed', error: unavailableMcpConnector }
   }
 
   let messageRunId: string | null = null
@@ -404,7 +409,7 @@ export async function runFlowPromptAndReadOutput(params: {
       source: 'flow',
     })
     if (!runResult.ok) {
-      return { ok: false, error: 'session_busy' }
+      return { ok: false, type: 'failed', error: 'session_busy' }
     }
     messageRunId = runResult.run.id
   }
@@ -431,25 +436,18 @@ export async function runFlowPromptAndReadOutput(params: {
   }
 
   let lastLeaseExtensionAt = 0
-  const abortIfCancelled = async (): Promise<string | null> => {
+  const getCancellationFailure = async (): Promise<string | null> => {
     const run = await flowService.findRunStatusById(params.runId)
     if (run?.status !== FlowRunStatus.cancelled) return null
 
-    await Promise.resolve(params.client.session.abort({ sessionID: params.sessionId })).catch((error) => {
-      console.warn('[flows] Failed to abort cancelled flow session', {
-        error,
-        runId: params.runId,
-        sessionId: params.sessionId,
-      })
-    })
     return FLOW_RUN_CANCELLED_ERROR
   }
 
-  const failure = await waitForSessionToComplete({
+  const completion = await waitForSessionToComplete({
     client: params.client,
     cursor,
     onPulse: async () => {
-      const cancellation = await abortIfCancelled()
+      const cancellation = await getCancellationFailure()
       if (cancellation) return cancellation
 
       if (Date.now() - lastLeaseExtensionAt < LEASE_EXTENSION_INTERVAL_MS) {
@@ -471,11 +469,15 @@ export async function runFlowPromptAndReadOutput(params: {
       : undefined,
   })
 
-  if (failure) {
+  if (completion.status === 'termination_unconfirmed') {
+    return { ok: false, type: 'termination_unconfirmed', cause: completion.cause }
+  }
+
+  if (completion.status === 'failed') {
     if (messageRunId) {
-      await messageRunService.markRunFailed(messageRunId, failure).catch(() => undefined)
+      await messageRunService.markRunFailed(messageRunId, completion.error).catch(() => undefined)
     }
-    return { ok: false, error: failure }
+    return { ok: false, type: 'failed', error: completion.error }
   }
 
   if (messageRunId) {
@@ -484,7 +486,7 @@ export async function runFlowPromptAndReadOutput(params: {
 
   const output = await readLatestAssistantText(params.client, params.sessionId, cursor)
   if (!output) {
-    return { ok: false, error: 'flow_no_assistant_output' }
+    return { ok: false, type: 'failed', error: 'flow_no_assistant_output' }
   }
 
   return { ok: true, output }

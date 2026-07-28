@@ -3,6 +3,10 @@
 import { createFlowActorScope } from "@/lib/flows/authorization";
 import { isLearningSessionTitle } from "@/lib/learning/session-title";
 import { createInstanceClient, getInstanceUrl } from "@/lib/opencode/client";
+import {
+  abortSessionFamilyAndConfirmIdle,
+  EXECUTION_TERMINATION_UNCONFIRMED_ERROR,
+} from "@/lib/opencode/session-execution";
 import { extractTextContent, transformParts } from "@/lib/opencode/transform";
 import type {
   AvailableModel,
@@ -979,7 +983,13 @@ export async function abortSessionAction(
   if (error) return { ok: false, error };
 
   try {
-    await client!.session.abort({ sessionID: sessionId });
+    const terminated = await abortSessionFamilyAndConfirmIdle({
+      client: client!,
+      rootSessionId: sessionId,
+    });
+    if (!terminated) {
+      return { ok: false, error: EXECUTION_TERMINATION_UNCONFIRMED_ERROR };
+    }
     await messageRunService.abortActiveRun(slug, sessionId).catch(() => undefined);
     return { ok: true };
   } catch (e) {
