@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { auditEvent } from '@/lib/auth'
 import { cancelLearningRun, findLearningRunForUser } from '@/lib/learning/service'
 import { createInstanceClient } from '@/lib/opencode/client'
+import { abortSessionFamilyAndConfirmIdle } from '@/lib/opencode/session-execution'
 import { withAuth } from '@/lib/runtime/with-auth'
 import { messageRunService } from '@/lib/services'
 import type { LearningRun } from '@/types/learning'
@@ -16,21 +17,30 @@ function cancellationLogError(error: unknown): string {
   return error instanceof Error && error.name ? error.name : 'unknown_error'
 }
 
-async function abortInternalSessionBestEffort(slug: string, runId: string, sessionId: string): Promise<void> {
+async function abortInternalSessionBestEffort(slug: string, runId: string, sessionId: string): Promise<boolean> {
   const client = await createInstanceClient(slug).catch((error) => {
     console.warn('[learning/cancel] Failed to create OpenCode client', { error: cancellationLogError(error), runId })
     return null
   })
 
-  if (client) {
-    await Promise.resolve(client.session.abort({ sessionID: sessionId })).catch((error) => {
-      console.warn('[learning/cancel] Failed to abort OpenCode session', { error: cancellationLogError(error), runId })
+  if (!client) return false
+
+  const terminated = await abortSessionFamilyAndConfirmIdle({ client, rootSessionId: sessionId }).catch((error) => {
+    console.warn('[learning/cancel] Failed to terminate OpenCode session family', {
+      error: cancellationLogError(error),
+      runId,
     })
+    return false
+  })
+  if (!terminated) {
+    console.warn('[learning/cancel] OpenCode session family could not be confirmed idle', { runId })
+    return false
   }
 
   await messageRunService.abortActiveRun(slug, sessionId).catch((error) => {
     console.warn('[learning/cancel] Failed to abort active message run', { error: cancellationLogError(error), runId })
   })
+  return true
 }
 
 export const POST = withAuth<{ run: LearningRun } | { error: string }, CancelRunParams>(

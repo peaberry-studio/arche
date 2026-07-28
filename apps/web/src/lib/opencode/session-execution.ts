@@ -15,6 +15,9 @@ const RUN_TIMEOUT_MS = 30 * 60 * 1000
 const ACTIVITY_TOUCH_INTERVAL_MS = 20_000
 const INSTANCE_START_POLL_INTERVAL_MS = 2_000
 const IDLE_WITHOUT_ASSISTANT_GRACE_MS = 15_000
+const ABORT_CONFIRMATION_TIMEOUT_MS = 10_000
+
+export const EXECUTION_TERMINATION_UNCONFIRMED_ERROR = 'execution_termination_unconfirmed'
 
 export type SessionExecutionClient = NonNullable<Awaited<ReturnType<typeof createInstanceClient>>>
 export type SessionMessageCursor = {
@@ -138,6 +141,26 @@ function recordSessionRunUsageBestEffort(input: {
     source: usageInput.source,
     userId: usageInput.userId,
   }, '[opencode/session-execution]')
+}
+
+async function recordLatestSessionRunUsageBestEffort(input: {
+  client: SessionExecutionClient
+  cursor?: SessionMessageCursor
+  sessionId: string
+  usage?: SessionRunUsageInput
+}): Promise<void> {
+  if (!input.usage) return
+
+  const response = await input.client.session.messages(
+    { sessionID: input.sessionId },
+    { throwOnError: true },
+  ).catch(() => null)
+  if (!response) return
+
+  recordSessionRunUsageBestEffort({
+    messages: getMessagesSinceCursor(response.data, input.cursor),
+    usage: input.usage,
+  })
 }
 
 function firstString(values: unknown[]): string | null {
@@ -355,6 +378,105 @@ export async function createSessionPromptRun(params: {
   })
 }
 
+type DescendantSessionDiscovery = {
+  complete: boolean
+  sessionIds: string[]
+}
+
+async function awaitBeforeDeadline<T>(promise: Promise<T>, deadline: number): Promise<T | null> {
+  const remainingMs = deadline - Date.now()
+  if (remainingMs <= 0) return null
+
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => resolve(null), remainingMs)
+    void promise.then(
+      (result) => {
+        clearTimeout(timeout)
+        resolve(result)
+      },
+      () => {
+        clearTimeout(timeout)
+        resolve(null)
+      },
+    )
+  })
+}
+
+async function listDescendantSessionIds(
+  client: SessionExecutionClient,
+  rootSessionId: string,
+  deadline: number,
+): Promise<DescendantSessionDiscovery> {
+  const sessionIds = [rootSessionId]
+  const visited = new Set(sessionIds)
+
+  for (let index = 0; index < sessionIds.length; index += 1) {
+    const parentSessionId = sessionIds[index]
+    const response = await awaitBeforeDeadline(
+      client.session.children(
+        { sessionID: parentSessionId },
+        { throwOnError: true },
+      ),
+      deadline,
+    )
+    if (!response) return { complete: false, sessionIds }
+
+    for (const child of response.data ?? []) {
+      if (visited.has(child.id)) continue
+      visited.add(child.id)
+      sessionIds.push(child.id)
+    }
+  }
+
+  return { complete: true, sessionIds }
+}
+
+export async function abortSessionFamilyAndConfirmIdle(params: {
+  client: SessionExecutionClient
+  rootSessionId: string
+}): Promise<boolean> {
+  const deadline = Date.now() + ABORT_CONFIRMATION_TIMEOUT_MS
+  const discovery = await listDescendantSessionIds(params.client, params.rootSessionId, deadline)
+
+  for (const sessionId of [...discovery.sessionIds].reverse()) {
+    await awaitBeforeDeadline(
+      params.client.session.abort(
+        { sessionID: sessionId },
+        { throwOnError: true },
+      ),
+      deadline,
+    )
+  }
+
+  if (!discovery.complete) {
+    console.warn('[opencode/session-execution] Session descendants could not be fully discovered', {
+      rootSessionId: params.rootSessionId,
+    })
+    return false
+  }
+
+  while (Date.now() < deadline) {
+    const response = await awaitBeforeDeadline(
+      params.client.session.status({}, { throwOnError: true }),
+      deadline,
+    )
+    if (response) {
+      const allIdle = discovery.sessionIds.every((sessionId) => {
+        const status = response.data?.[sessionId]
+        return !status || status.type === 'idle'
+      })
+      if (allIdle) return true
+    }
+
+    await sleep(Math.min(RUN_POLL_INTERVAL_MS, Math.max(0, deadline - Date.now())))
+  }
+
+  console.warn('[opencode/session-execution] Session abort was not confirmed', {
+    rootSessionId: params.rootSessionId,
+  })
+  return false
+}
+
 export async function waitForSessionToComplete(params: {
   client: SessionExecutionClient
   cursor?: SessionMessageCursor
@@ -375,7 +497,14 @@ export async function waitForSessionToComplete(params: {
     }
 
     const pulseFailure = await params.onPulse?.().catch(() => null)
-    if (pulseFailure) return pulseFailure
+    if (pulseFailure) {
+      await recordLatestSessionRunUsageBestEffort(params)
+      const terminated = await abortSessionFamilyAndConfirmIdle({
+        client: params.client,
+        rootSessionId: params.sessionId,
+      })
+      return terminated ? pulseFailure : EXECUTION_TERMINATION_UNCONFIRMED_ERROR
+    }
 
     const [statusResult, messagesResult] = await Promise.all([
       params.client.session.status({}, { throwOnError: true }),
@@ -393,9 +522,7 @@ export async function waitForSessionToComplete(params: {
         continue
       }
 
-      if (!outcome) {
-        recordSessionRunUsageBestEffort({ messages, usage: params.usage })
-      }
+      recordSessionRunUsageBestEffort({ messages, usage: params.usage })
       return outcome
     }
 
@@ -404,13 +531,19 @@ export async function waitForSessionToComplete(params: {
       !assistantSeen &&
       Date.now() - startedAt >= IDLE_WITHOUT_ASSISTANT_GRACE_MS
     ) {
+      await recordLatestSessionRunUsageBestEffort(params)
       return 'flow_no_assistant_message'
     }
 
     await sleep(RUN_POLL_INTERVAL_MS)
   }
 
-  return 'flow_run_timeout'
+  await recordLatestSessionRunUsageBestEffort(params)
+  const terminated = await abortSessionFamilyAndConfirmIdle({
+    client: params.client,
+    rootSessionId: params.sessionId,
+  })
+  return terminated ? 'flow_run_timeout' : EXECUTION_TERMINATION_UNCONFIRMED_ERROR
 }
 
 export async function readLatestAssistantText(

@@ -9,6 +9,7 @@ import { createInstanceClient } from '@/lib/opencode/client'
 import {
   captureSessionMessageCursor,
   createSessionPromptRun,
+  EXECUTION_TERMINATION_UNCONFIRMED_ERROR,
   ensureWorkspaceRunningForExecution,
   waitForSessionToComplete,
 } from '@/lib/opencode/session-execution'
@@ -17,10 +18,6 @@ import type { LearningTrigger } from '@/types/learning'
 
 const LEARNING_SESSION_TITLE_MAX_LENGTH = 160
 const LEARNING_RUN_CANCELLED_ERROR = 'learning_run_cancelled'
-
-function cancellationLogError(error: unknown): string {
-  return error instanceof Error && error.name ? error.name : 'unknown_error'
-}
 
 export type LearningRunExecutionInput = {
   runId: string
@@ -94,16 +91,10 @@ export async function executeLearningRun(input: LearningRunExecutionInput): Prom
 
     await setLearningRunInternalSessionId({ runId: input.runId, internalSessionId: sessionId })
 
-    const abortIfCancelled = async (): Promise<string | null> => {
+    const getCancellationFailure = async (): Promise<string | null> => {
       const run = await findLearningRunForUser({ runId: input.runId, userId: input.userId })
       if (run?.status !== 'cancelled') return null
 
-      await Promise.resolve(client.session.abort({ sessionID: sessionId })).catch((error) => {
-        console.warn('[learning/run-executor] Failed to abort cancelled learning session', {
-          error: cancellationLogError(error),
-          runId: input.runId,
-        })
-      })
       return LEARNING_RUN_CANCELLED_ERROR
     }
 
@@ -131,7 +122,7 @@ export async function executeLearningRun(input: LearningRunExecutionInput): Prom
       failure = await waitForSessionToComplete({
         client,
         cursor,
-        onPulse: abortIfCancelled,
+        onPulse: getCancellationFailure,
         sessionId,
         slug: input.slug,
         usage: { messageRunId: promptRun.run.id, source: 'learning', userId: input.userId },
@@ -145,6 +136,10 @@ export async function executeLearningRun(input: LearningRunExecutionInput): Prom
     if (failure) {
       if (failure === LEARNING_RUN_CANCELLED_ERROR) {
         await messageRunService.markRunAborted(promptRun.run.id).catch(() => undefined)
+        return { ok: false, error: failure }
+      }
+
+      if (failure === EXECUTION_TERMINATION_UNCONFIRMED_ERROR) {
         return { ok: false, error: failure }
       }
 

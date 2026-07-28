@@ -152,6 +152,7 @@ describe('runtime artifacts', () => {
 
     expect(readConfigRepoSnapshotMock).toHaveBeenCalledTimes(1)
     expect(config.permission?.edit?.['opencode.json']).toBe('deny')
+    expect(config.permission?.edit?.['**/.opencode/**']).toBe('deny')
     expect(config.provider?.fireworks?.options?.baseURL).toBe(
       'http://web:3000/api/internal/providers/fireworks'
     )

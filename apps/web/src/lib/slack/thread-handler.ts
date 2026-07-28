@@ -2,6 +2,7 @@ import { createInstanceClient } from '@/lib/opencode/client'
 import {
   captureSessionMessageCursor,
   createSessionPromptRun,
+  EXECUTION_TERMINATION_UNCONFIRMED_ERROR,
   ensureWorkspaceRunningForExecution,
   isOpenCodeSessionNotFoundError,
   readLatestAssistantText,
@@ -211,10 +212,9 @@ async function sendSlackThreadPromptToSession(args: {
     })
 
     if (failure) {
-      if (failure === 'flow_run_timeout') {
-        await args.opencodeClient.session.abort({ sessionID: args.sessionId }).catch(() => undefined)
+      if (failure !== EXECUTION_TERMINATION_UNCONFIRMED_ERROR) {
+        await messageRunService.markRunFailed(runId, failure)
       }
-      await messageRunService.markRunFailed(runId, failure)
       return mapSlackFailureToMessage(failure)
     }
 

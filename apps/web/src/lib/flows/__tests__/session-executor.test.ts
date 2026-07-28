@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@/lib/opencode/session-execution', () => ({
   captureSessionMessageCursor: mocks.captureSessionMessageCursor,
+  EXECUTION_TERMINATION_UNCONFIRMED_ERROR: 'execution_termination_unconfirmed',
   readLatestAssistantText: mocks.readLatestAssistantText,
   waitForSessionToComplete: mocks.waitForSessionToComplete,
 }))
@@ -394,7 +395,7 @@ describe('runFlowPromptAndReadOutput', () => {
     expect(client.session.promptAsync).not.toHaveBeenCalled()
   })
 
-  it('aborts the OpenCode session when cancellation is detected while waiting', async () => {
+  it('returns cancellation to the shared session waiter', async () => {
     const client = createClient()
     mocks.findRunStatusById
       .mockResolvedValueOnce({ status: FlowRunStatus.running })
@@ -414,7 +415,7 @@ describe('runFlowPromptAndReadOutput', () => {
       slug: 'alice',
     })).resolves.toEqual({ ok: false, error: 'flow_run_cancelled' })
 
-    expect(client.session.abort).toHaveBeenCalledWith({ sessionID: 'session-1' })
+    expect(client.session.abort).not.toHaveBeenCalled()
     expect(mocks.extendFlowLease).not.toHaveBeenCalled()
     expect(mocks.readLatestAssistantText).not.toHaveBeenCalled()
   })
@@ -512,6 +513,26 @@ describe('runFlowPromptAndReadOutput', () => {
     })).resolves.toEqual({ ok: false, error: 'flow_run_timeout' })
 
     expect(mocks.messageRunService.markRunFailed).toHaveBeenCalledWith('message-run-1', 'flow_run_timeout')
+  })
+
+  it('keeps tracked message runs active when termination is unconfirmed', async () => {
+    const client = createClient()
+    client.session.status = vi.fn().mockResolvedValue({ data: { 'session-1': { type: 'idle' } } })
+    mocks.messageRunService.createActiveRunAfterRuntimeStateCheck.mockResolvedValue({ ok: true, run: { id: 'message-run-1' } })
+    mocks.waitForSessionToComplete.mockResolvedValue('execution_termination_unconfirmed')
+
+    await expect(runFlowPromptAndReadOutput({
+      client,
+      flowId: 'flow-1',
+      leaseOwner: 'worker-1',
+      prompt: 'Do work',
+      runId: 'run-1',
+      sessionId: 'session-1',
+      slug: 'alice',
+      userId: 'user-1',
+    })).resolves.toEqual({ ok: false, error: 'execution_termination_unconfirmed' })
+
+    expect(mocks.messageRunService.markRunFailed).not.toHaveBeenCalled()
   })
 
   it('returns an error when no assistant output is available', async () => {

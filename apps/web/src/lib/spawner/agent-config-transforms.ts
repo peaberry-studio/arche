@@ -2,6 +2,7 @@ import { MCP_TOOL_PATTERN } from '@/lib/agent-capabilities'
 import type { ConnectorToolPermissionMap } from '@/lib/connectors/tool-permissions'
 import { CONNECTOR_TYPES, isSingleInstanceConnectorType, type ConnectorType } from '@/lib/connectors/types'
 import { isRecord } from '@/lib/records'
+import { PRIMARY_AGENT_STEP_LIMIT, SUBAGENT_STEP_LIMIT } from '@/lib/workspace-config'
 
 const CONNECTOR_TYPE_PATTERN = CONNECTOR_TYPES.join('|')
 const MCP_SERVER_KEY_PATTERN = new RegExp(`^arche_(${CONNECTOR_TYPE_PATTERN})_([^_]+)$`)
@@ -63,6 +64,48 @@ function toPermissionMap(value: unknown): Record<string, unknown> {
 
 function isPermissionAction(value: unknown): value is 'allow' | 'ask' | 'deny' {
   return typeof value === 'string' && PERMISSION_ACTIONS.has(value)
+}
+
+export function applyAgentExecutionGuards(
+  config: Record<string, unknown>,
+): Record<string, unknown> {
+  const agents = config.agent as Record<string, Record<string, unknown>> | undefined
+  if (!agents || typeof agents !== 'object') return config
+
+  const defaultAgentId = typeof config.default_agent === 'string' ? config.default_agent : null
+  const nextAgents: Record<string, Record<string, unknown>> = {}
+
+  for (const [agentId, agent] of Object.entries(agents)) {
+    if (!isRecord(agent)) {
+      nextAgents[agentId] = agent
+      continue
+    }
+
+    const isPrimary = agent.mode === 'primary' || agentId === defaultAgentId
+    const stepLimit = isPrimary ? PRIMARY_AGENT_STEP_LIMIT : SUBAGENT_STEP_LIMIT
+    const configuredSteps = typeof agent.steps === 'number' && Number.isInteger(agent.steps) && agent.steps > 0
+      ? agent.steps
+      : stepLimit
+    const permission = toPermissionMap(agent.permission)
+    permission.doom_loop = 'deny'
+
+    const nextAgent: Record<string, unknown> = {
+      ...agent,
+      permission,
+      steps: Math.min(configuredSteps, stepLimit),
+    }
+
+    if (!isPrimary) {
+      permission.task = 'deny'
+      if (isToolMap(agent.tools)) {
+        nextAgent.tools = { ...agent.tools, task: false }
+      }
+    }
+
+    nextAgents[agentId] = nextAgent
+  }
+
+  return { ...config, agent: nextAgents }
 }
 
 function expandConnectorToolPolicy(input: {

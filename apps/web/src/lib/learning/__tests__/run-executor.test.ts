@@ -32,6 +32,7 @@ vi.mock('@/lib/opencode/session-execution', () => ({
   ensureWorkspaceRunningForExecution: mocks.ensureWorkspaceRunningForExecution,
   createSessionPromptRun: mocks.createSessionPromptRun,
   captureSessionMessageCursor: mocks.captureSessionMessageCursor,
+  EXECUTION_TERMINATION_UNCONFIRMED_ERROR: 'execution_termination_unconfirmed',
   waitForSessionToComplete: mocks.waitForSessionToComplete,
 }))
 
@@ -131,6 +132,18 @@ describe('executeLearningRun', () => {
     expect(mocks.markLearningRunSucceeded).not.toHaveBeenCalled()
   })
 
+  it('keeps learning and message runs active when termination is unconfirmed', async () => {
+    mocks.waitForSessionToComplete.mockResolvedValue('execution_termination_unconfirmed')
+
+    await expect(executeLearningRun(baseInput)).resolves.toEqual({
+      ok: false,
+      error: 'execution_termination_unconfirmed',
+    })
+
+    expect(mocks.markRunFailed).not.toHaveBeenCalled()
+    expect(mocks.markLearningRunFailed).not.toHaveBeenCalled()
+  })
+
   it('does not execute a run another dispatch already claimed', async () => {
     mocks.claimLearningRunForExecution.mockResolvedValue(false)
 
@@ -156,7 +169,7 @@ describe('executeLearningRun', () => {
     expect(mocks.markLearningRunFailed).toHaveBeenCalledWith({ runId: 'run-1', error: 'instance_start_timeout' })
   })
 
-  it('aborts the internal session and does not overwrite a cancelled run during polling', async () => {
+  it('returns cancellation to the shared session waiter without overwriting the run', async () => {
     const client = makeClient()
     mocks.createInstanceClient.mockResolvedValue(client)
     mocks.findLearningRunForUser.mockResolvedValue({
@@ -175,7 +188,7 @@ describe('executeLearningRun', () => {
     await expect(executeLearningRun(baseInput)).resolves.toEqual({ ok: false, error: 'learning_run_cancelled' })
 
     expect(mocks.findLearningRunForUser).toHaveBeenCalledWith({ runId: 'run-1', userId: 'user-1' })
-    expect(client.session.abort).toHaveBeenCalledWith({ sessionID: 'internal-session-1' })
+    expect(client.session.abort).not.toHaveBeenCalled()
     expect(mocks.markRunAborted).toHaveBeenCalledWith('message-run-1')
     expect(mocks.markLearningRunFailed).not.toHaveBeenCalled()
     expect(mocks.markLearningRunSucceeded).not.toHaveBeenCalled()

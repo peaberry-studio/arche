@@ -49,6 +49,7 @@ vi.mock('@/lib/opencode/client', () => ({
 }))
 
 vi.mock('@/lib/opencode/session-execution', () => ({
+  EXECUTION_TERMINATION_UNCONFIRMED_ERROR: 'execution_termination_unconfirmed',
   ensureWorkspaceRunningForExecution: mocks.ensureWorkspaceRunningForExecution,
 }))
 
@@ -349,6 +350,20 @@ describe('triggerFlowNow', () => {
 
     expect(mocks.ensureWorkspaceRunningForExecution).toHaveBeenCalledWith('alice', 'user-1')
     expect(mocks.markRunSucceeded).toHaveBeenCalledWith('run-1', expect.objectContaining({ openCodeSessionId: 'session-1' }))
+  })
+
+  it('keeps the flow run and lease active when runtime termination is unconfirmed', async () => {
+    mocks.userFindByIdSelect.mockResolvedValue({ slug: 'alice' })
+    mocks.runFlowPromptAndReadOutput.mockResolvedValue({
+      ok: false,
+      error: 'execution_termination_unconfirmed',
+    })
+
+    await runClaimedFlow(createClaimedFlow(), FlowRunTrigger.manual)
+
+    expect(mocks.markRunFailed).not.toHaveBeenCalled()
+    expect(mocks.markRunRetryScheduled).not.toHaveBeenCalled()
+    expect(mocks.releaseFlowLease).not.toHaveBeenCalled()
   })
 
   it('runs shared manual flows in the execution user workspace', async () => {
