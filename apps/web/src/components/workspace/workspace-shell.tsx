@@ -176,7 +176,6 @@ function isValidStoredPath(value: unknown): value is string {
   if (normalized.split("/").some((s) => s === "..")) return false;
   return true;
 }
-
 function loadStoredOpenFiles(key: string): StoredOpenFilesState | null {
   if (typeof window === "undefined") return null;
   try {
