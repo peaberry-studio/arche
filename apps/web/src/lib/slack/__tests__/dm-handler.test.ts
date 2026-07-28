@@ -250,7 +250,7 @@ describe('Slack DM handler', () => {
     mocks.slackService.createDmSessionBinding.mockResolvedValue({ id: 'binding-1' })
     mocks.sessionExecution.captureSessionMessageCursor.mockResolvedValue({ messageCount: 0 })
     mocks.sessionExecution.readLatestAssistantText.mockResolvedValue(`**Bold** <@U123> <@U999>\n\n${'x'.repeat(3_501)}`)
-    mocks.sessionExecution.waitForSessionToComplete.mockResolvedValue(null)
+    mocks.sessionExecution.waitForSessionToComplete.mockResolvedValue({ status: 'completed' })
 
     await handleSlackDmEvent({ body: {}, client, event: messageEvent(), eventId: 'Ev1' })
 
