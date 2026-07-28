@@ -236,7 +236,7 @@ export async function searchFilesAction(
  */
 export async function loadFileTreeAction(
   slug: string,
-  maxDepth = 4
+  maxDepth = 10
 ): Promise<{
   ok: boolean;
   tree?: WorkspaceFileNode[];
