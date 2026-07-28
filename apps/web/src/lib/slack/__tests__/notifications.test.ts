@@ -62,6 +62,41 @@ describe('Slack notifications', () => {
     )
   })
 
+  it('formats and posts every Flow notification chunk without authorizing mentions', async () => {
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ ok: true }))))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { sendSlackNotifications } = await import('../notifications')
+    const result = await sendSlackNotifications({
+      source: 'flows',
+      targets: [{ type: 'channel', channelId: 'C123' }],
+      text: `**Bold** <@U123>\n\n${'x'.repeat(3_501)}`,
+    })
+
+    expect(result).toEqual({ ok: true, sent: 1, failed: 0, errors: [] })
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'https://slack.com/api/chat.postMessage',
+      expect.objectContaining({
+        body: JSON.stringify({ channel: 'C123', text: '*Bold* &lt;@U123&gt;' }),
+      }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'https://slack.com/api/chat.postMessage',
+      expect.objectContaining({
+        body: JSON.stringify({ channel: 'C123', text: 'x'.repeat(3_500) }),
+      }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      'https://slack.com/api/chat.postMessage',
+      expect.objectContaining({
+        body: JSON.stringify({ channel: 'C123', text: 'x' }),
+      }),
+    )
+  })
+
   it('resolves DM targets by email when no Slack link exists', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({
@@ -158,7 +193,7 @@ describe('Slack notifications', () => {
       expect.objectContaining({
         body: JSON.stringify({
           channel: 'D123',
-          text: 'Report\n\nView session: https://arche.example/w/alice?session=s1',
+          text: 'Report\n\n<https://arche.example/w/alice?session=s1|View session>',
         }),
       }),
     )
