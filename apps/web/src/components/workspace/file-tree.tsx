@@ -36,7 +36,14 @@ export function FileTree({ nodes, activePath, onSelect, onFileContextMenu }: Fil
     return state;
   }, [nodes]);
 
-  const [userToggles, setUserToggles] = useState<TreeState>({});
+  const [userToggles, setUserToggles] = useState<TreeState>(() => {
+    if (!activePath) return {};
+    const state: TreeState = {};
+    for (const ancestor of getAncestorPaths(activePath)) {
+      state[ancestor] = true;
+    }
+    return state;
+  });
 
   const expanded = useMemo<TreeState>(() => {
     const state = { ...initialExpanded, ...userToggles };
