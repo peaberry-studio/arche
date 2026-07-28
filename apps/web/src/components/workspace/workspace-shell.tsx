@@ -833,6 +833,33 @@ export function WorkspaceShell({
     fileCacheRef.current = fileCache;
   }, [fileCache]);
 
+  const initialOpenFilePathsRef = useRef(openFilePaths);
+  useEffect(() => {
+    const paths = initialOpenFilePathsRef.current;
+    if (paths.length === 0) return;
+
+    void Promise.all(
+      paths.map(async (path) => {
+        const result = await workspace.readFile(path);
+        if (!result) return;
+        setFileCache((prev) => {
+          if (prev[path]) return prev;
+          return {
+            ...prev,
+            [path]: {
+              content: result.content,
+              type: result.type,
+              title: path.split("/").pop() ?? path,
+              updatedAt: "Just now",
+              size: `${(result.content.length / 1024).toFixed(1)} KB`,
+              hash: result.hash,
+            },
+          };
+        });
+      })
+    );
+  }, [workspace]);
+
   useEffect(() => {
     persistOpenFiles(openFilesStorageKey, { openFilePaths, activeFilePath });
   }, [openFilesStorageKey, openFilePaths, activeFilePath]);
