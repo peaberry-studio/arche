@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 
 
 import {
+  applyAgentExecutionGuards,
   applyDefaultAgentModel,
   injectAlwaysOnAgentTools,
   injectCustomConnectorHints,
@@ -9,6 +10,113 @@ import {
   injectSystemSkillAccess,
   remapAgentConnectorTools,
 } from '../agent-config-transforms'
+
+describe('applyAgentExecutionGuards', () => {
+  it('caps primary and subagent steps and denies unsafe loops', () => {
+    const config = {
+      default_agent: 'assistant',
+      agent: {
+        assistant: { permission: 'ask', steps: 200, tools: { task: true } },
+        worker: {
+          mode: 'subagent',
+          permission: { bash: 'allow', doom_loop: 'ask' },
+          steps: 80,
+          tools: { read: true, task: true },
+        },
+      },
+    }
+
+    const result = applyAgentExecutionGuards(config)
+    const agents = result.agent as Record<string, Record<string, unknown>>
+
+    expect(agents.assistant.steps).toBe(120)
+    expect(agents.assistant.mode).toBe('primary')
+    expect(agents.assistant.permission).toEqual({ '*': 'ask', doom_loop: 'deny' })
+    expect(agents.worker.steps).toBe(40)
+    expect(agents.worker.permission).toEqual({
+      bash: 'allow',
+      doom_loop: 'deny',
+      task: 'deny',
+    })
+    expect(agents.worker.tools).toEqual({ read: true, task: false })
+  })
+
+  it('preserves stricter configured step limits', () => {
+    const config = {
+      default_agent: 'assistant',
+      agent: {
+        assistant: { steps: 60 },
+        worker: { mode: 'subagent', steps: 20 },
+      },
+    }
+
+    const result = applyAgentExecutionGuards(config)
+    const agents = result.agent as Record<string, Record<string, unknown>>
+
+    expect(agents.assistant.steps).toBe(60)
+    expect(agents.worker.steps).toBe(20)
+  })
+
+  it('normalizes the default all-mode agent while restricting other all-mode agents', () => {
+    const config = {
+      default_agent: 'assistant',
+      agent: {
+        assistant: { mode: 'all', steps: 200, tools: { task: true } },
+        utility: { mode: 'all', steps: 80, tools: { task: true } },
+      },
+    }
+
+    const result = applyAgentExecutionGuards(config)
+    const agents = result.agent as Record<string, Record<string, unknown>>
+
+    expect(agents.assistant).toMatchObject({
+      mode: 'primary',
+      steps: 120,
+      tools: { task: true },
+    })
+    expect(agents.utility).toMatchObject({
+      mode: 'all',
+      steps: 40,
+      tools: { task: false },
+    })
+    expect(agents.utility.permission).toMatchObject({ task: 'deny' })
+  })
+
+  it('uses safe caps for invalid limits and denies delegation without an explicit tools map', () => {
+    const config = {
+      default_agent: 'assistant',
+      agent: {
+        assistant: { steps: 0 },
+        worker: { mode: 'subagent', steps: '20' },
+      },
+    }
+
+    const result = applyAgentExecutionGuards(config)
+    const agents = result.agent as Record<string, Record<string, unknown>>
+
+    expect(agents.assistant.steps).toBe(120)
+    expect(agents.worker.steps).toBe(40)
+    expect(agents.worker.permission).toMatchObject({
+      doom_loop: 'deny',
+      task: 'deny',
+    })
+  })
+
+  it('prevents delegation instructions for agents without task access', () => {
+    const config = {
+      default_agent: 'assistant',
+      agent: {
+        assistant: { mode: 'primary', tools: { task: true } },
+        worker: { mode: 'subagent', prompt: 'Handle work.', tools: { task: true } },
+      },
+    }
+
+    const result = injectSelfDelegationGuards(applyAgentExecutionGuards(config))
+    const agents = result.agent as Record<string, Record<string, unknown>>
+
+    expect(agents.worker.prompt).toBe('Handle work.')
+  })
+})
 
 describe('applyDefaultAgentModel', () => {
   it('injects default_model into agents without model', () => {

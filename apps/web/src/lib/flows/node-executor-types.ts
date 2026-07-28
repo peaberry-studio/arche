@@ -6,6 +6,7 @@ export type FlowNodeExecutionResult =
   | { status: 'cancelled'; steps: FlowRunStepRecord[] }
   | { status: 'continue'; nextNodeId: string | null; previousOutput: string | null; steps: FlowRunStepRecord[] }
   | { status: 'failed'; error: string; steps: FlowRunStepRecord[] }
+  | { status: 'termination_unconfirmed'; cause: string; steps: FlowRunStepRecord[] }
   | { status: 'waiting_for_human'; nodeId: string; steps: FlowRunStepRecord[] }
 
 export type FlowNodeExecutorParams = {
@@ -29,8 +30,16 @@ export type FlowNodeExecutorOk = {
   steps: FlowRunStepRecord[]
 }
 
-export type FlowNodeExecutorFailure = {
-  ok: false
-  error: string
-  steps: FlowRunStepRecord[]
-}
+export type FlowNodeExecutorFailure =
+  | {
+    ok: false
+    status: 'failed'
+    error: string
+    steps: FlowRunStepRecord[]
+  }
+  | {
+    ok: false
+    status: 'termination_unconfirmed'
+    cause: string
+    steps: FlowRunStepRecord[]
+  }

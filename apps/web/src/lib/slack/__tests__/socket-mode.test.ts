@@ -240,7 +240,7 @@ describe('slack socket manager', () => {
     })
     buildSlackContextMock.mockResolvedValue({ contextText: 'ctx', mentionTokens: ['<@U123>'] })
     buildSlackPromptMock.mockReturnValue('prompt')
-    waitForSessionToCompleteMock.mockResolvedValue(null)
+    waitForSessionToCompleteMock.mockResolvedValue({ status: 'completed' })
     readLatestAssistantTextMock.mockResolvedValue('Final reply')
     createInstanceClientMock.mockResolvedValue({
       session: {
@@ -1988,7 +1988,7 @@ describe('slack socket manager', () => {
       },
     }
 
-    waitForSessionToCompleteMock.mockResolvedValue('provider_auth_missing')
+    waitForSessionToCompleteMock.mockResolvedValue({ status: 'failed', error: 'provider_auth_missing' })
 
     const { syncSlackSocketManager, stopSlackSocketManager } = await import('../socket-mode')
     await syncSlackSocketManager()
@@ -2220,7 +2220,7 @@ describe('slack socket manager', () => {
       },
     }
 
-    waitForSessionToCompleteMock.mockResolvedValue(failure)
+    waitForSessionToCompleteMock.mockResolvedValue({ status: 'failed', error: failure })
     const { syncSlackSocketManager, stopSlackSocketManager } = await import('../socket-mode')
     await syncSlackSocketManager()
 

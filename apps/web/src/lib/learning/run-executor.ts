@@ -9,6 +9,7 @@ import { createInstanceClient } from '@/lib/opencode/client'
 import {
   captureSessionMessageCursor,
   createSessionPromptRun,
+  EXECUTION_TERMINATION_UNCONFIRMED_ERROR,
   ensureWorkspaceRunningForExecution,
   waitForSessionToComplete,
 } from '@/lib/opencode/session-execution'
@@ -17,10 +18,6 @@ import type { LearningTrigger } from '@/types/learning'
 
 const LEARNING_SESSION_TITLE_MAX_LENGTH = 160
 const LEARNING_RUN_CANCELLED_ERROR = 'learning_run_cancelled'
-
-function cancellationLogError(error: unknown): string {
-  return error instanceof Error && error.name ? error.name : 'unknown_error'
-}
 
 export type LearningRunExecutionInput = {
   runId: string
@@ -33,7 +30,7 @@ export type LearningRunExecutionInput = {
 
 export type LearningRunExecutionResult =
   | { ok: true }
-  | { ok: false; error: string }
+  | { ok: false; error: string; cause?: string }
 
 function buildLearningSessionTitle(title: string): string {
   const base = `Learning | ${title.trim() || 'Session'}`
@@ -94,16 +91,10 @@ export async function executeLearningRun(input: LearningRunExecutionInput): Prom
 
     await setLearningRunInternalSessionId({ runId: input.runId, internalSessionId: sessionId })
 
-    const abortIfCancelled = async (): Promise<string | null> => {
+    const getCancellationFailure = async (): Promise<string | null> => {
       const run = await findLearningRunForUser({ runId: input.runId, userId: input.userId })
       if (run?.status !== 'cancelled') return null
 
-      await Promise.resolve(client.session.abort({ sessionID: sessionId })).catch((error) => {
-        console.warn('[learning/run-executor] Failed to abort cancelled learning session', {
-          error: cancellationLogError(error),
-          runId: input.runId,
-        })
-      })
       return LEARNING_RUN_CANCELLED_ERROR
     }
 
@@ -117,7 +108,7 @@ export async function executeLearningRun(input: LearningRunExecutionInput): Prom
       throw new Error('session_busy')
     }
 
-    let failure: string | null
+    let completion: Awaited<ReturnType<typeof waitForSessionToComplete>>
     try {
       const cursor = await captureSessionMessageCursor(client, sessionId)
       await client.session.promptAsync(
@@ -128,10 +119,10 @@ export async function executeLearningRun(input: LearningRunExecutionInput): Prom
         { throwOnError: true },
       )
 
-      failure = await waitForSessionToComplete({
+      completion = await waitForSessionToComplete({
         client,
         cursor,
-        onPulse: abortIfCancelled,
+        onPulse: getCancellationFailure,
         sessionId,
         slug: input.slug,
         usage: { messageRunId: promptRun.run.id, source: 'learning', userId: input.userId },
@@ -142,15 +133,27 @@ export async function executeLearningRun(input: LearningRunExecutionInput): Prom
       throw error
     }
 
-    if (failure) {
-      if (failure === LEARNING_RUN_CANCELLED_ERROR) {
+    if (completion.status === 'termination_unconfirmed') {
+      console.warn('[learning/run-executor] Runtime termination unconfirmed', {
+        cause: completion.cause,
+        runId: input.runId,
+      })
+      return {
+        ok: false,
+        error: EXECUTION_TERMINATION_UNCONFIRMED_ERROR,
+        cause: completion.cause,
+      }
+    }
+
+    if (completion.status === 'failed') {
+      if (completion.error === LEARNING_RUN_CANCELLED_ERROR) {
         await messageRunService.markRunAborted(promptRun.run.id).catch(() => undefined)
-        return { ok: false, error: failure }
+        return { ok: false, error: completion.error }
       }
 
-      await messageRunService.markRunFailed(promptRun.run.id, failure).catch(() => undefined)
-      await markLearningRunFailed({ runId: input.runId, error: failure })
-      return { ok: false, error: failure }
+      await messageRunService.markRunFailed(promptRun.run.id, completion.error).catch(() => undefined)
+      await markLearningRunFailed({ runId: input.runId, error: completion.error })
+      return { ok: false, error: completion.error }
     }
 
     await messageRunService.markRunSucceeded(promptRun.run.id).catch(() => undefined)

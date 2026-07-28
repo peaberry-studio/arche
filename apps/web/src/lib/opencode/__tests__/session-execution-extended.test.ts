@@ -117,13 +117,19 @@ describe('session-execution extended', () => {
   })
 
   describe('waitForSessionToComplete', () => {
-    it('returns flow_run_timeout', async () => {
+    it('returns a confirmed timeout failure', async () => {
       vi.useFakeTimers()
 
       try {
-        const status = vi.fn().mockResolvedValue({
-          data: { 'session-1': { type: 'busy' } },
+        let aborted = false
+        const abort = vi.fn().mockImplementation(async () => {
+          aborted = true
+          return { data: true }
         })
+        const children = vi.fn().mockResolvedValue({ data: [] })
+        const status = vi.fn().mockImplementation(async () => ({
+          data: { 'session-1': { type: aborted ? 'idle' : 'busy' } },
+        }))
         const messages = vi.fn().mockResolvedValue({
           data: [],
         })
@@ -131,7 +137,7 @@ describe('session-execution extended', () => {
         const { waitForSessionToComplete } = await import('@/lib/opencode/session-execution')
         const promise = waitForSessionToComplete({
           client: {
-            session: { messages, status },
+            session: { abort, children, messages, status },
           } as Parameters<typeof waitForSessionToComplete>[0]['client'],
           sessionId: 'session-1',
           slug: 'slack-bot',
@@ -140,10 +146,171 @@ describe('session-execution extended', () => {
         await vi.advanceTimersByTimeAsync(30 * 60 * 1000 + 1000)
         const result = await promise
 
-        expect(result).toBe('flow_run_timeout')
+        expect(result).toEqual({ status: 'failed', error: 'flow_run_timeout' })
+        expect(abort).toHaveBeenCalledWith(
+          { sessionID: 'session-1' },
+          { throwOnError: true },
+        )
       } finally {
         vi.useRealTimers()
       }
+    })
+
+    it('aborts child sessions before the root and confirms the family is idle', async () => {
+      const abort = vi.fn().mockResolvedValue({ data: true })
+      const children = vi.fn()
+        .mockResolvedValueOnce({ data: [{ id: 'child-1' }] })
+        .mockResolvedValueOnce({ data: [{ id: 'grandchild-1' }] })
+        .mockResolvedValueOnce({ data: [] })
+      const status = vi.fn().mockResolvedValue({ data: {} })
+
+      const { abortSessionFamilyAndConfirmIdle } = await import('@/lib/opencode/session-execution')
+      const result = await abortSessionFamilyAndConfirmIdle({
+        client: { session: { abort, children, status } } as Parameters<
+          typeof abortSessionFamilyAndConfirmIdle
+        >[0]['client'],
+        rootSessionId: 'session-1',
+      })
+
+      expect(result).toBe(true)
+      expect(abort.mock.calls.map(([input]) => input.sessionID)).toEqual([
+        'grandchild-1',
+        'child-1',
+        'session-1',
+      ])
+    })
+
+    it('does not confirm termination while a discovered child remains busy', async () => {
+      vi.useFakeTimers()
+
+      try {
+        const abort = vi.fn().mockResolvedValue({ data: true })
+        const children = vi.fn()
+          .mockResolvedValueOnce({ data: [{ id: 'child-1' }] })
+          .mockResolvedValueOnce({ data: [] })
+        const status = vi.fn().mockResolvedValue({
+          data: {
+            'child-1': { type: 'busy' },
+            'session-1': { type: 'idle' },
+          },
+        })
+
+        const { abortSessionFamilyAndConfirmIdle } = await import('@/lib/opencode/session-execution')
+        const promise = abortSessionFamilyAndConfirmIdle({
+          client: { session: { abort, children, status } } as Parameters<
+            typeof abortSessionFamilyAndConfirmIdle
+          >[0]['client'],
+          rootSessionId: 'session-1',
+        })
+
+        await vi.advanceTimersByTimeAsync(10_000)
+
+        await expect(promise).resolves.toBe(false)
+        expect(abort.mock.calls.map(([input]) => input.sessionID)).toEqual([
+          'child-1',
+          'session-1',
+        ])
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('does not confirm termination when descendant discovery fails', async () => {
+      const abort = vi.fn().mockResolvedValue({ data: true })
+      const children = vi.fn().mockRejectedValue(new Error('children unavailable'))
+      const status = vi.fn()
+
+      const { abortSessionFamilyAndConfirmIdle } = await import('@/lib/opencode/session-execution')
+      const result = await abortSessionFamilyAndConfirmIdle({
+        client: { session: { abort, children, status } } as Parameters<
+          typeof abortSessionFamilyAndConfirmIdle
+        >[0]['client'],
+        rootSessionId: 'session-1',
+      })
+
+      expect(result).toBe(false)
+      expect(abort).toHaveBeenCalledWith(
+        { sessionID: 'session-1' },
+        { throwOnError: true },
+      )
+      expect(status).not.toHaveBeenCalled()
+    })
+
+    it('handles abort rejections after the confirmation deadline expires', async () => {
+      vi.useFakeTimers()
+      const unhandledRejection = vi.fn()
+      process.on('unhandledRejection', unhandledRejection)
+
+      try {
+        const abort = vi.fn().mockRejectedValue(new Error('runtime unavailable'))
+        const children = vi.fn().mockReturnValue(new Promise(() => undefined))
+
+        const { abortSessionFamilyAndConfirmIdle } = await import('@/lib/opencode/session-execution')
+        const promise = abortSessionFamilyAndConfirmIdle({
+          client: { session: { abort, children } } as Parameters<
+            typeof abortSessionFamilyAndConfirmIdle
+          >[0]['client'],
+          rootSessionId: 'session-1',
+        })
+
+        await vi.advanceTimersByTimeAsync(10_000)
+
+        await expect(promise).resolves.toBe(false)
+        await Promise.resolve()
+        expect(abort).toHaveBeenCalledWith(
+          { sessionID: 'session-1' },
+          { throwOnError: true },
+        )
+        expect(unhandledRejection).not.toHaveBeenCalled()
+      } finally {
+        process.off('unhandledRejection', unhandledRejection)
+        vi.useRealTimers()
+      }
+    })
+
+    it('aborts the session family when a pulse reports a failure', async () => {
+      const abort = vi.fn().mockResolvedValue({ data: true })
+      const children = vi.fn().mockResolvedValue({ data: [] })
+      const messages = vi.fn().mockResolvedValue({ data: [] })
+      const status = vi.fn().mockResolvedValue({ data: {} })
+
+      const { waitForSessionToComplete } = await import('@/lib/opencode/session-execution')
+      const result = await waitForSessionToComplete({
+        client: {
+          session: { abort, children, messages, status },
+        } as Parameters<typeof waitForSessionToComplete>[0]['client'],
+        onPulse: vi.fn().mockResolvedValue('flow_run_cancelled'),
+        sessionId: 'session-1',
+        slug: 'slack-bot',
+      })
+
+      expect(result).toEqual({ status: 'failed', error: 'flow_run_cancelled' })
+      expect(abort).toHaveBeenCalledWith(
+        { sessionID: 'session-1' },
+        { throwOnError: true },
+      )
+    })
+
+    it('preserves the pulse cause when termination cannot be confirmed', async () => {
+      const abort = vi.fn().mockResolvedValue({ data: true })
+      const children = vi.fn().mockRejectedValue(new Error('children unavailable'))
+      const messages = vi.fn().mockResolvedValue({ data: [] })
+      const status = vi.fn()
+
+      const { waitForSessionToComplete } = await import('@/lib/opencode/session-execution')
+      const result = await waitForSessionToComplete({
+        client: {
+          session: { abort, children, messages, status },
+        } as Parameters<typeof waitForSessionToComplete>[0]['client'],
+        onPulse: vi.fn().mockResolvedValue('flow_run_cancelled'),
+        sessionId: 'session-1',
+        slug: 'slack-bot',
+      })
+
+      expect(result).toEqual({
+        status: 'termination_unconfirmed',
+        cause: 'flow_run_cancelled',
+      })
     })
 
     it('calls onPulse during execution', async () => {

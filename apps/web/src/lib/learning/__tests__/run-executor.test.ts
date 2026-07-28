@@ -32,6 +32,7 @@ vi.mock('@/lib/opencode/session-execution', () => ({
   ensureWorkspaceRunningForExecution: mocks.ensureWorkspaceRunningForExecution,
   createSessionPromptRun: mocks.createSessionPromptRun,
   captureSessionMessageCursor: mocks.captureSessionMessageCursor,
+  EXECUTION_TERMINATION_UNCONFIRMED_ERROR: 'execution_termination_unconfirmed',
   waitForSessionToComplete: mocks.waitForSessionToComplete,
 }))
 
@@ -79,7 +80,7 @@ describe('executeLearningRun', () => {
     mocks.createInstanceClient.mockResolvedValue(makeClient())
     mocks.createSessionPromptRun.mockResolvedValue({ ok: true, run: { id: 'message-run-1' } })
     mocks.captureSessionMessageCursor.mockResolvedValue({ messageCount: 0 })
-    mocks.waitForSessionToComplete.mockResolvedValue(null)
+    mocks.waitForSessionToComplete.mockResolvedValue({ status: 'completed' })
   })
 
   it('runs the curator in a hidden session and marks the run succeeded', async () => {
@@ -116,7 +117,10 @@ describe('executeLearningRun', () => {
   })
 
   it('stores the real failure when the curator session fails', async () => {
-    mocks.waitForSessionToComplete.mockResolvedValue('APIError: Provider returned error 400')
+    mocks.waitForSessionToComplete.mockResolvedValue({
+      status: 'failed',
+      error: 'APIError: Provider returned error 400',
+    })
 
     await expect(executeLearningRun(baseInput)).resolves.toEqual({
       ok: false,
@@ -129,6 +133,22 @@ describe('executeLearningRun', () => {
       error: 'APIError: Provider returned error 400',
     })
     expect(mocks.markLearningRunSucceeded).not.toHaveBeenCalled()
+  })
+
+  it('keeps learning and message runs active when termination is unconfirmed', async () => {
+    mocks.waitForSessionToComplete.mockResolvedValue({
+      status: 'termination_unconfirmed',
+      cause: 'learning_run_cancelled',
+    })
+
+    await expect(executeLearningRun(baseInput)).resolves.toEqual({
+      ok: false,
+      error: 'execution_termination_unconfirmed',
+      cause: 'learning_run_cancelled',
+    })
+
+    expect(mocks.markRunFailed).not.toHaveBeenCalled()
+    expect(mocks.markLearningRunFailed).not.toHaveBeenCalled()
   })
 
   it('does not execute a run another dispatch already claimed', async () => {
@@ -156,7 +176,7 @@ describe('executeLearningRun', () => {
     expect(mocks.markLearningRunFailed).toHaveBeenCalledWith({ runId: 'run-1', error: 'instance_start_timeout' })
   })
 
-  it('aborts the internal session and does not overwrite a cancelled run during polling', async () => {
+  it('returns cancellation to the shared session waiter without overwriting the run', async () => {
     const client = makeClient()
     mocks.createInstanceClient.mockResolvedValue(client)
     mocks.findLearningRunForUser.mockResolvedValue({
@@ -169,13 +189,16 @@ describe('executeLearningRun', () => {
       updatedAt: '2026-01-01T00:00:00.000Z',
     })
     mocks.waitForSessionToComplete.mockImplementationOnce(
-      async (params: { onPulse?: () => Promise<string | null | void> }) => (await params.onPulse?.()) ?? null,
+      async (params: { onPulse?: () => Promise<string | null | void> }) => {
+        const error = await params.onPulse?.()
+        return error ? { status: 'failed', error } : { status: 'completed' }
+      },
     )
 
     await expect(executeLearningRun(baseInput)).resolves.toEqual({ ok: false, error: 'learning_run_cancelled' })
 
     expect(mocks.findLearningRunForUser).toHaveBeenCalledWith({ runId: 'run-1', userId: 'user-1' })
-    expect(client.session.abort).toHaveBeenCalledWith({ sessionID: 'internal-session-1' })
+    expect(client.session.abort).not.toHaveBeenCalled()
     expect(mocks.markRunAborted).toHaveBeenCalledWith('message-run-1')
     expect(mocks.markLearningRunFailed).not.toHaveBeenCalled()
     expect(mocks.markLearningRunSucceeded).not.toHaveBeenCalled()
