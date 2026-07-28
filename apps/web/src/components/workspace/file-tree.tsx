@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type MouseEvent } from "react";
+import { useMemo, useState, type MouseEvent } from "react";
 import { CaretRight, File, Folder, FolderOpen } from "@phosphor-icons/react";
 
 import { cn } from "@/lib/utils";
@@ -36,28 +36,20 @@ export function FileTree({ nodes, activePath, onSelect, onFileContextMenu }: Fil
     return state;
   }, [nodes]);
 
-  const [expanded, setExpanded] = useState<TreeState>(initialExpanded);
+  const [userToggles, setUserToggles] = useState<TreeState>({});
 
-  useEffect(() => {
-    if (!activePath) return;
-    const ancestors = getAncestorPaths(activePath);
-    if (ancestors.length === 0) return;
-
-    setExpanded((prev) => {
-      let changed = false;
-      const next = { ...prev };
-      for (const ancestor of ancestors) {
-        if (!next[ancestor]) {
-          next[ancestor] = true;
-          changed = true;
-        }
+  const expanded = useMemo<TreeState>(() => {
+    const state = { ...initialExpanded, ...userToggles };
+    if (activePath) {
+      for (const ancestor of getAncestorPaths(activePath)) {
+        state[ancestor] = true;
       }
-      return changed ? next : prev;
-    });
-  }, [activePath]);
+    }
+    return state;
+  }, [initialExpanded, userToggles, activePath]);
 
   const toggle = (path: string) => {
-    setExpanded((prev) => ({ ...prev, [path]: !prev[path] }));
+    setUserToggles((prev) => ({ ...prev, [path]: !expanded[path] }));
   };
 
   const renderNode = (node: WorkspaceFileNode, depth: number) => {
