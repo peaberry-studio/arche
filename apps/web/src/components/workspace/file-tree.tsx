@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type MouseEvent } from "react";
+import { useMemo, useState, type MouseEvent } from "react";
 import { CaretRight, File, Folder, FolderOpen } from "@phosphor-icons/react";
 
 import { cn } from "@/lib/utils";
