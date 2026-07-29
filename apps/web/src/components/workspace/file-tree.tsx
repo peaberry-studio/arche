@@ -18,8 +18,12 @@ type FileTreeProps = {
 
 type TreeState = Record<string, boolean>;
 
+function stripTrailingSlash(path: string): string {
+  return path.endsWith("/") ? path.slice(0, -1) : path;
+}
+
 function getAncestorPaths(filePath: string): string[] {
-  const segments = filePath.split("/");
+  const segments = stripTrailingSlash(filePath).split("/");
   const ancestors: string[] = [];
   for (let i = 1; i < segments.length; i++) {
     ancestors.push(segments.slice(0, i).join("/"));
@@ -31,7 +35,7 @@ export function FileTree({ nodes, activePath, onSelect, onFileContextMenu }: Fil
   const initialExpanded = useMemo<TreeState>(() => {
     const state: TreeState = {};
     nodes.forEach((node) => {
-      if (node.type === "directory") state[node.path] = true;
+      if (node.type === "directory") state[stripTrailingSlash(node.path)] = true;
     });
     return state;
   }, [nodes]);
@@ -52,27 +56,20 @@ export function FileTree({ nodes, activePath, onSelect, onFileContextMenu }: Fil
         state[ancestor] = true;
       }
     }
-    console.log("[FileTree] expanded", { activePath, expandedKeys: Object.keys(state).filter(k => state[k]), ancestors: activePath ? getAncestorPaths(activePath) : [], userToggles: { ...userToggles } });
-    if (activePath) {
-      for (const anc of getAncestorPaths(activePath)) {
-        console.log(`[FileTree] ancestor "${anc}" expanded=${state[anc]}`);
-      }
-    }
     return state;
   }, [initialExpanded, userToggles, activePath]);
 
   const toggle = (path: string) => {
-    setUserToggles((prev) => ({ ...prev, [path]: !expanded[path] }));
+    const key = stripTrailingSlash(path);
+    setUserToggles((prev) => ({ ...prev, [key]: !expanded[key] }));
   };
 
   const renderNode = (node: WorkspaceFileNode, depth: number) => {
     const isFolder = node.type === "directory";
-    const isOpen = expanded[node.path];
+    const nodeKey = isFolder ? stripTrailingSlash(node.path) : node.path;
+    const isOpen = expanded[nodeKey];
     const isActive = activePath === node.path && !isFolder;
     const paddingLeft = 4 + depth * 12;
-    if (isFolder && depth > 0 && activePath && node.path.length < activePath.length && activePath.startsWith(node.path)) {
-      console.log(`[FileTree] renderNode dir="${node.path}" isOpen=${isOpen} expanded[path]=${expanded[node.path]} hasChildren=${!!node.children} childCount=${node.children?.length ?? 0}`);
-    }
 
     return (
       <div key={node.id}>
