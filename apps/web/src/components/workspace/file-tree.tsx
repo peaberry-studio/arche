@@ -52,7 +52,12 @@ export function FileTree({ nodes, activePath, onSelect, onFileContextMenu }: Fil
         state[ancestor] = true;
       }
     }
-    console.log("[FileTree] expanded state", { activePath, ancestorCount: activePath ? getAncestorPaths(activePath).length : 0, ancestors: activePath ? getAncestorPaths(activePath) : [], expandedKeys: Object.keys(state).filter(k => state[k]), nodeCount: nodes.length, userToggleKeys: Object.keys(userToggles) });
+    console.log("[FileTree] expanded", { activePath, expandedKeys: Object.keys(state).filter(k => state[k]), ancestors: activePath ? getAncestorPaths(activePath) : [], userToggles: { ...userToggles } });
+    if (activePath) {
+      for (const anc of getAncestorPaths(activePath)) {
+        console.log(`[FileTree] ancestor "${anc}" expanded=${state[anc]}`);
+      }
+    }
     return state;
   }, [initialExpanded, userToggles, activePath]);
 
@@ -65,6 +70,9 @@ export function FileTree({ nodes, activePath, onSelect, onFileContextMenu }: Fil
     const isOpen = expanded[node.path];
     const isActive = activePath === node.path && !isFolder;
     const paddingLeft = 4 + depth * 12;
+    if (isFolder && depth > 0 && activePath && node.path.length < activePath.length && activePath.startsWith(node.path)) {
+      console.log(`[FileTree] renderNode dir="${node.path}" isOpen=${isOpen} expanded[path]=${expanded[node.path]} hasChildren=${!!node.children} childCount=${node.children?.length ?? 0}`);
+    }
 
     return (
       <div key={node.id}>
