@@ -1713,7 +1713,9 @@ export function WorkspaceShell({
       sessions={rootSessions}
       activeSessionId={activeRootSessionId}
       hasMoreSessions={workspace.hasMoreSessions}
+      isInitialSessionsReady={workspace.isInitialSessionsReady}
       isLoadingMoreSessions={workspace.isLoadingMoreSessions}
+      sessionsError={workspace.sessionsError}
       unseenCompletedSessions={workspace.unseenCompletedSessions}
       headerActions={leftPanelHeaderActions}
       onCreateSession={handleCreateSession}
@@ -1802,7 +1804,9 @@ export function WorkspaceShell({
       skills={skillsCatalog.skills}
       messages={uiMessages}
       activeSessionId={workspace.activeSessionId}
+      isInitialSessionsReady={workspace.isInitialSessionsReady}
       isLoadingMessages={workspace.isLoadingMessages}
+      sessionsError={workspace.sessionsError}
       isStartingNewSession={workspace.isStartingNewSession}
       sessionTabs={activeSessionTabs}
       openFilePaths={openFilePaths}

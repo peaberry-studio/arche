@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
-import { ChatCircle, CheckSquare, Circle, Plus, SpinnerGap } from "@phosphor-icons/react";
+import { ChatCircle, CheckSquare, Circle, Plus, SpinnerGap, XCircle } from "@phosphor-icons/react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -13,7 +13,9 @@ type SessionsPanelProps = {
   sessions: WorkspaceSession[];
   activeSessionId: string | null;
   hasMore?: boolean;
+  isInitialSessionsReady?: boolean;
   isLoadingMore?: boolean;
+  sessionsError?: string | null;
   unseenCompletedSessions: ReadonlySet<string>;
   onLoadMore?: () => void;
   onSelectSession: (id: string) => void;
@@ -26,7 +28,9 @@ export function SessionsPanel({
   sessions,
   activeSessionId,
   hasMore = false,
+  isInitialSessionsReady = true,
   isLoadingMore = false,
+  sessionsError = null,
   unseenCompletedSessions,
   onLoadMore,
   onSelectSession,
@@ -61,8 +65,10 @@ export function SessionsPanel({
 
   const emptyLabel = kind === "flows" ? "No flows yet" : "No chats yet";
   const emptySearchLabel = kind === "flows" ? "No flows found" : "No chats found";
+  const initialLoadingLabel = kind === "flows" ? "Loading flows..." : "Loading chats...";
   const loadingLabel = kind === "flows" ? "Loading more flows..." : "Loading more chats...";
   const moreLabel = kind === "flows" ? "Scroll for older flows" : "Scroll for older chats";
+  const errorLabel = kind === "flows" ? "Couldn't load flows." : "Couldn't load chats.";
 
   useEffect(() => {
     if (!hasMore || isLoadingMore || !onLoadMore) {
@@ -93,6 +99,28 @@ export function SessionsPanel({
       observer.disconnect();
     };
   }, [hasMore, isLoadingMore, onLoadMore]);
+
+  if (sessions.length === 0 && sessionsError) {
+    return (
+      <div className="flex flex-1 items-center justify-center px-4">
+        <div className="flex flex-col items-center justify-center gap-2 text-center">
+          <XCircle size={24} weight="fill" className="text-destructive/70" />
+          <p className="text-xs text-muted-foreground">{errorLabel}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (sessions.length === 0 && !isInitialSessionsReady) {
+    return (
+      <div className="flex flex-1 items-center justify-center px-4">
+        <div className="flex flex-col items-center justify-center gap-2 text-center">
+          <SpinnerGap size={24} className="animate-spin text-muted-foreground" />
+          <p className="text-xs text-muted-foreground">{initialLoadingLabel}</p>
+        </div>
+      </div>
+    );
+  }
 
   if (sessions.length === 0) {
     const EmptyIcon = kind === "flows" ? CheckSquare : ChatCircle;

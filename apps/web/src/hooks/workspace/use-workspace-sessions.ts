@@ -52,6 +52,8 @@ export function useWorkspaceSessions({
   const [sessionStore, setSessionStore] = useState<WorkspaceSessionStore>(() => createSessionStore());
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [isLoadingSessions, setIsLoadingSessions] = useState(false);
+  const [isInitialSessionsReady, setIsInitialSessionsReady] = useState(false);
+  const [sessionsError, setSessionsError] = useState<string | null>(null);
   const [isLoadingMoreSessions, setIsLoadingMoreSessions] = useState(false);
   const [hasMoreSessions, setHasMoreSessions] = useState(false);
   const [unseenCompletedSessions, setUnseenCompletedSessions] = useState<Set<string>>(new Set());
@@ -62,6 +64,7 @@ export function useWorkspaceSessions({
   const sessionMutationVersionRef = useRef(0);
   const sessionLoadRequestIdRef = useRef(0);
   const sessionFamilyLoadRequestIdRef = useRef(0);
+  const hasLoadedInitialSessionsRef = useRef(false);
   const rootSessionLimitRef = useRef(ROOT_SESSION_LIMIT_STEP);
 
   const markSessionsMutated = useCallback(() => {
@@ -91,6 +94,7 @@ export function useWorkspaceSessions({
   const loadSessions = useCallback(async () => {
     const requestId = sessionLoadRequestIdRef.current + 1;
     sessionLoadRequestIdRef.current = requestId;
+    const isInitialLoad = !hasLoadedInitialSessionsRef.current;
     const mutationVersionAtStart = sessionMutationVersionRef.current;
     const currentSessionId = activeSessionIdRef.current;
     const requestedSessionId = initialSessionIdRef.current;
@@ -99,6 +103,9 @@ export function useWorkspaceSessions({
       currentSessionId ?? requestedSessionId ?? storedSessionId ?? null;
 
     setIsLoadingSessions(true);
+    if (isInitialLoad) {
+      setSessionsError(null);
+    }
     try {
       const rootSessionLimit = Math.max(
         ROOT_SESSION_LIMIT_STEP,
@@ -109,84 +116,103 @@ export function useWorkspaceSessions({
         limit: rootSessionLimit,
         rootsOnly: true,
       });
-      if (result.ok && result.sessions) {
-        let familySessions: WorkspaceSession[] = [];
-        let familyRootId: string | null = null;
-        if (
-          preferredSessionId &&
-          sessionStoreRef.current.loadedFamilySessionIds.has(preferredSessionId)
-        ) {
-          // Keep the previously loaded family visible if the refresh races or fails.
-          familySessions = [...sessionStoreRef.current.loadedFamilySessionIds]
-            .map((id) => sessionStoreRef.current.sessionsById[id])
-            .filter((session): session is WorkspaceSession => Boolean(session));
-          familyRootId = sessionStoreRef.current.loadedFamilyRootId;
+      if (requestId !== sessionLoadRequestIdRef.current) {
+        return;
+      }
+
+      if (!result.ok || !result.sessions) {
+        if (isInitialLoad) {
+          setSessionsError(result.error ?? "load_failed");
         }
+        return;
+      }
 
-        if (preferredSessionId) {
-          const familyResult = await listSessionFamilyAction(slug, preferredSessionId);
-          if (familyResult.ok && familyResult.sessions) {
-            familySessions = familyResult.sessions;
-            familyRootId = familyResult.rootSessionId ?? familyRootId;
-          }
+      let familySessions: WorkspaceSession[] = [];
+      let familyRootId: string | null = null;
+      if (
+        preferredSessionId &&
+        sessionStoreRef.current.loadedFamilySessionIds.has(preferredSessionId)
+      ) {
+        // Keep the previously loaded family visible if the refresh races or fails.
+        familySessions = [...sessionStoreRef.current.loadedFamilySessionIds]
+          .map((id) => sessionStoreRef.current.sessionsById[id])
+          .filter((session): session is WorkspaceSession => Boolean(session));
+        familyRootId = sessionStoreRef.current.loadedFamilyRootId;
+      }
+
+      if (preferredSessionId) {
+        const familyResult = await listSessionFamilyAction(slug, preferredSessionId);
+        if (familyResult.ok && familyResult.sessions) {
+          familySessions = familyResult.sessions;
+          familyRootId = familyResult.rootSessionId ?? familyRootId;
         }
+      }
 
-        if (requestId !== sessionLoadRequestIdRef.current) {
-          return;
-        }
+      if (requestId !== sessionLoadRequestIdRef.current) {
+        return;
+      }
 
-        if (mutationVersionAtStart !== sessionMutationVersionRef.current) {
-          return;
-        }
+      if (mutationVersionAtStart !== sessionMutationVersionRef.current) {
+        return;
+      }
 
-        const nextFamilyRootId = familySessions.length > 0
-          ? familyRootId ?? preferredSessionId
-          : null;
-        const nextStore = nextFamilyRootId
-          ? mergeSessionFamily(
-              replaceRootSessions(sessionStoreRef.current, result.sessions),
-              nextFamilyRootId,
-              familySessions
-            )
-          : replaceRootSessions(sessionStoreRef.current, result.sessions);
-        const visibleSessions = deriveVisibleSessions(nextStore);
+      const nextFamilyRootId = familySessions.length > 0
+        ? familyRootId ?? preferredSessionId
+        : null;
+      const nextStore = nextFamilyRootId
+        ? mergeSessionFamily(
+            replaceRootSessions(sessionStoreRef.current, result.sessions),
+            nextFamilyRootId,
+            familySessions
+          )
+        : replaceRootSessions(sessionStoreRef.current, result.sessions);
+      const visibleSessions = deriveVisibleSessions(nextStore);
 
-        setSessionStore(nextStore);
-        sessionStoreRef.current = nextStore;
-        rootSessionLimitRef.current = rootSessionLimit;
-        setHasMoreSessions(Boolean(result.hasMore));
+      setSessionStore(nextStore);
+      sessionStoreRef.current = nextStore;
+      rootSessionLimitRef.current = rootSessionLimit;
+      setHasMoreSessions(Boolean(result.hasMore));
 
-        const sessionIds = new Set(visibleSessions.map((session) => session.id));
+      const sessionIds = new Set(visibleSessions.map((session) => session.id));
 
-        const firstManualRootSession = visibleSessions.find(
-          (session) =>
-            (!session.parentId || !sessionIds.has(session.parentId)) &&
-            !session.flow
-        );
-        const firstRootSession = visibleSessions.find(
-          (session) => !session.parentId || !sessionIds.has(session.parentId)
-        );
-        const nextActiveSessionId =
-          (currentSessionId && sessionIds.has(currentSessionId)
-            ? currentSessionId
-            : null) ??
-          (requestedSessionId && sessionIds.has(requestedSessionId)
-            ? requestedSessionId
-            : null) ??
-          (storedSessionId && sessionIds.has(storedSessionId)
-            ? storedSessionId
-            : null) ??
-          firstManualRootSession?.id ??
-          firstRootSession?.id ??
-          visibleSessions[0]?.id ??
-          null;
+      const firstManualRootSession = visibleSessions.find(
+        (session) =>
+          (!session.parentId || !sessionIds.has(session.parentId)) &&
+          !session.flow
+      );
+      const firstRootSession = visibleSessions.find(
+        (session) => !session.parentId || !sessionIds.has(session.parentId)
+      );
+      const nextActiveSessionId =
+        (currentSessionId && sessionIds.has(currentSessionId)
+          ? currentSessionId
+          : null) ??
+        (requestedSessionId && sessionIds.has(requestedSessionId)
+          ? requestedSessionId
+          : null) ??
+        (storedSessionId && sessionIds.has(storedSessionId)
+          ? storedSessionId
+          : null) ??
+        firstManualRootSession?.id ??
+        firstRootSession?.id ??
+        visibleSessions[0]?.id ??
+        null;
 
-        initialSessionIdRef.current = null;
+      initialSessionIdRef.current = null;
 
-        if (nextActiveSessionId !== currentSessionId) {
-          activeSessionIdRef.current = nextActiveSessionId;
-          setActiveSessionId(nextActiveSessionId);
-        }
+      if (nextActiveSessionId !== currentSessionId) {
+        activeSessionIdRef.current = nextActiveSessionId;
+        setActiveSessionId(nextActiveSessionId);
+      }
+
+      if (isInitialLoad) {
+        hasLoadedInitialSessionsRef.current = true;
+        setIsInitialSessionsReady(true);
+        setSessionsError(null);
+      }
+    } catch (error) {
+      if (requestId === sessionLoadRequestIdRef.current && isInitialLoad) {
+        setSessionsError(error instanceof Error ? error.message : "load_failed");
       }
     } finally {
       if (requestId === sessionLoadRequestIdRef.current) {
@@ -405,6 +431,8 @@ export function useWorkspaceSessions({
     activeSessionIdRef,
     sessionsRef,
     isLoadingSessions,
+    isInitialSessionsReady,
+    sessionsError,
     isLoadingMoreSessions,
     hasMoreSessions,
     unseenCompletedSessions,

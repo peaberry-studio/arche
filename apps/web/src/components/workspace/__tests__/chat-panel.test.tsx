@@ -46,6 +46,50 @@ describe('ChatPanel', () => {
     expect(html).not.toContain('OLD CHAT')
   })
 
+  it('shows a session loader before the initial selection resolves', () => {
+    const html = renderChatPanel({
+      sessions: [],
+      activeSessionId: null,
+      isInitialSessionsReady: false,
+    })
+
+    expect(html).toContain('Loading session...')
+    expect(html).not.toContain('Start a new conversation')
+    expect(html).not.toContain('No active session')
+  })
+
+  it('shows a session loading error instead of the empty conversation state', () => {
+    const html = renderChatPanel({
+      sessions: [],
+      activeSessionId: null,
+      isInitialSessionsReady: false,
+      sessionsError: 'instance_unavailable',
+    })
+
+    expect(html).toContain("Couldn&#x27;t load sessions.")
+    expect(html).not.toContain('Start a new conversation')
+  })
+
+  it('keeps rendering existing messages while initial session readiness is pending', () => {
+    const html = renderChatPanel({
+      messages: [
+        {
+          id: 'm1',
+          sessionId: 's1',
+          role: 'assistant',
+          content: 'OLD CHAT',
+          timestamp: 'now',
+        },
+      ],
+      isInitialSessionsReady: false,
+      sessionsError: 'instance_unavailable',
+    })
+
+    expect(html).toContain('OLD CHAT')
+    expect(html).not.toContain('Loading session...')
+    expect(html).not.toContain("Couldn&#x27;t load sessions.")
+  })
+
   it('shows only the active session title when session tabs are available', () => {
     const html = renderChatPanel({
       sessions: [

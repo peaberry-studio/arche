@@ -148,6 +148,57 @@ describe("SessionsPanel", () => {
     expect(onCreateSession).toHaveBeenCalledTimes(1);
   });
 
+  it("shows an initial loading state instead of the empty chat state", () => {
+    render(
+      <SessionsPanel
+        sessions={[]}
+        activeSessionId={null}
+        isInitialSessionsReady={false}
+        unseenCompletedSessions={new Set<string>()}
+        onSelectSession={vi.fn()}
+        onCreateSession={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText("Loading chats...")).toBeTruthy();
+    expect(screen.queryByText("No chats yet")).toBeNull();
+  });
+
+  it("shows an initial loading error instead of the empty chat state", () => {
+    render(
+      <SessionsPanel
+        sessions={[]}
+        activeSessionId={null}
+        isInitialSessionsReady={false}
+        sessionsError="instance_unavailable"
+        unseenCompletedSessions={new Set<string>()}
+        onSelectSession={vi.fn()}
+        onCreateSession={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText("Couldn't load chats.")).toBeTruthy();
+    expect(screen.queryByText("No chats yet")).toBeNull();
+  });
+
+  it("keeps rendering already loaded sessions while initial readiness is pending", () => {
+    render(
+      <SessionsPanel
+        sessions={sessions}
+        activeSessionId={"idle-session"}
+        isInitialSessionsReady={false}
+        sessionsError="instance_unavailable"
+        unseenCompletedSessions={new Set<string>()}
+        onSelectSession={vi.fn()}
+        onCreateSession={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: /idle chat/i })).toBeTruthy();
+    expect(screen.queryByText("Loading chats...")).toBeNull();
+    expect(screen.queryByText("Couldn't load chats.")).toBeNull();
+  });
+
   it("shows the chat search empty state with a creation shortcut", () => {
     const onCreateSession = vi.fn();
 
