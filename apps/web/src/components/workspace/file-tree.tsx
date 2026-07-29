@@ -52,6 +52,7 @@ export function FileTree({ nodes, activePath, onSelect, onFileContextMenu }: Fil
         state[ancestor] = true;
       }
     }
+    console.log("[FileTree] expanded state", { activePath, ancestorCount: activePath ? getAncestorPaths(activePath).length : 0, ancestors: activePath ? getAncestorPaths(activePath) : [], expandedKeys: Object.keys(state).filter(k => state[k]), nodeCount: nodes.length, userToggleKeys: Object.keys(userToggles) });
     return state;
   }, [initialExpanded, userToggles, activePath]);
 
