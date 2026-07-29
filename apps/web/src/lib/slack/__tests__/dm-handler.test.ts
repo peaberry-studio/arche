@@ -239,6 +239,33 @@ describe('Slack DM handler', () => {
     })
   })
 
+  it('formats and splits DM replies while authorizing only the DM participant mention', async () => {
+    const client = createClient()
+    mocks.opencode.createInstanceClient.mockResolvedValue({
+      session: {
+        create: vi.fn().mockResolvedValue({ data: { id: 'session-1' } }),
+        promptAsync: vi.fn().mockResolvedValue({}),
+      },
+    })
+    mocks.slackService.createDmSessionBinding.mockResolvedValue({ id: 'binding-1' })
+    mocks.sessionExecution.captureSessionMessageCursor.mockResolvedValue({ messageCount: 0 })
+    mocks.sessionExecution.readLatestAssistantText.mockResolvedValue(`**Bold** <@U123> <@U999>\n\n${'x'.repeat(3_501)}`)
+    mocks.sessionExecution.waitForSessionToComplete.mockResolvedValue({ status: 'completed' })
+
+    await handleSlackDmEvent({ body: {}, client, event: messageEvent(), eventId: 'Ev1' })
+
+    expect(mocks.socketUtils.finalizeSlackDmReply).toHaveBeenCalledWith(
+      client,
+      'D123',
+      'placeholder-ts',
+      [
+        '*Bold* <@U123> &lt;@U999&gt;',
+        'x'.repeat(3_500),
+        'x',
+      ],
+    )
+  })
+
   it('responds to malformed and non-DM /new commands', async () => {
     const respond: SlackCommandRespond = vi.fn().mockResolvedValue({})
 

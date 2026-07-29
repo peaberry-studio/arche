@@ -10,5 +10,6 @@ describe('buildSlackPrompt', () => {
     })
 
     expect(prompt).toContain('Do not narrate tool use, hidden reasoning, or status updates.')
+    expect(prompt).toContain('the delivery layer normalizes it for Slack')
   })
 })

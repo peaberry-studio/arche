@@ -271,22 +271,26 @@ export async function finalizeSlackReply(
   channel: string,
   threadTs: string,
   placeholderTs: string | null,
-  text: string,
+  text: string | string[],
 ): Promise<void> {
+  const messages = Array.isArray(text) ? text : [text]
   if (placeholderTs) {
     await client.chat.update({
       channel,
-      text,
+      text: messages[0] ?? '',
       ts: placeholderTs,
     })
-    return
+  } else {
+    await client.chat.postMessage({
+      channel,
+      text: messages[0] ?? '',
+      thread_ts: threadTs,
+    })
   }
 
-  await client.chat.postMessage({
-    channel,
-    text,
-    thread_ts: threadTs,
-  })
+  for (const message of messages.slice(1)) {
+    await client.chat.postMessage({ channel, text: message, thread_ts: threadTs })
+  }
 }
 
 export async function postSlackDmPlaceholder(
@@ -309,18 +313,22 @@ export async function finalizeSlackDmReply(
   client: SlackChatClient,
   channel: string,
   placeholderTs: string | null,
-  text: string,
+  text: string | string[],
 ): Promise<void> {
+  const messages = Array.isArray(text) ? text : [text]
   if (placeholderTs) {
     await client.chat.update({
       channel,
-      text,
+      text: messages[0] ?? '',
       ts: placeholderTs,
     })
-    return
+  } else {
+    await postSlackDmMessage(client, channel, messages[0] ?? '')
   }
 
-  await postSlackDmMessage(client, channel, text)
+  for (const message of messages.slice(1)) {
+    await postSlackDmMessage(client, channel, message)
+  }
 }
 
 export function postSlackDmMessage(
