@@ -153,14 +153,42 @@ function getOpenFilesStorageKey(scope: string): string {
   return `arche.workspace.${scope}.open-files`;
 }
 
+const MAX_STORED_OPEN_FILES = 50;
+
+function isValidStoredPath(value: unknown): value is string {
+  if (typeof value !== "string" || !value) return false;
+  const normalized = normalizeWorkspacePath(value);
+  if (!normalized) return false;
+  if (isProtectedWorkspacePath(normalized)) return false;
+  if (normalized.split("/").some((s) => s === "..")) return false;
+  return true;
+}
+
 function loadStoredOpenFiles(key: string): StoredOpenFilesState | null {
   if (typeof window === "undefined") return null;
   try {
     const raw = window.localStorage.getItem(key);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as StoredOpenFilesState;
-    if (!Array.isArray(parsed.openFilePaths)) return null;
-    return parsed;
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
+    const record = parsed as Record<string, unknown>;
+    if (!Array.isArray(record.openFilePaths)) return null;
+    const seen = new Set<string>();
+    const openFilePaths: string[] = [];
+    for (const entry of record.openFilePaths) {
+      if (!isValidStoredPath(entry)) continue;
+      const normalized = normalizeWorkspacePath(entry);
+      if (seen.has(normalized)) continue;
+      seen.add(normalized);
+      openFilePaths.push(normalized);
+      if (openFilePaths.length >= MAX_STORED_OPEN_FILES) break;
+    }
+    if (openFilePaths.length === 0) return null;
+    const activeFilePath =
+      isValidStoredPath(record.activeFilePath) && openFilePaths.includes(normalizeWorkspacePath(record.activeFilePath as string))
+        ? normalizeWorkspacePath(record.activeFilePath as string)
+        : null;
+    return { openFilePaths, activeFilePath };
   } catch {
     return null;
   }
@@ -808,9 +836,8 @@ export function WorkspaceShell({
   // File viewing state
   const safeInitialFilePath = useMemo(() => {
     if (!initialFilePath) return null;
-    const normalized = normalizeWorkspacePath(initialFilePath);
-    if (!normalized || isProtectedWorkspacePath(normalized)) return null;
-    return normalized;
+    if (!isValidStoredPath(initialFilePath)) return null;
+    return normalizeWorkspacePath(initialFilePath);
   }, [initialFilePath]);
 
   const [openFilePaths, setOpenFilePaths] = useState<string[]>(() => {
@@ -836,31 +863,63 @@ export function WorkspaceShell({
   }, [fileCache]);
 
   const initialOpenFilePathsRef = useRef(openFilePaths);
+  const hasRestoredFilesRef = useRef(false);
   useEffect(() => {
+    if (hasRestoredFilesRef.current) return;
+    if (!workspace.isConnected) return;
     const paths = initialOpenFilePathsRef.current;
-    if (paths.length === 0) return;
+    if (paths.length === 0) {
+      hasRestoredFilesRef.current = true;
+      return;
+    }
+    hasRestoredFilesRef.current = true;
 
     void Promise.all(
       paths.map(async (path) => {
-        const result = await workspace.readFile(path);
-        if (!result) return;
-        setFileCache((prev) => {
-          if (prev[path]) return prev;
-          return {
+        try {
+          const result = await readWorkspaceFile(path);
+          if (result) {
+            setFileCache((prev) => {
+              if (prev[path]) return prev;
+              return {
+                ...prev,
+                [path]: {
+                  content: result.content,
+                  type: result.type,
+                  title: path.split("/").pop() ?? path,
+                  updatedAt: "Just now",
+                  size: `${(result.content.length / 1024).toFixed(1)} KB`,
+                  hash: result.hash,
+                },
+              };
+            });
+          } else {
+            setFileCache((prev) => ({
+              ...prev,
+              [path]: {
+                content: "Unable to load file.",
+                type: "raw",
+                title: path.split("/").pop() ?? path,
+                updatedAt: "Error",
+                size: "0 KB",
+              },
+            }));
+          }
+        } catch {
+          setFileCache((prev) => ({
             ...prev,
             [path]: {
-              content: result.content,
-              type: result.type,
+              content: "Unable to load file.",
+              type: "raw",
               title: path.split("/").pop() ?? path,
-              updatedAt: "Just now",
-              size: `${(result.content.length / 1024).toFixed(1)} KB`,
-              hash: result.hash,
+              updatedAt: "Error",
+              size: "0 KB",
             },
-          };
-        });
+          }));
+        }
       })
     );
-  }, [workspace]);
+  }, [workspace.isConnected, readWorkspaceFile]);
 
   useEffect(() => {
     persistOpenFiles(openFilesStorageKey, { openFilePaths, activeFilePath });

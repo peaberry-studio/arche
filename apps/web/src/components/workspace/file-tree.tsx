@@ -49,15 +49,24 @@ export function FileTree({ nodes, activePath, onSelect, onFileContextMenu }: Fil
     return state;
   });
 
-  const expanded = useMemo<TreeState>(() => {
-    const state = { ...initialExpanded, ...userToggles };
+  const [prevActivePath, setPrevActivePath] = useState<string | null>(activePath ?? null);
+  if (activePath !== prevActivePath) {
+    setPrevActivePath(activePath ?? null);
     if (activePath) {
-      for (const ancestor of getAncestorPaths(activePath)) {
-        state[ancestor] = true;
-      }
+      const ancestors = getAncestorPaths(activePath);
+      setUserToggles((prev) => {
+        const next = { ...prev };
+        for (const ancestor of ancestors) {
+          next[ancestor] = true;
+        }
+        return next;
+      });
     }
-    return state;
-  }, [initialExpanded, userToggles, activePath]);
+  }
+
+  const expanded = useMemo<TreeState>(() => {
+    return { ...initialExpanded, ...userToggles };
+  }, [initialExpanded, userToggles]);
 
   const toggle = (path: string) => {
     const key = stripTrailingSlash(path);

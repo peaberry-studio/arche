@@ -182,4 +182,23 @@ describe("FileTree auto-expand", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Learnings$/i }));
     expect(screen.queryByRole("button", { name: /article\.md/i })).toBeNull();
   });
+
+  it("allows collapsing an active-file ancestor after it was auto-expanded", () => {
+    const onSelect = vi.fn();
+    render(
+      <FileTree
+        nodes={deepNodes}
+        activePath="Company/Research/Issues/deep-file.md"
+        onSelect={onSelect}
+      />
+    );
+
+    // Ancestors auto-expanded: deep-file.md is visible
+    expect(screen.getByRole("button", { name: /deep-file\.md/i })).toBeDefined();
+
+    // Collapse "Research" — should hide everything beneath it
+    fireEvent.click(screen.getByRole("button", { name: /^Research$/i }));
+    expect(screen.queryByRole("button", { name: /deep-file\.md/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Issues$/i })).toBeNull();
+  });
 });

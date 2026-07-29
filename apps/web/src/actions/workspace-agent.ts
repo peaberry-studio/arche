@@ -2,7 +2,7 @@
 
 import type { WorkspaceFileContent } from '@/lib/opencode/types'
 import { getSession } from '@/lib/runtime/session'
-import { isProtectedWorkspacePath } from '@/lib/workspace-paths'
+import { isProtectedWorkspacePath, normalizeWorkspacePath } from '@/lib/workspace-paths'
 import { createWorkspaceAgentClient } from '@/lib/workspace-agent/client'
 
 async function authorizeWorkspace(slug: string) {
@@ -38,8 +38,12 @@ function extractAgentError(response: Response, data: AgentResponse): string | nu
   return null
 }
 
-function isWorkspacePathProtected(path: string): boolean {
-  return isProtectedWorkspacePath(path)
+function sanitizeWorkspacePath(path: string): string | null {
+  const normalized = normalizeWorkspacePath(path)
+  if (!normalized) return null
+  if (normalized.split('/').some((s) => s === '..')) return null
+  if (isProtectedWorkspacePath(normalized)) return null
+  return normalized
 }
 
 export async function readWorkspaceFileAction(slug: string, path: string): Promise<{
@@ -50,9 +54,8 @@ export async function readWorkspaceFileAction(slug: string, path: string): Promi
 }> {
   const auth = await authorizeWorkspace(slug)
   if (!auth.ok) return { ok: false, error: auth.error }
-  if (isWorkspacePathProtected(path)) {
-    return { ok: false, error: 'protected_path' }
-  }
+  const safePath = sanitizeWorkspacePath(path)
+  if (!safePath) return { ok: false, error: 'protected_path' }
 
   const agent = await createWorkspaceAgentClient(slug)
   if (!agent) return { ok: false, error: 'instance_unavailable' }
@@ -65,7 +68,7 @@ export async function readWorkspaceFileAction(slug: string, path: string): Promi
         'Content-Type': 'application/json',
         Accept: 'application/json'
       },
-      body: JSON.stringify({ path }),
+      body: JSON.stringify({ path: safePath }),
       cache: 'no-store'
     })
 
@@ -91,7 +94,7 @@ export async function readWorkspaceFileAction(slug: string, path: string): Promi
     return {
       ok: true,
       content: {
-        path,
+        path: safePath,
         content,
         type: 'raw'
       },
@@ -111,9 +114,8 @@ export async function writeWorkspaceFileAction(
 ): Promise<{ ok: boolean; hash?: string; error?: string }> {
   const auth = await authorizeWorkspace(slug)
   if (!auth.ok) return { ok: false, error: auth.error }
-  if (isWorkspacePathProtected(path)) {
-    return { ok: false, error: 'protected_path' }
-  }
+  const safePath = sanitizeWorkspacePath(path)
+  if (!safePath) return { ok: false, error: 'protected_path' }
 
   const agent = await createWorkspaceAgentClient(slug)
   if (!agent) return { ok: false, error: 'instance_unavailable' }
@@ -127,7 +129,7 @@ export async function writeWorkspaceFileAction(
         Accept: 'application/json'
       },
       body: JSON.stringify({
-        path,
+        path: safePath,
         content,
         expectedHash,
         encoding: options?.encoding,
@@ -152,9 +154,8 @@ export async function deleteWorkspaceFileAction(
 ): Promise<{ ok: boolean; error?: string }> {
   const auth = await authorizeWorkspace(slug)
   if (!auth.ok) return { ok: false, error: auth.error }
-  if (isWorkspacePathProtected(path)) {
-    return { ok: false, error: 'protected_path' }
-  }
+  const safePath = sanitizeWorkspacePath(path)
+  if (!safePath) return { ok: false, error: 'protected_path' }
 
   const agent = await createWorkspaceAgentClient(slug)
   if (!agent) return { ok: false, error: 'instance_unavailable' }
@@ -167,7 +168,7 @@ export async function deleteWorkspaceFileAction(
         'Content-Type': 'application/json',
         Accept: 'application/json'
       },
-      body: JSON.stringify({ path }),
+      body: JSON.stringify({ path: safePath }),
       cache: 'no-store'
     })
 
@@ -231,9 +232,8 @@ export async function getWorkspaceConflictAction(
 ): Promise<{ ok: boolean; conflict?: WorkspaceConflictDetails; error?: string }> {
   const auth = await authorizeWorkspace(slug)
   if (!auth.ok) return { ok: false, error: auth.error }
-  if (isWorkspacePathProtected(path)) {
-    return { ok: false, error: 'protected_path' }
-  }
+  const safePath = sanitizeWorkspacePath(path)
+  if (!safePath) return { ok: false, error: 'protected_path' }
 
   const agent = await createWorkspaceAgentClient(slug)
   if (!agent) return { ok: false, error: 'instance_unavailable' }
@@ -246,7 +246,7 @@ export async function getWorkspaceConflictAction(
         'Content-Type': 'application/json',
         Accept: 'application/json'
       },
-      body: JSON.stringify({ path }),
+      body: JSON.stringify({ path: safePath }),
       cache: 'no-store'
     })
 
@@ -286,9 +286,8 @@ export async function resolveWorkspaceConflictAction(
 ): Promise<{ ok: boolean; error?: string }> {
   const auth = await authorizeWorkspace(slug)
   if (!auth.ok) return { ok: false, error: auth.error }
-  if (isWorkspacePathProtected(payload.path)) {
-    return { ok: false, error: 'protected_path' }
-  }
+  const safePath = sanitizeWorkspacePath(payload.path)
+  if (!safePath) return { ok: false, error: 'protected_path' }
 
   const agent = await createWorkspaceAgentClient(slug)
   if (!agent) return { ok: false, error: 'instance_unavailable' }
@@ -301,7 +300,7 @@ export async function resolveWorkspaceConflictAction(
         'Content-Type': 'application/json',
         Accept: 'application/json'
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ ...payload, path: safePath }),
       cache: 'no-store'
     })
 
@@ -322,9 +321,8 @@ export async function discardWorkspaceFileChangesAction(
 ): Promise<{ ok: boolean; error?: string }> {
   const auth = await authorizeWorkspace(slug)
   if (!auth.ok) return { ok: false, error: auth.error }
-  if (isWorkspacePathProtected(path)) {
-    return { ok: false, error: 'protected_path' }
-  }
+  const safePath = sanitizeWorkspacePath(path)
+  if (!safePath) return { ok: false, error: 'protected_path' }
 
   const agent = await createWorkspaceAgentClient(slug)
   if (!agent) return { ok: false, error: 'instance_unavailable' }
@@ -337,7 +335,7 @@ export async function discardWorkspaceFileChangesAction(
         'Content-Type': 'application/json',
         Accept: 'application/json'
       },
-      body: JSON.stringify({ path }),
+      body: JSON.stringify({ path: safePath }),
       cache: 'no-store'
     })
 

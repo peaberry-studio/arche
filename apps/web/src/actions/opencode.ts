@@ -33,6 +33,7 @@ import { deriveWorkspaceMessageRuntimeState } from "@/lib/workspace-message-stat
 import {
   isHiddenWorkspacePath,
   isProtectedWorkspacePath,
+  normalizeWorkspacePath,
 } from "@/lib/workspace-paths";
 
 function isFreeOpencodeModel(model: unknown): boolean {
@@ -181,7 +182,8 @@ export async function readFileAction(
   content?: WorkspaceFileContent;
   error?: string;
 }> {
-  if (isProtectedWorkspacePath(path)) {
+  const safePath = normalizeWorkspacePath(path);
+  if (!safePath || safePath.split("/").some((s) => s === "..") || isProtectedWorkspacePath(safePath)) {
     return { ok: false, error: "protected_path" };
   }
 
@@ -189,7 +191,7 @@ export async function readFileAction(
   if (error) return { ok: false, error };
 
   try {
-    const result = await client!.file.read({ path });
+    const result = await client!.file.read({ path: safePath });
     if (!result.data) {
       return { ok: false, error: "file_not_found" };
     }
@@ -203,7 +205,7 @@ export async function readFileAction(
     return {
       ok: true,
       content: {
-        path,
+        path: safePath,
         content,
         type: result.data.type === "text" ? "raw" : "patch",
       },
