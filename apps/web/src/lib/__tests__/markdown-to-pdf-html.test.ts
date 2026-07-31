@@ -133,7 +133,7 @@ describe("markdownToPdfHtml", () => {
       createBundle("---\ntitle: Main Study\n---\n# Main", [
         {
           markdown:
-            "---\ntitle: Main Study — 01 - Prompt-token sources\n---\n# Results\n\n## Detail",
+            "---\ntitle: Main Study — 01 - Prompt-token sources\n---\n# Main Study — 01 - Prompt-token sources\n\n## Results\n\n### Detail",
           path: "docs/study.md",
         },
         {
@@ -148,8 +148,8 @@ describe("markdownToPdfHtml", () => {
     expect(html).not.toContain("Appendix A.")
     expect(html).not.toContain("Appendix B.")
     expect(html).not.toContain("Main Study — 01 - Prompt-token sources")
-    expect(html).toMatch(/<h2 id="[^"]+">Results<\/h2>/)
-    expect(html).toMatch(/<h3 id="[^"]+">Detail<\/h3>/)
+    expect(html).toMatch(/<h3 id="[^"]+">Results<\/h3>/)
+    expect(html).toMatch(/<h4 id="[^"]+">Detail<\/h4>/)
     expect(html.match(/class="pdf-appendix"/gu)).toHaveLength(1)
     expect(html.match(/class="pdf-document pdf-appendix-section"/gu)).toHaveLength(
       2,
@@ -169,7 +169,9 @@ describe("markdownToPdfHtml", () => {
       },
     )
 
-    expect(html).toMatch(/<a href="#document-[^"]+--target">target<\/a>/)
+    const targetLink = /<a href="#([^"]+--target)">target<\/a>/u.exec(html)
+    expect(targetLink).not.toBeNull()
+    expect(html).toContain(`id="${targetLink?.[1]}"`)
     expect(html).toMatch(/<a href="#document-[^"]+">Target Alias<\/a>/)
     expect(html).toContain("and missing.")
     expect(html).not.toContain('href="missing.md"')

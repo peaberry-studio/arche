@@ -198,6 +198,25 @@ function getElementText(node: Element): string {
   return value.replace(/\s+/gu, " ").trim()
 }
 
+function removeAppendixDocumentTitleHeading(
+  tree: Root,
+  context: PdfDocumentRenderContext,
+): void {
+  if (context.headingOffset === 0) return
+
+  const documentTitle = getPdfDocumentTitle(context.document)
+    .replace(/\s+/gu, " ")
+    .trim()
+  const titleHeadingIndex = tree.children.findIndex(
+    (child) =>
+      child.type === "element" &&
+      child.tagName === "h1" &&
+      getElementText(child) === documentTitle,
+  )
+
+  if (titleHeadingIndex >= 0) tree.children.splice(titleHeadingIndex, 1)
+}
+
 function getIncludedLinkHref(
   rawTarget: string,
   syntax: "markdown" | "obsidian",
@@ -403,6 +422,7 @@ function registerPdfFigures(
 
 function rehypePdfDocumentSemantics(context: PdfDocumentRenderContext) {
   return (tree: Root) => {
+    removeAppendixDocumentTitleHeading(tree, context)
     rewriteMarkdownLinks(tree, context)
     rewriteObsidianLinks(tree, context)
     addHeadingAnchors(tree, context)
@@ -808,6 +828,10 @@ export async function markdownToPdfHtml(
   for (const appendix of bundle.appendices) {
     const appendixTitle = `Appendix. ${getAppendixSectionTitle(appendix, title)}`
     const appendixHeadingId = `${getPdfDocumentAnchor(appendix.path)}--appendix`
+    const documentTitleHeadingId = getPdfHeadingAnchor(
+      appendix.path,
+      getPdfDocumentTitle(appendix),
+    )
     state.headings.push({
       id: appendixHeadingId,
       label: appendixTitle,
@@ -821,6 +845,7 @@ export async function markdownToPdfHtml(
       data-document-path="${escapeHtml(appendix.path)}"
       id="${escapeHtml(getPdfDocumentAnchor(appendix.path))}"
     >
+      <span id="${escapeHtml(documentTitleHeadingId)}"></span>
       <h1 id="${escapeHtml(appendixHeadingId)}">${escapeHtml(appendixTitle)}</h1>
       ${content}
     </article>`)
