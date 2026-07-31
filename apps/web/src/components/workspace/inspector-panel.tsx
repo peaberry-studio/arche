@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   ArrowLineLeft,
   ArrowLineRight,
@@ -75,6 +75,8 @@ type InspectorPanelProps = {
   onPublish?: () => void;
   onResolveConflict?: (path: string) => void | Promise<void>;
   hideCollapseButton?: boolean;
+  onScrollPositionChange?: (path: string, scrollTop: number) => void;
+  getScrollPosition?: (path: string) => number;
 };
 
 // --- Minified (collapsed) panel ---
@@ -283,6 +285,8 @@ export function InspectorPanel({
   onPublish,
   onResolveConflict,
   hideCollapseButton = false,
+  onScrollPositionChange,
+  getScrollPosition,
 }: InspectorPanelProps) {
   // Minified state
   if (rightCollapsed) {
@@ -321,6 +325,8 @@ export function InspectorPanel({
       onPublish={onPublish}
       onResolveConflict={onResolveConflict}
       hideCollapseButton={hideCollapseButton}
+      onScrollPositionChange={onScrollPositionChange}
+      getScrollPosition={getScrollPosition}
     />
   );
 }
@@ -347,6 +353,8 @@ function ExpandedInspectorPanel({
   onPublish,
   onResolveConflict,
   hideCollapseButton = false,
+  onScrollPositionChange,
+  getScrollPosition,
 }: Omit<InspectorPanelProps, "rightCollapsed" | "onOpenReview">) {
   const pendingDiffs = diffs.length;
   const effectiveActiveTab = panelMode === "files" ? "preview" : panelMode === "review" ? "review" : activeTab;
@@ -358,6 +366,9 @@ function ExpandedInspectorPanel({
     onSave: onSaveFile,
   });
   const prevContentRef = useRef<Record<string, string>>({});
+  const contentScrollRef = useRef<HTMLDivElement>(null);
+  const activeFilePathRef = useRef(activeFilePath);
+  activeFilePathRef.current = activeFilePath;
 
   const handleReload = useCallback(
     async (path: string) => {
@@ -438,6 +449,22 @@ function ExpandedInspectorPanel({
       behavior: "smooth"
     });
   };
+
+  const isEditable = Boolean(
+    activeFile?.kind === "markdown" && activeDraft != null && canEditMarkdown
+  );
+
+  const handleContentScroll = useCallback(() => {
+    const path = activeFilePathRef.current;
+    if (!path || !contentScrollRef.current || isEditable) return;
+    onScrollPositionChange?.(path, contentScrollRef.current.scrollTop);
+  }, [onScrollPositionChange, isEditable]);
+
+  useLayoutEffect(() => {
+    if (!activeFilePath || !contentScrollRef.current || !getScrollPosition) return;
+    if (isEditable) return;
+    contentScrollRef.current.scrollTop = getScrollPosition(activeFilePath);
+  }, [activeFilePath, getScrollPosition, isEditable]);
 
   const isReviewActive = effectiveActiveTab === "review";
 
@@ -625,7 +652,7 @@ function ExpandedInspectorPanel({
             <div className="flex h-full min-h-0 flex-col">
               {/* File content */}
               {activeFile ? (
-                <div className="flex-1 min-h-0 overflow-y-auto scrollbar-none">
+                <div ref={contentScrollRef} onScroll={handleContentScroll} className="flex-1 min-h-0 overflow-y-auto scrollbar-none">
                   {activeFile.kind === "markdown" && activeDraft != null && canEditMarkdown ? (
                     useConflictTextEditor ? (
                       <ConflictMarkerTextEditor
@@ -651,6 +678,12 @@ function ExpandedInspectorPanel({
                         internalLinkPaths={internalLinkPaths}
                         onOpenInternalLink={onOpenFile}
                         onReload={onReloadFile ? () => void handleReload(activeFile.path) : undefined}
+                        initialScrollTop={getScrollPosition?.(activeFile.path)}
+                        onScrollPositionChange={
+                          onScrollPositionChange
+                            ? (scrollTop: number) => onScrollPositionChange(activeFile.path, scrollTop)
+                            : undefined
+                        }
                       />
                     )
                   ) : (
