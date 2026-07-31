@@ -136,6 +136,43 @@ describe("POST /api/w/[slug]/files/export-pdf", () => {
     expect(mocks.pagedHtmlToPdf).toHaveBeenCalledWith("<html></html>")
   })
 
+  it("does not include documents linked only from an appendix", async () => {
+    mocks.listWorkspaceFilesFromAgent.mockResolvedValue({
+      entries: [
+        listEntry("docs/main.md"),
+        listEntry("docs/direct.md"),
+        listEntry("docs/nested.md"),
+      ],
+      ok: true,
+    })
+    mocks.readWorkspaceFileFromAgent
+      .mockResolvedValueOnce(readResult("[Direct](direct.md)"))
+      .mockResolvedValueOnce(
+        readResult("# Direct document\n\n[Nested](nested.md)"),
+      )
+
+    const response = await POST(request(), params())
+
+    expect(response.status).toBe(200)
+    expect(mocks.readWorkspaceFileFromAgent).toHaveBeenCalledTimes(2)
+    expect(mocks.readWorkspaceFileFromAgent).toHaveBeenNthCalledWith(
+      2,
+      AGENT,
+      "docs/direct.md",
+    )
+    expect(mocks.markdownToPdfHtml).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appendices: [
+          {
+            markdown: "# Direct document\n\n[Nested](nested.md)",
+            path: "docs/direct.md",
+          },
+        ],
+      }),
+      expect.any(Object),
+    )
+  })
+
   it("rejects bundles with more than 25 direct documents", async () => {
     const linkedPaths = Array.from(
       { length: 26 },

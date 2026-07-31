@@ -128,20 +128,32 @@ describe("markdownToPdfHtml", () => {
     expect(html).not.toContain('<span>Four</span>')
   })
 
-  it("includes appendices and demotes their source headings", async () => {
+  it("groups linked documents into one appendix and demotes their source headings", async () => {
     const html = await markdownToPdfHtml(
-      createBundle("# Main", [
+      createBundle("---\ntitle: Main Study\n---\n# Main", [
         {
-          markdown: "---\ntitle: Supporting Study\n---\n# Results\n\n## Detail",
+          markdown:
+            "---\ntitle: Main Study — 01 - Prompt-token sources\n---\n# Results\n\n## Detail",
           path: "docs/study.md",
+        },
+        {
+          markdown: "---\ntitle: Main Study — 02 - Results\n---\nBody",
+          path: "docs/results.md",
         },
       ]),
     )
 
-    expect(html).toContain("Appendix A. Supporting Study")
+    expect(html).toContain("Appendix. 01 - Prompt-token sources")
+    expect(html).toContain("Appendix. 02 - Results")
+    expect(html).not.toContain("Appendix A.")
+    expect(html).not.toContain("Appendix B.")
+    expect(html).not.toContain("Main Study — 01 - Prompt-token sources")
     expect(html).toMatch(/<h2 id="[^"]+">Results<\/h2>/)
     expect(html).toMatch(/<h3 id="[^"]+">Detail<\/h3>/)
-    expect(html).toContain('class="pdf-document pdf-appendix"')
+    expect(html.match(/class="pdf-appendix"/gu)).toHaveLength(1)
+    expect(html.match(/class="pdf-document pdf-appendix-section"/gu)).toHaveLength(
+      2,
+    )
   })
 
   it("rewrites included document links and renders unresolved links as text", async () => {

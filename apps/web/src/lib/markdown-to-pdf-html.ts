@@ -711,6 +711,18 @@ function escapeHtml(value: string): string {
     .replace(/'/gu, "&#39;")
 }
 
+function getAppendixSectionTitle(
+  document: PdfSourceDocument,
+  primaryTitle: string,
+): string {
+  const documentTitle = getPdfDocumentTitle(document)
+  const primaryTitlePrefix = `${primaryTitle} — `
+
+  return documentTitle.startsWith(primaryTitlePrefix)
+    ? documentTitle.slice(primaryTitlePrefix.length).trim()
+    : documentTitle
+}
+
 async function renderPdfSourceDocument(
   document: PdfSourceDocument,
   headingOffset: number,
@@ -778,6 +790,7 @@ export async function markdownToPdfHtml(
   bundle: PdfDocumentBundle,
   options?: { logoBase64?: string },
 ): Promise<string> {
+  const title = getPdfDocumentTitle(bundle.primary)
   const state: PdfRenderState = {
     availablePaths: bundle.availablePaths,
     figureCount: 0,
@@ -792,10 +805,8 @@ export async function markdownToPdfHtml(
   const primaryHtml = await renderPdfSourceDocument(bundle.primary, 0, state)
   const appendixHtml: string[] = []
 
-  for (let index = 0; index < bundle.appendices.length; index += 1) {
-    const appendix = bundle.appendices[index]
-    const appendixLabel = String.fromCharCode(65 + index)
-    const appendixTitle = `Appendix ${appendixLabel}. ${getPdfDocumentTitle(appendix)}`
+  for (const appendix of bundle.appendices) {
+    const appendixTitle = `Appendix. ${getAppendixSectionTitle(appendix, title)}`
     const appendixHeadingId = `${getPdfDocumentAnchor(appendix.path)}--appendix`
     state.headings.push({
       id: appendixHeadingId,
@@ -806,7 +817,7 @@ export async function markdownToPdfHtml(
     const content = await renderPdfSourceDocument(appendix, 1, state)
     appendixHtml.push(`
     <article
-      class="pdf-document pdf-appendix"
+      class="pdf-document pdf-appendix-section"
       data-document-path="${escapeHtml(appendix.path)}"
       id="${escapeHtml(getPdfDocumentAnchor(appendix.path))}"
     >
@@ -816,7 +827,6 @@ export async function markdownToPdfHtml(
   }
 
   const katexCss = loadKatexCss()
-  const title = getPdfDocumentTitle(bundle.primary)
   const logo = options?.logoBase64
     ? `<div class="pdf-running-header"><img alt="" src="data:image/svg+xml;base64,${escapeHtml(options.logoBase64)}" /></div>`
     : ""
@@ -841,7 +851,8 @@ export async function markdownToPdfHtml(
     >
       ${primaryHtml}
     </article>
-    ${appendixHtml.join("")}
+    ${appendixHtml.length > 0 ? `<section class="pdf-appendix">${appendixHtml.join("")}
+    </section>` : ""}
   </main>
 </body>
 </html>`
