@@ -64,8 +64,6 @@ type MarkdownEditorProps = {
   modifiedAt?: string;
   internalLinkPaths?: string[];
   onOpenInternalLink?: (path: string) => void;
-  initialScrollTop?: number;
-  onScrollPositionChange?: (scrollTop: number) => void;
 };
 
 type LinkAutocompleteState = {
@@ -135,8 +133,6 @@ export function MarkdownEditor({
   modifiedAt,
   internalLinkPaths = [],
   onOpenInternalLink,
-  initialScrollTop,
-  onScrollPositionChange,
 }: MarkdownEditorProps) {
   const ignoreNextUpdateRef = useRef(false);
   const lastEmittedMarkdownRef = useRef<string | null>(null);
@@ -516,34 +512,6 @@ export function MarkdownEditor({
           : "H";
   const editorScrollRef = useRef<HTMLDivElement>(null);
 
-  const onScrollPositionChangeRef = useRef(onScrollPositionChange);
-  useEffect(() => {
-    onScrollPositionChangeRef.current = onScrollPositionChange;
-  }, [onScrollPositionChange]);
-
-  useEffect(() => {
-    const el = editorScrollRef.current;
-    if (!el) return;
-    const handleScroll = () => {
-      onScrollPositionChangeRef.current?.(el.scrollTop);
-    };
-    el.addEventListener("scroll", handleScroll, { passive: true });
-    return () => el.removeEventListener("scroll", handleScroll);
-  }, []);
-
-  const hasRestoredScrollRef = useRef(false);
-  useEffect(() => {
-    if (!editor || hasRestoredScrollRef.current) return;
-    hasRestoredScrollRef.current = true;
-    if (initialScrollTop == null || initialScrollTop === 0) return;
-    const scrollTop = initialScrollTop;
-    const frameId = requestAnimationFrame(() => {
-      if (editorScrollRef.current) {
-        editorScrollRef.current.scrollTop = scrollTop;
-      }
-    });
-    return () => cancelAnimationFrame(frameId);
-  }, [editor, initialScrollTop]);
 
   return (
     <div className="flex h-full flex-col">
