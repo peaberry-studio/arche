@@ -688,10 +688,14 @@ func (s *server) handleFileList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	path, err := s.resolvePath(req.Path)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
+	path := s.workspace
+	if strings.TrimSpace(req.Path) != "" {
+		var err error
+		path, err = s.resolvePath(req.Path)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 	}
 	if err := s.ensurePathWithinWorkspace(path); err != nil {
 		writeError(w, http.StatusForbidden, err.Error())

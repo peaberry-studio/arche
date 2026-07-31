@@ -198,6 +198,36 @@ func TestFileHandlersHappyPath(t *testing.T) {
 		}
 	})
 
+	t.Run("handleFileList root", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/files/list", strings.NewReader(`{"path":"","recursive":true}`))
+		recorder := httptest.NewRecorder()
+
+		s.handleFileList(recorder, req)
+
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+		}
+
+		var response fileListResponse
+		if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+		if !response.Ok {
+			t.Fatalf("unexpected list response: %+v", response)
+		}
+
+		found := false
+		for _, entry := range response.Entries {
+			if entry.Path == ".arche/attachments/hello.txt" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("expected recursive root listing to include written file: %+v", response.Entries)
+		}
+	})
+
 	t.Run("handleFileRename", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/files/rename", strings.NewReader(`{"path":".arche/attachments/hello.txt","newPath":".arche/attachments/renamed.txt"}`))
 		recorder := httptest.NewRecorder()
