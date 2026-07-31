@@ -46,6 +46,7 @@ jobs:
         working-directory: .
         run: |
           if ! git diff --quiet -- .github/badges; then
+            git diff -- .github/badges
             echo "::error::Coverage badges are stale. Run 'cd apps/web && pnpm coverage:refresh' and commit the updated badges."
             exit 1
           fi
