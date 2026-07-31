@@ -50,7 +50,9 @@ export function useScrollPositions(
   );
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const storageKeyRef = useRef(storageKey);
-  storageKeyRef.current = storageKey;
+  useEffect(() => {
+    storageKeyRef.current = storageKey;
+  }, [storageKey]);
 
   const schedulePersist = useCallback(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
@@ -81,12 +83,15 @@ export function useScrollPositions(
   );
 
   useEffect(() => {
+    const positions = positionsRef;
+    const timer = timerRef;
+    const key = storageKeyRef;
     return () => {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-        timerRef.current = null;
+      if (timer.current) {
+        clearTimeout(timer.current);
+        timer.current = null;
       }
-      persistPositions(storageKeyRef.current, positionsRef.current);
+      persistPositions(key.current, positions.current);
     };
   }, []);
 
