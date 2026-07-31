@@ -151,7 +151,8 @@ export const POST = withAuth<{ error: string }>(
           "Content-Type": "application/pdf",
         },
       })
-    } catch {
+    } catch (error) {
+      console.error(`[pdf-export] Failed to export ${normalizedPath}`, error)
       return jsonResponse(500, { error: "export_failed" })
     } finally {
       activeExports--

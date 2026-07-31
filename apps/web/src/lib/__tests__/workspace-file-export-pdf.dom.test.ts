@@ -58,9 +58,22 @@ describe("exportWorkspaceFileAsPdf in the browser", () => {
   })
 
   it("returns false when the fetch fails", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false }))
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      json: () => Promise.resolve({ error: "path_required" }),
+      ok: false,
+      status: 502,
+    }))
 
     const result = await exportWorkspaceFileAsPdf("alice", "docs/notes.md")
     expect(result).toBe(false)
+    expect(consoleError).toHaveBeenCalledWith(
+      "[pdf-export] Export request failed",
+      {
+        error: "path_required",
+        path: "docs/notes.md",
+        status: 502,
+      },
+    )
   })
 })

@@ -13,7 +13,22 @@ export async function exportWorkspaceFileAsPdf(slug: string, path: string): Prom
       body: JSON.stringify({ path: normalizedPath }),
     })
 
-    if (!response.ok) return false
+    if (!response.ok) {
+      const payload: unknown = await response.json().catch(() => null)
+      const error =
+        typeof payload === "object" &&
+        payload !== null &&
+        "error" in payload &&
+        typeof payload.error === "string"
+          ? payload.error
+          : "unknown_error"
+      console.error("[pdf-export] Export request failed", {
+        error,
+        path: normalizedPath,
+        status: response.status,
+      })
+      return false
+    }
 
     const blob = await response.blob()
     url = URL.createObjectURL(blob)
@@ -27,7 +42,11 @@ export async function exportWorkspaceFileAsPdf(slug: string, path: string): Prom
     link.click()
 
     return true
-  } catch {
+  } catch (error) {
+    console.error("[pdf-export] Export request threw", {
+      error,
+      path: normalizedPath,
+    })
     return false
   } finally {
     if (link?.parentNode) link.parentNode.removeChild(link)
