@@ -22,7 +22,6 @@ import {
   isBusyFlowWorkspaceSession,
   isFlowSession,
 } from "@/lib/workspace-session-utils";
-import { useScrollPositions } from "@/hooks/use-scroll-positions";
 import { downloadWorkspaceFile } from "@/lib/workspace-file-download";
 import { exportWorkspaceFileAsPdf } from "@/lib/workspace-file-export-pdf";
 import {
@@ -152,10 +151,6 @@ type StoredOpenFilesState = {
 
 function getOpenFilesStorageKey(scope: string): string {
   return `arche.workspace.${scope}.open-files`;
-}
-
-function getScrollPositionsStorageKey(scope: string): string {
-  return `arche.workspace.${scope}.scroll-positions`;
 }
 
 const MAX_STORED_OPEN_FILES = 50;
@@ -312,8 +307,6 @@ export function WorkspaceShell({
   const layoutCookieName = getWorkspaceLayoutCookieName(resolvedPersistenceScope);
   const layoutStorageKey = getWorkspaceLayoutStorageKey(resolvedPersistenceScope);
   const openFilesStorageKey = getOpenFilesStorageKey(resolvedPersistenceScope);
-  const scrollPositionsStorageKey = getScrollPositionsStorageKey(resolvedPersistenceScope);
-  const scrollPositions = useScrollPositions(scrollPositionsStorageKey);
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>(initialWorkspaceMode);
   const isKnowledgeMode = workspaceMode === "knowledge";
   const isFlowsMode = workspaceMode === "flows";
@@ -1514,7 +1507,6 @@ export function WorkspaceShell({
   }, []);
 
   const handleCloseFile = useCallback((path: string) => {
-    scrollPositions.clearScrollTop(path);
     setOpenFilePaths(prev => {
       const filtered = prev.filter(p => p !== path);
       if (path === activeFilePath) {
@@ -1522,7 +1514,7 @@ export function WorkspaceShell({
       }
       return filtered;
     });
-  }, [activeFilePath, scrollPositions]);
+  }, [activeFilePath]);
 
   // Session handlers
   const handleSelectSession = useCallback((sessionId: string) => {
@@ -2020,8 +2012,6 @@ export function WorkspaceShell({
       onDiscardFileChanges={workspaceAgentEnabled ? handleDiscardFileChanges : undefined}
       onPublish={workspaceAgentEnabled ? handlePublishComplete : undefined}
       onResolveConflict={workspaceAgentEnabled ? handleResolveConflict : undefined}
-      onScrollPositionChange={scrollPositions.setScrollTop}
-      getScrollPosition={scrollPositions.getScrollTop}
     />
   );
 
