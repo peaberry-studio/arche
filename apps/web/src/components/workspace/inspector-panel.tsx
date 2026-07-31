@@ -368,7 +368,9 @@ function ExpandedInspectorPanel({
   const prevContentRef = useRef<Record<string, string>>({});
   const contentScrollRef = useRef<HTMLDivElement>(null);
   const activeFilePathRef = useRef(activeFilePath);
-  activeFilePathRef.current = activeFilePath;
+  useEffect(() => {
+    activeFilePathRef.current = activeFilePath;
+  }, [activeFilePath]);
 
   const handleReload = useCallback(
     async (path: string) => {

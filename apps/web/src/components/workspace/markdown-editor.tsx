@@ -517,7 +517,9 @@ export function MarkdownEditor({
   const editorScrollRef = useRef<HTMLDivElement>(null);
 
   const onScrollPositionChangeRef = useRef(onScrollPositionChange);
-  onScrollPositionChangeRef.current = onScrollPositionChange;
+  useEffect(() => {
+    onScrollPositionChangeRef.current = onScrollPositionChange;
+  }, [onScrollPositionChange]);
 
   useEffect(() => {
     const el = editorScrollRef.current;
