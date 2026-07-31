@@ -1,11 +1,17 @@
+import path from "node:path"
+
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
   browserClose: vi.fn(),
   launch: vi.fn(),
   newPage: vi.fn(),
+  readFileSync: vi.fn(),
 }))
 
+vi.mock("node:fs", () => ({
+  default: { readFileSync: mocks.readFileSync },
+}))
 vi.mock("@sparticuz/chromium", () => ({
   default: {
     args: ["--headless"],
@@ -41,6 +47,7 @@ function createPage(adjustments: Record<string, number>) {
 describe("pagedHtmlToPdf", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.readFileSync.mockReturnValue("window.PagedPolyfill = {}")
     mocks.launch.mockResolvedValue({
       close: mocks.browserClose,
       newPage: mocks.newPage,
@@ -58,6 +65,13 @@ describe("pagedHtmlToPdf", () => {
     expect(page.addScriptTag).toHaveBeenCalledWith({
       content: expect.stringContaining("PagedPolyfill"),
     })
+    expect(mocks.readFileSync).toHaveBeenCalledWith(
+      path.resolve(
+        process.cwd(),
+        "node_modules/pagedjs/dist/paged.polyfill.min.js",
+      ),
+      "utf-8",
+    )
     expect(page.pdf).toHaveBeenCalledWith({
       format: "A4",
       preferCSSPageSize: true,

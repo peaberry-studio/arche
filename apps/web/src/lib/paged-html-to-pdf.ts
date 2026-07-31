@@ -1,5 +1,4 @@
 import fs from "node:fs"
-import { createRequire } from "node:module"
 import path from "node:path"
 
 import type { Browser, Page } from "puppeteer-core"
@@ -10,10 +9,11 @@ const MIN_FIGURE_SCALE = 0.8
 type FigureScales = Record<string, number>
 
 function loadPagedJsScript(): string {
-  const require = createRequire(import.meta.url)
-  const entryPath = require.resolve("pagedjs")
   return fs.readFileSync(
-    path.resolve(path.dirname(entryPath), "../dist/paged.polyfill.min.js"),
+    path.resolve(
+      process.cwd(),
+      "node_modules/pagedjs/dist/paged.polyfill.min.js",
+    ),
     "utf-8",
   )
 }
