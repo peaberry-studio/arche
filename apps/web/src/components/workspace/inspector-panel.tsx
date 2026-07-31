@@ -367,10 +367,6 @@ function ExpandedInspectorPanel({
   });
   const prevContentRef = useRef<Record<string, string>>({});
   const contentScrollRef = useRef<HTMLDivElement>(null);
-  const activeFilePathRef = useRef(activeFilePath);
-  useEffect(() => {
-    activeFilePathRef.current = activeFilePath;
-  }, [activeFilePath]);
 
   const handleReload = useCallback(
     async (path: string) => {
@@ -457,10 +453,9 @@ function ExpandedInspectorPanel({
   );
 
   const handleContentScroll = useCallback(() => {
-    const path = activeFilePathRef.current;
-    if (!path || !contentScrollRef.current || isEditable) return;
-    onScrollPositionChange?.(path, contentScrollRef.current.scrollTop);
-  }, [onScrollPositionChange, isEditable]);
+    if (!activeFilePath || !contentScrollRef.current || isEditable) return;
+    onScrollPositionChange?.(activeFilePath, contentScrollRef.current.scrollTop);
+  }, [activeFilePath, onScrollPositionChange, isEditable]);
 
   useLayoutEffect(() => {
     if (!activeFilePath || !contentScrollRef.current || !getScrollPosition) return;
