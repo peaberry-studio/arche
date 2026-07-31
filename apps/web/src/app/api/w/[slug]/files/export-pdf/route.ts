@@ -1,3 +1,5 @@
+import path from "node:path"
+
 import { NextRequest } from "next/server"
 
 import { markdownToPdfHtml } from "@/lib/markdown-to-pdf-html"
@@ -90,7 +92,27 @@ export const POST = withAuth<{ error: string }>(
         return jsonResponse(413, { error: "file_too_large" })
       }
 
-      const listResult = await listWorkspaceFilesFromAgent(agent, "", true)
+      let listResult = await listWorkspaceFilesFromAgent(agent, "", true)
+      if (!listResult.ok) {
+        const payload: unknown = await listResult.response
+          .clone()
+          .json()
+          .catch(() => null)
+        const sourceDirectory = path.posix.dirname(normalizedPath)
+        if (
+          typeof payload === "object" &&
+          payload !== null &&
+          "error" in payload &&
+          payload.error === "path_required" &&
+          sourceDirectory !== "."
+        ) {
+          listResult = await listWorkspaceFilesFromAgent(
+            agent,
+            sourceDirectory,
+            true,
+          )
+        }
+      }
       if (!listResult.ok) return listResult.response
 
       const availablePaths = Array.from(

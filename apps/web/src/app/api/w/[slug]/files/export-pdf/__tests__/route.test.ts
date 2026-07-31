@@ -189,4 +189,35 @@ describe("POST /api/w/[slug]/files/export-pdf", () => {
     expect(response.status).toBe(502)
     expect(mocks.markdownToPdfHtml).not.toHaveBeenCalled()
   })
+
+  it("falls back to the document directory when root listing is unsupported", async () => {
+    mocks.readWorkspaceFileFromAgent.mockResolvedValueOnce(readResult("# Main"))
+    mocks.listWorkspaceFilesFromAgent
+      .mockResolvedValueOnce({
+        ok: false,
+        response: new Response(JSON.stringify({ error: "path_required" }), {
+          status: 502,
+        }),
+      })
+      .mockResolvedValueOnce({
+        entries: [listEntry("docs/main.md")],
+        ok: true,
+      })
+
+    const response = await POST(request(), params())
+
+    expect(response.status).toBe(200)
+    expect(mocks.listWorkspaceFilesFromAgent).toHaveBeenNthCalledWith(
+      1,
+      AGENT,
+      "",
+      true,
+    )
+    expect(mocks.listWorkspaceFilesFromAgent).toHaveBeenNthCalledWith(
+      2,
+      AGENT,
+      "docs",
+      true,
+    )
+  })
 })
