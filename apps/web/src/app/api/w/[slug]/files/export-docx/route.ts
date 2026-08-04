@@ -1,22 +1,44 @@
+import path from "node:path"
+
 import { NextRequest } from "next/server"
 
+import {
+  findDirectDocxDocumentPaths,
+  type DocxSourceDocument,
+} from "@/lib/docx-document-bundle"
 import { markdownToDocx } from "@/lib/markdown-to-docx"
 import { withAuth } from "@/lib/runtime/with-auth"
+import { createWorkspaceAgentClient } from "@/lib/workspace-agent/client"
 import {
   isValidWorkspacePath,
   jsonResponse,
-  readWorkspaceFile,
+  listWorkspaceFilesFromAgent,
+  readWorkspaceFileFromAgent,
+  type WorkspaceAgentReadResponse,
 } from "@/lib/workspace-file-response"
 import { normalizeWorkspacePath } from "@/lib/workspace-paths"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
-export const maxDuration = 30
+export const maxDuration = 60
 
 const MAX_MARKDOWN_BYTES = 4 * 1024 * 1024
+const MAX_BUNDLE_MARKDOWN_BYTES = 16 * 1024 * 1024
 const MAX_CONCURRENT_EXPORTS = 4
+const MAX_LINKED_DOCUMENTS = 25
 
 let activeExports = 0
+
+function decodeMarkdownContent(data: WorkspaceAgentReadResponse): string | null {
+  if (typeof data.content !== "string") return null
+  if (data.encoding !== "base64") return data.content
+
+  try {
+    return Buffer.from(data.content, "base64").toString("utf-8")
+  } catch {
+    return null
+  }
+}
 
 export const POST = withAuth<{ error: string }>(
   { csrf: false },
@@ -48,27 +70,85 @@ export const POST = withAuth<{ error: string }>(
 
     activeExports++
     try {
-      const result = await readWorkspaceFile(slug, normalizedPath)
-      if (!result.ok) return result.response
+      const agent = await createWorkspaceAgentClient(slug)
+      if (!agent) {
+        return jsonResponse(503, { error: "instance_unavailable" })
+      }
 
-      let content = result.data.content
-      if (typeof content !== "string") {
+      const primaryResult = await readWorkspaceFileFromAgent(agent, normalizedPath)
+      if (!primaryResult.ok) return primaryResult.response
+
+      const primaryMarkdown = decodeMarkdownContent(primaryResult.data)
+      if (primaryMarkdown === null) {
         return jsonResponse(502, { error: "invalid_file_content" })
       }
-
-      if (result.data.encoding === "base64") {
-        try {
-          content = Buffer.from(content, "base64").toString("utf-8")
-        } catch {
-          return jsonResponse(502, { error: "invalid_file_content" })
-        }
-      }
-
-      if (Buffer.byteLength(content, "utf-8") > MAX_MARKDOWN_BYTES) {
+      const primaryBytes = Buffer.byteLength(primaryMarkdown, "utf-8")
+      if (primaryBytes > MAX_MARKDOWN_BYTES) {
         return jsonResponse(413, { error: "file_too_large" })
       }
 
-      const docx = await markdownToDocx(content)
+      let listResult = await listWorkspaceFilesFromAgent(agent, "", true)
+      if (!listResult.ok) {
+        const payload: unknown = await listResult.response.clone().json().catch(() => null)
+        const sourceDirectory = path.posix.dirname(normalizedPath)
+        if (
+          typeof payload === "object" &&
+          payload !== null &&
+          "error" in payload &&
+          payload.error === "path_required" &&
+          sourceDirectory !== "."
+        ) {
+          listResult = await listWorkspaceFilesFromAgent(agent, sourceDirectory, true)
+        }
+      }
+      if (!listResult.ok) return listResult.response
+
+      const availablePaths = Array.from(
+        new Set([
+          normalizedPath,
+          ...listResult.entries
+            .filter((entry) => entry.type === "file")
+            .map((entry) => normalizeWorkspacePath(entry.path))
+            .filter((entryPath) => isValidWorkspacePath(entryPath, { extension: ".md" })),
+        ]),
+      )
+      const linkedPaths = findDirectDocxDocumentPaths(
+        primaryMarkdown,
+        normalizedPath,
+        availablePaths,
+      )
+      if (linkedPaths.length > MAX_LINKED_DOCUMENTS) {
+        return jsonResponse(413, { error: "bundle_too_large" })
+      }
+
+      const appendices: DocxSourceDocument[] = []
+      let bundleBytes = primaryBytes
+      for (const linkedPath of linkedPaths) {
+        const linkedResult = await readWorkspaceFileFromAgent(agent, linkedPath)
+        if (!linkedResult.ok) continue
+
+        const markdown = decodeMarkdownContent(linkedResult.data)
+        if (markdown === null) {
+          return jsonResponse(502, { error: "invalid_file_content" })
+        }
+
+        const markdownBytes = Buffer.byteLength(markdown, "utf-8")
+        bundleBytes += markdownBytes
+        if (
+          markdownBytes > MAX_MARKDOWN_BYTES ||
+          bundleBytes > MAX_BUNDLE_MARKDOWN_BYTES
+        ) {
+          return jsonResponse(413, { error: "bundle_too_large" })
+        }
+
+        appendices.push({ markdown, path: linkedPath })
+      }
+
+      const docx = await markdownToDocx({
+        appendices,
+        availablePaths,
+        primary: { markdown: primaryMarkdown, path: normalizedPath },
+      })
 
       return new Response(new Uint8Array(docx), {
         status: 200,

@@ -2,16 +2,23 @@ import { NextRequest } from "next/server"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
+  createWorkspaceAgentClient: vi.fn(),
+  findDirectDocxDocumentPaths: vi.fn(),
   getRuntimeCapabilities: vi.fn(() => ({ csrf: false })),
   getSession: vi.fn(),
   isDesktop: vi.fn(() => false),
+  listWorkspaceFilesFromAgent: vi.fn(),
   markdownToDocx: vi.fn(),
-  readWorkspaceFile: vi.fn(),
+  readWorkspaceFileFromAgent: vi.fn(),
   validateDesktopToken: vi.fn(() => true),
   validateSameOrigin: vi.fn(() => ({ ok: true })),
 }))
 
 vi.mock("@/lib/csrf", () => ({ validateSameOrigin: mocks.validateSameOrigin }))
+vi.mock("@/lib/docx-document-bundle", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/lib/docx-document-bundle")>()
+  return { ...original, findDirectDocxDocumentPaths: mocks.findDirectDocxDocumentPaths }
+})
 vi.mock("@/lib/markdown-to-docx", () => ({ markdownToDocx: mocks.markdownToDocx }))
 vi.mock("@/lib/runtime/capabilities", () => ({
   getRuntimeCapabilities: mocks.getRuntimeCapabilities,
@@ -22,9 +29,16 @@ vi.mock("@/lib/runtime/desktop/token", () => ({
 }))
 vi.mock("@/lib/runtime/mode", () => ({ isDesktop: mocks.isDesktop }))
 vi.mock("@/lib/runtime/session", () => ({ getSession: mocks.getSession }))
+vi.mock("@/lib/workspace-agent/client", () => ({
+  createWorkspaceAgentClient: mocks.createWorkspaceAgentClient,
+}))
 vi.mock("@/lib/workspace-file-response", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/lib/workspace-file-response")>()
-  return { ...original, readWorkspaceFile: mocks.readWorkspaceFile }
+  return {
+    ...original,
+    listWorkspaceFilesFromAgent: mocks.listWorkspaceFilesFromAgent,
+    readWorkspaceFileFromAgent: mocks.readWorkspaceFileFromAgent,
+  }
 })
 
 import { POST } from "../route"
@@ -52,8 +66,14 @@ describe("POST /api/w/[slug]/files/export-docx", () => {
       user: { email: "alice@example.com", id: "user-1", role: "USER", slug: "alice" },
     })
     mocks.isDesktop.mockReturnValue(false)
+    mocks.createWorkspaceAgentClient.mockResolvedValue({ baseUrl: "http://agent" })
+    mocks.findDirectDocxDocumentPaths.mockReturnValue([])
+    mocks.listWorkspaceFilesFromAgent.mockResolvedValue({
+      entries: [{ modifiedAt: 1, name: "article.md", path: "Research/article.md", size: 9, type: "file" }],
+      ok: true,
+    })
     mocks.markdownToDocx.mockResolvedValue(Buffer.from("PK docx"))
-    mocks.readWorkspaceFile.mockResolvedValue({
+    mocks.readWorkspaceFileFromAgent.mockResolvedValue({
       ok: true,
       data: { content: "# Article", encoding: "utf-8", ok: true },
     })
@@ -68,12 +88,19 @@ describe("POST /api/w/[slug]/files/export-docx", () => {
     )
     expect(response.headers.get("Cache-Control")).toBe("no-store")
     expect(Buffer.from(await response.arrayBuffer()).toString()).toBe("PK docx")
-    expect(mocks.readWorkspaceFile).toHaveBeenCalledWith("alice", "Research/article.md")
-    expect(mocks.markdownToDocx).toHaveBeenCalledWith("# Article")
+    expect(mocks.readWorkspaceFileFromAgent).toHaveBeenCalledWith(
+      { baseUrl: "http://agent" },
+      "Research/article.md",
+    )
+    expect(mocks.markdownToDocx).toHaveBeenCalledWith({
+      appendices: [],
+      availablePaths: ["Research/article.md"],
+      primary: { markdown: "# Article", path: "Research/article.md" },
+    })
   })
 
   it("decodes base64 article content before conversion", async () => {
-    mocks.readWorkspaceFile.mockResolvedValue({
+    mocks.readWorkspaceFileFromAgent.mockResolvedValue({
       ok: true,
       data: { content: Buffer.from("# Encoded").toString("base64"), encoding: "base64", ok: true },
     })
@@ -81,7 +108,61 @@ describe("POST /api/w/[slug]/files/export-docx", () => {
     const response = await POST(jsonRequest({ path: "encoded.md" }), CONTEXT)
 
     expect(response.status).toBe(200)
-    expect(mocks.markdownToDocx).toHaveBeenCalledWith("# Encoded")
+    expect(mocks.markdownToDocx).toHaveBeenCalledWith({
+      appendices: [],
+      availablePaths: ["encoded.md", "Research/article.md"],
+      primary: { markdown: "# Encoded", path: "encoded.md" },
+    })
+  })
+
+  it("loads directly linked Markdown documents as ordered appendices", async () => {
+    mocks.listWorkspaceFilesFromAgent.mockResolvedValue({
+      entries: [
+        { modifiedAt: 1, name: "report.md", path: "Research/report.md", size: 9, type: "file" },
+        { modifiedAt: 1, name: "plots.md", path: "Research/report/plots.md", size: 9, type: "file" },
+      ],
+      ok: true,
+    })
+    mocks.findDirectDocxDocumentPaths.mockReturnValue(["Research/report/plots.md"])
+    mocks.readWorkspaceFileFromAgent.mockImplementation(async (_agent, filePath) => ({
+      data: {
+        content: filePath === "Research/report.md" ? "# Report" : "# Plots",
+        encoding: "utf-8",
+        ok: true,
+      },
+      ok: true,
+    }))
+
+    const response = await POST(jsonRequest({ path: "Research/report.md" }), CONTEXT)
+
+    expect(response.status).toBe(200)
+    expect(mocks.markdownToDocx).toHaveBeenCalledWith({
+      appendices: [{ markdown: "# Plots", path: "Research/report/plots.md" }],
+      availablePaths: ["Research/report.md", "Research/report/plots.md"],
+      primary: { markdown: "# Report", path: "Research/report.md" },
+    })
+  })
+
+  it("forwards workspace listing failures", async () => {
+    mocks.listWorkspaceFilesFromAgent.mockResolvedValue({
+      ok: false,
+      response: new Response(JSON.stringify({ error: "list_failed" }), { status: 502 }),
+    })
+
+    const response = await POST(jsonRequest({ path: "article.md" }), CONTEXT)
+
+    expect(response.status).toBe(502)
+  })
+
+  it("rejects bundles with more than 25 direct links", async () => {
+    mocks.findDirectDocxDocumentPaths.mockReturnValue(
+      Array.from({ length: 26 }, (_, index) => `appendix-${index}.md`),
+    )
+
+    const response = await POST(jsonRequest({ path: "article.md" }), CONTEXT)
+
+    expect(response.status).toBe(413)
+    expect(await response.json()).toEqual({ error: "bundle_too_large" })
   })
 
   it.each([
@@ -98,7 +179,7 @@ describe("POST /api/w/[slug]/files/export-docx", () => {
   })
 
   it("forwards workspace read failures", async () => {
-    mocks.readWorkspaceFile.mockResolvedValue({
+    mocks.readWorkspaceFileFromAgent.mockResolvedValue({
       ok: false,
       response: new Response(JSON.stringify({ error: "not_found" }), { status: 404 }),
     })
@@ -108,8 +189,17 @@ describe("POST /api/w/[slug]/files/export-docx", () => {
     expect(response.status).toBe(404)
   })
 
+  it("returns unavailable when the workspace agent is stopped", async () => {
+    mocks.createWorkspaceAgentClient.mockResolvedValue(null)
+
+    const response = await POST(jsonRequest({ path: "article.md" }), CONTEXT)
+
+    expect(response.status).toBe(503)
+    expect(await response.json()).toEqual({ error: "instance_unavailable" })
+  })
+
   it("rejects non-text workspace content", async () => {
-    mocks.readWorkspaceFile.mockResolvedValue({
+    mocks.readWorkspaceFileFromAgent.mockResolvedValue({
       ok: true,
       data: { content: null, encoding: "utf-8", ok: true },
     })
@@ -121,7 +211,7 @@ describe("POST /api/w/[slug]/files/export-docx", () => {
   })
 
   it("rejects articles larger than four MiB", async () => {
-    mocks.readWorkspaceFile.mockResolvedValue({
+    mocks.readWorkspaceFileFromAgent.mockResolvedValue({
       ok: true,
       data: { content: "x".repeat(4 * 1024 * 1024 + 1), encoding: "utf-8", ok: true },
     })
@@ -154,7 +244,7 @@ describe("POST /api/w/[slug]/files/export-docx", () => {
     const blockedRead = new Promise<void>((resolve) => {
       releaseRead = resolve
     })
-    mocks.readWorkspaceFile.mockImplementation(async () => {
+    mocks.readWorkspaceFileFromAgent.mockImplementation(async () => {
       await blockedRead
       return { ok: true, data: { content: "# Article", encoding: "utf-8", ok: true } }
     })
@@ -162,7 +252,7 @@ describe("POST /api/w/[slug]/files/export-docx", () => {
     const active = Array.from({ length: 4 }, () =>
       POST(jsonRequest({ path: "article.md" }), CONTEXT),
     )
-    await vi.waitFor(() => expect(mocks.readWorkspaceFile).toHaveBeenCalledTimes(4))
+    await vi.waitFor(() => expect(mocks.readWorkspaceFileFromAgent).toHaveBeenCalledTimes(4))
 
     const busyResponse = await POST(jsonRequest({ path: "article.md" }), CONTEXT)
     expect(busyResponse.status).toBe(503)
