@@ -89,9 +89,11 @@ type DocxRenderContext = {
 const BULLET_NUMBERING = "arche-bullets"
 const ORDERED_NUMBERING = "arche-numbering"
 const CODE_FONT = "Consolas"
-const MAX_VEGA_CHARTS = 20
+const MAX_VEGA_CHARTS = 100
 const MAX_CHART_WIDTH = 640
 const MAX_CHART_HEIGHT = 760
+const CHART_RASTER_SCALE = 3
+const CHART_PADDING = 8
 const TABLE_BORDER = { color: "D1D5DB", size: 4, style: BorderStyle.SINGLE }
 
 function isSafeExternalUrl(value: string | undefined): value is string {
@@ -122,17 +124,38 @@ function getVegaLiteTitle(spec: Record<string, unknown>): string {
 async function renderVegaLiteToPng(spec: Record<string, unknown>): Promise<RenderedChart> {
   const vega = await import("vega")
   const vegaLite = await import("vega-lite")
-  const specWithConfig = { ...spec, config: buildVegaConfig(FALLBACK_THEME) }
+  const themeConfig = buildVegaConfig(FALLBACK_THEME)
+  const specWithConfig = {
+    ...spec,
+    autosize: { contains: "padding", type: "pad" },
+    config: {
+      ...themeConfig,
+      legend: {
+        ...themeConfig.legend,
+        labelLimit: 0,
+        titleLimit: 0,
+      },
+    },
+    padding: CHART_PADDING,
+  }
   const compiled = vegaLite.compile(specWithConfig as Parameters<typeof vegaLite.compile>[0])
   const view = new vega.View(vega.parse(compiled.spec), { renderer: "none" })
 
   try {
     const svg = await view.toSVG()
-    const rendered = await sharp(Buffer.from(svg))
+    const rendered = await sharp(Buffer.from(svg), { density: 96 * CHART_RASTER_SCALE })
+      .trim({ background: "#ffffff", threshold: 10 })
+      .extend({
+        background: "#ffffff",
+        bottom: CHART_PADDING * CHART_RASTER_SCALE,
+        left: CHART_PADDING * CHART_RASTER_SCALE,
+        right: CHART_PADDING * CHART_RASTER_SCALE,
+        top: CHART_PADDING * CHART_RASTER_SCALE,
+      })
       .resize({
         fit: "inside",
-        height: MAX_CHART_HEIGHT,
-        width: MAX_CHART_WIDTH,
+        height: (MAX_CHART_HEIGHT - CHART_PADDING * 2) * CHART_RASTER_SCALE,
+        width: (MAX_CHART_WIDTH - CHART_PADDING * 2) * CHART_RASTER_SCALE,
         withoutEnlargement: true,
       })
       .png()
@@ -140,9 +163,9 @@ async function renderVegaLiteToPng(spec: Record<string, unknown>): Promise<Rende
 
     return {
       data: rendered.data,
-      height: rendered.info.height,
+      height: Math.max(1, Math.round(rendered.info.height / CHART_RASTER_SCALE)),
       title: getVegaLiteTitle(spec),
-      width: rendered.info.width,
+      width: Math.max(1, Math.round(rendered.info.width / CHART_RASTER_SCALE)),
     }
   } finally {
     view.finalize()
@@ -156,9 +179,11 @@ async function renderVegaLiteCharts(
   for (const node of nodes) {
     if (
       node.type === "code" &&
-      node.lang === "vega-lite" &&
-      state.chartCount < MAX_VEGA_CHARTS
+      node.lang === "vega-lite"
     ) {
+      if (state.chartCount >= MAX_VEGA_CHARTS) {
+        throw new Error("DOCX chart limit exceeded")
+      }
       let parsed: unknown
       try {
         parsed = JSON.parse(node.value?.trim() ?? "")

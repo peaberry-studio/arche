@@ -1,4 +1,5 @@
 import { strFromU8, unzipSync } from "fflate"
+import sharp from "sharp"
 import { describe, expect, it } from "vitest"
 
 import { markdownToDocx } from "../markdown-to-docx"
@@ -94,6 +95,69 @@ describe("markdownToDocx", () => {
     expect(Buffer.from(media?.[1] ?? []).subarray(1, 4).toString()).toBe("PNG")
     expect(strFromU8(archive["word/document.xml"])).not.toContain("category")
     expect(strFromU8(archive["word/document.xml"])).not.toContain("vega-lite")
+  })
+
+  it("exports tightly cropped high-resolution charts with complete legends", async () => {
+    const chart = (series: string) => JSON.stringify({
+      $schema: "https://vega.github.io/schema/vega-lite/v5.json",
+      data: { values: [{ series, value: 2 }] },
+      encoding: {
+        color: { field: "series", type: "nominal" },
+        x: { field: "value", type: "quantitative" },
+        y: { field: "series", type: "nominal" },
+      },
+      height: 80,
+      mark: "point",
+      width: 200,
+    })
+    const shortBuffer = await markdownToDocx(`\`\`\`vega-lite\n${chart("Short")}\n\`\`\``)
+    const longBuffer = await markdownToDocx(
+      `\`\`\`vega-lite\n${chart("A complete legend label that must never be truncated in a static export")}\n\`\`\``,
+    )
+    const shortArchive = docxArchive(shortBuffer)
+    const longArchive = docxArchive(longBuffer)
+    const shortImage = Object.entries(shortArchive).find(
+      ([name]) => name.startsWith("word/media/") && !name.endsWith("/"),
+    )?.[1]
+    const longImage = Object.entries(longArchive).find(
+      ([name]) => name.startsWith("word/media/") && !name.endsWith("/"),
+    )?.[1]
+
+    expect(shortImage).toBeDefined()
+    expect(longImage).toBeDefined()
+    const shortMetadata = await sharp(Buffer.from(shortImage ?? [])).metadata()
+    const longMetadata = await sharp(Buffer.from(longImage ?? [])).metadata()
+    const document = strFromU8(longArchive["word/document.xml"])
+    const extent = /<wp:extent cx="(\d+)" cy="(\d+)"\/>/u.exec(document)
+    const displayedWidth = Number(extent?.[1] ?? 0) / 9525
+    const tightlyCropped = await sharp(Buffer.from(longImage ?? []))
+      .trim({ background: "#ffffff", threshold: 10 })
+      .toBuffer({ resolveWithObject: true })
+
+    expect(longMetadata.width ?? 0).toBeGreaterThan((shortMetadata.width ?? 0) * 1.2)
+    expect(longMetadata.width ?? 0).toBeGreaterThan(displayedWidth * 2.5)
+    expect((longMetadata.width ?? 0) - tightlyCropped.info.width).toBeLessThanOrEqual(50)
+    expect((longMetadata.height ?? 0) - tightlyCropped.info.height).toBeLessThanOrEqual(50)
+  })
+
+  it("renders charts beyond the former twenty-chart bundle limit", async () => {
+    const spec = JSON.stringify({
+      $schema: "https://vega.github.io/schema/vega-lite/v5.json",
+      data: { values: [{ value: 1 }] },
+      encoding: { x: { field: "value", type: "quantitative" } },
+      height: 20,
+      mark: "point",
+      width: 20,
+    })
+    const markdown = Array.from(
+      { length: 21 },
+      () => `\`\`\`vega-lite\n${spec}\n\`\`\``,
+    ).join("\n\n")
+    const archive = docxArchive(await markdownToDocx(markdown))
+    const document = strFromU8(archive["word/document.xml"])
+
+    expect(document.match(/<w:drawing>/gu) ?? []).toHaveLength(21)
+    expect(document).not.toContain("vega-lite")
   })
 
   it("adds directly linked documents as next-page appendices", async () => {
