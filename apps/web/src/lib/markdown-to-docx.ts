@@ -17,6 +17,7 @@ import {
   TextRun,
   WidthType,
   type FileChild,
+  type IParagraphOptions,
   type ParagraphChild,
 } from "docx"
 import remarkParse from "remark-parse"
@@ -115,7 +116,7 @@ function inlineChildren(nodes: MarkdownNode[], style: InlineStyle = {}): Paragra
 
 function paragraphFromInline(
   nodes: MarkdownNode[],
-  options: ConstructorParameters<typeof Paragraph>[0] = {},
+  options: IParagraphOptions = {},
 ): Paragraph {
   return new Paragraph({
     spacing: { after: 160, line: 300 },
@@ -286,7 +287,7 @@ export async function markdownToDocx(markdown: string): Promise<Buffer> {
   )
   const document = new Document({
     creator: "Arche",
-    title: titleProperty?.value,
+    title: titleProperty?.type === "string" ? titleProperty.value : undefined,
     numbering: {
       config: [
         { reference: BULLET_NUMBERING, levels: numberingLevels(LevelFormat.BULLET) },
