@@ -23,6 +23,7 @@ import {
   isFlowSession,
 } from "@/lib/workspace-session-utils";
 import { downloadWorkspaceFile } from "@/lib/workspace-file-download";
+import { exportWorkspaceFileAsDocx } from "@/lib/workspace-file-export-docx";
 import { exportWorkspaceFileAsPdf } from "@/lib/workspace-file-export-pdf";
 import {
   getWorkspaceLayoutCookieName,
@@ -1619,6 +1620,20 @@ export function WorkspaceShell({
     [slug]
   );
 
+  const handleExportFileDocx = useCallback(
+    async (path: string) => {
+      const toastId = `docx-export:${path}`;
+      toast.loading("Exporting DOCX…", { id: toastId });
+      const ok = await exportWorkspaceFileAsDocx(slug, path);
+      if (ok) {
+        toast.success("DOCX exported", { id: toastId });
+      } else {
+        toast.error("DOCX export failed", { id: toastId });
+      }
+    },
+    [slug]
+  );
+
   // Resize handlers - now work via the gap area between panels
   const handleResizeLeft = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -1864,6 +1879,7 @@ export function WorkspaceShell({
       fileNodes={workspace.fileTree}
       headerActions={leftPanelHeaderActions}
       onDownloadFile={handleDownloadFile}
+      onExportFileDocx={handleExportFileDocx}
       onExportFilePdf={handleExportFilePdf}
       onOpenFile={handleOpenFile}
       openFiles={openFiles}

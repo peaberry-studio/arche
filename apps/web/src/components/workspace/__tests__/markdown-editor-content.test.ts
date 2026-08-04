@@ -13,14 +13,14 @@ describe("markdown-editor-content", () => {
 
   it("encodes repeated blank lines into editor-safe placeholders", () => {
     expect(encodeMarkdownForEditor("Line 1\n\n\n\nLine 2")).toBe(
-      "Line 1\n\n&nbsp;\n\n&nbsp;\n\nLine 2"
+      "Line 1\n\n\u2060\n\n\u2060\n\nLine 2"
     )
   })
 
   it("encodes leading and trailing blank line runs", () => {
-    expect(encodeMarkdownForEditor("\n\nLine")).toBe("&nbsp;\n\n&nbsp;\n\nLine")
+    expect(encodeMarkdownForEditor("\n\nLine")).toBe("\u2060\n\n\u2060\n\nLine")
     expect(encodeMarkdownForEditor("Line\n")).toBe("Line\n")
-    expect(encodeMarkdownForEditor("Line\n\n\n")).toBe("Line\n\n&nbsp;\n\n&nbsp;")
+    expect(encodeMarkdownForEditor("Line\n\n\n")).toBe("Line\n\n\u2060\n\n\u2060")
   })
 
   it("restores repeated blank lines from editor placeholders", () => {

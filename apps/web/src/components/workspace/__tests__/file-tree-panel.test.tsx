@@ -71,4 +71,28 @@ describe("FileTreePanel", () => {
 
     expect(onDownloadFile).toHaveBeenCalledWith("docs/notes.md");
   });
+
+  it("offers PDF and DOCX export for Markdown files", async () => {
+    const onExportFileDocx = vi.fn();
+    const onExportFilePdf = vi.fn();
+
+    render(
+      <FileTreePanel
+        nodes={nodes}
+        activePath={null}
+        onSelect={() => {}}
+        onDownloadFile={() => {}}
+        onExportFileDocx={onExportFileDocx}
+        onExportFilePdf={onExportFilePdf}
+      />
+    );
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: /alpha.md/i }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /export as docx/i }));
+    expect(onExportFileDocx).toHaveBeenCalledWith("alpha.md");
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: /alpha.md/i }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /export as pdf/i }));
+    expect(onExportFilePdf).toHaveBeenCalledWith("alpha.md");
+  });
 });
