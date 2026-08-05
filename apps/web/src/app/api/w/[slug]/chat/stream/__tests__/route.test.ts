@@ -826,6 +826,62 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     expect(text).toContain('"response":"always"')
   })
 
+  it('waits for a permission that existed before a resume subscription', async () => {
+    const listPermissions = vi.fn().mockResolvedValue({
+      data: [
+        { id: 'perm-1', sessionID: 's1' },
+        { id: 'foreign-permission', sessionID: 'other-session' },
+      ],
+    })
+    mocks.createConfiguredOpencodeClient.mockResolvedValue({
+      permission: { list: listPermissions },
+    })
+    mocks.getIdleFinalizationOutcome.mockImplementation(({
+      assistantPartSeen,
+      resume,
+    }: {
+      assistantPartSeen: boolean
+      resume: boolean
+    }) => resume && !assistantPartSeen ? 'resume_incomplete' : 'complete')
+    vi.stubGlobal('fetch', mockOpenCodeFetch([
+      { type: 'session.idle', properties: { info: { sessionID: 's1' } } },
+      {
+        type: 'permission.replied',
+        properties: {
+          permission: { id: 'perm-1', sessionID: 's1' },
+          response: 'once',
+        },
+      },
+      {
+        type: 'message.part.updated',
+        properties: {
+          part: {
+            id: 'part-1',
+            messageID: 'assistant-1',
+            sessionID: 's1',
+            text: 'Resumed response',
+            type: 'text',
+          },
+        },
+      },
+      { type: 'session.idle', properties: { info: { sessionID: 's1' } } },
+    ]))
+
+    const { POST } = await import('../route')
+    const res = await POST(makePostRequest({
+      sessionId: 's1',
+      resume: true,
+      messageId: 'assistant-1',
+    }), params())
+
+    const text = await res.text()
+
+    expect(listPermissions).toHaveBeenCalledOnce()
+    expect(text).toContain('event: permission-replied')
+    expect(text).toContain('event: done')
+    expect(text).not.toContain('resume_incomplete')
+  })
+
   it('streams an error when the upstream event subscription fails', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('', { status: 500 })))
 
