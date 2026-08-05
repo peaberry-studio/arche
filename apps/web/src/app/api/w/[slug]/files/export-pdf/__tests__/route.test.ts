@@ -133,7 +133,10 @@ describe("POST /api/w/[slug]/files/export-pdf", () => {
       },
       expect.objectContaining({ logoBase64: expect.any(String) }),
     )
-    expect(mocks.pagedHtmlToPdf).toHaveBeenCalledWith("<html></html>")
+    expect(mocks.pagedHtmlToPdf).toHaveBeenCalledWith(
+      "<html></html>",
+      expect.any(AbortSignal),
+    )
   })
 
   it("does not include documents linked only from an appendix", async () => {
@@ -215,6 +218,7 @@ describe("POST /api/w/[slug]/files/export-pdf", () => {
   it("propagates workspace listing failures", async () => {
     mocks.readWorkspaceFileFromAgent.mockResolvedValueOnce(readResult("# Main"))
     mocks.listWorkspaceFilesFromAgent.mockResolvedValue({
+      error: "list_failed",
       ok: false,
       response: new Response(JSON.stringify({ error: "list_failed" }), {
         status: 502,
@@ -231,6 +235,7 @@ describe("POST /api/w/[slug]/files/export-pdf", () => {
     mocks.readWorkspaceFileFromAgent.mockResolvedValueOnce(readResult("# Main"))
     mocks.listWorkspaceFilesFromAgent
       .mockResolvedValueOnce({
+        error: "path_required",
         ok: false,
         response: new Response(JSON.stringify({ error: "path_required" }), {
           status: 502,
@@ -249,18 +254,21 @@ describe("POST /api/w/[slug]/files/export-pdf", () => {
       AGENT,
       "",
       true,
+      { markdownOnly: true, maxEntries: 200 },
     )
     expect(mocks.listWorkspaceFilesFromAgent).toHaveBeenNthCalledWith(
       2,
       AGENT,
       "docs",
       true,
+      { markdownOnly: true, maxEntries: 200 },
     )
   })
 
   it("exports a root document when a legacy agent rejects root listing", async () => {
     mocks.readWorkspaceFileFromAgent.mockResolvedValueOnce(readResult("# Main"))
     mocks.listWorkspaceFilesFromAgent.mockResolvedValueOnce({
+      error: "path_required",
       ok: false,
       response: new Response(JSON.stringify({ error: "path_required" }), {
         status: 502,

@@ -28,5 +28,8 @@ describe("desktop Next.js configuration", () => {
     expect(config.outputFileTracingIncludes?.["/*"]).toContain(
       "./node_modules/pagedjs/dist/paged.polyfill.min.js",
     )
+    expect(config.outputFileTracingIncludes?.["/*"]).toContain(
+      "./node_modules/.pnpm/pagedjs@*/node_modules/pagedjs/dist/paged.polyfill.min.js",
+    )
   })
 })

@@ -31,6 +31,8 @@ import {
 } from "@/lib/pdf-document-bundle"
 
 const MAX_VEGA_CHARTS = 20
+const MAX_DATA_IMAGE_BYTES = 4 * 1024 * 1024
+const DATA_IMAGE_REGEX = /^data:(image\/(?:gif|jpeg|png|webp));base64,([a-z\d+/]+={0,2})$/iu
 
 type PdfHeadingEntry = {
   id: string
@@ -50,6 +52,8 @@ type PdfRenderState = {
   figures: PdfFigureEntry[]
   headings: PdfHeadingEntry[]
   includedPaths: Set<string>
+  usedIds: Set<string>
+  vegaChartCount: number
 }
 
 type PdfDocumentRenderContext = {
@@ -146,7 +150,36 @@ function createPdfFigure(content: ElementContent[], label: string): Element {
   }
 }
 
-function rehypeVegaLiteToSvg() {
+function isValidDataImageSource(value: unknown): value is string {
+  if (typeof value !== "string") return false
+
+  const match = DATA_IMAGE_REGEX.exec(value)
+  const base64 = match?.[2]
+  if (!base64 || base64.length % 4 !== 0) return false
+
+  const content = Buffer.from(base64, "base64")
+  return (
+    content.length > 0 &&
+    content.length <= MAX_DATA_IMAGE_BYTES &&
+    content.toString("base64") === base64
+  )
+}
+
+function rehypeValidateDataImages() {
+  return (tree: Root) => {
+    visit(tree, "element", (node) => {
+      const element = node as Element
+      if (element.tagName !== "img") return
+
+      const source = element.properties.src
+      if (typeof source === "string" && source.startsWith("data:") && !isValidDataImageSource(source)) {
+        delete element.properties.src
+      }
+    })
+  }
+}
+
+function rehypeVegaLiteToSvg(state: PdfRenderState) {
   return async (tree: Root) => {
     const targets: VegaLiteTarget[] = []
 
@@ -161,9 +194,13 @@ function rehypeVegaLiteToSvg() {
 
     if (targets.length === 0) return
 
-    const capped = targets.slice(0, MAX_VEGA_CHARTS)
+    const capped = targets.slice(
+      0,
+      Math.max(0, MAX_VEGA_CHARTS - state.vegaChartCount),
+    )
 
     for (const target of capped) {
+      state.vegaChartCount += 1
       let svg: string | null = null
       try {
         svg = await renderVegaLiteToSvg(target.spec)
@@ -331,8 +368,6 @@ function addHeadingAnchors(
   tree: Root,
   context: PdfDocumentRenderContext,
 ): void {
-  const anchorCounts = new Map<string, number>()
-
   visit(tree, "element", (node) => {
     const element = node as Element
     const match = /^h([1-6])$/u.exec(element.tagName)
@@ -345,16 +380,27 @@ function addHeadingAnchors(
     const label = getElementText(element)
     if (!label) return
 
-    const baseAnchor = getPdfHeadingAnchor(context.document.path, label)
-    const count = (anchorCounts.get(baseAnchor) ?? 0) + 1
-    anchorCounts.set(baseAnchor, count)
-    const id = count === 1 ? baseAnchor : `${baseAnchor}-${count}`
+    const id = getUniquePdfId(
+      getPdfHeadingAnchor(context.document.path, label),
+      context.state,
+    )
     element.properties.id = id
 
     if (level <= 3) {
       context.state.headings.push({ id, label, level })
     }
   })
+}
+
+function getUniquePdfId(baseId: string, state: PdfRenderState): string {
+  let id = baseId
+  let suffix = 2
+  while (state.usedIds.has(id)) {
+    id = `${baseId}-${suffix}`
+    suffix += 1
+  }
+  state.usedIds.add(id)
+  return id
 }
 
 function registerPdfFigures(
@@ -467,6 +513,10 @@ const pdfSanitizeSchema = {
     mask: ["id", "x", "y", "width", "height", "maskUnits"],
     image: ["x", "y", "width", "height", "href", "preserveAspectRatio"],
     marker: ["id", "markerWidth", "markerHeight", "refX", "refY", "orient", "markerUnits"],
+  },
+  protocols: {
+    ...defaultSchema.protocols,
+    src: [...(defaultSchema.protocols?.src ?? []), "data"],
   },
 }
 
@@ -757,8 +807,9 @@ async function renderPdfSourceDocument(
   processor = processor.use(remarkRehype)
   for (const plugin of workspaceRehypePlugins) processor = processor.use(plugin)
   processor = processor
+    .use(rehypeValidateDataImages)
     .use(rehypeSanitize, pdfSanitizeSchema)
-    .use(rehypeVegaLiteToSvg)
+    .use(rehypeVegaLiteToSvg, state)
     .use(() => rehypePdfDocumentSemantics(context))
     .use(rehypeStringify, { allowDangerousHtml: true })
 
@@ -821,16 +872,29 @@ export async function markdownToPdfHtml(
         document.path.toLowerCase(),
       ),
     ),
+    usedIds: new Set(),
+    vegaChartCount: 0,
   }
+  const primaryDocumentId = getUniquePdfId(
+    getPdfDocumentAnchor(bundle.primary.path),
+    state,
+  )
   const primaryHtml = await renderPdfSourceDocument(bundle.primary, 0, state)
   const appendixHtml: string[] = []
 
   for (const appendix of bundle.appendices) {
     const appendixTitle = `Appendix. ${getAppendixSectionTitle(appendix, title)}`
-    const appendixHeadingId = `${getPdfDocumentAnchor(appendix.path)}--appendix`
-    const documentTitleHeadingId = getPdfHeadingAnchor(
-      appendix.path,
-      getPdfDocumentTitle(appendix),
+    const appendixDocumentId = getUniquePdfId(
+      getPdfDocumentAnchor(appendix.path),
+      state,
+    )
+    const appendixHeadingId = getUniquePdfId(
+      `${getPdfDocumentAnchor(appendix.path)}--appendix`,
+      state,
+    )
+    const documentTitleHeadingId = getUniquePdfId(
+      getPdfHeadingAnchor(appendix.path, getPdfDocumentTitle(appendix)),
+      state,
     )
     state.headings.push({
       id: appendixHeadingId,
@@ -843,7 +907,7 @@ export async function markdownToPdfHtml(
     <article
       class="pdf-document pdf-appendix-section"
       data-document-path="${escapeHtml(appendix.path)}"
-      id="${escapeHtml(getPdfDocumentAnchor(appendix.path))}"
+       id="${escapeHtml(appendixDocumentId)}"
     >
       <span id="${escapeHtml(documentTitleHeadingId)}"></span>
       <h1 id="${escapeHtml(appendixHeadingId)}">${escapeHtml(appendixTitle)}</h1>
@@ -872,7 +936,7 @@ export async function markdownToPdfHtml(
     <article
       class="pdf-document pdf-primary-document"
       data-document-path="${escapeHtml(bundle.primary.path)}"
-      id="${escapeHtml(getPdfDocumentAnchor(bundle.primary.path))}"
+       id="${escapeHtml(primaryDocumentId)}"
     >
       ${primaryHtml}
     </article>

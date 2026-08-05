@@ -104,8 +104,10 @@ type fileReadResponse struct {
 }
 
 type fileListRequest struct {
-	Path      string `json:"path"`
-	Recursive bool   `json:"recursive"`
+	Path         string `json:"path"`
+	Recursive    bool   `json:"recursive"`
+	MarkdownOnly bool   `json:"markdownOnly,omitempty"`
+	MaxEntries   int    `json:"maxEntries,omitempty"`
 }
 
 type fileListEntry struct {
@@ -120,6 +122,10 @@ type fileListResponse struct {
 	Ok      bool            `json:"ok"`
 	Entries []fileListEntry `json:"entries"`
 }
+
+const maxMarkdownListEntries = 200
+
+var errFileListLimitReached = errors.New("file_list_limit_reached")
 
 type fileWriteRequest struct {
 	Path         string `json:"path"`
@@ -722,8 +728,19 @@ func (s *server) handleFileList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	maxEntries := 0
+	if req.MarkdownOnly {
+		maxEntries = req.MaxEntries
+		if maxEntries <= 0 || maxEntries > maxMarkdownListEntries {
+			maxEntries = maxMarkdownListEntries
+		}
+	}
+
 	entries := make([]fileListEntry, 0)
 	appendEntry := func(absPath string, entryInfo os.FileInfo) error {
+		if req.MarkdownOnly && (!entryInfo.Mode().IsRegular() || !strings.EqualFold(filepath.Ext(entryInfo.Name()), ".md")) {
+			return nil
+		}
 		rel, relErr := filepath.Rel(workspaceAbs, absPath)
 		if relErr != nil {
 			return relErr
@@ -754,15 +771,27 @@ func (s *server) handleFileList(w http.ResponseWriter, r *http.Request) {
 			if currentPath == path {
 				return nil
 			}
+			if req.MarkdownOnly && dirEntry.IsDir() {
+				switch dirEntry.Name() {
+				case ".arche", ".git", "node_modules":
+					return filepath.SkipDir
+				}
+			}
 
 			entryInfo, infoErr := dirEntry.Info()
 			if infoErr != nil {
 				return infoErr
 			}
 
-			return appendEntry(currentPath, entryInfo)
+			if appendErr := appendEntry(currentPath, entryInfo); appendErr != nil {
+				return appendErr
+			}
+			if maxEntries > 0 && len(entries) >= maxEntries {
+				return errFileListLimitReached
+			}
+			return nil
 		})
-		if walkErr != nil {
+		if walkErr != nil && !errors.Is(walkErr, errFileListLimitReached) {
 			writeError(w, http.StatusInternalServerError, "list_failed")
 			return
 		}
@@ -784,6 +813,9 @@ func (s *server) handleFileList(w http.ResponseWriter, r *http.Request) {
 			if appendErr := appendEntry(entryPath, entryInfo); appendErr != nil {
 				writeError(w, http.StatusInternalServerError, "list_failed")
 				return
+			}
+			if maxEntries > 0 && len(entries) >= maxEntries {
+				break
 			}
 		}
 	}

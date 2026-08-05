@@ -7,7 +7,10 @@ import {
   findDirectPdfDocumentPaths,
   type PdfSourceDocument,
 } from "@/lib/pdf-document-bundle"
-import { pagedHtmlToPdf } from "@/lib/paged-html-to-pdf"
+import {
+  pagedHtmlToPdf,
+  PdfExportTimeoutError,
+} from "@/lib/paged-html-to-pdf"
 import { withAuth } from "@/lib/runtime/with-auth"
 import { createWorkspaceAgentClient } from "@/lib/workspace-agent/client"
 import {
@@ -27,6 +30,7 @@ const MAX_MARKDOWN_BYTES = 4 * 1024 * 1024
 const MAX_BUNDLE_MARKDOWN_BYTES = 16 * 1024 * 1024
 const MAX_CONCURRENT_EXPORTS = 2
 const MAX_LINKED_DOCUMENTS = 25
+const MAX_LISTED_MARKDOWN_ENTRIES = 200
 
 let activeExports = 0
 
@@ -92,37 +96,48 @@ export const POST = withAuth<{ error: string }>(
         return jsonResponse(413, { error: "file_too_large" })
       }
 
-      let listResult = await listWorkspaceFilesFromAgent(agent, "", true)
+      const listOptions = {
+        markdownOnly: true,
+        maxEntries: MAX_LISTED_MARKDOWN_ENTRIES,
+      }
+      let listResult = await listWorkspaceFilesFromAgent(
+        agent,
+        "",
+        true,
+        listOptions,
+      )
       if (!listResult.ok) {
-        const payload: unknown = await listResult.response
-          .clone()
-          .json()
-          .catch(() => null)
         const sourceDirectory = path.posix.dirname(normalizedPath)
-        if (
-          typeof payload === "object" &&
-          payload !== null &&
-          "error" in payload &&
-          payload.error === "path_required" &&
-          sourceDirectory !== "."
-        ) {
+        if (listResult.error === "path_required" && sourceDirectory !== ".") {
           listResult = await listWorkspaceFilesFromAgent(
             agent,
             sourceDirectory,
             true,
+            listOptions,
           )
         }
       }
-      if (!listResult.ok) return listResult.response
+      if (!listResult.ok && listResult.error !== "path_required") {
+        return listResult.response
+      }
+
+      const listedEntries = listResult.ok ? listResult.entries : []
+      const markdownEntries = listedEntries.filter(
+        (entry) =>
+          entry.type === "file" &&
+          isValidWorkspacePath(normalizeWorkspacePath(entry.path), {
+            extension: ".md",
+          }),
+      )
 
       const availablePaths = Array.from(
         new Set([
           normalizedPath,
-          ...listResult.entries
-            .filter((entry) => entry.type === "file")
-            .map((entry) => normalizeWorkspacePath(entry.path))
-            .filter((path) => isValidWorkspacePath(path, { extension: ".md" })),
+          ...markdownEntries.map((entry) => normalizeWorkspacePath(entry.path)),
         ]),
+      )
+      const markdownSizes = new Map(
+        markdownEntries.map((entry) => [normalizeWorkspacePath(entry.path), entry.size]),
       )
       const linkedPaths = findDirectPdfDocumentPaths(
         primaryMarkdown,
@@ -136,6 +151,15 @@ export const POST = withAuth<{ error: string }>(
       const appendices: PdfSourceDocument[] = []
       let bundleBytes = primaryBytes
       for (const linkedPath of linkedPaths) {
+        const listedBytes = markdownSizes.get(linkedPath)
+        if (
+          listedBytes !== undefined &&
+          (listedBytes > MAX_MARKDOWN_BYTES ||
+            bundleBytes + listedBytes > MAX_BUNDLE_MARKDOWN_BYTES)
+        ) {
+          return jsonResponse(413, { error: "bundle_too_large" })
+        }
+
         const linkedResult = await readWorkspaceFileFromAgent(agent, linkedPath)
         if (!linkedResult.ok) continue
 
@@ -164,7 +188,7 @@ export const POST = withAuth<{ error: string }>(
         },
         { logoBase64: LOGO_BASE64 },
       )
-      const pdf = await pagedHtmlToPdf(html)
+      const pdf = await pagedHtmlToPdf(html, request.signal)
 
       return new Response(Buffer.from(pdf), {
         status: 200,
@@ -175,6 +199,9 @@ export const POST = withAuth<{ error: string }>(
       })
     } catch (error) {
       console.error(`[pdf-export] Failed to export ${normalizedPath}`, error)
+      if (error instanceof PdfExportTimeoutError) {
+        return jsonResponse(504, { error: "export_timeout" })
+      }
       return jsonResponse(500, { error: "export_failed" })
     } finally {
       activeExports--

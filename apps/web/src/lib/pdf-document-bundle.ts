@@ -40,6 +40,13 @@ type MarkdownTextNode = {
   value: string
 }
 
+type MarkdownAstNode = {
+  children?: MarkdownAstNode[]
+  depth?: number
+  type: string
+  value?: string
+}
+
 const EXTERNAL_SCHEME_REGEX = /^[a-z][a-z\d+.-]*:/iu
 
 function decodeLinkValue(value: string): string {
@@ -94,6 +101,12 @@ function resolveRelativePath(
   )
 
   return findAvailablePath(relativeCandidate, availablePaths)
+}
+
+function getMarkdownAstText(node: MarkdownAstNode): string {
+  const value = typeof node.value === "string" ? node.value : ""
+  const children = node.children?.map(getMarkdownAstText).join("") ?? ""
+  return `${value}${children}`
 }
 
 export function resolvePdfInternalLink(
@@ -212,8 +225,18 @@ export function getPdfDocumentTitle(document: PdfSourceDocument): string {
   )
   if (title?.type === "string" && title.value.trim()) return title.value.trim()
 
-  const heading = /^#\s+(.+)$/mu.exec(frontmatter.body)
-  if (heading?.[1]?.trim()) return heading[1].trim()
+  const tree = unified().use(remarkParse).parse(frontmatter.body)
+  let headingTitle: string | null = null
+  visit(tree, "heading", (node) => {
+    if (headingTitle) return
+
+    const heading = node as MarkdownAstNode
+    if (heading.depth !== 1) return
+
+    const value = getMarkdownAstText(heading).replace(/\s+/gu, " ").trim()
+    if (value) headingTitle = value
+  })
+  if (headingTitle) return headingTitle
 
   const basename = path.posix.basename(document.path)
   return stripMarkdownExtension(basename) || document.path

@@ -237,4 +237,13 @@ describe("markdownToPdfHtml", () => {
 
     expect(html.match(/class="vega-chart"/gu)).toHaveLength(20)
   })
+
+  it("assigns unique IDs to repeated headings", async () => {
+    const html = await markdownToPdfHtml(
+      createBundle("# Overview\n\n## Results\n\n## Results"),
+    )
+
+    const ids = Array.from(html.matchAll(/ id="([^"]+)"/gu), (match) => match[1])
+    expect(new Set(ids)).toHaveLength(ids.length)
+  })
 })

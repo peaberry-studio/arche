@@ -39,6 +39,8 @@ const nextConfig: NextConfig = {
       "/*": [
         "./node_modules/@opencode-ai/sdk/package.json",
         "./node_modules/@opencode-ai/sdk/dist/**/*",
+        "./node_modules/pagedjs/dist/paged.polyfill.min.js",
+        "./node_modules/.pnpm/pagedjs@*/node_modules/pagedjs/dist/paged.polyfill.min.js",
       ],
     },
   }),

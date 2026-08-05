@@ -78,21 +78,28 @@ export async function readWorkspaceFile(
 
 export type WorkspaceFileListResult =
   | { ok: true; entries: WorkspaceAgentListEntry[] }
-  | { ok: false; response: Response }
+  | { error: string; ok: false; response: Response }
+
+export type WorkspaceFileListOptions = {
+  markdownOnly?: boolean
+  maxEntries?: number
+}
 
 export async function listWorkspaceFilesFromAgent(
   agent: WorkspaceAgent,
   normalizedPath: string,
   recursive: boolean,
+  options?: WorkspaceFileListOptions,
 ): Promise<WorkspaceFileListResult> {
   const response = await workspaceAgentFetch<WorkspaceAgentListResponse>(
     agent,
     "/files/list",
-    { path: normalizedPath, recursive },
+    { path: normalizedPath, recursive, ...options },
   )
 
   if (!response.ok) {
     return {
+      error: response.error,
       ok: false,
       response: jsonResponse(response.status === 404 ? 404 : 502, {
         error: response.error,
