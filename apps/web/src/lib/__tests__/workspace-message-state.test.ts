@@ -67,8 +67,9 @@ describe('deriveWorkspaceMessageRuntimeState', () => {
         permissionId: 'permission-1',
         sessionId: 'session-1',
         title: 'Deploy application',
-        pattern: 'deploy',
+        pattern: '*',
         state: 'pending',
+        metadata: { tool: 'deploy' },
       },
     ]
 

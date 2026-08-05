@@ -67,26 +67,45 @@ function extractUserTextContent(parts: ReturnType<typeof transformParts>): strin
 }
 
 type PendingPermission = {
-  always: string[];
   id: string;
-  metadata: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
   patterns: string[];
   permission: string;
   sessionID: string;
-  tool?: {
-    callID: string;
+  tool: {
+    callID?: string;
     messageID: string;
   };
 };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isPendingPermission(value: unknown): value is PendingPermission {
+  if (!isRecord(value) || !isRecord(value.tool)) return false;
+
+  return (
+    typeof value.id === "string" &&
+    typeof value.permission === "string" &&
+    typeof value.sessionID === "string" &&
+    typeof value.tool.messageID === "string" &&
+    (value.tool.callID === undefined || typeof value.tool.callID === "string") &&
+    Array.isArray(value.patterns) &&
+    value.patterns.every((pattern) => typeof pattern === "string") &&
+    (value.metadata === undefined || isRecord(value.metadata))
+  );
+}
+
 function getPendingPermissionPartsByMessageId(
-  permissions: PendingPermission[],
+  permissions: unknown,
   sessionId: string
 ) {
   const partsByMessageId = new Map<string, ReturnType<typeof transformParts>>();
+  if (!Array.isArray(permissions)) return partsByMessageId;
 
   for (const permission of permissions) {
-    if (permission.sessionID !== sessionId || !permission.tool?.messageID) continue;
+    if (!isPendingPermission(permission) || permission.sessionID !== sessionId) continue;
 
     const parts = partsByMessageId.get(permission.tool.messageID) ?? [];
     parts.push({
@@ -96,10 +115,10 @@ function getPendingPermissionPartsByMessageId(
       sessionId,
       title: permission.permission,
       state: "pending",
-      callId: permission.tool.callID,
+      ...(permission.tool.callID && { callId: permission.tool.callID }),
       pattern: permission.patterns.join(", "),
       permissionType: "tool",
-      metadata: permission.metadata,
+      ...(permission.metadata && { metadata: permission.metadata }),
     });
     partsByMessageId.set(permission.tool.messageID, parts);
   }
@@ -803,7 +822,7 @@ export async function listMessagesAction(
     }
 
     const pendingPermissions = await client!.permission.list()
-      .then((result) => result.data ?? [])
+      .then((result) => result.data)
       .catch(() => []);
     const pendingPermissionPartsByMessageId = getPendingPermissionPartsByMessageId(
       pendingPermissions,
