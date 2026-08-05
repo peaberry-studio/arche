@@ -140,4 +140,13 @@ describe("pdf-document-bundle", () => {
       }),
     ).toBe("report")
   })
+
+  it("extracts the first rendered H1 rather than Markdown syntax or fenced content", () => {
+    expect(
+      getPdfDocumentTitle({
+        markdown: "```md\n# Ignored heading\n```\n\n# **Visible** title",
+        path: "docs/report.md",
+      }),
+    ).toBe("Visible title")
+  })
 })

@@ -1,6 +1,6 @@
 import path from "node:path"
 
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
   browserClose: vi.fn(),
@@ -54,6 +54,10 @@ describe("pagedHtmlToPdf", () => {
     })
   })
 
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it("prints a single pagination pass when figures do not need adjustment", async () => {
     const page = createPage({})
     mocks.newPage.mockResolvedValueOnce(page)
@@ -97,5 +101,34 @@ describe("pagedHtmlToPdf", () => {
         '.pdf-figure[data-figure-id="figure-1"] .pdf-figure-content { width: 85%; }',
       ),
     })
+  })
+
+  it("times out and closes Chromium when pagination preview does not settle", async () => {
+    vi.useFakeTimers()
+    const page = createPage({})
+    page.evaluate.mockImplementation((script: string | (() => unknown)) => {
+      if (script === "window.PagedPolyfill.preview()") {
+        return new Promise<void>(() => undefined)
+      }
+      if (typeof script === "string") return Promise.resolve(undefined)
+      return Promise.resolve({})
+    })
+    mocks.newPage.mockResolvedValueOnce(page)
+
+    let completion: "fulfilled" | "rejected" | null = null
+    void pagedHtmlToPdf("<html><body>Document</body></html>").then(
+      () => {
+        completion = "fulfilled"
+      },
+      () => {
+        completion = "rejected"
+      },
+    )
+
+    await vi.advanceTimersByTimeAsync(60_000)
+
+    expect(completion).toBe("rejected")
+    expect(page.close).toHaveBeenCalled()
+    expect(mocks.browserClose).toHaveBeenCalled()
   })
 })

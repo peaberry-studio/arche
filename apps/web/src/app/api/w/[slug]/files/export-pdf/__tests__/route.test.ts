@@ -257,4 +257,26 @@ describe("POST /api/w/[slug]/files/export-pdf", () => {
       true,
     )
   })
+
+  it("exports a root document when a legacy agent rejects root listing", async () => {
+    mocks.readWorkspaceFileFromAgent.mockResolvedValueOnce(readResult("# Main"))
+    mocks.listWorkspaceFilesFromAgent.mockResolvedValueOnce({
+      ok: false,
+      response: new Response(JSON.stringify({ error: "path_required" }), {
+        status: 502,
+      }),
+    })
+
+    const response = await POST(request("main.md"), params())
+
+    expect(response.status).toBe(200)
+    expect(mocks.markdownToPdfHtml).toHaveBeenCalledWith(
+      {
+        appendices: [],
+        availablePaths: ["main.md"],
+        primary: { markdown: "# Main", path: "main.md" },
+      },
+      expect.any(Object),
+    )
+  })
 })

@@ -76,4 +76,16 @@ describe("exportWorkspaceFileAsPdf in the browser", () => {
       },
     )
   })
+
+  it("returns the export error code so callers can show a busy message", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      json: () => Promise.resolve({ error: "export_busy" }),
+      ok: false,
+      status: 503,
+    }))
+
+    const result = await exportWorkspaceFileAsPdf("alice", "docs/notes.md")
+
+    expect(result).toEqual({ error: "export_busy", ok: false })
+  })
 })

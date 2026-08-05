@@ -178,12 +178,15 @@ describe("markdownToPdfHtml", () => {
   })
 
   it("adds standalone Markdown images to the table of figures", async () => {
+    const image =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl0wQAAAABJRU5ErkJggg=="
     const html = await markdownToPdfHtml(
-      createBundle("![Latency by workload](data:image/png;base64,AAAA)"),
+      createBundle(`![Latency by workload](data:image/png;base64,${image})`),
     )
 
     expect(html).toContain("Figure 1. Latency by workload")
     expect(html).toContain('data-figure-id="figure-1"')
+    expect(html).toContain(`src="data:image/png;base64,${image}"`)
   })
 
   it("numbers Markdown images and charts in source order", async () => {
@@ -210,5 +213,28 @@ describe("markdownToPdfHtml", () => {
     expect(first).toBeGreaterThan(-1)
     expect(second).toBeGreaterThan(first)
     expect(third).toBeGreaterThan(second)
+  })
+
+  it("uses one Vega rendering budget across the complete bundle", async () => {
+    function chart(title: string): string {
+      return `\`\`\`vega-lite\n${JSON.stringify({
+        $schema: "https://vega.github.io/schema/vega-lite/v5.json",
+        data: { values: [{ x: 1, y: 2 }] },
+        encoding: { x: { field: "x" }, y: { field: "y" } },
+        mark: "bar",
+        title,
+      })}\n\`\`\``
+    }
+
+    const html = await markdownToPdfHtml(
+      createBundle(
+        Array.from({ length: 20 }, (_value, index) => chart(`Primary ${index}`)).join(
+          "\n\n",
+        ),
+        [{ markdown: chart("Appendix chart"), path: "docs/appendix.md" }],
+      ),
+    )
+
+    expect(html.match(/class="vega-chart"/gu)).toHaveLength(20)
   })
 })
