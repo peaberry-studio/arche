@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   validateSameOrigin: vi.fn(() => ({ ok: true })),
   validateDesktopToken: vi.fn(() => true),
   instanceService: { findCredentialsBySlug: vi.fn() },
+  auditEvent: vi.fn(),
   decryptPassword: vi.fn(() => 'secret'),
   getInstanceUrl: vi.fn(() => 'http://test-slug:3000'),
 }))
@@ -20,6 +21,7 @@ vi.mock('@/lib/runtime/desktop/token', () => ({
   DESKTOP_TOKEN_HEADER: 'x-arche-desktop-token',
   validateDesktopToken: mocks.validateDesktopToken,
 }))
+vi.mock('@/lib/auth', () => ({ auditEvent: mocks.auditEvent }))
 vi.mock('@/lib/services', () => ({ instanceService: mocks.instanceService }))
 vi.mock('@/lib/spawner/crypto', () => ({ decryptPassword: mocks.decryptPassword }))
 vi.mock('@/lib/opencode/client', () => ({ getInstanceUrl: mocks.getInstanceUrl }))
@@ -59,6 +61,7 @@ describe('POST /api/w/[slug]/chat/permissions/[permissionId]', () => {
     })
     mocks.decryptPassword.mockReturnValue('secret')
     mocks.getInstanceUrl.mockReturnValue('http://test-slug:3000')
+    mocks.auditEvent.mockResolvedValue(undefined)
   })
 
   it('forwards permission response to OpenCode', async () => {
@@ -77,6 +80,27 @@ describe('POST /api/w/[slug]/chat/permissions/[permissionId]', () => {
         body: JSON.stringify({ response: 'always' }),
       }),
     )
+  })
+
+  it('audits an administrator response for another workspace', async () => {
+    mocks.getSession.mockResolvedValue({
+      user: { id: 'admin-1', email: 'admin@test.com', slug: 'admin', role: 'ADMIN' },
+      sessionId: 'admin-session',
+    })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('', { status: 200 })))
+
+    const res = await POST(makeRequest({ sessionId: 's1', response: 'always' }), params())
+
+    expect(res.status).toBe(200)
+    expect(mocks.auditEvent).toHaveBeenCalledWith(expect.objectContaining({
+      actorUserId: 'admin-1',
+      metadata: {
+        permissionId: 'perm-1',
+        response: 'always',
+        sessionId: 's1',
+        slug: 'alice',
+      },
+    }))
   })
 
   it('returns 400 when required fields are missing', async () => {

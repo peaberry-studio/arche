@@ -64,6 +64,23 @@ export function deriveWorkspaceMessageRuntimeState({
     return { pending: true, statusInfo: { status: 'thinking', detail: lastPart.error } }
   }
 
+  if (lastPart.type === 'permission' && lastPart.state === 'pending') {
+    const metadataTool = lastPart.metadata?.tool
+    const metadataToolName = lastPart.metadata?.toolName
+    return {
+      pending: true,
+      statusInfo: {
+        status: 'tool-calling',
+        toolName: typeof metadataTool === 'string' && metadataTool.trim()
+          ? metadataTool
+          : typeof metadataToolName === 'string' && metadataToolName.trim()
+            ? metadataToolName
+            : lastPart.pattern,
+        detail: 'permission_required',
+      },
+    }
+  }
+
   if (typeof completedAt === 'number' && completedAt > 0) {
     return { pending: false }
   }

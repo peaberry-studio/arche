@@ -566,6 +566,22 @@ export const POST = withAuth(
           ? RESUME_STREAM_RELEVANT_EVENT_TIMEOUT_MS
           : SEND_STREAM_RELEVANT_EVENT_TIMEOUT_MS
 
+        if (resume) {
+          try {
+            const client = await createConfiguredOpencodeClient({ authHeader, baseUrl })
+            const result = await client.permission.list()
+            const permissions = Array.isArray(result.data) ? result.data : []
+            for (const permission of permissions) {
+              if (!isRecord(permission) || getString(permission.sessionID) !== sessionId) continue
+
+              const permissionId = getString(permission.id)
+              if (permissionId) pendingPermissionIds.add(permissionId)
+            }
+          } catch (error) {
+            console.warn('[chat/stream] Failed to list pending resume permissions', { error, sessionId })
+          }
+        }
+
         const markRelevantEvent = () => {
           const now = Date.now()
           lastRelevantEventAt = now
