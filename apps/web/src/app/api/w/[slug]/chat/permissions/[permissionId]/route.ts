@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+import { auditEvent } from '@/lib/auth'
 import { getInstanceUrl } from '@/lib/opencode/client'
 import { withAuth } from '@/lib/runtime/with-auth'
 import { instanceService } from '@/lib/services'
@@ -23,7 +24,7 @@ function jsonErrorResponse(status: number, error: string) {
 export const POST = withAuth<
   { ok: true } | { error: string },
   { slug: string; permissionId: string }
->({ csrf: true }, async (request: NextRequest, { slug, params: { permissionId } }) => {
+>({ csrf: true }, async (request: NextRequest, { slug, params: { permissionId }, user }) => {
   const instance = await instanceService.findCredentialsBySlug(slug)
 
   if (!instance || !instance.serverPassword || instance.status !== 'running') {
@@ -63,6 +64,12 @@ export const POST = withAuth<
   if (!response.ok) {
     return jsonErrorResponse(response.status >= 400 && response.status < 500 ? response.status : 502, 'permission_reply_failed')
   }
+
+  await auditEvent({
+    actorUserId: user.id,
+    action: 'workspace.permission_replied',
+    metadata: { permissionId, response: body.response, sessionId, slug },
+  })
 
   return NextResponse.json({ ok: true })
 })
