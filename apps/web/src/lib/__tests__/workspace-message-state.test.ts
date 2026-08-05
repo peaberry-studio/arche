@@ -59,6 +59,34 @@ describe('deriveWorkspaceMessageRuntimeState', () => {
     expect(result.statusInfo?.toolName).toBe('read_file')
   })
 
+  it('keeps pending permission requests pending', () => {
+    const parts: MessagePart[] = [
+      {
+        type: 'permission',
+        id: 'permission:permission-1',
+        permissionId: 'permission-1',
+        sessionId: 'session-1',
+        title: 'Deploy application',
+        pattern: 'deploy',
+        state: 'pending',
+      },
+    ]
+
+    const result = deriveWorkspaceMessageRuntimeState({
+      role: 'assistant',
+      parts,
+    })
+
+    expect(result).toEqual({
+      pending: true,
+      statusInfo: {
+        status: 'tool-calling',
+        toolName: 'deploy',
+        detail: 'permission_required',
+      },
+    })
+  })
+
   it('does not keep plain text assistants pending without completedAt', () => {
     const parts: MessagePart[] = [{ type: 'text', text: 'done' }]
 

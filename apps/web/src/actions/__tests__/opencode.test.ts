@@ -136,6 +136,7 @@ const mockSessionAbort = vi.fn()
 const mockSessionStatus = vi.fn()
 const mockSessionDiff = vi.fn()
 const mockAppAgents = vi.fn()
+const mockPermissionList = vi.fn()
 
 function makeClient() {
   return {
@@ -151,6 +152,7 @@ function makeClient() {
       status: mockSessionStatus,
       diff: mockSessionDiff,
     },
+    permission: { list: mockPermissionList },
     config: { providers: vi.fn() },
     app: { agents: mockAppAgents },
   } as never
@@ -162,6 +164,7 @@ beforeEach(() => {
   mockCreateInstanceClient.mockResolvedValue(makeClient())
   mockAbortSessionFamilyAndConfirmIdle.mockResolvedValue(true)
   mockSessionStatus.mockResolvedValue({ data: {} })
+  mockPermissionList.mockResolvedValue({ data: [] })
   mockMessageRunService.abortActiveRun.mockResolvedValue(undefined)
   mockSlackService.deleteSessionBindingsByOpenCodeSessionId.mockResolvedValue({ dm: 0, thread: 0 })
   // Mock global fetch
@@ -709,6 +712,91 @@ describe('listMessagesAction', () => {
     mockSessionStatus.mockRejectedValue(new Error('status fail'))
     const result = await listMessagesAction('alice', 'sess-1')
     expect(result.ok).toBe(true)
+  })
+
+  it('hydrates pending permissions onto their assistant message', async () => {
+    mockSessionMessages.mockResolvedValue({
+      data: [
+        {
+          info: { id: 'msg-1', role: 'assistant', time: { created: Date.now() } },
+          parts: [{ type: 'tool', id: 'tool-1', tool: 'deploy', state: { status: 'pending', input: {} } }],
+        },
+      ],
+    })
+    mockPermissionList.mockResolvedValue({
+      data: [
+        {
+          always: ['*'],
+          id: 'permission-1',
+          metadata: { tool: 'deploy' },
+          patterns: ['*'],
+          permission: 'deploy',
+          sessionID: 'sess-1',
+          tool: { callID: 'tool-1', messageID: 'msg-1' },
+        },
+      ],
+    })
+
+    const result = await listMessagesAction('alice', 'sess-1')
+
+    expect(result.messages![0]).toMatchObject({
+      pending: false,
+      parts: [
+        { type: 'tool', id: 'tool-1' },
+        {
+          type: 'permission',
+          id: 'permission:permission-1',
+          permissionId: 'permission-1',
+          sessionId: 'sess-1',
+          state: 'pending',
+        },
+      ],
+    })
+  })
+
+  it('continues loading messages when pending permissions cannot be listed', async () => {
+    mockSessionMessages.mockResolvedValue({
+      data: [
+        {
+          info: { id: 'msg-1', role: 'assistant', time: { created: Date.now() } },
+          parts: [{ type: 'text', text: 'Hello' }],
+        },
+      ],
+    })
+    mockPermissionList.mockRejectedValue(new Error('permission list failed'))
+
+    const result = await listMessagesAction('alice', 'sess-1')
+
+    expect(result.ok).toBe(true)
+    expect(result.messages![0].parts).toEqual([{ type: 'text', text: 'Hello' }])
+  })
+
+  it('does not restore permissions for completed messages', async () => {
+    mockSessionMessages.mockResolvedValue({
+      data: [
+        {
+          info: { id: 'msg-1', role: 'assistant', time: { created: Date.now(), completed: Date.now() } },
+          parts: [{ type: 'text', text: 'Done' }],
+        },
+      ],
+    })
+    mockPermissionList.mockResolvedValue({
+      data: [
+        {
+          always: ['*'],
+          id: 'permission-1',
+          metadata: { tool: 'deploy' },
+          patterns: ['*'],
+          permission: 'deploy',
+          sessionID: 'sess-1',
+          tool: { callID: 'tool-1', messageID: 'msg-1' },
+        },
+      ],
+    })
+
+    const result = await listMessagesAction('alice', 'sess-1')
+
+    expect(result.messages![0].parts).toEqual([{ type: 'text', text: 'Done' }])
   })
 
   it('handles exceptions', async () => {

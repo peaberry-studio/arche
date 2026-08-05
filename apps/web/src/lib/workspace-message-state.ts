@@ -64,6 +64,17 @@ export function deriveWorkspaceMessageRuntimeState({
     return { pending: true, statusInfo: { status: 'thinking', detail: lastPart.error } }
   }
 
+  if (lastPart.type === 'permission' && lastPart.state === 'pending') {
+    return {
+      pending: true,
+      statusInfo: {
+        status: 'tool-calling',
+        toolName: lastPart.pattern,
+        detail: 'permission_required',
+      },
+    }
+  }
+
   if (typeof completedAt === 'number' && completedAt > 0) {
     return { pending: false }
   }
