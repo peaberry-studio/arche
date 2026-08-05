@@ -8,6 +8,7 @@ import type {
 import {
   CaretDown,
   DownloadSimple,
+  SpinnerGap,
   X,
 } from "@phosphor-icons/react";
 
@@ -28,6 +29,7 @@ type ChatPanelSessionHeaderProps = {
   draftTitle: string;
   editingSessionId: string | null;
   ignoreNextTitleBlurRef: MutableRefObject<boolean>;
+  isLoadingSession: boolean;
   isSavingTitle: boolean;
   onCloseSession: (id: string) => void;
   onExportSessionMarkdown: () => void;
@@ -38,6 +40,7 @@ type ChatPanelSessionHeaderProps = {
   onTitleInputKeyDown: (event: ReactKeyboardEvent<HTMLInputElement>) => void;
   preventSessionMenuAutoFocusRef: MutableRefObject<boolean>;
   renameError: string | null;
+  sessionLoadError: string | null;
   titleInputClassName: string;
   titleInputRef: RefObject<HTMLInputElement | null>;
 };
@@ -49,6 +52,7 @@ export function ChatPanelSessionHeader({
   draftTitle,
   editingSessionId,
   ignoreNextTitleBlurRef,
+  isLoadingSession,
   isSavingTitle,
   onCloseSession,
   onExportSessionMarkdown,
@@ -59,6 +63,7 @@ export function ChatPanelSessionHeader({
   onTitleInputKeyDown,
   preventSessionMenuAutoFocusRef,
   renameError,
+  sessionLoadError,
   titleInputClassName,
   titleInputRef,
 }: ChatPanelSessionHeaderProps) {
@@ -108,9 +113,24 @@ export function ChatPanelSessionHeader({
                   </span>
                 </button>
               ) : (
-                <p className="truncate text-sm font-medium text-foreground">
-                  {activeSession?.title ?? "No active session"}
-                </p>
+                activeSession ? (
+                  <p className="truncate text-sm font-medium text-foreground">
+                    {activeSession.title}
+                  </p>
+                ) : isLoadingSession ? (
+                  <p className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                    <SpinnerGap size={14} className="animate-spin" />
+                    Loading session...
+                  </p>
+                ) : sessionLoadError ? (
+                  <p className="truncate text-sm font-medium text-destructive">
+                    Couldn&apos;t load sessions.
+                  </p>
+                ) : (
+                  <p className="truncate text-sm font-medium text-foreground">
+                    No active session
+                  </p>
+                )
               )}
               {activeSession ? (
                 <DropdownMenu>

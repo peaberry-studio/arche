@@ -24,7 +24,9 @@ type WorkspaceSessionsSidebarProps = {
   sessions: WorkspaceSession[]
   activeSessionId: string | null
   hasMoreSessions: boolean
+  isInitialSessionsReady: boolean
   isLoadingMoreSessions: boolean
+  sessionsError: string | null
   unseenCompletedSessions: ReadonlySet<string>
   headerActions?: ReactNode
   onCreateSession: () => void
@@ -40,7 +42,9 @@ export function WorkspaceSessionsSidebar({
   sessions,
   activeSessionId,
   hasMoreSessions,
+  isInitialSessionsReady,
   isLoadingMoreSessions,
+  sessionsError,
   unseenCompletedSessions,
   headerActions,
   onCreateSession,
@@ -153,7 +157,9 @@ export function WorkspaceSessionsSidebar({
         sessions={visibleSessions}
         activeSessionId={activeSessionId}
         hasMore={hasMoreSessions}
+        isInitialSessionsReady={isInitialSessionsReady}
         isLoadingMore={isLoadingMoreSessions}
+        sessionsError={sessionsError}
         unseenCompletedSessions={unseenCompletedSessions}
         onLoadMore={onLoadMoreSessions}
         onSelectSession={handleSelectSession}
