@@ -1232,10 +1232,7 @@ describe("useWorkspace", () => {
       await result.current.renameSession("s1", "Release plan");
     });
 
-    await waitFor(() => {
-      expect(opencodeMocks.listSessionsAction).toHaveBeenCalledTimes(3);
-      expect(result.current.sessions[0]?.title).toBe("Release plan");
-    }, { timeout: 2000 });
+    expect(result.current.sessions[0]?.title).toBe("Release plan");
 
     await act(async () => {
       resolveStaleSessions?.({
@@ -1245,7 +1242,10 @@ describe("useWorkspace", () => {
       await Promise.resolve();
     });
 
-    expect(result.current.sessions[0]?.title).toBe("Release plan");
+    await waitFor(() => {
+      expect(opencodeMocks.listSessionsAction).toHaveBeenCalledTimes(3);
+      expect(result.current.sessions[0]?.title).toBe("Release plan");
+    }, { timeout: 2000 });
   });
 
   it("keeps manual model selection scoped to each session", async () => {

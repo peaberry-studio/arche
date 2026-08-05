@@ -34,6 +34,15 @@ function createStorageMock() {
   };
 }
 
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+
+  return { promise, resolve };
+}
+
 const rootSession: WorkspaceSession = {
   id: "root",
   title: "Root",
@@ -191,6 +200,168 @@ describe("useWorkspaceSessions", () => {
     expect(result.current.isInitialSessionsReady).toBe(true);
     expect(result.current.sessionsError).toBeNull();
     expect(result.current.sessions).toEqual([]);
+  });
+
+  it("does not overlap initial session loads and resolves when the active load finishes", async () => {
+    const sessionsResult = createDeferred<{
+      ok: true;
+      sessions: WorkspaceSession[];
+      hasMore: boolean;
+    }>();
+    vi.mocked(opencodeMocks.listSessionsAction).mockImplementation(
+      () => sessionsResult.promise
+    );
+
+    const { result } = renderHook(() =>
+      useWorkspaceSessions({ slug: "alice", isConnected: true })
+    );
+    let firstLoad!: Promise<void>;
+    let pollingLoad!: Promise<void>;
+
+    act(() => {
+      firstLoad = result.current.loadSessions();
+      pollingLoad = result.current.loadSessions();
+    });
+
+    expect(opencodeMocks.listSessionsAction).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      sessionsResult.resolve({
+        ok: true,
+        sessions: [rootSession],
+        hasMore: false,
+      });
+      await Promise.all([firstLoad, pollingLoad]);
+    });
+
+    expect(result.current.isInitialSessionsReady).toBe(true);
+  });
+
+  it("resolves initial readiness after a session is created during the load", async () => {
+    const sessionsResult = createDeferred<{
+      ok: true;
+      sessions: WorkspaceSession[];
+      hasMore: boolean;
+    }>();
+    vi.mocked(opencodeMocks.listSessionsAction)
+      .mockImplementationOnce(() => sessionsResult.promise)
+      .mockResolvedValue({
+        ok: true,
+        sessions: [rootSession],
+        hasMore: false,
+      });
+
+    const { result } = renderHook(() =>
+      useWorkspaceSessions({ slug: "alice", isConnected: true })
+    );
+    let initialLoad!: Promise<void>;
+
+    act(() => {
+      initialLoad = result.current.loadSessions();
+    });
+
+    await waitFor(() => {
+      expect(opencodeMocks.listSessionsAction).toHaveBeenCalledTimes(1);
+    });
+
+    await act(async () => {
+      await result.current.createSession("Created while loading");
+    });
+
+    await act(async () => {
+      sessionsResult.resolve({
+        ok: true,
+        sessions: [rootSession],
+        hasMore: false,
+      });
+      await initialLoad;
+    });
+
+    await waitFor(() => {
+      expect(result.current.isInitialSessionsReady).toBe(true);
+    });
+  });
+
+  it("resolves initial readiness after a session is deleted during the load", async () => {
+    const { result } = renderHook(() =>
+      useWorkspaceSessions({ slug: "alice", isConnected: true })
+    );
+    const createdSession = await act(async () => result.current.createSession("Created first"));
+    if (!createdSession) throw new Error("Expected createSession to succeed");
+
+    const sessionsResult = createDeferred<{
+      ok: true;
+      sessions: WorkspaceSession[];
+      hasMore: boolean;
+    }>();
+    vi.mocked(opencodeMocks.listSessionsAction)
+      .mockImplementationOnce(() => sessionsResult.promise)
+      .mockResolvedValue({
+        ok: true,
+        sessions: [],
+        hasMore: false,
+      });
+    let initialLoad!: Promise<void>;
+
+    act(() => {
+      initialLoad = result.current.loadSessions();
+    });
+
+    await waitFor(() => {
+      expect(opencodeMocks.listSessionsAction).toHaveBeenCalledTimes(1);
+    });
+
+    await act(async () => {
+      await result.current.deleteSession(createdSession.id);
+    });
+
+    await act(async () => {
+      sessionsResult.resolve({
+        ok: true,
+        sessions: [],
+        hasMore: false,
+      });
+      await initialLoad;
+    });
+
+    await waitFor(() => {
+      expect(result.current.isInitialSessionsReady).toBe(true);
+    });
+  });
+
+  it("keeps the session error visible while an initial retry is pending", async () => {
+    const retryResult = createDeferred<{
+      ok: true;
+      sessions: WorkspaceSession[];
+      hasMore: boolean;
+    }>();
+    vi.mocked(opencodeMocks.listSessionsAction)
+      .mockResolvedValueOnce({ ok: false, error: "instance_unavailable" })
+      .mockImplementationOnce(() => retryResult.promise);
+
+    const { result } = renderHook(() =>
+      useWorkspaceSessions({ slug: "alice", isConnected: true })
+    );
+
+    await act(async () => {
+      await result.current.loadSessions();
+    });
+    expect(result.current.sessionsError).toBe("instance_unavailable");
+
+    let retryLoad!: Promise<void>;
+    act(() => {
+      retryLoad = result.current.loadSessions();
+    });
+
+    expect(result.current.sessionsError).toBe("instance_unavailable");
+
+    await act(async () => {
+      retryResult.resolve({ ok: true, sessions: [], hasMore: false });
+      await retryLoad;
+    });
+
+    expect(result.current.isInitialSessionsReady).toBe(true);
+    expect(result.current.sessionsError).toBeNull();
   });
 
   it("does not mutate the active-session ref imperatively before render", async () => {
