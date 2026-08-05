@@ -49,10 +49,11 @@ export type WorkspaceFileReadResult =
 export async function readWorkspaceFileFromAgent(
   agent: WorkspaceAgent,
   normalizedPath: string,
+  signal?: AbortSignal,
 ): Promise<WorkspaceFileReadResult> {
   const response = await workspaceAgentFetch<WorkspaceAgentReadResponse>(agent, "/files/read", {
     path: normalizedPath,
-  })
+  }, { signal })
 
   if (!response.ok) {
     return {
@@ -90,11 +91,13 @@ export async function listWorkspaceFilesFromAgent(
   normalizedPath: string,
   recursive: boolean,
   options?: WorkspaceFileListOptions,
+  signal?: AbortSignal,
 ): Promise<WorkspaceFileListResult> {
   const response = await workspaceAgentFetch<WorkspaceAgentListResponse>(
     agent,
     "/files/list",
     { path: normalizedPath, recursive, ...options },
+    { signal },
   )
 
   if (!response.ok) {

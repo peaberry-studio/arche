@@ -31,6 +31,7 @@ const MAX_BUNDLE_MARKDOWN_BYTES = 16 * 1024 * 1024
 const MAX_CONCURRENT_EXPORTS = 2
 const MAX_LINKED_DOCUMENTS = 25
 const MAX_LISTED_MARKDOWN_ENTRIES = 200
+const PDF_EXPORT_TIMEOUT_MS = 45_000
 
 let activeExports = 0
 
@@ -47,6 +48,30 @@ function decodeMarkdownContent(
   } catch {
     return null
   }
+}
+
+function getAbortReason(signal: AbortSignal): Error {
+  if (signal.reason instanceof Error) return signal.reason
+  return new Error("pdf_export_aborted")
+}
+
+function withAbort<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(getAbortReason(signal))
+
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(getAbortReason(signal))
+    signal.addEventListener("abort", abort, { once: true })
+    operation.then(
+      (value) => {
+        signal.removeEventListener("abort", abort)
+        resolve(value)
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", abort)
+        reject(error)
+      },
+    )
+  })
 }
 
 export const POST = withAuth<{ error: string }>(
@@ -78,13 +103,29 @@ export const POST = withAuth<{ error: string }>(
     }
 
     activeExports++
+    const controller = new AbortController()
+    const timeout = setTimeout(
+      () => controller.abort(new PdfExportTimeoutError()),
+      PDF_EXPORT_TIMEOUT_MS,
+    )
+    const abort = () => controller.abort(request.signal.reason)
+    request.signal.addEventListener("abort", abort, { once: true })
     try {
-      const agent = await createWorkspaceAgentClient(slug)
+      const agent = await withAbort(
+        createWorkspaceAgentClient(slug),
+        controller.signal,
+      )
       if (!agent) {
         return jsonResponse(503, { error: "instance_unavailable" })
       }
 
-      const primaryResult = await readWorkspaceFileFromAgent(agent, normalizedPath)
+      if (controller.signal.aborted) throw getAbortReason(controller.signal)
+
+      const primaryResult = await readWorkspaceFileFromAgent(
+        agent,
+        normalizedPath,
+        controller.signal,
+      )
       if (!primaryResult.ok) return primaryResult.response
 
       const primaryMarkdown = decodeMarkdownContent(primaryResult.data)
@@ -105,6 +146,7 @@ export const POST = withAuth<{ error: string }>(
         "",
         true,
         listOptions,
+        controller.signal,
       )
       if (!listResult.ok) {
         const sourceDirectory = path.posix.dirname(normalizedPath)
@@ -114,6 +156,7 @@ export const POST = withAuth<{ error: string }>(
             sourceDirectory,
             true,
             listOptions,
+            controller.signal,
           )
         }
       }
@@ -160,7 +203,11 @@ export const POST = withAuth<{ error: string }>(
           return jsonResponse(413, { error: "bundle_too_large" })
         }
 
-        const linkedResult = await readWorkspaceFileFromAgent(agent, linkedPath)
+        const linkedResult = await readWorkspaceFileFromAgent(
+          agent,
+          linkedPath,
+          controller.signal,
+        )
         if (!linkedResult.ok) continue
 
         const markdown = decodeMarkdownContent(linkedResult.data)
@@ -186,9 +233,9 @@ export const POST = withAuth<{ error: string }>(
           availablePaths,
           primary: { markdown: primaryMarkdown, path: normalizedPath },
         },
-        { logoBase64: LOGO_BASE64 },
+        { logoBase64: LOGO_BASE64, signal: controller.signal },
       )
-      const pdf = await pagedHtmlToPdf(html, request.signal)
+      const pdf = await pagedHtmlToPdf(html, controller.signal)
 
       return new Response(Buffer.from(pdf), {
         status: 200,
@@ -204,6 +251,8 @@ export const POST = withAuth<{ error: string }>(
       }
       return jsonResponse(500, { error: "export_failed" })
     } finally {
+      clearTimeout(timeout)
+      request.signal.removeEventListener("abort", abort)
       activeExports--
     }
   },

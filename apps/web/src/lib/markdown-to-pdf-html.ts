@@ -62,6 +62,31 @@ type PdfDocumentRenderContext = {
   state: PdfRenderState
 }
 
+function getAbortReason(signal: AbortSignal): Error {
+  if (signal.reason instanceof Error) return signal.reason
+  return new Error("pdf_export_aborted")
+}
+
+function withAbort<T>(operation: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return operation
+  if (signal.aborted) return Promise.reject(getAbortReason(signal))
+
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(getAbortReason(signal))
+    signal.addEventListener("abort", abort, { once: true })
+    operation.then(
+      (value) => {
+        signal.removeEventListener("abort", abort)
+        resolve(value)
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", abort)
+        reject(error)
+      },
+    )
+  })
+}
+
 async function renderVegaLiteToSvg(spec: Record<string, unknown>): Promise<string> {
   const vega = await import("vega")
   const vegaLite = await import("vega-lite")
@@ -179,7 +204,7 @@ function rehypeValidateDataImages() {
   }
 }
 
-function rehypeVegaLiteToSvg(state: PdfRenderState) {
+function rehypeVegaLiteToSvg(state: PdfRenderState, signal?: AbortSignal) {
   return async (tree: Root) => {
     const targets: VegaLiteTarget[] = []
 
@@ -203,7 +228,7 @@ function rehypeVegaLiteToSvg(state: PdfRenderState) {
       state.vegaChartCount += 1
       let svg: string | null = null
       try {
-        svg = await renderVegaLiteToSvg(target.spec)
+        svg = await withAbort(renderVegaLiteToSvg(target.spec), signal)
       } catch {
         continue
       }
@@ -244,14 +269,17 @@ function removeAppendixDocumentTitleHeading(
   const documentTitle = getPdfDocumentTitle(context.document)
     .replace(/\s+/gu, " ")
     .trim()
-  const titleHeadingIndex = tree.children.findIndex(
-    (child) =>
-      child.type === "element" &&
-      child.tagName === "h1" &&
-      getElementText(child) === documentTitle,
+  const initialContentIndex = tree.children.findIndex(
+    (child) => child.type !== "text" || child.value.trim(),
   )
-
-  if (titleHeadingIndex >= 0) tree.children.splice(titleHeadingIndex, 1)
+  const initialContent = tree.children[initialContentIndex]
+  if (
+    initialContent?.type === "element" &&
+    initialContent.tagName === "h1" &&
+    getElementText(initialContent) === documentTitle
+  ) {
+    tree.children.splice(initialContentIndex, 1)
+  }
 }
 
 function getIncludedLinkHref(
@@ -797,6 +825,7 @@ async function renderPdfSourceDocument(
   document: PdfSourceDocument,
   headingOffset: number,
   state: PdfRenderState,
+  signal?: AbortSignal,
 ): Promise<string> {
   const frontmatter = parseMarkdownFrontmatter(document.markdown)
   const context: PdfDocumentRenderContext = { document, headingOffset, state }
@@ -809,11 +838,11 @@ async function renderPdfSourceDocument(
   processor = processor
     .use(rehypeValidateDataImages)
     .use(rehypeSanitize, pdfSanitizeSchema)
-    .use(rehypeVegaLiteToSvg, state)
+    .use(rehypeVegaLiteToSvg, state, signal)
     .use(() => rehypePdfDocumentSemantics(context))
     .use(rehypeStringify, { allowDangerousHtml: true })
 
-  const result = await processor.process(frontmatter.body)
+  const result = await withAbort(processor.process(frontmatter.body), signal)
   return String(result)
 }
 
@@ -859,7 +888,7 @@ function buildTableOfFigures(figures: PdfFigureEntry[]): string {
 
 export async function markdownToPdfHtml(
   bundle: PdfDocumentBundle,
-  options?: { logoBase64?: string },
+  options?: { logoBase64?: string; signal?: AbortSignal },
 ): Promise<string> {
   const title = getPdfDocumentTitle(bundle.primary)
   const state: PdfRenderState = {
@@ -879,7 +908,7 @@ export async function markdownToPdfHtml(
     getPdfDocumentAnchor(bundle.primary.path),
     state,
   )
-  const primaryHtml = await renderPdfSourceDocument(bundle.primary, 0, state)
+  const primaryHtml = await renderPdfSourceDocument(bundle.primary, 0, state, options?.signal)
   const appendixHtml: string[] = []
 
   for (const appendix of bundle.appendices) {
@@ -902,7 +931,7 @@ export async function markdownToPdfHtml(
       level: 1,
     })
 
-    const content = await renderPdfSourceDocument(appendix, 1, state)
+    const content = await renderPdfSourceDocument(appendix, 1, state, options?.signal)
     appendixHtml.push(`
     <article
       class="pdf-document pdf-appendix-section"

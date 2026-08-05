@@ -41,6 +41,7 @@ vi.mock("@/lib/markdown-to-pdf-html", () => ({
 }))
 vi.mock("@/lib/paged-html-to-pdf", () => ({
   pagedHtmlToPdf: mocks.pagedHtmlToPdf,
+  PdfExportTimeoutError: class PdfExportTimeoutError extends Error {},
 }))
 
 import { POST } from "../route"
@@ -162,6 +163,7 @@ describe("POST /api/w/[slug]/files/export-pdf", () => {
       2,
       AGENT,
       "docs/direct.md",
+      expect.any(AbortSignal),
     )
     expect(mocks.markdownToPdfHtml).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -174,6 +176,26 @@ describe("POST /api/w/[slug]/files/export-pdf", () => {
       }),
       expect.any(Object),
     )
+  })
+
+  it("times out a stalled pre-render workspace request", async () => {
+    vi.useFakeTimers()
+    mocks.readWorkspaceFileFromAgent.mockImplementation(
+      (_agent, _path, signal: AbortSignal) =>
+        new Promise((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason), {
+            once: true,
+          })
+        }),
+    )
+
+    const responsePromise = POST(request(), params())
+    await vi.advanceTimersByTimeAsync(45_000)
+
+    const response = await responsePromise
+    expect(response.status).toBe(504)
+    expect(await response.json()).toEqual({ error: "export_timeout" })
+    vi.useRealTimers()
   })
 
   it("rejects bundles with more than 25 direct documents", async () => {
@@ -255,6 +277,7 @@ describe("POST /api/w/[slug]/files/export-pdf", () => {
       "",
       true,
       { markdownOnly: true, maxEntries: 200 },
+      expect.any(AbortSignal),
     )
     expect(mocks.listWorkspaceFilesFromAgent).toHaveBeenNthCalledWith(
       2,
@@ -262,6 +285,7 @@ describe("POST /api/w/[slug]/files/export-pdf", () => {
       "docs",
       true,
       { markdownOnly: true, maxEntries: 200 },
+      expect.any(AbortSignal),
     )
   })
 

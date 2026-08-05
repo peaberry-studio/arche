@@ -156,6 +156,19 @@ describe("markdownToPdfHtml", () => {
     )
   })
 
+  it("retains a later appendix H1 that matches the document title", async () => {
+    const html = await markdownToPdfHtml(
+      createBundle("# Main", [
+        {
+          markdown: "# Appendix title\n\nBody\n\n# Appendix title",
+          path: "docs/appendix.md",
+        },
+      ]),
+    )
+
+    expect(html.match(/>Appendix title<\/h2>/gu)).toHaveLength(1)
+  })
+
   it("rewrites included document links and renders unresolved links as text", async () => {
     const html = await markdownToPdfHtml(
       {
