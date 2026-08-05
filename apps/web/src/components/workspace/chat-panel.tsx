@@ -101,7 +101,9 @@ type ChatPanelProps = {
     response: PermissionResponse
   ) => Promise<boolean>;
   onAbortMessage?: () => Promise<void> | void;
+  isInitialSessionsReady?: boolean;
   isLoadingMessages?: boolean;
+  sessionsError?: string | null;
   isSending?: boolean;
   isStartingNewSession?: boolean;
   models?: AvailableModel[];
@@ -218,7 +220,9 @@ export function ChatPanel({
   onSendMessage,
   onAnswerPermission,
   onAbortMessage,
+  isInitialSessionsReady = true,
   isLoadingMessages = false,
+  sessionsError = null,
   isSending = false,
   isStartingNewSession = false,
   models = EMPTY_MODELS,
@@ -1064,6 +1068,7 @@ export function ChatPanel({
         draftTitle={draftTitle}
         editingSessionId={editingSessionId}
         ignoreNextTitleBlurRef={ignoreNextTitleBlurRef}
+        isLoadingSession={!isInitialSessionsReady && !sessionsError}
         isSavingTitle={isSavingTitle}
         onCloseSession={onCloseSession}
         onExportSessionMarkdown={handleExportSessionMarkdown}
@@ -1079,6 +1084,7 @@ export function ChatPanel({
         onTitleInputKeyDown={handleTitleInputKeyDown}
         preventSessionMenuAutoFocusRef={preventSessionMenuAutoFocusRef}
         renameError={renameError}
+        sessionLoadError={sessionsError}
         titleInputClassName={titleInputClassName}
         titleInputRef={titleInputRef}
       />
@@ -1086,6 +1092,7 @@ export function ChatPanel({
       <ChatPanelMessages
         chatContentStyle={chatContentStyle}
         connectorNamesById={connectorNamesById}
+        isInitialSessionsReady={isInitialSessionsReady}
         isLoadingMessages={isLoadingMessages}
         isStartingNewSession={isStartingNewSession}
         messages={messages}
@@ -1096,6 +1103,7 @@ export function ChatPanel({
         onSelectSessionTab={onSelectSessionTab}
         scrollContainerRef={scrollContainerRef}
         sessionTabs={sessionTabs}
+        sessionsError={sessionsError}
         slug={slug}
         workspaceRoot={workspaceRoot}
       />

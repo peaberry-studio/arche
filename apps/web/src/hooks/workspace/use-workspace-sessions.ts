@@ -52,6 +52,8 @@ export function useWorkspaceSessions({
   const [sessionStore, setSessionStore] = useState<WorkspaceSessionStore>(() => createSessionStore());
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [isLoadingSessions, setIsLoadingSessions] = useState(false);
+  const [isInitialSessionsReady, setIsInitialSessionsReady] = useState(false);
+  const [sessionsError, setSessionsError] = useState<string | null>(null);
   const [isLoadingMoreSessions, setIsLoadingMoreSessions] = useState(false);
   const [hasMoreSessions, setHasMoreSessions] = useState(false);
   const [unseenCompletedSessions, setUnseenCompletedSessions] = useState<Set<string>>(new Set());
@@ -60,8 +62,10 @@ export function useWorkspaceSessions({
   const sessionStoreRef = useRef(sessionStore);
   const sessionsRef = useRef<WorkspaceSession[]>([]);
   const sessionMutationVersionRef = useRef(0);
-  const sessionLoadRequestIdRef = useRef(0);
+  const sessionLoadPromiseRef = useRef<Promise<void> | null>(null);
+  const loadSessionsRef = useRef<(() => Promise<void>) | null>(null);
   const sessionFamilyLoadRequestIdRef = useRef(0);
+  const hasLoadedInitialSessionsRef = useRef(false);
   const rootSessionLimitRef = useRef(ROOT_SESSION_LIMIT_STEP);
 
   const markSessionsMutated = useCallback(() => {
@@ -88,28 +92,51 @@ export function useWorkspaceSessions({
 
   const activeSession = sessions.find((s) => s.id === activeSessionId) ?? null;
 
-  const loadSessions = useCallback(async () => {
-    const requestId = sessionLoadRequestIdRef.current + 1;
-    sessionLoadRequestIdRef.current = requestId;
-    const mutationVersionAtStart = sessionMutationVersionRef.current;
-    const currentSessionId = activeSessionIdRef.current;
-    const requestedSessionId = initialSessionIdRef.current;
-    const storedSessionId = loadStoredActiveSessionId(activeSessionStorageKey);
-    const preferredSessionId =
-      currentSessionId ?? requestedSessionId ?? storedSessionId ?? null;
+  const loadSessions = useCallback(() => {
+    if (sessionLoadPromiseRef.current) {
+      return sessionLoadPromiseRef.current;
+    }
 
-    setIsLoadingSessions(true);
-    try {
-      const rootSessionLimit = Math.max(
-        ROOT_SESSION_LIMIT_STEP,
-        rootSessionLimitRef.current,
-        sessionStoreRef.current.rootOrder.length,
-      );
-      const result = await listSessionsAction(slug, {
-        limit: rootSessionLimit,
-        rootsOnly: true,
-      });
-      if (result.ok && result.sessions) {
+    let finishLoad = () => {};
+    const loadPromise = new Promise<void>((resolve) => {
+      finishLoad = () => resolve();
+    });
+    sessionLoadPromiseRef.current = loadPromise;
+
+    void (async () => {
+      const isInitialLoad = !hasLoadedInitialSessionsRef.current;
+      let shouldReload = false;
+
+      setIsLoadingSessions(true);
+      try {
+        const mutationVersionAtStart = sessionMutationVersionRef.current;
+        const currentSessionId = activeSessionIdRef.current;
+        const requestedSessionId = initialSessionIdRef.current;
+        const storedSessionId = loadStoredActiveSessionId(activeSessionStorageKey);
+        const preferredSessionId =
+          currentSessionId ?? requestedSessionId ?? storedSessionId ?? null;
+        const rootSessionLimit = Math.max(
+          ROOT_SESSION_LIMIT_STEP,
+          rootSessionLimitRef.current,
+          sessionStoreRef.current.rootOrder.length,
+        );
+        const result = await listSessionsAction(slug, {
+          limit: rootSessionLimit,
+          rootsOnly: true,
+        });
+
+        if (mutationVersionAtStart !== sessionMutationVersionRef.current) {
+          shouldReload = true;
+          return;
+        }
+
+        if (!result.ok || !result.sessions) {
+          if (isInitialLoad) {
+            setSessionsError(result.error ?? "load_failed");
+          }
+          return;
+        }
+
         let familySessions: WorkspaceSession[] = [];
         let familyRootId: string | null = null;
         if (
@@ -131,11 +158,8 @@ export function useWorkspaceSessions({
           }
         }
 
-        if (requestId !== sessionLoadRequestIdRef.current) {
-          return;
-        }
-
         if (mutationVersionAtStart !== sessionMutationVersionRef.current) {
+          shouldReload = true;
           return;
         }
 
@@ -187,13 +211,37 @@ export function useWorkspaceSessions({
           activeSessionIdRef.current = nextActiveSessionId;
           setActiveSessionId(nextActiveSessionId);
         }
+
+        if (isInitialLoad) {
+          hasLoadedInitialSessionsRef.current = true;
+          setIsInitialSessionsReady(true);
+          setSessionsError(null);
+        }
+        return;
+      } catch (error) {
+        if (isInitialLoad) {
+          setSessionsError(error instanceof Error ? error.message : "load_failed");
+        }
+      } finally {
+        if (sessionLoadPromiseRef.current === loadPromise) {
+          setIsLoadingSessions(false);
+          sessionLoadPromiseRef.current = null;
+          if (shouldReload) {
+            queueMicrotask(() => {
+              void loadSessionsRef.current?.();
+            });
+          }
+        }
+        finishLoad();
       }
-    } finally {
-      if (requestId === sessionLoadRequestIdRef.current) {
-        setIsLoadingSessions(false);
-      }
-    }
+    })();
+
+    return loadPromise;
   }, [activeSessionStorageKey, slug]);
+
+  useEffect(() => {
+    loadSessionsRef.current = loadSessions;
+  }, [loadSessions]);
 
   const loadMoreSessions = useCallback(async () => {
     if (!isConnected || isLoadingMoreSessions || !hasMoreSessions) {
@@ -332,6 +380,9 @@ export function useWorkspaceSessions({
         setSessionStore((prev) => prependSession(prev, result.session!));
         activeSessionIdRef.current = result.session.id;
         setActiveSessionId(result.session.id);
+        if (!hasLoadedInitialSessionsRef.current) {
+          setIsInitialSessionsReady(true);
+        }
         return result.session;
       }
       return null;
@@ -356,6 +407,9 @@ export function useWorkspaceSessions({
           : activeSessionIdRef.current;
         activeSessionIdRef.current = nextActiveSessionId;
         setActiveSessionId(nextActiveSessionId);
+        if (!hasLoadedInitialSessionsRef.current) {
+          setIsInitialSessionsReady(true);
+        }
         return { deletedSessionIds: sessionIdsToRemove };
       }
       return null;
@@ -405,6 +459,8 @@ export function useWorkspaceSessions({
     activeSessionIdRef,
     sessionsRef,
     isLoadingSessions,
+    isInitialSessionsReady,
+    sessionsError,
     isLoadingMoreSessions,
     hasMoreSessions,
     unseenCompletedSessions,

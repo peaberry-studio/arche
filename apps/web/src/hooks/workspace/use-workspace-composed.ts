@@ -269,6 +269,8 @@ export function useWorkspace({
     activeSessionId: sessionsHook.activeSessionId,
     activeSession,
     isLoadingSessions: sessionsHook.isLoadingSessions,
+    isInitialSessionsReady: sessionsHook.isInitialSessionsReady,
+    sessionsError: sessionsHook.sessionsError,
     isLoadingMoreSessions: sessionsHook.isLoadingMoreSessions,
     hasMoreSessions: sessionsHook.hasMoreSessions,
     unseenCompletedSessions: sessionsHook.unseenCompletedSessions,
