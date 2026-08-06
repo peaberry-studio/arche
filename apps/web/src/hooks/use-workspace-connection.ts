@@ -39,7 +39,10 @@ export function useWorkspaceConnection(
   }, [onConnected]);
 
   const checkConnection = useCallback(async () => {
-    const result = await checkConnectionAction(slug);
+    const result = await checkConnectionAction(slug).catch((error: unknown) => ({
+      status: "error" as const,
+      error: error instanceof Error ? error.message : "connection_check_failed",
+    }));
     setConnection(result);
     return result.status === "connected";
   }, [slug]);
@@ -61,22 +64,19 @@ export function useWorkspaceConnection(
       if (connected) {
         retryCount = 0;
         await onConnectedRef.current?.();
-      } else if (retryCount < MAX_RETRIES) {
+      } else {
         retryCount++;
-        const delay = Math.min(
-          BASE_DELAY_MS * Math.pow(2, retryCount - 1),
-          MAX_DELAY_MS,
-        );
+        const delay = retryCount <= MAX_RETRIES
+          ? Math.min(BASE_DELAY_MS * Math.pow(2, retryCount - 1), MAX_DELAY_MS)
+          : MAX_DELAY_MS;
         console.log(
-          `[useWorkspaceConnection] Connection failed, retrying in ${delay}ms (attempt ${retryCount}/${MAX_RETRIES})`,
+          retryCount <= MAX_RETRIES
+            ? `[useWorkspaceConnection] Connection failed, retrying in ${delay}ms (attempt ${retryCount}/${MAX_RETRIES})`
+            : `[useWorkspaceConnection] Connection still unavailable, retrying in ${delay}ms`,
         );
         retryTimeout = setTimeout(() => {
           if (mounted) init();
         }, delay);
-      } else {
-        console.log(
-          "[useWorkspaceConnection] Max retries reached, giving up",
-        );
       }
     }
 

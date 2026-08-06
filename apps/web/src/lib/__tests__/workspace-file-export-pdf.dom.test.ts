@@ -43,7 +43,7 @@ describe("exportWorkspaceFileAsPdf in the browser", () => {
 
     const result = await exportWorkspaceFileAsPdf("alice", "docs/notes.md")
 
-    expect(result).toBe(true)
+    expect(result).toEqual({ ok: true })
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/w/alice/files/export-pdf",
       expect.objectContaining({
@@ -57,10 +57,35 @@ describe("exportWorkspaceFileAsPdf in the browser", () => {
     expect(document.body.querySelector("a")).toBeNull()
   })
 
-  it("returns false when the fetch fails", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false }))
+  it("returns the error code when the fetch fails", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      json: () => Promise.resolve({ error: "path_required" }),
+      ok: false,
+      status: 502,
+    }))
 
     const result = await exportWorkspaceFileAsPdf("alice", "docs/notes.md")
-    expect(result).toBe(false)
+    expect(result).toEqual({ error: "path_required", ok: false })
+    expect(consoleError).toHaveBeenCalledWith(
+      "[pdf-export] Export request failed",
+      {
+        error: "path_required",
+        path: "docs/notes.md",
+        status: 502,
+      },
+    )
+  })
+
+  it("returns the export error code so callers can show a busy message", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      json: () => Promise.resolve({ error: "export_busy" }),
+      ok: false,
+      status: 503,
+    }))
+
+    const result = await exportWorkspaceFileAsPdf("alice", "docs/notes.md")
+
+    expect(result).toEqual({ error: "export_busy", ok: false })
   })
 })

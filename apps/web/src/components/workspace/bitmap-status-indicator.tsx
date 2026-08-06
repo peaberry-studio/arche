@@ -16,6 +16,14 @@ type BitmapAnimationConfig = {
 const BITMAP_GRID_COLS = 6;
 const BITMAP_GRID_ROWS = 6;
 
+// Details set by the client while it reattaches to an interrupted stream.
+const STREAM_RECOVERY_DETAILS = new Set([
+  "stream_interrupted",
+  "stream_status_unavailable",
+  "upstream_eof",
+  "upstream_stream_error",
+]);
+
 function createFrame(cols: number, rows: number, activeDots: Array<[number, number]>): boolean[] {
   const frame = Array.from({ length: cols * rows }, () => false);
   for (const [x, y] of activeDots) {
@@ -229,7 +237,7 @@ export function StatusIndicator({
   const statusConfig: Record<string, { pattern: BitmapPattern; label: string; className: string }> = {
     thinking: {
       pattern: "orbit",
-      label: "Thinking...",
+      label: detail && STREAM_RECOVERY_DETAILS.has(detail) ? "Reconnecting..." : "Thinking...",
       className: "text-primary",
     },
     reasoning: {

@@ -89,6 +89,19 @@ type MobileWorkspaceView = "chat" | "left" | "right";
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
 
+const CONNECTION_ERROR_COPY: Record<string, string> = {
+  connection_check_failed: "Couldn't reach the workspace. Retrying...",
+  forbidden: "You are not allowed to access this workspace.",
+  health_check_timeout: "The workspace is taking too long to respond. Retrying...",
+  instance_unavailable: "The workspace is not ready right now. Retrying...",
+  unauthorized: "Your session has expired. Sign in again.",
+  unhealthy: "The workspace is not ready right now. Retrying...",
+  user_not_found: "This workspace could not be found.",
+};
+
+const getConnectionErrorText = (error: string | undefined) =>
+  (error && CONNECTION_ERROR_COPY[error]) || `Error: ${error ?? "unknown"}`;
+
 const getMinCenter = (containerWidth: number) =>
   Math.min(MIN_CENTER_PX, Math.max(0, containerWidth - MIN_LEFT_PX - MIN_RIGHT_PX - 2 * PANEL_GAP));
 
@@ -1443,9 +1456,17 @@ export function WorkspaceShell({
     async (path: string) => {
       const toastId = `pdf-export:${path}`;
       toast.loading("Exporting PDF…", { id: toastId });
-      const ok = await exportWorkspaceFileAsPdf(slug, path);
-      if (ok) {
+      const result = await exportWorkspaceFileAsPdf(slug, path);
+      if (result.ok) {
         toast.success("PDF exported", { id: toastId });
+      } else if (result.error === "export_busy") {
+        toast.error("Another PDF export is already in progress", { id: toastId });
+      } else if (result.error === "file_too_large") {
+        toast.error("The document is too large to export", { id: toastId });
+      } else if (result.error === "bundle_too_large") {
+        toast.error("The document bundle is too large to export", { id: toastId });
+      } else if (result.error === "export_timeout") {
+        toast.error("PDF export timed out; try again", { id: toastId });
       } else {
         toast.error("PDF export failed", { id: toastId });
       }
@@ -1634,7 +1655,7 @@ export function WorkspaceShell({
                 </h2>
                 <p className="text-sm text-muted-foreground">
                   {workspace.connection.status === 'error'
-                    ? `Error: ${workspace.connection.error}`
+                    ? getConnectionErrorText(workspace.connection.error)
                     : 'Establishing connection...'}
                 </p>
               </div>

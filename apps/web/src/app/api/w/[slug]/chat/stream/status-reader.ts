@@ -8,6 +8,14 @@ type UpstreamSessionStatusReaderOptions = {
   baseUrl: string
   authHeader: string
   sessionId: string
+  onRead?: (result: UpstreamSessionStatusReadResult) => void
+}
+
+export type UpstreamSessionStatusReadResult = {
+  durationMs: number
+  outcome: 'error' | 'http_error' | 'success'
+  responseStatus?: number
+  status: string | null
 }
 
 const UPSTREAM_STATUS_CACHE_WINDOW_MS = 2_000
@@ -17,6 +25,7 @@ export function createUpstreamSessionStatusReader({
   baseUrl,
   authHeader,
   sessionId,
+  onRead,
 }: UpstreamSessionStatusReaderOptions): () => Promise<string | null> {
   let cache: { expiresAt: number; status: string | null } | null = null
 
@@ -26,6 +35,7 @@ export function createUpstreamSessionStatusReader({
       return cache.status
     }
 
+    const startedAt = Date.now()
     try {
       const response = await fetch(`${baseUrl}/session/status`, {
         method: 'GET',
@@ -44,6 +54,12 @@ export function createUpstreamSessionStatusReader({
           status: response.status,
         })
         cache = { expiresAt: now + UPSTREAM_STATUS_CACHE_WINDOW_MS, status: null }
+        onRead?.({
+          durationMs: Date.now() - startedAt,
+          outcome: 'http_error',
+          responseStatus: response.status,
+          status: null,
+        })
         return null
       }
 
@@ -51,6 +67,7 @@ export function createUpstreamSessionStatusReader({
       const sessionStatus = data?.[sessionId]
       const status = typeof sessionStatus?.type === 'string' ? sessionStatus.type : null
       cache = { expiresAt: now + UPSTREAM_STATUS_CACHE_WINDOW_MS, status }
+      onRead?.({ durationMs: Date.now() - startedAt, outcome: 'success', status })
       return status
     } catch (error) {
       console.warn('[chat-stream] Failed to read upstream session status', {
@@ -59,6 +76,7 @@ export function createUpstreamSessionStatusReader({
         error: error instanceof Error ? error.message : String(error),
       })
       cache = { expiresAt: now + UPSTREAM_STATUS_CACHE_WINDOW_MS, status: null }
+      onRead?.({ durationMs: Date.now() - startedAt, outcome: 'error', status: null })
       return null
     }
   }

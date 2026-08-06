@@ -198,6 +198,36 @@ func TestFileHandlersHappyPath(t *testing.T) {
 		}
 	})
 
+	t.Run("handleFileList root", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/files/list", strings.NewReader(`{"path":"","recursive":true}`))
+		recorder := httptest.NewRecorder()
+
+		s.handleFileList(recorder, req)
+
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+		}
+
+		var response fileListResponse
+		if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+		if !response.Ok {
+			t.Fatalf("unexpected list response: %+v", response)
+		}
+
+		found := false
+		for _, entry := range response.Entries {
+			if entry.Path == ".arche/attachments/hello.txt" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("expected recursive root listing to include written file: %+v", response.Entries)
+		}
+	})
+
 	t.Run("handleFileRename", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/files/rename", strings.NewReader(`{"path":".arche/attachments/hello.txt","newPath":".arche/attachments/renamed.txt"}`))
 		recorder := httptest.NewRecorder()
@@ -212,6 +242,60 @@ func TestFileHandlersHappyPath(t *testing.T) {
 			t.Fatalf("renamed file missing: %v", err)
 		}
 	})
+}
+
+func TestHandleFileListMarkdownOnly(t *testing.T) {
+	workspace := t.TempDir()
+	for _, path := range []string{
+		".arche/hidden.md",
+		".git/hidden.md",
+		"node_modules/package/hidden.md",
+		"notes.txt",
+	} {
+		fullPath := filepath.Join(workspace, path)
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+			t.Fatalf("create %s directory: %v", path, err)
+		}
+		if err := os.WriteFile(fullPath, []byte("content\n"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+	}
+	for index := 0; index <= maxMarkdownListEntries; index++ {
+		path := filepath.Join(workspace, "notes", "document-"+strconv.Itoa(index)+".md")
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("create Markdown directory: %v", err)
+		}
+		if err := os.WriteFile(path, []byte("# Document\n"), 0o644); err != nil {
+			t.Fatalf("write Markdown document: %v", err)
+		}
+	}
+
+	s := &server{workspace: workspace}
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/files/list",
+		strings.NewReader(`{"path":"","recursive":true,"markdownOnly":true,"maxEntries":201}`),
+	)
+	recorder := httptest.NewRecorder()
+
+	s.handleFileList(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	var response fileListResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(response.Entries) != maxMarkdownListEntries {
+		t.Fatalf("expected %d Markdown entries, got %d", maxMarkdownListEntries, len(response.Entries))
+	}
+	for _, entry := range response.Entries {
+		if !strings.HasSuffix(entry.Path, ".md") || strings.HasPrefix(entry.Path, ".") || strings.HasPrefix(entry.Path, "node_modules/") {
+			t.Fatalf("unexpected Markdown listing entry: %+v", entry)
+		}
+	}
 }
 
 func TestHandleFileWriteStagesResolvedConflict(t *testing.T) {
