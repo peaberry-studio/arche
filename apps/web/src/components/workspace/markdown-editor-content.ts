@@ -1,5 +1,6 @@
-// TipTap uses standalone `&nbsp;` paragraphs to preserve visual blank lines.
-const BLANK_LINE_MARKER = "&nbsp;"
+// A word joiner keeps an otherwise empty TipTap paragraph present through Markdown serialization.
+const BLANK_LINE_MARKER = "\u2060"
+const LEGACY_BLANK_LINE_MARKER = "&nbsp;"
 const FENCE_DELIMITER_PATTERN = /^ {0,3}(`{3,}|~{3,})/u
 
 type FenceState = {
@@ -38,6 +39,10 @@ function updateFenceState(line: string, current: FenceState | null): FenceState 
 
 function isFenceDelimiterLine(line: string): boolean {
   return FENCE_DELIMITER_PATTERN.test(line)
+}
+
+function isBlankLineMarker(line: string): boolean {
+  return line === BLANK_LINE_MARKER || line === LEGACY_BLANK_LINE_MARKER
 }
 
 function encodeBlankLineRun(
@@ -154,8 +159,13 @@ export function normalizeMarkdownForKb(value: string): string {
       continue
     }
 
-    if (line.length > 0 && line !== BLANK_LINE_MARKER) {
-      next.push(line.replaceAll("\u00A0", " ").replaceAll(BLANK_LINE_MARKER, " "))
+    if (line.length > 0 && !isBlankLineMarker(line)) {
+      next.push(
+        line
+          .replaceAll("\u00A0", " ")
+          .replaceAll(LEGACY_BLANK_LINE_MARKER, " ")
+          .replaceAll(BLANK_LINE_MARKER, " ")
+      )
       seenContent = true
       index += 1
       continue
@@ -166,9 +176,9 @@ export function normalizeMarkdownForKb(value: string): string {
 
     while (
       runEnd < lines.length &&
-      (lines[runEnd].length === 0 || lines[runEnd] === BLANK_LINE_MARKER)
+      (lines[runEnd].length === 0 || isBlankLineMarker(lines[runEnd]))
     ) {
-      if (lines[runEnd] === BLANK_LINE_MARKER) {
+      if (isBlankLineMarker(lines[runEnd])) {
         markerCount += 1
       }
 

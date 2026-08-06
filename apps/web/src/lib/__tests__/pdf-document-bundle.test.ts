@@ -1,15 +1,13 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  findDirectPdfDocumentPaths,
   getPdfDocumentAnchor,
+  getPdfDocumentTitle,
   getPdfHeadingAnchor,
+  resolvePdfInternalLink,
   slugifyPdfHeading,
 } from "@/lib/pdf-document-bundle"
-import {
-  findDirectMarkdownDocumentPaths,
-  getMarkdownDocumentTitle,
-  resolveMarkdownInternalLink,
-} from "@/lib/markdown-document-bundle"
 
 const AVAILABLE_PATHS = [
   "docs/main.md",
@@ -18,10 +16,10 @@ const AVAILABLE_PATHS = [
   "research/gamma.md",
 ]
 
-describe("Markdown document bundles", () => {
+describe("pdf-document-bundle", () => {
   it("resolves relative Markdown and vault-style Obsidian links", () => {
     expect(
-      resolveMarkdownInternalLink(
+      resolvePdfInternalLink(
         "nested/beta.md#Results",
         "docs/main.md",
         AVAILABLE_PATHS,
@@ -34,7 +32,7 @@ describe("Markdown document bundles", () => {
     })
 
     expect(
-      resolveMarkdownInternalLink(
+      resolvePdfInternalLink(
         "gamma|Gamma report",
         "docs/main.md",
         AVAILABLE_PATHS,
@@ -49,7 +47,7 @@ describe("Markdown document bundles", () => {
 
   it("distinguishes external and unresolved internal Markdown targets", () => {
     expect(
-      resolveMarkdownInternalLink(
+      resolvePdfInternalLink(
         "https://example.com/report",
         "docs/main.md",
         AVAILABLE_PATHS,
@@ -57,7 +55,7 @@ describe("Markdown document bundles", () => {
       ),
     ).toEqual({ kind: "external" })
     expect(
-      resolveMarkdownInternalLink(
+      resolvePdfInternalLink(
         "missing.md",
         "docs/main.md",
         AVAILABLE_PATHS,
@@ -65,7 +63,7 @@ describe("Markdown document bundles", () => {
       ),
     ).toEqual({ kind: "unresolved" })
     expect(
-      resolveMarkdownInternalLink(
+      resolvePdfInternalLink(
         "chart.png",
         "docs/main.md",
         AVAILABLE_PATHS,
@@ -88,7 +86,7 @@ describe("Markdown document bundles", () => {
     ].join("\n")
 
     expect(
-      findDirectMarkdownDocumentPaths(markdown, "docs/main.md", [
+      findDirectPdfDocumentPaths(markdown, "docs/main.md", [
         ...AVAILABLE_PATHS,
         "docs/ignored.md",
       ]),
@@ -101,7 +99,7 @@ describe("Markdown document bundles", () => {
 
   it("does not collect self-links or recurse into appendix content", () => {
     expect(
-      findDirectMarkdownDocumentPaths(
+      findDirectPdfDocumentPaths(
         "See [this section](#Intro) and [[docs/main.md]].",
         "docs/main.md",
         AVAILABLE_PATHS,
@@ -124,19 +122,19 @@ describe("Markdown document bundles", () => {
 
   it("uses frontmatter, the first H1, and then the basename for titles", () => {
     expect(
-      getMarkdownDocumentTitle({
+      getPdfDocumentTitle({
         markdown: "---\ntitle: Frontmatter title\n---\n# Heading",
         path: "docs/report.md",
       }),
     ).toBe("Frontmatter title")
     expect(
-      getMarkdownDocumentTitle({
+      getPdfDocumentTitle({
         markdown: "# Heading title",
         path: "docs/report.md",
       }),
     ).toBe("Heading title")
     expect(
-      getMarkdownDocumentTitle({
+      getPdfDocumentTitle({
         markdown: "Body only",
         path: "docs/report.md",
       }),
@@ -145,7 +143,7 @@ describe("Markdown document bundles", () => {
 
   it("extracts the first rendered H1 rather than Markdown syntax or fenced content", () => {
     expect(
-      getMarkdownDocumentTitle({
+      getPdfDocumentTitle({
         markdown: "```md\n# Ignored heading\n```\n\n# **Visible** title",
         path: "docs/report.md",
       }),
