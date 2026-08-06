@@ -14,13 +14,13 @@ describe("exportWorkspaceFileAsPdf", () => {
     vi.clearAllMocks()
   })
 
-  it("returns false when the path normalizes to empty", async () => {
+  it("returns an error when the path normalizes to empty", async () => {
     const result = await exportWorkspaceFileAsPdf("alice", "  ")
-    expect(result).toBe(false)
+    expect(result).toEqual({ error: "invalid_path", ok: false })
   })
 
-  it("returns false when document is unavailable (node environment)", async () => {
+  it("returns an error when document is unavailable (node environment)", async () => {
     const result = await exportWorkspaceFileAsPdf("alice", "docs/readme.md")
-    expect(result).toBe(false)
+    expect(result).toEqual({ error: "browser_unavailable", ok: false })
   })
 })

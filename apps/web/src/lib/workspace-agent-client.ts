@@ -13,7 +13,7 @@ export async function workspaceAgentFetch<T>(
   agent: WorkspaceAgent,
   endpoint: string,
   body?: Record<string, unknown>,
-  options?: { method?: string },
+  options?: { method?: string; signal?: AbortSignal },
 ): Promise<AgentResponse<T>> {
   const response = await fetch(`${agent.baseUrl}${endpoint}`, {
     method: options?.method ?? 'POST',
@@ -24,6 +24,7 @@ export async function workspaceAgentFetch<T>(
     },
     body: JSON.stringify(body ?? {}),
     cache: 'no-store',
+    signal: options?.signal,
   })
 
   const json = (await response.json().catch(() => null)) as JsonObject | null
