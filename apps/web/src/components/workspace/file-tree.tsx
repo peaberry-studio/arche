@@ -18,24 +18,65 @@ type FileTreeProps = {
 
 type TreeState = Record<string, boolean>;
 
+function stripTrailingSlash(path: string): string {
+  return path.endsWith("/") ? path.slice(0, -1) : path;
+}
+
+function getAncestorPaths(filePath: string): string[] {
+  const segments = stripTrailingSlash(filePath).split("/");
+  const ancestors: string[] = [];
+  for (let i = 1; i < segments.length; i++) {
+    ancestors.push(segments.slice(0, i).join("/"));
+  }
+  return ancestors;
+}
+
 export function FileTree({ nodes, activePath, onSelect, onFileContextMenu }: FileTreeProps) {
   const initialExpanded = useMemo<TreeState>(() => {
     const state: TreeState = {};
     nodes.forEach((node) => {
-      if (node.type === "directory") state[node.path] = true;
+      if (node.type === "directory") state[stripTrailingSlash(node.path)] = true;
     });
     return state;
   }, [nodes]);
 
-  const [expanded, setExpanded] = useState<TreeState>(initialExpanded);
+  const [userToggles, setUserToggles] = useState<TreeState>(() => {
+    if (!activePath) return {};
+    const state: TreeState = {};
+    for (const ancestor of getAncestorPaths(activePath)) {
+      state[ancestor] = true;
+    }
+    return state;
+  });
+
+  const [prevActivePath, setPrevActivePath] = useState<string | null>(activePath ?? null);
+  if (activePath !== prevActivePath) {
+    setPrevActivePath(activePath ?? null);
+    if (activePath) {
+      const ancestors = getAncestorPaths(activePath);
+      setUserToggles((prev) => {
+        const next = { ...prev };
+        for (const ancestor of ancestors) {
+          next[ancestor] = true;
+        }
+        return next;
+      });
+    }
+  }
+
+  const expanded = useMemo<TreeState>(() => {
+    return { ...initialExpanded, ...userToggles };
+  }, [initialExpanded, userToggles]);
 
   const toggle = (path: string) => {
-    setExpanded((prev) => ({ ...prev, [path]: !prev[path] }));
+    const key = stripTrailingSlash(path);
+    setUserToggles((prev) => ({ ...prev, [key]: !expanded[key] }));
   };
 
   const renderNode = (node: WorkspaceFileNode, depth: number) => {
     const isFolder = node.type === "directory";
-    const isOpen = expanded[node.path];
+    const nodeKey = isFolder ? stripTrailingSlash(node.path) : node.path;
+    const isOpen = expanded[nodeKey];
     const isActive = activePath === node.path && !isFolder;
     const paddingLeft = 4 + depth * 12;
 

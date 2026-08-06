@@ -439,6 +439,10 @@ function ExpandedInspectorPanel({
     });
   };
 
+  const isEditable = Boolean(
+    activeFile?.kind === "markdown" && activeDraft != null && canEditMarkdown
+  );
+
   const isReviewActive = effectiveActiveTab === "review";
 
   const showHeader = panelMode !== "files";

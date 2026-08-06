@@ -157,6 +157,65 @@ const persistLayout = (storageKey: string, cookieName: string, state: StoredLayo
   persistWorkspacePanelState(storageKey, cookieName, state);
 };
 
+type StoredOpenFilesState = {
+  openFilePaths: string[];
+  activeFilePath: string | null;
+};
+
+function getOpenFilesStorageKey(scope: string): string {
+  return `arche.workspace.${scope}.open-files`;
+}
+
+const MAX_STORED_OPEN_FILES = 50;
+
+function isValidStoredPath(value: unknown): value is string {
+  if (typeof value !== "string" || !value) return false;
+  const normalized = normalizeWorkspacePath(value);
+  if (!normalized) return false;
+  if (isProtectedWorkspacePath(normalized)) return false;
+  if (normalized.split("/").some((s) => s === "..")) return false;
+  return true;
+}
+
+function loadStoredOpenFiles(key: string): StoredOpenFilesState | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
+    const record = parsed as Record<string, unknown>;
+    if (!Array.isArray(record.openFilePaths)) return null;
+    const seen = new Set<string>();
+    const openFilePaths: string[] = [];
+    for (const entry of record.openFilePaths) {
+      if (!isValidStoredPath(entry)) continue;
+      const normalized = normalizeWorkspacePath(entry);
+      if (seen.has(normalized)) continue;
+      seen.add(normalized);
+      openFilePaths.push(normalized);
+      if (openFilePaths.length >= MAX_STORED_OPEN_FILES) break;
+    }
+    if (openFilePaths.length === 0) return null;
+    const activeFilePath =
+      isValidStoredPath(record.activeFilePath) && openFilePaths.includes(normalizeWorkspacePath(record.activeFilePath as string))
+        ? normalizeWorkspacePath(record.activeFilePath as string)
+        : null;
+    return { openFilePaths, activeFilePath };
+  } catch {
+    return null;
+  }
+}
+
+function persistOpenFiles(key: string, state: StoredOpenFilesState): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(key, JSON.stringify(state));
+  } catch {
+    // ignore storage errors
+  }
+}
+
 function resolveRootSessionId(
   sessionId: string | null,
   sessionsById: Map<string, WorkspaceSession>
@@ -260,6 +319,7 @@ export function WorkspaceShell({
   const resolvedPersistenceScope = persistenceScope ?? slug;
   const layoutCookieName = getWorkspaceLayoutCookieName(resolvedPersistenceScope);
   const layoutStorageKey = getWorkspaceLayoutStorageKey(resolvedPersistenceScope);
+  const openFilesStorageKey = getOpenFilesStorageKey(resolvedPersistenceScope);
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>(initialWorkspaceMode);
   const isKnowledgeMode = workspaceMode === "knowledge";
   const isFlowsMode = workspaceMode === "flows";
@@ -789,23 +849,109 @@ export function WorkspaceShell({
   // File viewing state
   const safeInitialFilePath = useMemo(() => {
     if (!initialFilePath) return null;
-    const normalized = normalizeWorkspacePath(initialFilePath);
-    if (!normalized || isProtectedWorkspacePath(normalized)) return null;
-    return normalized;
+    if (!isValidStoredPath(initialFilePath)) return null;
+    return normalizeWorkspacePath(initialFilePath);
   }, [initialFilePath]);
 
-  const [openFilePaths, setOpenFilePaths] = useState<string[]>(
-    safeInitialFilePath ? [safeInitialFilePath] : []
-  );
-  const [activeFilePath, setActiveFilePath] = useState<string | null>(
-    safeInitialFilePath
-  );
+  const [openFilePaths, setOpenFilePaths] = useState<string[]>(() => {
+    const stored = loadStoredOpenFiles(openFilesStorageKey);
+    const storedPaths = stored?.openFilePaths ?? [];
+    if (!safeInitialFilePath) return storedPaths;
+    if (storedPaths.includes(safeInitialFilePath)) return storedPaths;
+    return [...storedPaths, safeInitialFilePath];
+  });
+  const [activeFilePath, setActiveFilePath] = useState<string | null>(() => {
+    if (safeInitialFilePath) return safeInitialFilePath;
+    const stored = loadStoredOpenFiles(openFilesStorageKey);
+    if (!stored?.activeFilePath) return stored?.openFilePaths?.[0] ?? null;
+    return stored.openFilePaths.includes(stored.activeFilePath)
+      ? stored.activeFilePath
+      : stored.openFilePaths[0] ?? null;
+  });
   const [fileCache, setFileCache] = useState<FileContentCache>({});
   const fileCacheRef = useRef(fileCache);
 
   useEffect(() => {
     fileCacheRef.current = fileCache;
   }, [fileCache]);
+
+  const initialOpenFilePathsRef = useRef(openFilePaths);
+  const hasRestoredFilesRef = useRef(false);
+  useEffect(() => {
+    if (hasRestoredFilesRef.current) return;
+    if (!workspace.isConnected) return;
+    const paths = initialOpenFilePathsRef.current;
+    if (paths.length === 0) {
+      hasRestoredFilesRef.current = true;
+      return;
+    }
+    hasRestoredFilesRef.current = true;
+
+    void Promise.all(
+      paths.map(async (path) => {
+        try {
+          const result = await readWorkspaceFile(path);
+          if (result) {
+            setFileCache((prev) => {
+              if (prev[path]) return prev;
+              return {
+                ...prev,
+                [path]: {
+                  content: result.content,
+                  type: result.type,
+                  title: path.split("/").pop() ?? path,
+                  updatedAt: "Just now",
+                  size: `${(result.content.length / 1024).toFixed(1)} KB`,
+                  hash: result.hash,
+                },
+              };
+            });
+          } else {
+            setFileCache((prev) => ({
+              ...prev,
+              [path]: {
+                content: "Unable to load file.",
+                type: "raw",
+                title: path.split("/").pop() ?? path,
+                updatedAt: "Error",
+                size: "0 KB",
+              },
+            }));
+          }
+        } catch {
+          setFileCache((prev) => ({
+            ...prev,
+            [path]: {
+              content: "Unable to load file.",
+              type: "raw",
+              title: path.split("/").pop() ?? path,
+              updatedAt: "Error",
+              size: "0 KB",
+            },
+          }));
+        }
+      })
+    );
+  }, [workspace.isConnected, readWorkspaceFile]);
+
+  useEffect(() => {
+    persistOpenFiles(openFilesStorageKey, { openFilePaths, activeFilePath });
+  }, [openFilesStorageKey, openFilePaths, activeFilePath]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const params = new URLSearchParams(window.location.search);
+
+    if (activeFilePath) {
+      params.set("path", activeFilePath);
+    } else {
+      params.delete("path");
+    }
+
+    const query = params.toString();
+    window.history.replaceState(window.history.state, "", query ? `/w/${slug}?${query}` : `/w/${slug}`);
+  }, [activeFilePath, slug]);
 
   const refreshOpenFilesCache = useCallback(async () => {
     if (openFilePaths.length === 0) return;

@@ -512,6 +512,7 @@ export function MarkdownEditor({
           : "H";
   const editorScrollRef = useRef<HTMLDivElement>(null);
 
+
   return (
     <div className="flex h-full flex-col">
       <div

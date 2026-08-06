@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mockGetSession = vi.hoisted(() => vi.fn())
 const mockCreateWorkspaceAgentClient = vi.hoisted(() => vi.fn())
 const mockIsProtectedWorkspacePath = vi.hoisted(() => vi.fn(() => false))
+const mockNormalizeWorkspacePath = vi.hoisted(() => vi.fn((p: string) => p))
 
 vi.mock('@/lib/runtime/session', () => ({
   getSession: mockGetSession,
@@ -14,6 +15,7 @@ vi.mock('@/lib/workspace-agent/client', () => ({
 
 vi.mock('@/lib/workspace-paths', () => ({
   isProtectedWorkspacePath: mockIsProtectedWorkspacePath,
+  normalizeWorkspacePath: mockNormalizeWorkspacePath,
 }))
 
 import {

@@ -1093,7 +1093,7 @@ describe("WorkspaceShell", () => {
 
   it("keeps a recent local mode when stale server mode props arrive late", async () => {
     window.history.replaceState(null, "", "/w/alice?mode=knowledge&path=docs/plan.md");
-    const { rerender } = render(<WorkspaceShell slug="alice" initialWorkspaceMode="knowledge" />);
+    const { rerender } = render(<WorkspaceShell slug="alice" initialWorkspaceMode="knowledge" initialFilePath="docs/plan.md" />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Flows" }));
 
