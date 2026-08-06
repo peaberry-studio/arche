@@ -38,14 +38,16 @@ import { parseMarkdownFrontmatter } from "@/components/workspace/markdown-frontm
 import { workspaceRemarkPlugins } from "@/components/workspace/markdown-plugins"
 import {
   getDocxDocumentAnchor,
-  getDocxDocumentTitle,
   getDocxHeadingAnchor,
-  getObsidianDocxLinkLabel,
-  resolveDocxInternalLink,
-  type DocxDocumentBundle,
-  type DocxSourceDocument,
 } from "@/lib/docx-document-bundle"
 import { findObsidianLinks } from "@/lib/kb-internal-links"
+import {
+  getObsidianPdfLinkLabel as getObsidianLinkLabel,
+  getPdfDocumentTitle as getDocumentTitle,
+  resolvePdfInternalLink as resolveInternalLink,
+  type PdfDocumentBundle as DocumentBundle,
+  type PdfSourceDocument as SourceDocument,
+} from "@/lib/pdf-document-bundle"
 
 type MarkdownNode = {
   type: string
@@ -81,7 +83,7 @@ type DocxRenderState = {
 }
 
 type DocxRenderContext = {
-  document: DocxSourceDocument
+  document: SourceDocument
   headingOffset: number
   state: DocxRenderState
 }
@@ -95,6 +97,10 @@ const MAX_CHART_HEIGHT = 760
 const CHART_RASTER_SCALE = 3
 const CHART_PADDING = 8
 const TABLE_BORDER = { color: "D1D5DB", size: 4, style: BorderStyle.SINGLE }
+
+function getNodeText(node: MarkdownNode): string {
+  return `${node.value ?? ""}${node.children?.map(getNodeText).join("") ?? ""}`
+}
 
 function isSafeExternalUrl(value: string | undefined): value is string {
   if (!value) return false
@@ -211,7 +217,7 @@ function getIncludedLinkAnchor(
   syntax: "markdown" | "obsidian",
   context: DocxRenderContext,
 ): string | null {
-  const resolved = resolveDocxInternalLink(
+  const resolved = resolveInternalLink(
     rawTarget,
     context.document.path,
     context.state.availablePaths,
@@ -242,7 +248,7 @@ function textChildren(
       children.push(new TextRun({ text: value.slice(cursor, link.from), ...style }))
     }
 
-    const label = getObsidianDocxLinkLabel(link.target)
+    const label = getObsidianLinkLabel(link.target)
     const anchor = getIncludedLinkAnchor(link.target, "obsidian", context)
     children.push(
       anchor
@@ -441,9 +447,8 @@ function blockChildren(
       ]
       const sourceDepth = node.depth ?? 1
       const depth = Math.min(6, sourceDepth + (context?.headingOffset ?? 0))
-      const headingText = (node.children ?? [])
-        .map((child) => child.value ?? "")
-        .join("")
+      const headingText = getNodeText(node)
+        .replace(/\s+/gu, " ")
         .trim()
       const content = inlineChildren(node.children ?? [], {}, context)
       const headingChildren = context && headingText
@@ -552,7 +557,7 @@ function numberingLevels(format: (typeof LevelFormat)[keyof typeof LevelFormat])
   }))
 }
 
-function documentAnchorParagraph(document: DocxSourceDocument): Paragraph {
+function documentAnchorParagraph(document: SourceDocument): Paragraph {
   return new Paragraph({
     children: [
       new Bookmark({
@@ -564,8 +569,8 @@ function documentAnchorParagraph(document: DocxSourceDocument): Paragraph {
   })
 }
 
-function getAppendixTitle(document: DocxSourceDocument, primaryTitle: string): string {
-  const documentTitle = getDocxDocumentTitle(document)
+function getAppendixTitle(document: SourceDocument, primaryTitle: string): string {
+  const documentTitle = getDocumentTitle(document)
   const primaryPrefix = `${primaryTitle} — `
   return documentTitle.startsWith(primaryPrefix)
     ? documentTitle.slice(primaryPrefix.length).trim()
@@ -573,7 +578,7 @@ function getAppendixTitle(document: DocxSourceDocument, primaryTitle: string): s
 }
 
 async function sourceDocumentChildren(
-  document: DocxSourceDocument,
+  document: SourceDocument,
   headingOffset: number,
   state: DocxRenderState,
 ): Promise<FileChild[]> {
@@ -582,14 +587,14 @@ async function sourceDocumentChildren(
   for (const plugin of workspaceRemarkPlugins) processor = processor.use(plugin)
   const tree = processor.parse(frontmatter.body) as MarkdownNode
   const children = tree.children ?? []
-  const documentTitle = getDocxDocumentTitle(document)
+  const documentTitle = getDocumentTitle(document)
 
   if (headingOffset > 0) {
     const titleHeadingIndex = children.findIndex(
       (node) =>
         node.type === "heading" &&
         node.depth === 1 &&
-        (node.children ?? []).map((child) => child.value ?? "").join("").trim() === documentTitle,
+        getNodeText(node).replace(/\s+/gu, " ").trim() === documentTitle,
     )
     if (titleHeadingIndex >= 0) children.splice(titleHeadingIndex, 1)
   }
@@ -600,16 +605,16 @@ async function sourceDocumentChildren(
 }
 
 export async function markdownToDocx(
-  input: string | DocxDocumentBundle,
+  input: string | DocumentBundle,
 ): Promise<Buffer> {
-  const bundle: DocxDocumentBundle = typeof input === "string"
+  const bundle: DocumentBundle = typeof input === "string"
     ? {
         appendices: [],
         availablePaths: ["article.md"],
         primary: { markdown: input, path: "article.md" },
       }
     : input
-  const title = getDocxDocumentTitle(bundle.primary)
+  const title = getDocumentTitle(bundle.primary)
   const state: DocxRenderState = {
     availablePaths: bundle.availablePaths,
     chartCount: 0,
@@ -630,7 +635,7 @@ export async function markdownToDocx(
   ]
 
   for (const appendix of bundle.appendices) {
-    const sourceTitle = getDocxDocumentTitle(appendix)
+    const sourceTitle = getDocumentTitle(appendix)
     const appendixTitle = `Appendix. ${getAppendixTitle(appendix, title)}`
     const content = await sourceDocumentChildren(appendix, 1, state)
     sections.push({

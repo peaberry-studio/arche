@@ -3,9 +3,9 @@ import path from "node:path"
 import { NextRequest } from "next/server"
 
 import {
-  findDirectDocxDocumentPaths,
-  type DocxSourceDocument,
-} from "@/lib/docx-document-bundle"
+  findDirectPdfDocumentPaths as findDirectDocumentPaths,
+  type PdfSourceDocument as SourceDocument,
+} from "@/lib/pdf-document-bundle"
 import { markdownToDocx } from "@/lib/markdown-to-docx"
 import { withAuth } from "@/lib/runtime/with-auth"
 import { createWorkspaceAgentClient } from "@/lib/workspace-agent/client"
@@ -112,7 +112,7 @@ export const POST = withAuth<{ error: string }>(
             .filter((entryPath) => isValidWorkspacePath(entryPath, { extension: ".md" })),
         ]),
       )
-      const linkedPaths = findDirectDocxDocumentPaths(
+      const linkedPaths = findDirectDocumentPaths(
         primaryMarkdown,
         normalizedPath,
         availablePaths,
@@ -121,7 +121,7 @@ export const POST = withAuth<{ error: string }>(
         return jsonResponse(413, { error: "bundle_too_large" })
       }
 
-      const appendices: DocxSourceDocument[] = []
+      const appendices: SourceDocument[] = []
       let bundleBytes = primaryBytes
       for (const linkedPath of linkedPaths) {
         const linkedResult = await readWorkspaceFileFromAgent(agent, linkedPath)

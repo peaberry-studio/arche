@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
   createWorkspaceAgentClient: vi.fn(),
-  findDirectDocxDocumentPaths: vi.fn(),
+  findDirectDocumentPaths: vi.fn(),
   getRuntimeCapabilities: vi.fn(() => ({ csrf: false })),
   getSession: vi.fn(),
   isDesktop: vi.fn(() => false),
@@ -15,9 +15,9 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock("@/lib/csrf", () => ({ validateSameOrigin: mocks.validateSameOrigin }))
-vi.mock("@/lib/docx-document-bundle", async (importOriginal) => {
-  const original = await importOriginal<typeof import("@/lib/docx-document-bundle")>()
-  return { ...original, findDirectDocxDocumentPaths: mocks.findDirectDocxDocumentPaths }
+vi.mock("@/lib/pdf-document-bundle", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/lib/pdf-document-bundle")>()
+  return { ...original, findDirectPdfDocumentPaths: mocks.findDirectDocumentPaths }
 })
 vi.mock("@/lib/markdown-to-docx", () => ({ markdownToDocx: mocks.markdownToDocx }))
 vi.mock("@/lib/runtime/capabilities", () => ({
@@ -67,7 +67,7 @@ describe("POST /api/w/[slug]/files/export-docx", () => {
     })
     mocks.isDesktop.mockReturnValue(false)
     mocks.createWorkspaceAgentClient.mockResolvedValue({ baseUrl: "http://agent" })
-    mocks.findDirectDocxDocumentPaths.mockReturnValue([])
+    mocks.findDirectDocumentPaths.mockReturnValue([])
     mocks.listWorkspaceFilesFromAgent.mockResolvedValue({
       entries: [{ modifiedAt: 1, name: "article.md", path: "Research/article.md", size: 9, type: "file" }],
       ok: true,
@@ -123,7 +123,7 @@ describe("POST /api/w/[slug]/files/export-docx", () => {
       ],
       ok: true,
     })
-    mocks.findDirectDocxDocumentPaths.mockReturnValue(["Research/report/plots.md"])
+    mocks.findDirectDocumentPaths.mockReturnValue(["Research/report/plots.md"])
     mocks.readWorkspaceFileFromAgent.mockImplementation(async (_agent, filePath) => ({
       data: {
         content: filePath === "Research/report.md" ? "# Report" : "# Plots",
@@ -155,7 +155,7 @@ describe("POST /api/w/[slug]/files/export-docx", () => {
   })
 
   it("rejects bundles with more than 25 direct links", async () => {
-    mocks.findDirectDocxDocumentPaths.mockReturnValue(
+    mocks.findDirectDocumentPaths.mockReturnValue(
       Array.from({ length: 26 }, (_, index) => `appendix-${index}.md`),
     )
 
