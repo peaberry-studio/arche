@@ -48,6 +48,7 @@ export type StreamReconciliationInput = {
   targetMessageId: string;
   receivedAssistantPart: boolean;
   receivedStreamData: boolean;
+  interruptionDetail?: string | null;
   terminalErrorDetail: string | null;
   result: ListMessagesResult;
   resumeFailureState: Map<string, ResumeFailureState>;
@@ -57,9 +58,24 @@ export type StreamReconciliationResult =
   | { action: "hydrate"; messages: WorkspaceMessage[] }
   | { action: "fallback-error"; messageId: string; detail: string }
   | { action: "stream-incomplete"; detail: string }
+  | { action: "stream-interrupted"; detail: string }
   | { action: "none" };
 
 const STREAM_RECONCILIATION_DELAY_MS = 250;
+const STREAM_RECOVERY_BASE_DELAY_MS = 1_000;
+const STREAM_RECOVERY_MAX_DELAY_MS = 30_000;
+
+type StreamMode = "send" | "resume";
+type StreamOptions = {
+  sessionId: string;
+  mode: StreamMode;
+  targetMessageId: string;
+  runId?: string;
+  text?: string;
+  model?: { providerId: string; modelId: string };
+  attachments?: { path: string; filename?: string; mime?: string }[];
+  contextPaths?: string[];
+};
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -106,11 +122,15 @@ export function reconcileStreamMessages({
   targetMessageId,
   receivedAssistantPart,
   receivedStreamData,
+  interruptionDetail,
   terminalErrorDetail,
   result,
   resumeFailureState,
 }: StreamReconciliationInput): StreamReconciliationResult {
   if (!result.ok || !result.messages) {
+    if (interruptionDetail) {
+      return { action: "stream-interrupted", detail: interruptionDetail };
+    }
     if (!terminalErrorDetail && receivedAssistantPart) return { action: "none" };
     return {
       action: "stream-incomplete",
@@ -130,6 +150,12 @@ export function reconcileStreamMessages({
   let hydratedMessages: WorkspaceMessage[] = result.messages.map(
     (message): WorkspaceMessage => {
       const resumeState = resumeFailureState.get(message.id);
+      if (message.role === "assistant" && message.pending && interruptionDetail) {
+        return {
+          ...message,
+          statusInfo: { status: "thinking", detail: interruptionDetail },
+        };
+      }
       if (
         message.role === "assistant" &&
         message.pending &&
@@ -145,6 +171,10 @@ export function reconcileStreamMessages({
       return message;
     }
   );
+
+  if (interruptionDetail && hydratedMessages.length === 0) {
+    return { action: "stream-interrupted", detail: interruptionDetail };
+  }
 
   if (mode === "send" && assistantMessageId && !receivedAssistantPart) {
     const assistantMessage = hydratedMessages.find(
@@ -226,6 +256,9 @@ export function useWorkspaceStreaming({
     abortController: AbortController;
   }>());
   const latestStreamTokensRef = useRef(new Map<string, number>());
+  const recoveryAttemptsRef = useRef(new Map<string, number>());
+  const recoveryTimeoutsRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const streamChatRef = useRef<((options: StreamOptions) => Promise<void>) | null>(null);
   const isMountedRef = useRef(true);
   const workspaceRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -241,13 +274,21 @@ export function useWorkspaceStreaming({
   }, [getSessions]);
 
   const setSessionStreamStatusTo = useCallback(
-    (sessionId: string, status: "submitted" | "streaming" | "error" | "ready") => {
+    (
+      sessionId: string,
+      status: "submitted" | "streaming" | "error" | "ready",
+      notifyBackgroundCompletion = true
+    ) => {
       setSessionStreamStatus((prev) => {
         if (status === "ready") {
           if (!(sessionId in prev)) return prev;
 
           const wasStreaming = prev[sessionId] === "submitted" || prev[sessionId] === "streaming";
-          if (wasStreaming && sessionId !== activeSessionIdGetterRef.current()) {
+          if (
+            notifyBackgroundCompletion &&
+            wasStreaming &&
+            sessionId !== activeSessionIdGetterRef.current()
+          ) {
             onBackgroundStreamCompleted(sessionId);
           }
 
@@ -269,6 +310,12 @@ export function useWorkspaceStreaming({
 
   const abortSessionStream = useCallback(
     (sessionId: string) => {
+      const recoveryTimeout = recoveryTimeoutsRef.current.get(sessionId);
+      if (recoveryTimeout) {
+        clearTimeout(recoveryTimeout);
+        recoveryTimeoutsRef.current.delete(sessionId);
+      }
+
       const activeStream = activeStreamsRef.current.get(sessionId);
       if (!activeStream) return;
 
@@ -284,6 +331,12 @@ export function useWorkspaceStreaming({
   );
 
   const abortAllStreams = useCallback(() => {
+    for (const recoveryTimeout of recoveryTimeoutsRef.current.values()) {
+      clearTimeout(recoveryTimeout);
+    }
+    recoveryTimeoutsRef.current.clear();
+    recoveryAttemptsRef.current.clear();
+
     for (const sessionId of activeStreamsRef.current.keys()) {
       const activeStream = activeStreamsRef.current.get(sessionId);
       activeStream?.abortController.abort();
@@ -404,18 +457,6 @@ export function useWorkspaceStreaming({
     [deriveStatusInfoFromPart, updateSessionMessages]
   );
 
-  type StreamMode = "send" | "resume";
-  type StreamOptions = {
-    sessionId: string;
-    mode: StreamMode;
-    targetMessageId: string;
-    runId?: string;
-    text?: string;
-    model?: { providerId: string; modelId: string };
-    attachments?: { path: string; filename?: string; mime?: string }[];
-    contextPaths?: string[];
-  };
-
   const streamChat = useCallback(
     async ({
       sessionId,
@@ -459,12 +500,14 @@ export function useWorkspaceStreaming({
 
       let assistantMessageId: string | null =
         mode === "resume" ? targetMessageId : null;
-      const runId = existingRunId ?? null;
+      let observedRunId = existingRunId ?? null;
       const bufferedParts = new Map<string, MessagePart[]>();
       const textAccumulatorByPart = new Map<string, string>();
       let streamCompleted = false;
+      let streamResponseOpened = false;
       let receivedAssistantPart = false;
       let receivedStreamData = false;
+      let interruptionDetail: string | null = null;
       let terminalErrorDetail: string | null = null;
       let resumePollInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -574,10 +617,10 @@ export function useWorkspaceStreaming({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             sessionId,
-            ...(runId ? { runId } : {}),
+            ...(observedRunId ? { runId: observedRunId } : {}),
             resume: mode === "resume",
             messageId: mode === "resume" ? targetMessageId : undefined,
-            ...(mode === "send" && !runId
+            ...(mode === "send" && !observedRunId
               ? { text, model, attachments, contextPaths }
               : {}),
           }),
@@ -590,6 +633,9 @@ export function useWorkspaceStreaming({
             .catch(() => ({ error: "Failed to send message" }));
           throw new Error(error.error || "Failed to send message");
         }
+
+        streamResponseOpened = true;
+        observedRunId = response.headers?.get("X-Arche-Run-Id") || observedRunId;
 
         const reader = response.body?.getReader();
         if (!reader) {
@@ -634,11 +680,19 @@ export function useWorkspaceStreaming({
               setSessionStreamStatusTo(sessionId, "streaming");
               const data = JSON.parse(parsedEvent.data);
 
+              if (
+                parsedEvent.event !== "error" &&
+                parsedEvent.event !== "status"
+              ) {
+                recoveryAttemptsRef.current.delete(sessionId);
+              }
+
               switch (parsedEvent.event) {
                 case "status": {
                   const status = data.status as MessageStatus;
                   updateStatus(status, data.toolName, data.detail);
                   if (status === "complete" || status === "error") {
+                    recoveryAttemptsRef.current.delete(sessionId);
                     streamCompleted = true;
                   }
                   break;
@@ -697,14 +751,25 @@ export function useWorkspaceStreaming({
                 }
 
                 case "done": {
+                  recoveryAttemptsRef.current.delete(sessionId);
                   updateStatus("complete");
                   streamCompleted = true;
                   break;
                 }
 
                 case "error": {
-                  terminalErrorDetail = typeof data.error === "string" ? data.error : terminalErrorDetail;
-                  updateStatus("error", undefined, data.error);
+                  const detail = typeof data.error === "string" ? data.error : "stream_interrupted";
+                  if (data.recoverable === true) {
+                    interruptionDetail = detail;
+                    if (typeof data.runId === "string") {
+                      observedRunId = data.runId;
+                    }
+                    updateStatus("thinking", undefined, detail);
+                  } else {
+                    recoveryAttemptsRef.current.delete(sessionId);
+                    terminalErrorDetail = detail;
+                    updateStatus("error", undefined, detail);
+                  }
                   streamCompleted = true;
                   break;
                 }
@@ -722,17 +787,27 @@ export function useWorkspaceStreaming({
             break;
           }
         }
+
+        if (!streamCompleted) {
+          interruptionDetail = "stream_interrupted";
+          updateStatus("thinking", undefined, interruptionDetail);
+        }
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") {
           return;
         }
         console.error("[useWorkspace] Streaming error:", error);
-        terminalErrorDetail = error instanceof Error ? error.message : "Unknown error";
-        updateStatus(
-          "error",
-          undefined,
-          terminalErrorDetail
-        );
+        const detail = error instanceof Error ? error.message : "Unknown error";
+        // A runId-carrying stream only observes an already-accepted run, so a
+        // transport failure before the response opens is recoverable: nothing
+        // was sent and the run may still be active and reattachable.
+        if (streamResponseOpened || observedRunId) {
+          interruptionDetail = "stream_interrupted";
+          updateStatus("thinking", undefined, interruptionDetail);
+        } else {
+          terminalErrorDetail = detail;
+          updateStatus("error", undefined, terminalErrorDetail);
+        }
       } finally {
         if (resumePollInterval) {
           clearInterval(resumePollInterval);
@@ -741,7 +816,7 @@ export function useWorkspaceStreaming({
         const isLatestStream = () => latestStreamTokensRef.current.get(sessionId) === token;
 
         if (mode === "resume") {
-          if (streamCompleted || receivedAssistantPart) {
+          if (interruptionDetail || streamCompleted || receivedAssistantPart) {
             resumeFailureStateRef.current.delete(targetMessageId);
           } else {
             // If the session is still actively processing, don't record a
@@ -769,7 +844,11 @@ export function useWorkspaceStreaming({
         if (isLatestStream()) {
           activeStreamsRef.current.delete(sessionId);
           if (isMountedRef.current) {
-            setSessionStreamStatusTo(sessionId, "ready");
+            setSessionStreamStatusTo(
+              sessionId,
+              "ready",
+              interruptionDetail === null
+            );
           }
         }
 
@@ -789,12 +868,32 @@ export function useWorkspaceStreaming({
             return;
           }
 
+          if (interruptionDetail && result.ok && result.messages) {
+            const pendingAssistant = [...result.messages].reverse().find(
+              (message) => message.role === "assistant" && message.pending
+            );
+            if (!assistantMessageId && pendingAssistant) {
+              assistantMessageId = pendingAssistant.id;
+            }
+
+            const observedAssistantId = assistantMessageId ?? (
+              mode === "resume" ? targetMessageId : null
+            );
+            const observedAssistant = observedAssistantId
+              ? result.messages.find((message) => message.id === observedAssistantId)
+              : null;
+            if (observedAssistant && !observedAssistant.pending) {
+              interruptionDetail = null;
+            }
+          }
+
           const reconciliation = reconcileStreamMessages({
             mode,
             assistantMessageId,
             targetMessageId,
             receivedAssistantPart,
             receivedStreamData,
+            interruptionDetail,
             terminalErrorDetail,
             result,
             resumeFailureState: resumeFailureStateRef.current,
@@ -820,8 +919,40 @@ export function useWorkspaceStreaming({
             !receivedAssistantPart
           ) {
             updateStatus("error", undefined, reconciliation.detail);
+          } else if (reconciliation.action === "stream-interrupted") {
+            updateStatus("thinking", undefined, reconciliation.detail);
           }
           scheduleWorkspaceRefresh();
+
+          if (interruptionDetail && isLatestStream() && isMountedRef.current) {
+            const attempt = (recoveryAttemptsRef.current.get(sessionId) ?? 0) + 1;
+            recoveryAttemptsRef.current.set(sessionId, attempt);
+            const recoveryDelay = Math.min(
+              STREAM_RECOVERY_BASE_DELAY_MS * Math.pow(2, attempt - 1),
+              STREAM_RECOVERY_MAX_DELAY_MS
+            );
+            const recoveryTargetMessageId = assistantMessageId ?? targetMessageId;
+            const recoveryOptions: StreamOptions = observedRunId
+              ? {
+                  sessionId,
+                  mode: "send",
+                  targetMessageId: recoveryTargetMessageId,
+                  runId: observedRunId,
+                }
+              : {
+                  sessionId,
+                  mode: "resume",
+                  targetMessageId: recoveryTargetMessageId,
+                };
+
+            const recoveryTimeout = setTimeout(() => {
+              if (recoveryTimeoutsRef.current.get(sessionId) !== recoveryTimeout) return;
+              recoveryTimeoutsRef.current.delete(sessionId);
+              if (!isMountedRef.current || activeStreamsRef.current.has(sessionId)) return;
+              void streamChatRef.current?.(recoveryOptions);
+            }, recoveryDelay);
+            recoveryTimeoutsRef.current.set(sessionId, recoveryTimeout);
+          }
         }
 
         if (isLatestStream()) {
@@ -842,6 +973,10 @@ export function useWorkspaceStreaming({
       resumeFailureStateRef,
     ]
   );
+
+  useEffect(() => {
+    streamChatRef.current = streamChat;
+  }, [streamChat]);
 
   const isSending = useMemo(() => {
     return Object.values(sessionStreamStatus).some(

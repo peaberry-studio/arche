@@ -63,6 +63,14 @@ const CHAT_ERROR_MESSAGES: Record<string, { title: string; description?: string 
     title: "Response cancelled",
     description: "The message was stopped before it finished.",
   },
+  event_stream_connect_timeout: {
+    title: "Connection timed out",
+    description: "The workspace took too long to respond. Try sending your message again.",
+  },
+  event_stream_unavailable: {
+    title: "Couldn't reach the workspace",
+    description: "The live connection to the assistant could not be established. Try sending your message again.",
+  },
   execution_termination_unconfirmed: {
     title: "Couldn't confirm the response stopped",
     description: "The assistant may still be running. Wait a moment before sending another message.",
@@ -94,6 +102,10 @@ const CHAT_ERROR_MESSAGES: Record<string, { title: string; description?: string 
   stream_incomplete: {
     title: "Response interrupted",
     description: "The model stopped before returning any visible content.",
+  },
+  stream_timeout: {
+    title: "Response timed out",
+    description: "The assistant ran for too long and was stopped. Try again with a smaller request.",
   },
   too_many_attachments: {
     title: "Too many attachments",

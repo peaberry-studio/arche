@@ -210,6 +210,32 @@ describe('checkConnectionAction', () => {
     expect(result).toEqual({ status: 'error', error: 'unknown' })
   })
 
+  it('aborts and identifies a health check that exceeds its deadline', async () => {
+    const timeoutController = new AbortController()
+    const timeoutSpy = vi
+      .spyOn(AbortSignal, 'timeout')
+      .mockReturnValue(timeoutController.signal)
+    mockHealthFn.mockImplementation(({ signal }: { signal: AbortSignal }) => (
+      new Promise((_, reject) => {
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+      })
+    ))
+
+    try {
+      const resultPromise = checkConnectionAction('alice')
+      await vi.waitFor(() => expect(mockHealthFn).toHaveBeenCalledOnce())
+      timeoutController.abort(new DOMException('Timed out', 'TimeoutError'))
+
+      await expect(resultPromise).resolves.toEqual({
+        status: 'error',
+        error: 'health_check_timeout',
+      })
+      expect(mockHealthFn).toHaveBeenCalledWith({ signal: timeoutController.signal })
+    } finally {
+      timeoutSpy.mockRestore()
+    }
+  })
+
   it('allows admin to check connection for another user', async () => {
     mockGetSession.mockResolvedValue(adminSession)
     mockHealthFn.mockResolvedValue({ data: { healthy: true, version: '2.0' } })
