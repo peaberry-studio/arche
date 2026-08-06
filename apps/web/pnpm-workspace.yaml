@@ -8,8 +8,11 @@ allowBuilds:
   argon2: true
   # Native SQLite binding used by the Prisma desktop adapter.
   better-sqlite3: true
+  # Legacy Paged.js polyfill postinstall scripts are not required at runtime.
+  core-js: false
   # Optional native CPU capability probe for ssh2; app Docker access does not use SSH.
   cpu-features: false
+  es5-ext: false
   # Bundled binary used by TypeScript/runtime tooling.
   esbuild: true
   # Prisma CLI postinstall/generate flow requires its build scripts.
