@@ -2059,11 +2059,11 @@ describe("useWorkspace", () => {
 
     let accepted = false;
     await act(async () => {
-      accepted = await result.current.answerPermission("s1", "perm-1", "approve");
+      accepted = await result.current.answerPermission("s1", "perm-1", "once");
     });
 
     expect(accepted).toBe(true);
-    expect(permissionBody).toEqual({ sessionId: "s1", response: "approve" });
+    expect(permissionBody).toEqual({ sessionId: "s1", response: "once" });
     expect(result.current.messages[0]?.parts[0]).toMatchObject({
       type: "permission",
       state: "approved",

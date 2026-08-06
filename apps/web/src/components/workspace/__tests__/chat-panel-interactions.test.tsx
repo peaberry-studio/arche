@@ -159,7 +159,7 @@ describe("ChatPanel interactions", () => {
       onAnswerPermission,
     });
 
-    const allowButton = screen.getByRole("button", { name: "Allow" }) as HTMLButtonElement;
+    const allowButton = screen.getByRole("button", { name: "Allow once" }) as HTMLButtonElement;
 
     expect(allowButton.disabled).toBe(true);
     fireEvent.click(allowButton);
