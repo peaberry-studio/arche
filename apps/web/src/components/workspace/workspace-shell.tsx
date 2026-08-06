@@ -1624,9 +1624,17 @@ export function WorkspaceShell({
     async (path: string) => {
       const toastId = `docx-export:${path}`;
       toast.loading("Exporting DOCX…", { id: toastId });
-      const ok = await exportWorkspaceFileAsDocx(slug, path);
-      if (ok) {
+      const result = await exportWorkspaceFileAsDocx(slug, path);
+      if (result.ok) {
         toast.success("DOCX exported", { id: toastId });
+      } else if (result.error === "export_busy") {
+        toast.error("Another DOCX export is already in progress", { id: toastId });
+      } else if (result.error === "file_too_large") {
+        toast.error("The document is too large to export", { id: toastId });
+      } else if (result.error === "bundle_too_large") {
+        toast.error("The document bundle is too large to export", { id: toastId });
+      } else if (result.error === "export_timeout") {
+        toast.error("DOCX export timed out; try again", { id: toastId });
       } else {
         toast.error("DOCX export failed", { id: toastId });
       }

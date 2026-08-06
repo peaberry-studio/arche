@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
   createWorkspaceAgentClient: vi.fn(),
-  findDirectDocxDocumentPaths: vi.fn(),
+  findDirectMarkdownDocumentPaths: vi.fn(),
   getRuntimeCapabilities: vi.fn(() => ({ csrf: false })),
   getSession: vi.fn(),
   isDesktop: vi.fn(() => false),
@@ -15,9 +15,12 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock("@/lib/csrf", () => ({ validateSameOrigin: mocks.validateSameOrigin }))
-vi.mock("@/lib/docx-document-bundle", async (importOriginal) => {
-  const original = await importOriginal<typeof import("@/lib/docx-document-bundle")>()
-  return { ...original, findDirectDocxDocumentPaths: mocks.findDirectDocxDocumentPaths }
+vi.mock("@/lib/markdown-document-bundle", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/lib/markdown-document-bundle")>()
+  return {
+    ...original,
+    findDirectMarkdownDocumentPaths: mocks.findDirectMarkdownDocumentPaths,
+  }
 })
 vi.mock("@/lib/markdown-to-docx", () => ({ markdownToDocx: mocks.markdownToDocx }))
 vi.mock("@/lib/runtime/capabilities", () => ({
@@ -67,7 +70,7 @@ describe("POST /api/w/[slug]/files/export-docx", () => {
     })
     mocks.isDesktop.mockReturnValue(false)
     mocks.createWorkspaceAgentClient.mockResolvedValue({ baseUrl: "http://agent" })
-    mocks.findDirectDocxDocumentPaths.mockReturnValue([])
+    mocks.findDirectMarkdownDocumentPaths.mockReturnValue([])
     mocks.listWorkspaceFilesFromAgent.mockResolvedValue({
       entries: [{ modifiedAt: 1, name: "article.md", path: "Research/article.md", size: 9, type: "file" }],
       ok: true,
@@ -91,12 +94,16 @@ describe("POST /api/w/[slug]/files/export-docx", () => {
     expect(mocks.readWorkspaceFileFromAgent).toHaveBeenCalledWith(
       { baseUrl: "http://agent" },
       "Research/article.md",
+      expect.any(AbortSignal),
     )
-    expect(mocks.markdownToDocx).toHaveBeenCalledWith({
-      appendices: [],
-      availablePaths: ["Research/article.md"],
-      primary: { markdown: "# Article", path: "Research/article.md" },
-    })
+    expect(mocks.markdownToDocx).toHaveBeenCalledWith(
+      {
+        appendices: [],
+        availablePaths: ["Research/article.md"],
+        primary: { markdown: "# Article", path: "Research/article.md" },
+      },
+      { signal: expect.any(AbortSignal) },
+    )
   })
 
   it("decodes base64 article content before conversion", async () => {
@@ -108,11 +115,14 @@ describe("POST /api/w/[slug]/files/export-docx", () => {
     const response = await POST(jsonRequest({ path: "encoded.md" }), CONTEXT)
 
     expect(response.status).toBe(200)
-    expect(mocks.markdownToDocx).toHaveBeenCalledWith({
-      appendices: [],
-      availablePaths: ["encoded.md", "Research/article.md"],
-      primary: { markdown: "# Encoded", path: "encoded.md" },
-    })
+    expect(mocks.markdownToDocx).toHaveBeenCalledWith(
+      {
+        appendices: [],
+        availablePaths: ["encoded.md", "Research/article.md"],
+        primary: { markdown: "# Encoded", path: "encoded.md" },
+      },
+      { signal: expect.any(AbortSignal) },
+    )
   })
 
   it("loads directly linked Markdown documents as ordered appendices", async () => {
@@ -123,7 +133,7 @@ describe("POST /api/w/[slug]/files/export-docx", () => {
       ],
       ok: true,
     })
-    mocks.findDirectDocxDocumentPaths.mockReturnValue(["Research/report/plots.md"])
+    mocks.findDirectMarkdownDocumentPaths.mockReturnValue(["Research/report/plots.md"])
     mocks.readWorkspaceFileFromAgent.mockImplementation(async (_agent, filePath) => ({
       data: {
         content: filePath === "Research/report.md" ? "# Report" : "# Plots",
@@ -136,11 +146,14 @@ describe("POST /api/w/[slug]/files/export-docx", () => {
     const response = await POST(jsonRequest({ path: "Research/report.md" }), CONTEXT)
 
     expect(response.status).toBe(200)
-    expect(mocks.markdownToDocx).toHaveBeenCalledWith({
-      appendices: [{ markdown: "# Plots", path: "Research/report/plots.md" }],
-      availablePaths: ["Research/report.md", "Research/report/plots.md"],
-      primary: { markdown: "# Report", path: "Research/report.md" },
-    })
+    expect(mocks.markdownToDocx).toHaveBeenCalledWith(
+      {
+        appendices: [{ markdown: "# Plots", path: "Research/report/plots.md" }],
+        availablePaths: ["Research/report.md", "Research/report/plots.md"],
+        primary: { markdown: "# Report", path: "Research/report.md" },
+      },
+      { signal: expect.any(AbortSignal) },
+    )
   })
 
   it("forwards workspace listing failures", async () => {
@@ -155,7 +168,7 @@ describe("POST /api/w/[slug]/files/export-docx", () => {
   })
 
   it("rejects bundles with more than 25 direct links", async () => {
-    mocks.findDirectDocxDocumentPaths.mockReturnValue(
+    mocks.findDirectMarkdownDocumentPaths.mockReturnValue(
       Array.from({ length: 26 }, (_, index) => `appendix-${index}.md`),
     )
 
@@ -229,6 +242,24 @@ describe("POST /api/w/[slug]/files/export-docx", () => {
 
     expect(response.status).toBe(500)
     expect(await response.json()).toEqual({ error: "export_failed" })
+  })
+
+  it("times out long-running exports", async () => {
+    vi.useFakeTimers()
+    mocks.createWorkspaceAgentClient.mockImplementation(
+      () => new Promise(() => undefined),
+    )
+
+    try {
+      const pending = POST(jsonRequest({ path: "article.md" }), CONTEXT)
+      await vi.advanceTimersByTimeAsync(45_000)
+      const response = await pending
+
+      expect(response.status).toBe(504)
+      expect(await response.json()).toEqual({ error: "export_timeout" })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it("requires authentication", async () => {

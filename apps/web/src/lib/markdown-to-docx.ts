@@ -38,14 +38,22 @@ import { parseMarkdownFrontmatter } from "@/components/workspace/markdown-frontm
 import { workspaceRemarkPlugins } from "@/components/workspace/markdown-plugins"
 import {
   getDocxDocumentAnchor,
-  getDocxDocumentTitle,
   getDocxHeadingAnchor,
-  getObsidianDocxLinkLabel,
-  resolveDocxInternalLink,
-  type DocxDocumentBundle,
-  type DocxSourceDocument,
 } from "@/lib/docx-document-bundle"
 import { findObsidianLinks } from "@/lib/kb-internal-links"
+import {
+  getMarkdownAstText,
+  getMarkdownDocumentTitle,
+  getObsidianMarkdownLinkLabel,
+  resolveMarkdownInternalLink,
+  type MarkdownDocumentBundle,
+  type MarkdownSourceDocument,
+} from "@/lib/markdown-document-bundle"
+import { getVegaLiteTitle, renderVegaLiteToSvg } from "@/lib/vega-lite-renderer"
+import {
+  getWorkspaceExportAbortReason,
+  withWorkspaceExportAbort,
+} from "@/lib/workspace-export-abort"
 
 type MarkdownNode = {
   type: string
@@ -81,7 +89,7 @@ type DocxRenderState = {
 }
 
 type DocxRenderContext = {
-  document: DocxSourceDocument
+  document: MarkdownSourceDocument
   headingOffset: number
   state: DocxRenderState
 }
@@ -106,24 +114,7 @@ function isSafeExternalUrl(value: string | undefined): value is string {
   }
 }
 
-function getVegaLiteTitle(spec: Record<string, unknown>): string {
-  const title = spec.title
-  if (typeof title === "string" && title.trim()) return title.trim()
-  if (!title || typeof title !== "object" || Array.isArray(title)) return "Vega-Lite chart"
-
-  const text = (title as Record<string, unknown>).text
-  if (typeof text === "string" && text.trim()) return text.trim()
-  if (Array.isArray(text)) {
-    const lines = text.filter((line): line is string => typeof line === "string")
-    if (lines.length > 0) return lines.join(" ")
-  }
-
-  return "Vega-Lite chart"
-}
-
 async function renderVegaLiteToPng(spec: Record<string, unknown>): Promise<RenderedChart> {
-  const vega = await import("vega")
-  const vegaLite = await import("vega-lite")
   const themeConfig = buildVegaConfig(FALLBACK_THEME)
   const specWithConfig = {
     ...spec,
@@ -138,45 +129,41 @@ async function renderVegaLiteToPng(spec: Record<string, unknown>): Promise<Rende
     },
     padding: CHART_PADDING,
   }
-  const compiled = vegaLite.compile(specWithConfig as Parameters<typeof vegaLite.compile>[0])
-  const view = new vega.View(vega.parse(compiled.spec), { renderer: "none" })
+  const svg = await renderVegaLiteToSvg(specWithConfig)
+  const rendered = await sharp(Buffer.from(svg), { density: 96 * CHART_RASTER_SCALE })
+    .trim({ background: "#ffffff", threshold: 10 })
+    .extend({
+      background: "#ffffff",
+      bottom: CHART_PADDING * CHART_RASTER_SCALE,
+      left: CHART_PADDING * CHART_RASTER_SCALE,
+      right: CHART_PADDING * CHART_RASTER_SCALE,
+      top: CHART_PADDING * CHART_RASTER_SCALE,
+    })
+    .resize({
+      fit: "inside",
+      height: (MAX_CHART_HEIGHT - CHART_PADDING * 2) * CHART_RASTER_SCALE,
+      width: (MAX_CHART_WIDTH - CHART_PADDING * 2) * CHART_RASTER_SCALE,
+      withoutEnlargement: true,
+    })
+    .png()
+    .toBuffer({ resolveWithObject: true })
 
-  try {
-    const svg = await view.toSVG()
-    const rendered = await sharp(Buffer.from(svg), { density: 96 * CHART_RASTER_SCALE })
-      .trim({ background: "#ffffff", threshold: 10 })
-      .extend({
-        background: "#ffffff",
-        bottom: CHART_PADDING * CHART_RASTER_SCALE,
-        left: CHART_PADDING * CHART_RASTER_SCALE,
-        right: CHART_PADDING * CHART_RASTER_SCALE,
-        top: CHART_PADDING * CHART_RASTER_SCALE,
-      })
-      .resize({
-        fit: "inside",
-        height: (MAX_CHART_HEIGHT - CHART_PADDING * 2) * CHART_RASTER_SCALE,
-        width: (MAX_CHART_WIDTH - CHART_PADDING * 2) * CHART_RASTER_SCALE,
-        withoutEnlargement: true,
-      })
-      .png()
-      .toBuffer({ resolveWithObject: true })
-
-    return {
-      data: rendered.data,
-      height: Math.max(1, Math.round(rendered.info.height / CHART_RASTER_SCALE)),
-      title: getVegaLiteTitle(spec),
-      width: Math.max(1, Math.round(rendered.info.width / CHART_RASTER_SCALE)),
-    }
-  } finally {
-    view.finalize()
+  return {
+    data: rendered.data,
+    height: Math.max(1, Math.round(rendered.info.height / CHART_RASTER_SCALE)),
+    title: getVegaLiteTitle(spec, "Vega-Lite chart"),
+    width: Math.max(1, Math.round(rendered.info.width / CHART_RASTER_SCALE)),
   }
 }
 
 async function renderVegaLiteCharts(
   nodes: MarkdownNode[],
   state: DocxRenderState,
+  signal?: AbortSignal,
 ): Promise<void> {
   for (const node of nodes) {
+    if (signal?.aborted) throw getWorkspaceExportAbortReason(signal)
+
     if (
       node.type === "code" &&
       node.lang === "vega-lite"
@@ -194,15 +181,19 @@ async function renderVegaLiteCharts(
       const spec = parseChartSpec(parsed)
       if (spec) {
         try {
-          node.chart = await renderVegaLiteToPng(spec)
+          node.chart = await withWorkspaceExportAbort(
+            renderVegaLiteToPng(spec),
+            signal,
+          )
           state.chartCount += 1
         } catch {
+          if (signal?.aborted) throw getWorkspaceExportAbortReason(signal)
           node.chart = undefined
         }
       }
     }
 
-    if (node.children) await renderVegaLiteCharts(node.children, state)
+    if (node.children) await renderVegaLiteCharts(node.children, state, signal)
   }
 }
 
@@ -211,7 +202,7 @@ function getIncludedLinkAnchor(
   syntax: "markdown" | "obsidian",
   context: DocxRenderContext,
 ): string | null {
-  const resolved = resolveDocxInternalLink(
+  const resolved = resolveMarkdownInternalLink(
     rawTarget,
     context.document.path,
     context.state.availablePaths,
@@ -242,7 +233,7 @@ function textChildren(
       children.push(new TextRun({ text: value.slice(cursor, link.from), ...style }))
     }
 
-    const label = getObsidianDocxLinkLabel(link.target)
+    const label = getObsidianMarkdownLinkLabel(link.target)
     const anchor = getIncludedLinkAnchor(link.target, "obsidian", context)
     children.push(
       anchor
@@ -441,9 +432,8 @@ function blockChildren(
       ]
       const sourceDepth = node.depth ?? 1
       const depth = Math.min(6, sourceDepth + (context?.headingOffset ?? 0))
-      const headingText = (node.children ?? [])
-        .map((child) => child.value ?? "")
-        .join("")
+      const headingText = getMarkdownAstText(node)
+        .replace(/\s+/gu, " ")
         .trim()
       const content = inlineChildren(node.children ?? [], {}, context)
       const headingChildren = context && headingText
@@ -552,7 +542,7 @@ function numberingLevels(format: (typeof LevelFormat)[keyof typeof LevelFormat])
   }))
 }
 
-function documentAnchorParagraph(document: DocxSourceDocument): Paragraph {
+function documentAnchorParagraph(document: MarkdownSourceDocument): Paragraph {
   return new Paragraph({
     children: [
       new Bookmark({
@@ -564,8 +554,8 @@ function documentAnchorParagraph(document: DocxSourceDocument): Paragraph {
   })
 }
 
-function getAppendixTitle(document: DocxSourceDocument, primaryTitle: string): string {
-  const documentTitle = getDocxDocumentTitle(document)
+function getAppendixTitle(document: MarkdownSourceDocument, primaryTitle: string): string {
+  const documentTitle = getMarkdownDocumentTitle(document)
   const primaryPrefix = `${primaryTitle} — `
   return documentTitle.startsWith(primaryPrefix)
     ? documentTitle.slice(primaryPrefix.length).trim()
@@ -573,43 +563,47 @@ function getAppendixTitle(document: DocxSourceDocument, primaryTitle: string): s
 }
 
 async function sourceDocumentChildren(
-  document: DocxSourceDocument,
+  document: MarkdownSourceDocument,
   headingOffset: number,
   state: DocxRenderState,
+  signal?: AbortSignal,
 ): Promise<FileChild[]> {
+  if (signal?.aborted) throw getWorkspaceExportAbortReason(signal)
+
   const frontmatter = parseMarkdownFrontmatter(document.markdown)
   let processor = unified().use(remarkParse)
   for (const plugin of workspaceRemarkPlugins) processor = processor.use(plugin)
   const tree = processor.parse(frontmatter.body) as MarkdownNode
   const children = tree.children ?? []
-  const documentTitle = getDocxDocumentTitle(document)
+  const documentTitle = getMarkdownDocumentTitle(document)
 
   if (headingOffset > 0) {
     const titleHeadingIndex = children.findIndex(
       (node) =>
         node.type === "heading" &&
         node.depth === 1 &&
-        (node.children ?? []).map((child) => child.value ?? "").join("").trim() === documentTitle,
+        getMarkdownAstText(node).replace(/\s+/gu, " ").trim() === documentTitle,
     )
     if (titleHeadingIndex >= 0) children.splice(titleHeadingIndex, 1)
   }
 
-  await renderVegaLiteCharts(children, state)
+  await renderVegaLiteCharts(children, state, signal)
   const context: DocxRenderContext = { document, headingOffset, state }
   return children.flatMap((node) => blockChildren(node, 0, context))
 }
 
 export async function markdownToDocx(
-  input: string | DocxDocumentBundle,
+  input: string | MarkdownDocumentBundle,
+  options?: { signal?: AbortSignal },
 ): Promise<Buffer> {
-  const bundle: DocxDocumentBundle = typeof input === "string"
+  const bundle: MarkdownDocumentBundle = typeof input === "string"
     ? {
         appendices: [],
         availablePaths: ["article.md"],
         primary: { markdown: input, path: "article.md" },
       }
     : input
-  const title = getDocxDocumentTitle(bundle.primary)
+  const title = getMarkdownDocumentTitle(bundle.primary)
   const state: DocxRenderState = {
     availablePaths: bundle.availablePaths,
     chartCount: 0,
@@ -617,7 +611,12 @@ export async function markdownToDocx(
       [bundle.primary, ...bundle.appendices].map((document) => document.path.toLowerCase()),
     ),
   }
-  const primaryChildren = await sourceDocumentChildren(bundle.primary, 0, state)
+  const primaryChildren = await sourceDocumentChildren(
+    bundle.primary,
+    0,
+    state,
+    options?.signal,
+  )
   const sections: ISectionOptions[] = [
     {
       properties: {
@@ -630,9 +629,9 @@ export async function markdownToDocx(
   ]
 
   for (const appendix of bundle.appendices) {
-    const sourceTitle = getDocxDocumentTitle(appendix)
+    const sourceTitle = getMarkdownDocumentTitle(appendix)
     const appendixTitle = `Appendix. ${getAppendixTitle(appendix, title)}`
-    const content = await sourceDocumentChildren(appendix, 1, state)
+    const content = await sourceDocumentChildren(appendix, 1, state, options?.signal)
     sections.push({
       properties: {
         type: SectionType.NEXT_PAGE,

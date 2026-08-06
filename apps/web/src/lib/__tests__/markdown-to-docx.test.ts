@@ -2,6 +2,7 @@ import { strFromU8, unzipSync } from "fflate"
 import sharp from "sharp"
 import { describe, expect, it } from "vitest"
 
+import { getDocxHeadingAnchor } from "../docx-document-bundle"
 import { markdownToDocx } from "../markdown-to-docx"
 
 function docxXml(buffer: Buffer): { document: string; relationships: string } {
@@ -71,6 +72,37 @@ describe("markdownToDocx", () => {
   it("handles empty articles", async () => {
     const buffer = await markdownToDocx("---\ntitle: Empty\n---\n")
     expect(buffer.subarray(0, 2).toString()).toBe("PK")
+  })
+
+  it("uses rendered heading text for titles and internal bookmarks", async () => {
+    const buffer = await markdownToDocx([
+      "```md",
+      "# Ignored heading",
+      "```",
+      "",
+      "# **Visible** title",
+      "",
+      "See [details](#Bold%20section).",
+      "",
+      "## **Bold** section",
+    ].join("\n"))
+    const archive = docxArchive(buffer)
+    const document = strFromU8(archive["word/document.xml"])
+    const properties = strFromU8(archive["docProps/core.xml"])
+    const anchor = getDocxHeadingAnchor("article.md", "Bold section")
+
+    expect(properties).toContain("<dc:title>Visible title</dc:title>")
+    expect(document).toContain(`w:anchor="${anchor}"`)
+    expect(document).toContain(`w:name="${anchor}"`)
+  })
+
+  it("stops conversion when the export signal is aborted", async () => {
+    const controller = new AbortController()
+    controller.abort(new Error("cancelled"))
+
+    await expect(
+      markdownToDocx("# Article", { signal: controller.signal }),
+    ).rejects.toThrow("cancelled")
   })
 
   it("renders Vega-Lite fences as embedded PNG charts", async () => {
@@ -164,7 +196,7 @@ describe("markdownToDocx", () => {
     const buffer = await markdownToDocx({
       appendices: [
         {
-          markdown: "---\ntitle: Main report — Latency plots\n---\n# Main report — Latency plots\n\n## Detail\n\nAppendix body.",
+          markdown: "---\ntitle: Main report — Latency plots\n---\n# **Main report — Latency plots**\n\n## Detail\n\nAppendix body.",
           path: "Research/Main report/Latency plots.md",
         },
       ],

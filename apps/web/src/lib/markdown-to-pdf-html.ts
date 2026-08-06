@@ -21,14 +21,21 @@ import {
 } from "@/components/workspace/markdown-plugins"
 import { findObsidianLinks } from "@/lib/kb-internal-links"
 import {
-  getObsidianPdfLinkLabel,
   getPdfDocumentAnchor,
-  getPdfDocumentTitle,
   getPdfHeadingAnchor,
-  resolvePdfInternalLink,
-  type PdfDocumentBundle,
-  type PdfSourceDocument,
 } from "@/lib/pdf-document-bundle"
+import {
+  getMarkdownDocumentTitle,
+  getObsidianMarkdownLinkLabel,
+  resolveMarkdownInternalLink,
+  type MarkdownDocumentBundle,
+  type MarkdownSourceDocument,
+} from "@/lib/markdown-document-bundle"
+import {
+  getVegaLiteTitle,
+  renderVegaLiteToSvg as renderVegaLiteSpecToSvg,
+} from "@/lib/vega-lite-renderer"
+import { withWorkspaceExportAbort } from "@/lib/workspace-export-abort"
 
 const MAX_VEGA_CHARTS = 20
 const MAX_DATA_IMAGE_BYTES = 4 * 1024 * 1024
@@ -57,50 +64,15 @@ type PdfRenderState = {
 }
 
 type PdfDocumentRenderContext = {
-  document: PdfSourceDocument
+  document: MarkdownSourceDocument
   headingOffset: number
   state: PdfRenderState
 }
 
-function getAbortReason(signal: AbortSignal): Error {
-  if (signal.reason instanceof Error) return signal.reason
-  return new Error("pdf_export_aborted")
-}
-
-function withAbort<T>(operation: Promise<T>, signal?: AbortSignal): Promise<T> {
-  if (!signal) return operation
-  if (signal.aborted) return Promise.reject(getAbortReason(signal))
-
-  return new Promise<T>((resolve, reject) => {
-    const abort = () => reject(getAbortReason(signal))
-    signal.addEventListener("abort", abort, { once: true })
-    operation.then(
-      (value) => {
-        signal.removeEventListener("abort", abort)
-        resolve(value)
-      },
-      (error: unknown) => {
-        signal.removeEventListener("abort", abort)
-        reject(error)
-      },
-    )
-  })
-}
-
 async function renderVegaLiteToSvg(spec: Record<string, unknown>): Promise<string> {
-  const vega = await import("vega")
-  const vegaLite = await import("vega-lite")
-
   const config = buildVegaConfig(FALLBACK_THEME)
   const specWithConfig = { ...spec, config }
-  const compiled = vegaLite.compile(specWithConfig as Parameters<typeof vegaLite.compile>[0])
-  const runtime = vega.parse(compiled.spec)
-  const view = new vega.View(runtime, { renderer: "none" })
-  try {
-    return await view.toSVG()
-  } finally {
-    view.finalize()
-  }
+  return renderVegaLiteSpecToSvg(specWithConfig)
 }
 
 type VegaLiteTarget = {
@@ -131,21 +103,6 @@ function extractVegaLiteSpec(preNode: Element): Record<string, unknown> | null {
   }
 
   return parseChartSpec(parsed)
-}
-
-function getVegaLiteTitle(spec: Record<string, unknown>): string {
-  const title = spec.title
-  if (typeof title === "string" && title.trim()) return title.trim()
-  if (!title || typeof title !== "object" || Array.isArray(title)) return "Untitled figure"
-
-  const text = (title as Record<string, unknown>).text
-  if (typeof text === "string" && text.trim()) return text.trim()
-  if (Array.isArray(text)) {
-    const lines = text.filter((line): line is string => typeof line === "string")
-    if (lines.length > 0) return lines.join(" ")
-  }
-
-  return "Untitled figure"
 }
 
 function normalizeFigureLabel(label: string): string {
@@ -228,7 +185,7 @@ function rehypeVegaLiteToSvg(state: PdfRenderState, signal?: AbortSignal) {
       state.vegaChartCount += 1
       let svg: string | null = null
       try {
-        svg = await withAbort(renderVegaLiteToSvg(target.spec), signal)
+        svg = await withWorkspaceExportAbort(renderVegaLiteToSvg(target.spec), signal)
       } catch {
         continue
       }
@@ -243,7 +200,7 @@ function rehypeVegaLiteToSvg(state: PdfRenderState, signal?: AbortSignal) {
               children: [{ type: "raw", value: svg } as unknown as ElementContent],
             },
           ],
-          getVegaLiteTitle(target.spec),
+          getVegaLiteTitle(target.spec, "Untitled figure"),
         ),
       }
     }
@@ -266,7 +223,7 @@ function removeAppendixDocumentTitleHeading(
 ): void {
   if (context.headingOffset === 0) return
 
-  const documentTitle = getPdfDocumentTitle(context.document)
+  const documentTitle = getMarkdownDocumentTitle(context.document)
     .replace(/\s+/gu, " ")
     .trim()
   const initialContentIndex = tree.children.findIndex(
@@ -287,7 +244,7 @@ function getIncludedLinkHref(
   syntax: "markdown" | "obsidian",
   context: PdfDocumentRenderContext,
 ): string | null {
-  const resolved = resolvePdfInternalLink(
+  const resolved = resolveMarkdownInternalLink(
     rawTarget,
     context.document.path,
     context.state.availablePaths,
@@ -313,7 +270,7 @@ function rewriteMarkdownLinks(
       const href = child.properties.href
       if (typeof href !== "string") continue
 
-      const resolved = resolvePdfInternalLink(
+      const resolved = resolveMarkdownInternalLink(
         href,
         context.document.path,
         context.state.availablePaths,
@@ -368,7 +325,7 @@ function rewriteObsidianLinks(
         })
       }
 
-      const label = getObsidianPdfLinkLabel(link.target)
+      const label = getObsidianMarkdownLinkLabel(link.target)
       const href = getIncludedLinkHref(link.target, "obsidian", context)
       if (href) {
         replacements.push({
@@ -810,10 +767,10 @@ function escapeHtml(value: string): string {
 }
 
 function getAppendixSectionTitle(
-  document: PdfSourceDocument,
+  document: MarkdownSourceDocument,
   primaryTitle: string,
 ): string {
-  const documentTitle = getPdfDocumentTitle(document)
+  const documentTitle = getMarkdownDocumentTitle(document)
   const primaryTitlePrefix = `${primaryTitle} — `
 
   return documentTitle.startsWith(primaryTitlePrefix)
@@ -822,7 +779,7 @@ function getAppendixSectionTitle(
 }
 
 async function renderPdfSourceDocument(
-  document: PdfSourceDocument,
+  document: MarkdownSourceDocument,
   headingOffset: number,
   state: PdfRenderState,
   signal?: AbortSignal,
@@ -842,7 +799,7 @@ async function renderPdfSourceDocument(
     .use(() => rehypePdfDocumentSemantics(context))
     .use(rehypeStringify, { allowDangerousHtml: true })
 
-  const result = await withAbort(processor.process(frontmatter.body), signal)
+  const result = await withWorkspaceExportAbort(processor.process(frontmatter.body), signal)
   return String(result)
 }
 
@@ -887,10 +844,10 @@ function buildTableOfFigures(figures: PdfFigureEntry[]): string {
 }
 
 export async function markdownToPdfHtml(
-  bundle: PdfDocumentBundle,
+  bundle: MarkdownDocumentBundle,
   options?: { logoBase64?: string; signal?: AbortSignal },
 ): Promise<string> {
-  const title = getPdfDocumentTitle(bundle.primary)
+  const title = getMarkdownDocumentTitle(bundle.primary)
   const state: PdfRenderState = {
     availablePaths: bundle.availablePaths,
     figureCount: 0,
@@ -922,7 +879,7 @@ export async function markdownToPdfHtml(
       state,
     )
     const documentTitleHeadingId = getUniquePdfId(
-      getPdfHeadingAnchor(appendix.path, getPdfDocumentTitle(appendix)),
+      getPdfHeadingAnchor(appendix.path, getMarkdownDocumentTitle(appendix)),
       state,
     )
     state.headings.push({

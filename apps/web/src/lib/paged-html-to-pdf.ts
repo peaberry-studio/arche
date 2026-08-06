@@ -3,6 +3,8 @@ import path from "node:path"
 
 import type { Browser, Page } from "puppeteer-core"
 
+import { withWorkspaceExportAbort } from "@/lib/workspace-export-abort"
+
 const MAX_PAGINATION_PASSES = 3
 const MIN_FIGURE_SCALE = 0.8
 const PDF_EXPORT_TIMEOUT_MS = 45_000
@@ -14,30 +16,6 @@ export class PdfExportTimeoutError extends Error {
     super("pdf_export_timeout")
     this.name = "PdfExportTimeoutError"
   }
-}
-
-function getAbortReason(signal: AbortSignal): Error {
-  if (signal.reason instanceof Error) return signal.reason
-  return new Error("pdf_export_aborted")
-}
-
-function withAbort<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
-  if (signal.aborted) return Promise.reject(getAbortReason(signal))
-
-  return new Promise<T>((resolve, reject) => {
-    const abort = () => reject(getAbortReason(signal))
-    signal.addEventListener("abort", abort, { once: true })
-    operation.then(
-      (value) => {
-        signal.removeEventListener("abort", abort)
-        resolve(value)
-      },
-      (error: unknown) => {
-        signal.removeEventListener("abort", abort)
-        reject(error)
-      },
-    )
-  })
 }
 
 function loadPagedJsScript(): string {
@@ -66,11 +44,11 @@ async function createPaginatedPage(
   scales: FigureScales,
   signal: AbortSignal,
 ): Promise<Page> {
-  const page = await withAbort(browser.newPage(), signal)
+  const page = await withWorkspaceExportAbort(browser.newPage(), signal)
   page.setDefaultTimeout(45_000)
   try {
-    await withAbort(page.setJavaScriptEnabled(true), signal)
-    await withAbort(page.setRequestInterception(true), signal)
+    await withWorkspaceExportAbort(page.setJavaScriptEnabled(true), signal)
+    await withWorkspaceExportAbort(page.setRequestInterception(true), signal)
     page.on("request", (request) => {
       if (request.url().startsWith("data:")) {
         request.continue()
@@ -79,14 +57,14 @@ async function createPaginatedPage(
       }
     })
 
-    await withAbort(page.setContent(html, { waitUntil: "domcontentloaded" }), signal)
+    await withWorkspaceExportAbort(page.setContent(html, { waitUntil: "domcontentloaded" }), signal)
 
     const scaleCss = buildFigureScaleCss(scales)
-    if (scaleCss) await withAbort(page.addStyleTag({ content: scaleCss }), signal)
+    if (scaleCss) await withWorkspaceExportAbort(page.addStyleTag({ content: scaleCss }), signal)
 
-    await withAbort(page.evaluate("window.PagedConfig = { auto: false }"), signal)
-    await withAbort(page.addScriptTag({ content: pagedJsScript }), signal)
-    await withAbort(page.evaluate("window.PagedPolyfill.preview()"), signal)
+    await withWorkspaceExportAbort(page.evaluate("window.PagedConfig = { auto: false }"), signal)
+    await withWorkspaceExportAbort(page.addScriptTag({ content: pagedJsScript }), signal)
+    await withWorkspaceExportAbort(page.evaluate("window.PagedPolyfill.preview()"), signal)
 
     return page
   } catch (error) {
@@ -100,7 +78,7 @@ async function findFigureScaleAdjustments(
   currentScales: FigureScales,
   signal: AbortSignal,
 ): Promise<FigureScales> {
-  return withAbort(page.evaluate(
+  return withWorkspaceExportAbort(page.evaluate(
     ({ minimumScale, scales }) => {
       const adjustments: FigureScales = {}
       const pages = Array.from(document.querySelectorAll<HTMLElement>(".pagedjs_page"))
@@ -189,14 +167,14 @@ export async function pagedHtmlToPdf(
   try {
     if (requestSignal?.aborted) abort()
 
-    const chromium = await withAbort(import("@sparticuz/chromium"), controller.signal)
-    const puppeteer = await withAbort(import("puppeteer-core"), controller.signal)
+    const chromium = await withWorkspaceExportAbort(import("@sparticuz/chromium"), controller.signal)
+    const puppeteer = await withWorkspaceExportAbort(import("puppeteer-core"), controller.signal)
     const pagedJsScript = loadPagedJsScript()
-    const executablePath = await withAbort(
+    const executablePath = await withWorkspaceExportAbort(
       chromium.default.executablePath(),
       controller.signal,
     )
-    browser = await withAbort(
+    browser = await withWorkspaceExportAbort(
       puppeteer.default.launch({
         args: [...chromium.default.args, "--disable-dev-shm-usage"],
         executablePath,
@@ -231,8 +209,8 @@ export async function pagedHtmlToPdf(
 
     if (!page) throw new Error("pdf_page_unavailable")
 
-    await withAbort(page.setJavaScriptEnabled(false), controller.signal)
-    return await withAbort(
+    await withWorkspaceExportAbort(page.setJavaScriptEnabled(false), controller.signal)
+    return await withWorkspaceExportAbort(
       page.pdf({
         format: "A4",
         preferCSSPageSize: true,

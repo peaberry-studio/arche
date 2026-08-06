@@ -46,7 +46,7 @@ describe("exportWorkspaceFileAsDocx in the browser", () => {
 
     const result = await exportWorkspaceFileAsDocx("alice", "docs/notes.md")
 
-    expect(result).toBe(true)
+    expect(result).toEqual({ ok: true })
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/w/alice/files/export-docx",
       expect.objectContaining({
@@ -60,10 +60,15 @@ describe("exportWorkspaceFileAsDocx in the browser", () => {
     expect(document.body.querySelector("a")).toBeNull()
   })
 
-  it("returns false when the fetch fails", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false }))
+  it("returns the server error when the fetch fails", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: false,
+      status: 503,
+      json: () => Promise.resolve({ error: "export_busy" }),
+    }))
+    vi.spyOn(console, "error").mockImplementation(() => undefined)
 
     const result = await exportWorkspaceFileAsDocx("alice", "docs/notes.md")
-    expect(result).toBe(false)
+    expect(result).toEqual({ error: "export_busy", ok: false })
   })
 })
