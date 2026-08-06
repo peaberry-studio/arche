@@ -447,6 +447,19 @@ describe("WorkspaceShell", () => {
     expect(screen.getByText("Error: socket down")).toBeTruthy();
   });
 
+  it("shows friendly copy for mapped connection errors", async () => {
+    workspaceMockOverrides = {
+      isConnected: false,
+      connection: { status: "error", error: "health_check_timeout" },
+    };
+
+    render(<WorkspaceShell slug="alice" />);
+
+    expect(await screen.findByText("Connecting to OpenCode")).toBeTruthy();
+    expect(screen.getByText("The workspace is taking too long to respond. Retrying...")).toBeTruthy();
+    expect(screen.queryByText("Error: health_check_timeout")).toBeNull();
+  });
+
   it("redirects to setup when the instance requires setup", async () => {
     ensureInstanceRunningActionMock.mockResolvedValueOnce({ status: "error", error: "setup_required" });
 

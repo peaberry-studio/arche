@@ -58,14 +58,22 @@ describe('chat stream watchdog helpers', () => {
   describe('getSilentStreamOutcome', () => {
     it('keeps waiting while upstream remains busy', () => {
       expect(getSilentStreamOutcome({
+        maxRuntimeMs: 35 * 60 * 1000,
+        runtimeMs: 19_999,
         upstreamStatus: 'busy',
         silentForMs: 19_999,
         relevantEventTimeoutMs: 20_000,
+        unknownStatusForMs: 0,
+        unknownStatusGraceMs: 45_000,
       })).toBe('keep_waiting')
       expect(getSilentStreamOutcome({
+        maxRuntimeMs: 35 * 60 * 1000,
+        runtimeMs: 35_999,
         upstreamStatus: 'retry',
         silentForMs: 35_999,
         relevantEventTimeoutMs: 12_000,
+        unknownStatusForMs: 0,
+        unknownStatusGraceMs: 45_000,
       })).toBe('keep_waiting')
     })
 
@@ -76,6 +84,8 @@ describe('chat stream watchdog helpers', () => {
         relevantEventTimeoutMs: 20_000,
         runtimeMs: 60_000,
         maxRuntimeMs: 35 * 60 * 1000,
+        unknownStatusForMs: 0,
+        unknownStatusGraceMs: 45_000,
       })).toBe('keep_waiting')
       expect(getSilentStreamOutcome({
         upstreamStatus: 'retry',
@@ -83,6 +93,8 @@ describe('chat stream watchdog helpers', () => {
         relevantEventTimeoutMs: 12_000,
         runtimeMs: 36_000,
         maxRuntimeMs: 35 * 60 * 1000,
+        unknownStatusForMs: 0,
+        unknownStatusGraceMs: 45_000,
       })).toBe('keep_waiting')
     })
 
@@ -93,7 +105,9 @@ describe('chat stream watchdog helpers', () => {
         relevantEventTimeoutMs: 20_000,
         runtimeMs: 35 * 60 * 1000,
         maxRuntimeMs: 35 * 60 * 1000,
-      })).toBe('stream_timeout')
+        unknownStatusForMs: 0,
+        unknownStatusGraceMs: 45_000,
+      })).toBe('max_runtime_exceeded')
     })
 
     it('finalizes when upstream has idled', () => {
@@ -103,24 +117,42 @@ describe('chat stream watchdog helpers', () => {
         relevantEventTimeoutMs: 20_000,
         runtimeMs: 20_000,
         maxRuntimeMs: 35 * 60 * 1000,
+        unknownStatusForMs: 0,
+        unknownStatusGraceMs: 45_000,
       })).toBe('finalize_idle')
     })
 
-    it('falls back to stream timeout for unknown or missing upstream status', () => {
+    it('keeps waiting for unknown status during the grace window', () => {
       expect(getSilentStreamOutcome({
         upstreamStatus: null,
         silentForMs: 20_000,
         relevantEventTimeoutMs: 20_000,
         runtimeMs: 20_000,
         maxRuntimeMs: 35 * 60 * 1000,
-      })).toBe('stream_timeout')
+        unknownStatusForMs: 30_000,
+        unknownStatusGraceMs: 45_000,
+      })).toBe('keep_waiting')
       expect(getSilentStreamOutcome({
         upstreamStatus: 'complete',
         silentForMs: 20_000,
         relevantEventTimeoutMs: 20_000,
         runtimeMs: 20_000,
         maxRuntimeMs: 35 * 60 * 1000,
-      })).toBe('stream_timeout')
+        unknownStatusForMs: 30_000,
+        unknownStatusGraceMs: 45_000,
+      })).toBe('keep_waiting')
+    })
+
+    it('ends observation only after unknown status exhausts its grace window', () => {
+      expect(getSilentStreamOutcome({
+        upstreamStatus: null,
+        silentForMs: 65_000,
+        relevantEventTimeoutMs: 20_000,
+        runtimeMs: 65_000,
+        maxRuntimeMs: 35 * 60 * 1000,
+        unknownStatusForMs: 45_000,
+        unknownStatusGraceMs: 45_000,
+      })).toBe('status_unknown_timeout')
     })
   })
 })

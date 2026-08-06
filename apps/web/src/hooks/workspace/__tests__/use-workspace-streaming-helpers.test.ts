@@ -142,6 +142,25 @@ describe("workspace streaming helpers", () => {
     expect(result).toEqual({ action: "none" });
   });
 
+  it("keeps a recoverably interrupted message pending when hydration fails", () => {
+    const result = reconcileStreamMessages({
+      mode: "send",
+      assistantMessageId: null,
+      targetMessageId: "temp-assistant",
+      receivedAssistantPart: false,
+      receivedStreamData: true,
+      interruptionDetail: "upstream_eof",
+      terminalErrorDetail: null,
+      result: { ok: false, error: "offline" },
+      resumeFailureState: new Map(),
+    });
+
+    expect(result).toEqual({
+      action: "stream-interrupted",
+      detail: "upstream_eof",
+    });
+  });
+
   it("marks failed streams as incomplete when hydration fails without assistant parts", () => {
     const result = reconcileStreamMessages({
       mode: "send",

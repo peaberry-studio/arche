@@ -36,6 +36,8 @@ import {
   normalizeWorkspacePath,
 } from "@/lib/workspace-paths";
 
+const CONNECTION_HEALTH_TIMEOUT_MS = 5_000;
+
 function isFreeOpencodeModel(model: unknown): boolean {
   if (!model || typeof model !== "object" || Array.isArray(model)) {
     return false;
@@ -186,15 +188,21 @@ export async function checkConnectionAction(
   }
 
   try {
-    const health = await client!.global.health();
+    const health = await client!.global.health({
+      signal: AbortSignal.timeout(CONNECTION_HEALTH_TIMEOUT_MS),
+    });
     if (health.data?.healthy) {
       return { status: "connected", version: health.data.version };
     }
     return { status: "error", error: "unhealthy" };
   } catch (e) {
+    const timedOut = e instanceof Error && (
+      e.name === "TimeoutError" ||
+      (e.name === "AbortError" && e.message.toLowerCase().includes("timeout"))
+    );
     return {
       status: "error",
-      error: e instanceof Error ? e.message : "unknown",
+      error: timedOut ? "health_check_timeout" : e instanceof Error ? e.message : "unknown",
     };
   }
 }

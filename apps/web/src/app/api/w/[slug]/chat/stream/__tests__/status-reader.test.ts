@@ -23,11 +23,13 @@ describe('createUpstreamSessionStatusReader', () => {
       ),
     )
     vi.stubGlobal('fetch', fetchMock)
+    const onRead = vi.fn()
 
     const readStatus = createUpstreamSessionStatusReader({
       baseUrl: 'http://127.0.0.1:4096',
       authHeader: 'Basic token',
       sessionId: 'session-1',
+      onRead,
     })
 
     await expect(readStatus()).resolves.toBe('busy')
@@ -35,6 +37,11 @@ describe('createUpstreamSessionStatusReader', () => {
     await expect(readStatus()).resolves.toBe('busy')
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(onRead).toHaveBeenCalledWith({
+      durationMs: 0,
+      outcome: 'success',
+      status: 'busy',
+    })
   })
 
   it('logs and returns null when the upstream status request fails', async () => {
