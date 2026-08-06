@@ -1689,6 +1689,335 @@ describe("useWorkspace streaming", () => {
   // -----------------------------------------------------------------------
 
   describe("fetch error handling", () => {
+    it("reattaches to the active run after a non-terminal stream EOF", async () => {
+      const firstStream = createSSEStream();
+      const secondStream = createSSEStream();
+      const streamBodies: Record<string, unknown>[] = [];
+
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          if (String(input) === "/api/u/alice/agents") {
+            return { ok: true, json: async () => ({ agents: DEFAULT_AGENTS }) };
+          }
+          if (String(input).startsWith("/api/w/alice/chat/runs?")) {
+            return { ok: true, json: async () => ({ activeRun: null }) };
+          }
+          if (String(input) === "/api/w/alice/chat/stream") {
+            streamBodies.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
+            return {
+              ok: true,
+              headers: new Headers({ "X-Arche-Run-Id": "run-1" }),
+              body: streamBodies.length === 1 ? firstStream : secondStream,
+            };
+          }
+          throw new Error(`Unexpected fetch: ${String(input)}`);
+        })
+      );
+
+      const result = await renderConnectedHook();
+
+      await act(async () => {
+        await result.current.sendMessage("hello");
+      });
+
+      opencodeMocks.listMessagesAction.mockResolvedValue({
+        ok: true,
+        messages: [
+          {
+            id: "assistant-1",
+            sessionId: "s1",
+            role: "assistant",
+            content: "",
+            timestamp: "now",
+            parts: [],
+            pending: true,
+          },
+        ],
+      });
+
+      act(() => {
+        firstStream.close();
+      });
+
+      await waitFor(() => {
+        const assistant = result.current.messages.find((message) => message.id === "assistant-1");
+        expect(assistant?.pending).toBe(true);
+        expect(assistant?.statusInfo).toEqual({
+          status: "thinking",
+          detail: "stream_interrupted",
+        });
+      });
+
+      await waitFor(() => {
+        expect(streamBodies).toHaveLength(2);
+      }, { timeout: 4_000 });
+
+      expect(streamBodies[1]).toEqual({
+        sessionId: "s1",
+        runId: "run-1",
+        resume: false,
+      });
+
+      opencodeMocks.listMessagesAction.mockResolvedValue({
+        ok: true,
+        messages: [
+          {
+            id: "assistant-1",
+            sessionId: "s1",
+            role: "assistant",
+            content: "Recovered",
+            timestamp: "now",
+            parts: [{ id: "part-1", type: "text", text: "Recovered" }],
+            pending: false,
+          },
+        ],
+      });
+
+      act(() => {
+        secondStream.push(sseEvent("message", { id: "assistant-1", role: "assistant" }));
+        secondStream.push(sseEvent("part", {
+          messageId: "assistant-1",
+          part: {
+            id: "part-1",
+            messageID: "assistant-1",
+            text: "Recovered",
+            type: "text",
+          },
+        }));
+        secondStream.push(sseEvent("done", {}));
+        secondStream.close();
+      });
+
+      await waitFor(() => {
+        const assistant = result.current.messages.find((message) => message.id === "assistant-1");
+        expect(assistant?.pending).toBe(false);
+        expect(assistant?.content).toBe("Recovered");
+        expect(result.current.isSending).toBe(false);
+      });
+    }, 10_000);
+
+    it("schedules recovery after a recoverable upstream error event", async () => {
+      const firstStream = createSSEStream();
+      const secondStream = createSSEStream();
+      const streamBodies: Record<string, unknown>[] = [];
+
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          if (String(input) === "/api/u/alice/agents") {
+            return { ok: true, json: async () => ({ agents: DEFAULT_AGENTS }) };
+          }
+          if (String(input).startsWith("/api/w/alice/chat/runs?")) {
+            return { ok: true, json: async () => ({ activeRun: null }) };
+          }
+          if (String(input) === "/api/w/alice/chat/stream") {
+            streamBodies.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
+            return {
+              ok: true,
+              headers: new Headers({ "X-Arche-Run-Id": "run-1" }),
+              body: streamBodies.length === 1 ? firstStream : secondStream,
+            };
+          }
+          throw new Error(`Unexpected fetch: ${String(input)}`);
+        })
+      );
+
+      const result = await renderConnectedHook();
+
+      await act(async () => {
+        await result.current.sendMessage("hello");
+      });
+
+      opencodeMocks.listMessagesAction.mockResolvedValue({
+        ok: true,
+        messages: [
+          {
+            id: "assistant-1",
+            sessionId: "s1",
+            role: "assistant",
+            content: "",
+            timestamp: "now",
+            parts: [],
+            pending: true,
+          },
+        ],
+      });
+
+      act(() => {
+        firstStream.push(sseEvent("error", { error: "upstream_eof", recoverable: true, runId: "run-1" }));
+        firstStream.close();
+      });
+
+      await waitFor(() => {
+        const assistant = result.current.messages.find((message) => message.id === "assistant-1");
+        expect(assistant?.pending).toBe(true);
+        expect(assistant?.statusInfo).toEqual({
+          status: "thinking",
+          detail: "upstream_eof",
+        });
+      });
+
+      await waitFor(() => {
+        expect(streamBodies).toHaveLength(2);
+      }, { timeout: 4_000 });
+
+      expect(streamBodies[1]).toEqual({
+        sessionId: "s1",
+        runId: "run-1",
+        resume: false,
+      });
+
+      opencodeMocks.listMessagesAction.mockResolvedValue({
+        ok: true,
+        messages: [
+          {
+            id: "assistant-1",
+            sessionId: "s1",
+            role: "assistant",
+            content: "Recovered via error event",
+            timestamp: "now",
+            parts: [{ id: "part-1", type: "text", text: "Recovered via error event" }],
+            pending: false,
+          },
+        ],
+      });
+
+      act(() => {
+        secondStream.push(sseEvent("message", { id: "assistant-1", role: "assistant" }));
+        secondStream.push(sseEvent("part", {
+          messageId: "assistant-1",
+          part: {
+            id: "part-1",
+            messageID: "assistant-1",
+            text: "Recovered via error event",
+            type: "text",
+          },
+        }));
+        secondStream.push(sseEvent("done", {}));
+        secondStream.close();
+      });
+
+      await waitFor(() => {
+        const assistant = result.current.messages.find((message) => message.id === "assistant-1");
+        expect(assistant?.pending).toBe(false);
+        expect(assistant?.content).toBe("Recovered via error event");
+        expect(result.current.isSending).toBe(false);
+      });
+    }, 10_000);
+
+    it("keeps recovering when a run reattachment fails before the stream opens", async () => {
+      const firstStream = createSSEStream();
+      const secondStream = createSSEStream();
+      let streamAttempts = 0;
+
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => {
+          if (String(input) === "/api/u/alice/agents") {
+            return { ok: true, json: async () => ({ agents: DEFAULT_AGENTS }) };
+          }
+          if (String(input).startsWith("/api/w/alice/chat/runs?")) {
+            return { ok: true, json: async () => ({ activeRun: null }) };
+          }
+          if (String(input) === "/api/w/alice/chat/stream") {
+            streamAttempts += 1;
+            if (streamAttempts === 2) {
+              // Transport failure on the first reattachment attempt (e.g. BFF
+              // restart during a deployment): the run was already accepted, so
+              // this must not fail the message.
+              throw new TypeError("fetch failed");
+            }
+            return {
+              ok: true,
+              headers: new Headers({ "X-Arche-Run-Id": "run-1" }),
+              body: streamAttempts === 1 ? firstStream : secondStream,
+            };
+          }
+          throw new Error(`Unexpected fetch: ${String(input)}`);
+        })
+      );
+
+      const result = await renderConnectedHook();
+
+      await act(async () => {
+        await result.current.sendMessage("hello");
+      });
+
+      opencodeMocks.listMessagesAction.mockResolvedValue({
+        ok: true,
+        messages: [
+          {
+            id: "assistant-1",
+            sessionId: "s1",
+            role: "assistant",
+            content: "",
+            timestamp: "now",
+            parts: [],
+            pending: true,
+          },
+        ],
+      });
+
+      act(() => {
+        firstStream.close();
+      });
+
+      // The interrupted run keeps the message pending while reattaching.
+      await waitFor(() => {
+        expect(streamAttempts).toBe(2);
+      }, { timeout: 4_000 });
+
+      // The failed reattachment must schedule another recovery attempt instead
+      // of declaring a terminal error.
+      await waitFor(() => {
+        expect(streamAttempts).toBe(3);
+      }, { timeout: 6_000 });
+
+      const assistantDuringRecovery = result.current.messages.find(
+        (message) => message.id === "assistant-1"
+      );
+      expect(assistantDuringRecovery?.pending).toBe(true);
+      expect(assistantDuringRecovery?.statusInfo?.status).toBe("thinking");
+
+      opencodeMocks.listMessagesAction.mockResolvedValue({
+        ok: true,
+        messages: [
+          {
+            id: "assistant-1",
+            sessionId: "s1",
+            role: "assistant",
+            content: "Recovered after transport failure",
+            timestamp: "now",
+            parts: [{ id: "part-1", type: "text", text: "Recovered after transport failure" }],
+            pending: false,
+          },
+        ],
+      });
+
+      act(() => {
+        secondStream.push(sseEvent("message", { id: "assistant-1", role: "assistant" }));
+        secondStream.push(sseEvent("part", {
+          messageId: "assistant-1",
+          part: {
+            id: "part-1",
+            messageID: "assistant-1",
+            text: "Recovered after transport failure",
+            type: "text",
+          },
+        }));
+        secondStream.push(sseEvent("done", {}));
+        secondStream.close();
+      });
+
+      await waitFor(() => {
+        const assistant = result.current.messages.find((message) => message.id === "assistant-1");
+        expect(assistant?.pending).toBe(false);
+        expect(assistant?.content).toBe("Recovered after transport failure");
+        expect(result.current.isSending).toBe(false);
+      });
+    }, 15_000);
+
     it("sets error status when stream endpoint returns HTTP error", async () => {
       vi.stubGlobal(
         "fetch",

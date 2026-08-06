@@ -601,11 +601,47 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     const { POST } = await import('../route')
     const res = await POST(makeStartPostRequest({ sessionId: 's1', text: 'Hi' }), params())
 
-    await expect(res.text()).resolves.toContain('Failed to connect to event stream')
+    await expect(res.text()).resolves.toContain('event_stream_unavailable')
     expect(mocks.messageRunService.markRunFailed).toHaveBeenCalledWith(
       'run-started',
       'event_stream_unavailable',
     )
+  })
+
+  it('bounds a stalled upstream event subscription with a diagnostic timeout', async () => {
+    vi.useFakeTimers()
+    try {
+      const fetchMock = vi.fn((url: string | URL, init?: RequestInit) => {
+        if (String(url) !== 'http://test-slug:3000/event') {
+          return Promise.reject(new Error(`unexpected fetch ${String(url)}`))
+        }
+
+        return new Promise<Response>((_, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            reject(new DOMException('Aborted', 'AbortError'))
+          }, { once: true })
+        })
+      })
+      vi.stubGlobal('fetch', fetchMock)
+
+      const { POST } = await import('../route')
+      const res = await POST(makeStartPostRequest({ sessionId: 's1', text: 'Hi' }), params())
+      const textPromise = res.text()
+
+      await vi.advanceTimersByTimeAsync(8_001)
+
+      await expect(textPromise).resolves.toContain('event_stream_connect_timeout')
+      expect(mocks.messageRunService.markRunFailed).toHaveBeenCalledWith(
+        'run-started',
+        'event_stream_connect_timeout',
+      )
+      expect(fetchMock).not.toHaveBeenCalledWith(
+        'http://test-slug:3000/session/s1/prompt_async',
+        expect.anything(),
+      )
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('streams assistant status, parts, metadata, workspace updates, and completion', async () => {
@@ -888,7 +924,8 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     const { POST } = await import('../route')
     const res = await POST(makePostRequest({ sessionId: 's1', runId: 'run-1' }), params())
 
-    await expect(res.text()).resolves.toContain('Failed to connect to event stream')
+    await expect(res.text()).resolves.toContain('event_stream_unavailable')
+    expect(mocks.messageRunService.markRunFailed).not.toHaveBeenCalled()
   })
 
   it('streams an error when subscribing to upstream events throws', async () => {
@@ -897,13 +934,96 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     const { POST } = await import('../route')
     const res = await POST(makePostRequest({ sessionId: 's1', runId: 'run-1' }), params())
 
-    await expect(res.text()).resolves.toContain('stream down')
+    await expect(res.text()).resolves.toContain('event_stream_unavailable')
+    expect(mocks.messageRunService.markRunFailed).not.toHaveBeenCalled()
+  })
+
+  it('emits SSE heartbeat comments while the upstream stream is silent', async () => {
+    vi.useFakeTimers()
+    const clientAbortController = new AbortController()
+    try {
+      vi.stubGlobal('fetch', vi.fn((url: string | URL) => {
+        if (String(url) === 'http://test-slug:3000/event') {
+          return Promise.resolve(new Response(new ReadableStream<Uint8Array>(), { status: 200 }))
+        }
+
+        return Promise.reject(new Error(`unexpected fetch ${String(url)}`))
+      }))
+
+      const { POST } = await import('../route')
+      const res = await POST(makePostRequest(
+        { sessionId: 's1', runId: 'run-1' },
+        'alice',
+        clientAbortController.signal,
+      ), params())
+      const reader = res.body!.getReader()
+      const decoder = new TextDecoder()
+
+      await reader.read()
+      await reader.read()
+      const heartbeatRead = reader.read()
+      await vi.advanceTimersByTimeAsync(10_000)
+
+      const heartbeat = await heartbeatRead
+      expect(decoder.decode(heartbeat.value)).toMatch(/^: heartbeat \d+\n\n$/)
+      expect(mocks.messageRunService.markRunFailed).not.toHaveBeenCalled()
+    } finally {
+      clientAbortController.abort()
+      await vi.runAllTimersAsync()
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps an active run resumable when the upstream event stream ends', async () => {
+    mocks.createUpstreamSessionStatusReader.mockReturnValue(vi.fn().mockResolvedValue('busy'))
+    vi.stubGlobal('fetch', vi.fn((url: string | URL) => {
+      if (String(url) === 'http://test-slug:3000/event') {
+        return Promise.resolve(new Response(eventStream([]), { status: 200 }))
+      }
+
+      return Promise.reject(new Error(`unexpected fetch ${String(url)}`))
+    }))
+
+    const { POST } = await import('../route')
+    const res = await POST(makePostRequest({ sessionId: 's1', runId: 'run-1' }), params())
+    const text = await res.text()
+
+    expect(text).toContain('"error":"upstream_eof"')
+    expect(text).toContain('"recoverable":true')
+    expect(mocks.messageRunService.markRunFailed).not.toHaveBeenCalled()
+    expect(mocks.abortSessionFamilyAndConfirmIdle).not.toHaveBeenCalled()
+  })
+
+  it('closes the observation recoverably when the upstream reader errors mid-stream', async () => {
+    mocks.createUpstreamSessionStatusReader.mockReturnValue(vi.fn().mockResolvedValue('busy'))
+    vi.stubGlobal('fetch', vi.fn((url: string | URL) => {
+      if (String(url) === 'http://test-slug:3000/event') {
+        return Promise.resolve(new Response(new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.error(new Error('upstream connection reset'))
+          },
+        }), { status: 200 }))
+      }
+
+      return Promise.reject(new Error(`unexpected fetch ${String(url)}`))
+    }))
+
+    const { POST } = await import('../route')
+    const res = await POST(makePostRequest({ sessionId: 's1', runId: 'run-1' }), params())
+    const text = await res.text()
+
+    expect(text).toContain('"error":"upstream_stream_error"')
+    expect(text).toContain('"recoverable":true')
+    expect(text).toContain('"runId":"run-1"')
+    expect(mocks.messageRunService.markRunFailed).not.toHaveBeenCalled()
+    expect(mocks.abortSessionFamilyAndConfirmIdle).not.toHaveBeenCalled()
   })
 
   it('keeps waiting through delegated silence while upstream is busy and finalizes once idle', async () => {
     vi.useFakeTimers()
     try {
       const readStatus = vi.fn()
+        .mockResolvedValueOnce(null)
         .mockResolvedValueOnce('busy')
         .mockResolvedValueOnce('idle')
       mocks.createUpstreamSessionStatusReader.mockReturnValue(readStatus)
@@ -926,13 +1046,47 @@ describe('POST /api/w/[slug]/chat/stream', () => {
       expect(mocks.messageRunService.markRunFailed).not.toHaveBeenCalledWith('run-1', 'stream_timeout')
 
       await vi.advanceTimersByTimeAsync(21_000)
+      expect(mocks.messageRunService.markRunFailed).not.toHaveBeenCalledWith('run-1', 'stream_timeout')
+
+      await vi.advanceTimersByTimeAsync(21_000)
       const text = await textPromise
 
       expect(text).toContain('event: done')
       expect(text).not.toContain('stream_timeout')
-      expect(readStatus).toHaveBeenCalledTimes(2)
+      expect(readStatus).toHaveBeenCalledTimes(3)
       expect(mocks.messageRunService.markRunSucceeded).toHaveBeenCalledWith('run-1')
       expect(mocks.messageRunService.markRunFailed).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('closes only the observation after unknown status exhausts its grace window', async () => {
+    vi.useFakeTimers()
+    try {
+      mocks.createUpstreamSessionStatusReader.mockReturnValue(vi.fn().mockResolvedValue(null))
+      mocks.getSilentStreamOutcome
+        .mockReturnValueOnce('keep_waiting')
+        .mockReturnValueOnce('status_unknown_timeout')
+      vi.stubGlobal('fetch', vi.fn((url: string | URL) => {
+        if (String(url) === 'http://test-slug:3000/event') {
+          return Promise.resolve(new Response(new ReadableStream<Uint8Array>(), { status: 200 }))
+        }
+
+        return Promise.reject(new Error(`unexpected fetch ${String(url)}`))
+      }))
+
+      const { POST } = await import('../route')
+      const res = await POST(makePostRequest({ sessionId: 's1', runId: 'run-1' }), params())
+      const textPromise = res.text()
+
+      await vi.advanceTimersByTimeAsync(42_000)
+      const text = await textPromise
+
+      expect(text).toContain('stream_status_unavailable')
+      expect(text).toContain('"recoverable":true')
+      expect(mocks.messageRunService.markRunFailed).not.toHaveBeenCalled()
+      expect(mocks.abortSessionFamilyAndConfirmIdle).not.toHaveBeenCalled()
     } finally {
       vi.useRealTimers()
     }
@@ -942,7 +1096,7 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     vi.useFakeTimers()
     try {
       mocks.createUpstreamSessionStatusReader.mockReturnValue(vi.fn().mockResolvedValue(null))
-      mocks.getSilentStreamOutcome.mockReturnValue('stream_timeout')
+      mocks.getSilentStreamOutcome.mockReturnValue('max_runtime_exceeded')
       const fetchMock = vi.fn((url: string | URL) => {
         if (String(url) === 'http://test-slug:3000/event') {
           return Promise.resolve(new Response(new ReadableStream<Uint8Array>(), { status: 200 }))
@@ -976,7 +1130,7 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     vi.useFakeTimers()
     try {
       mocks.createUpstreamSessionStatusReader.mockReturnValue(vi.fn().mockResolvedValue(null))
-      mocks.getSilentStreamOutcome.mockReturnValue('stream_timeout')
+      mocks.getSilentStreamOutcome.mockReturnValue('max_runtime_exceeded')
       mocks.abortSessionFamilyAndConfirmIdle.mockResolvedValue(false)
       vi.stubGlobal('fetch', vi.fn((url: string | URL) => {
         if (String(url) === 'http://test-slug:3000/event') {

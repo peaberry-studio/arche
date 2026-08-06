@@ -97,6 +97,32 @@ describe("useWorkspaceConnection", () => {
     expect(onConnected).toHaveBeenCalledTimes(1);
   });
 
+  it("continues retrying periodically after the fast retry budget is exhausted", async () => {
+    vi.useFakeTimers();
+    opencodeMocks.checkConnectionAction.mockResolvedValue({
+      status: "error",
+      error: "unavailable",
+    });
+
+    renderHook(() => useWorkspaceConnection("alice", true));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      for (let attempt = 0; attempt < 12; attempt += 1) {
+        await vi.runOnlyPendingTimersAsync();
+      }
+    });
+
+    expect(opencodeMocks.checkConnectionAction.mock.calls.length).toBeGreaterThan(11);
+    const callCount = opencodeMocks.checkConnectionAction.mock.calls.length;
+
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync();
+    });
+
+    expect(opencodeMocks.checkConnectionAction).toHaveBeenCalledTimes(callCount + 1);
+  });
+
   it("resets to connecting state when disabled after being connected", async () => {
     opencodeMocks.checkConnectionAction.mockResolvedValue({ status: "connected" });
     const onConnected = vi.fn().mockResolvedValue(undefined);

@@ -4,7 +4,11 @@ export type IdleFinalizationOutcome =
   | 'stream_incomplete'
   | 'stream_no_assistant_message'
 
-export type SilentStreamOutcome = 'finalize_idle' | 'keep_waiting' | 'stream_timeout'
+export type SilentStreamOutcome =
+  | 'finalize_idle'
+  | 'keep_waiting'
+  | 'max_runtime_exceeded'
+  | 'status_unknown_timeout'
 
 type IdleFinalizationInput = {
   resume: boolean
@@ -18,6 +22,8 @@ type SilentStreamInput = {
   upstreamStatus: string | null
   silentForMs: number
   relevantEventTimeoutMs: number
+  unknownStatusForMs: number
+  unknownStatusGraceMs: number
 }
 
 export function getIdleFinalizationOutcome({
@@ -42,7 +48,7 @@ export function getIdleFinalizationOutcome({
 
 export function getSilentStreamOutcome(input: SilentStreamInput): SilentStreamOutcome {
   if (input.runtimeMs >= input.maxRuntimeMs) {
-    return 'stream_timeout'
+    return 'max_runtime_exceeded'
   }
 
   if (input.upstreamStatus === 'busy' || input.upstreamStatus === 'retry') {
@@ -53,5 +59,7 @@ export function getSilentStreamOutcome(input: SilentStreamInput): SilentStreamOu
     return 'finalize_idle'
   }
 
-  return 'stream_timeout'
+  return input.unknownStatusForMs >= input.unknownStatusGraceMs
+    ? 'status_unknown_timeout'
+    : 'keep_waiting'
 }

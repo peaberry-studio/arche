@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto'
+
 import { NextRequest, NextResponse } from 'next/server'
 
 import { getIdleFinalizationOutcome, getSilentStreamOutcome } from '@/app/api/w/[slug]/chat/stream/watchdog'
@@ -33,6 +35,9 @@ export const dynamic = 'force-dynamic'
 const STREAM_RELEVANT_EVENT_TICK_MS = 1000
 const SEND_STREAM_RELEVANT_EVENT_TIMEOUT_MS = 20_000
 const RESUME_STREAM_RELEVANT_EVENT_TIMEOUT_MS = 12_000
+const EVENT_STREAM_CONNECT_TIMEOUT_MS = 8_000
+const SSE_HEARTBEAT_INTERVAL_MS = 10_000
+const STATUS_UNKNOWN_GRACE_MS = 45_000
 const PROMPT_START_TIMEOUT_MS = 60_000
 type StreamRequestBody = {
   attachments: MessageAttachmentInput[]
@@ -302,6 +307,7 @@ export const POST = withAuth(
     } = streamBody
     const startsPrompt = !resume && !runId
     const hasPromptInput = Boolean(text) || attachments.length > 0 || contextPaths.length > 0 || Boolean(model)
+    const observationId = randomUUID()
 
     if (!startsPrompt && hasPromptInput) {
       return jsonErrorResponse(400, 'invalid_stream_payload')
@@ -408,6 +414,10 @@ export const POST = withAuth(
         // Track whether the downstream client (browser) has disconnected.
         let clientGone = false
         let aborted = false
+        let firstDownstreamEventSeen = false
+        let firstUpstreamEventSeen = false
+        let terminalReason: string | null = null
+        let heartbeatCount = 0
         const upstreamEventsController = new AbortController()
 
         // Shared reference so the abort path and finally block can always
@@ -415,9 +425,28 @@ export const POST = withAuth(
         let eventReader: ReadableStreamDefaultReader<Uint8Array> | null = null
         let promptStarted = !startsPrompt
 
+        const logObservation = (event: string, details: Record<string, unknown> = {}) => {
+          console.log('[chat/stream]', {
+            activeRunId,
+            event,
+            observationId,
+            sessionId,
+            slug,
+            ...details,
+          })
+        }
+
+        const recordTerminalReason = (reason: string, details: Record<string, unknown> = {}) => {
+          if (terminalReason) return
+          terminalReason = reason
+          logObservation('stream_terminal', { reason, ...details })
+        }
+
         const handleAbort = () => {
           clientGone = true
           aborted = true
+          recordTerminalReason('client_abort')
+          logObservation('client_abort')
           upstreamEventsController.abort()
           void eventReader?.cancel().catch(() => undefined)
           if (startsPrompt && activeRunId && !promptStarted) {
@@ -436,10 +465,36 @@ export const POST = withAuth(
           if (clientGone) return
           try {
             controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`))
+            if (!firstDownstreamEventSeen) {
+              firstDownstreamEventSeen = true
+              logObservation('first_downstream_event', { eventType: event })
+            }
           } catch {
             clientGone = true
+            aborted = true
+            recordTerminalReason('downstream_write_error')
+            upstreamEventsController.abort()
+            void eventReader?.cancel().catch(() => undefined)
           }
         }
+
+        const sendHeartbeat = () => {
+          if (clientGone || aborted) return
+          try {
+            controller.enqueue(encoder.encode(`: heartbeat ${Date.now()}\n\n`))
+            heartbeatCount += 1
+            logObservation('heartbeat', { count: heartbeatCount })
+          } catch {
+            clientGone = true
+            aborted = true
+            recordTerminalReason('downstream_write_error')
+            upstreamEventsController.abort()
+            void eventReader?.cancel().catch(() => undefined)
+          }
+        }
+
+        const heartbeatInterval = setInterval(sendHeartbeat, SSE_HEARTBEAT_INTERVAL_MS)
+        logObservation('downstream_open')
 
         const markRunSucceeded = () => {
           if (!activeRunId) return
@@ -451,12 +506,42 @@ export const POST = withAuth(
           void messageRunService.markRunFailed(activeRunId, detail).catch(() => undefined)
         }
 
+        const closeForObservationInterruption = (detail: string, reason = detail) => {
+          sendEvent('error', {
+            error: detail,
+            recoverable: true,
+            ...(activeRunId ? { runId: activeRunId } : {}),
+          })
+          recordTerminalReason(reason, { detail, recoverable: true })
+          aborted = true
+        }
+
+        const failEventSubscription = (detail: string) => {
+          if (startsPrompt) {
+            markRunFailed(detail)
+            sendEvent('error', { error: detail })
+            recordTerminalReason(detail, { recoverable: false })
+            aborted = true
+            return
+          }
+
+          closeForObservationInterruption(detail)
+        }
+
         try {
           sendEvent('status', { status: 'connecting' })
           const readUpstreamSessionStatus = createUpstreamSessionStatusReader({
             baseUrl,
             authHeader,
             sessionId,
+            onRead: ({ durationMs, outcome, responseStatus, status }) => {
+              logObservation('upstream_status_read', {
+                durationMs,
+                outcome,
+                responseStatus,
+                status,
+              })
+            },
           })
 
           // Subscribe first so we don't miss fast session events.
@@ -464,6 +549,13 @@ export const POST = withAuth(
 
           let reader: ReadableStreamDefaultReader<Uint8Array> | null = null
           if (!clientGone) {
+            const connectStartedAt = Date.now()
+            let connectTimedOut = false
+            const connectTimeout = setTimeout(() => {
+              connectTimedOut = true
+              upstreamEventsController.abort()
+            }, EVENT_STREAM_CONNECT_TIMEOUT_MS)
+            logObservation('upstream_connect_start')
             try {
               const eventsResponse = await fetch(eventsUrl, {
                 method: 'GET',
@@ -476,21 +568,35 @@ export const POST = withAuth(
               })
 
               if (!eventsResponse.ok || !eventsResponse.body) {
-                markRunFailed('event_stream_unavailable')
-                sendEvent('error', { error: 'Failed to connect to event stream' })
+                logObservation('upstream_connect_failure', {
+                  durationMs: Date.now() - connectStartedAt,
+                  reason: 'event_stream_unavailable',
+                  responseStatus: eventsResponse.status,
+                })
+                failEventSubscription('event_stream_unavailable')
                 return
               }
 
+              logObservation('upstream_connect_success', {
+                durationMs: Date.now() - connectStartedAt,
+              })
               reader = eventsResponse.body.getReader()
               eventReader = reader
             } catch (error) {
-              if (!clientGone && !isAbortError(error)) {
-                markRunFailed(error instanceof Error ? error.message : 'event_stream_unavailable')
-                sendEvent('error', {
-                  error: error instanceof Error ? error.message : 'Unknown error'
+              if (!clientGone) {
+                const detail = connectTimedOut
+                  ? 'event_stream_connect_timeout'
+                  : 'event_stream_unavailable'
+                logObservation('upstream_connect_failure', {
+                  durationMs: Date.now() - connectStartedAt,
+                  error: error instanceof Error ? error.message : String(error),
+                  reason: detail,
                 })
-                return
+                failEventSubscription(detail)
               }
+              return
+            } finally {
+              clearTimeout(connectTimeout)
             }
           }
 
@@ -532,6 +638,9 @@ export const POST = withAuth(
                   : 'prompt_start_failed'
             markRunFailed(detail)
             sendEvent('error', { error: detail })
+            recordTerminalReason(
+              detail === 'prompt_start_timeout' ? detail : 'prompt_start_failed',
+            )
             await cancelReader()
             return
           }
@@ -541,9 +650,12 @@ export const POST = withAuth(
             const detail = `Failed to start message: ${errorText}`
             markRunFailed(detail)
             sendEvent('error', { error: detail })
+            recordTerminalReason('prompt_start_rejected', { responseStatus: promptResponse.status })
             await cancelReader()
             return
           }
+
+          logObservation('prompt_accepted')
         }
 
         // Track state for the assistant response
@@ -561,6 +673,7 @@ export const POST = withAuth(
         let runModelId = model?.modelId ?? null
         let lastRelevantEventAt = Date.now()
         let lastStreamActivityAt = lastRelevantEventAt
+        let unknownStatusSince: number | null = null
         const stepFinishUsageByPart = new Map<string, StepFinishUsage>()
         const relevantEventTimeoutMs = resume
           ? RESUME_STREAM_RELEVANT_EVENT_TIMEOUT_MS
@@ -661,6 +774,7 @@ export const POST = withAuth(
             sendEvent('error', { error: outcome })
             recordRunUsage()
             markRunFailed(outcome)
+            recordTerminalReason(`idle_${outcome}`)
             aborted = true
             return
           }
@@ -669,6 +783,7 @@ export const POST = withAuth(
           sendEvent('done', { refresh: true })
           recordRunUsage()
           markRunSucceeded()
+          recordTerminalReason('idle_confirmed_complete')
           void queueAutoLearningBestEffort({ authHeader, baseUrl, sessionId, slug, userId: user.id })
           aborted = true
         }
@@ -692,13 +807,25 @@ export const POST = withAuth(
                   continue
                 }
 
+                const upstreamStatus = await readUpstreamSessionStatus()
+                const statusReadAt = Date.now()
+                if (upstreamStatus === 'busy' || upstreamStatus === 'retry' || upstreamStatus === 'idle') {
+                  unknownStatusSince = null
+                } else if (unknownStatusSince === null) {
+                  unknownStatusSince = statusReadAt
+                }
+
                 const watchdogOutcome = getSilentStreamOutcome(
                   {
                     maxRuntimeMs: MESSAGE_RUN_TIMEOUT_MS,
-                    runtimeMs: Date.now() - runStartedAt,
-                    upstreamStatus: await readUpstreamSessionStatus(),
-                    silentForMs: Date.now() - lastStreamActivityAt,
+                    runtimeMs: statusReadAt - runStartedAt,
+                    upstreamStatus,
+                    silentForMs: statusReadAt - lastStreamActivityAt,
                     relevantEventTimeoutMs,
+                    unknownStatusForMs: unknownStatusSince === null
+                      ? 0
+                      : statusReadAt - unknownStatusSince,
+                    unknownStatusGraceMs: STATUS_UNKNOWN_GRACE_MS,
                   },
                 )
 
@@ -710,6 +837,15 @@ export const POST = withAuth(
                 if (watchdogOutcome === 'finalize_idle') {
                   markWatchdogCheck()
                   finalizeFromIdle()
+                  continue
+                }
+
+                if (watchdogOutcome === 'status_unknown_timeout') {
+                  recordRunUsage()
+                  closeForObservationInterruption(
+                    'stream_status_unavailable',
+                    'status_unknown_grace_exhausted',
+                  )
                   continue
                 }
 
@@ -726,6 +862,9 @@ export const POST = withAuth(
                 if (terminated) {
                   markRunFailed(failure)
                 }
+                recordTerminalReason('max_runtime_exceeded', {
+                  executionTerminationConfirmed: terminated,
+                })
                 aborted = true
               }
               continue
@@ -740,8 +879,11 @@ export const POST = withAuth(
 
           const { done, value } = streamReadResult
           if (done || !value) {
-            if (!resume && !aborted) {
+            logObservation('upstream_eof')
+            if (!aborted && await readUpstreamSessionStatus() === 'idle') {
               finalizeFromIdle()
+            } else if (!aborted) {
+              closeForObservationInterruption('upstream_eof')
             }
             break
           }
@@ -769,6 +911,10 @@ export const POST = withAuth(
                   event.properties?.part?.sessionID
 
                 const eventType = typeof event.type === 'string' ? event.type : ''
+                if (!firstUpstreamEventSeen) {
+                  firstUpstreamEventSeen = true
+                  logObservation('first_upstream_event', { eventType })
+                }
                 const isWorkspaceEvent =
                   eventType === 'file.edited' ||
                   eventType === 'file.created' ||
@@ -830,6 +976,7 @@ export const POST = withAuth(
                     sendEvent('error', { error: errorMessage })
                     recordRunUsage()
                     markRunFailed(errorMessage)
+                    recordTerminalReason('upstream_session_error')
                     aborted = true
                     break
                   }
@@ -1148,17 +1295,19 @@ export const POST = withAuth(
 
       } catch (error) {
         if (!aborted && !request.signal.aborted && !isAbortError(error)) {
-          markRunFailed(error instanceof Error ? error.message : 'stream_error')
-          sendEvent('error', {
-            error: error instanceof Error ? error.message : 'Unknown error'
+          logObservation('upstream_error', {
+            error: error instanceof Error ? error.message : String(error),
           })
+          closeForObservationInterruption('upstream_stream_error')
         }
       } finally {
+        clearInterval(heartbeatInterval)
         request.signal.removeEventListener('abort', handleAbort)
         upstreamEventsController.abort()
         if (eventReader) {
           await eventReader.cancel().catch(() => undefined)
         }
+        recordTerminalReason('stream_closed')
         try { controller.close() } catch { /* already closed/errored */ }
       }
       }
@@ -1169,7 +1318,8 @@ export const POST = withAuth(
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache, no-transform',
         'Connection': 'keep-alive',
-        'X-Accel-Buffering': 'no'
+        'X-Accel-Buffering': 'no',
+        ...(activeRunId ? { 'X-Arche-Run-Id': activeRunId } : {}),
       }
     })
   },
