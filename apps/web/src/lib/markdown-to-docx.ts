@@ -48,6 +48,10 @@ import {
   type PdfDocumentBundle as DocumentBundle,
   type PdfSourceDocument as SourceDocument,
 } from "@/lib/pdf-document-bundle"
+import {
+  getVegaLiteTitle,
+  renderVegaLiteToSvg,
+} from "@/lib/vega-lite-renderer"
 
 type MarkdownNode = {
   type: string
@@ -112,24 +116,7 @@ function isSafeExternalUrl(value: string | undefined): value is string {
   }
 }
 
-function getVegaLiteTitle(spec: Record<string, unknown>): string {
-  const title = spec.title
-  if (typeof title === "string" && title.trim()) return title.trim()
-  if (!title || typeof title !== "object" || Array.isArray(title)) return "Vega-Lite chart"
-
-  const text = (title as Record<string, unknown>).text
-  if (typeof text === "string" && text.trim()) return text.trim()
-  if (Array.isArray(text)) {
-    const lines = text.filter((line): line is string => typeof line === "string")
-    if (lines.length > 0) return lines.join(" ")
-  }
-
-  return "Vega-Lite chart"
-}
-
 async function renderVegaLiteToPng(spec: Record<string, unknown>): Promise<RenderedChart> {
-  const vega = await import("vega")
-  const vegaLite = await import("vega-lite")
   const themeConfig = buildVegaConfig(FALLBACK_THEME)
   const specWithConfig = {
     ...spec,
@@ -144,37 +131,30 @@ async function renderVegaLiteToPng(spec: Record<string, unknown>): Promise<Rende
     },
     padding: CHART_PADDING,
   }
-  const compiled = vegaLite.compile(specWithConfig as Parameters<typeof vegaLite.compile>[0])
-  const view = new vega.View(vega.parse(compiled.spec), { renderer: "none" })
+  const svg = await renderVegaLiteToSvg(specWithConfig)
+  const rendered = await sharp(Buffer.from(svg), { density: 96 * CHART_RASTER_SCALE })
+    .trim({ background: "#ffffff", threshold: 10 })
+    .extend({
+      background: "#ffffff",
+      bottom: CHART_PADDING * CHART_RASTER_SCALE,
+      left: CHART_PADDING * CHART_RASTER_SCALE,
+      right: CHART_PADDING * CHART_RASTER_SCALE,
+      top: CHART_PADDING * CHART_RASTER_SCALE,
+    })
+    .resize({
+      fit: "inside",
+      height: (MAX_CHART_HEIGHT - CHART_PADDING * 2) * CHART_RASTER_SCALE,
+      width: (MAX_CHART_WIDTH - CHART_PADDING * 2) * CHART_RASTER_SCALE,
+      withoutEnlargement: true,
+    })
+    .png()
+    .toBuffer({ resolveWithObject: true })
 
-  try {
-    const svg = await view.toSVG()
-    const rendered = await sharp(Buffer.from(svg), { density: 96 * CHART_RASTER_SCALE })
-      .trim({ background: "#ffffff", threshold: 10 })
-      .extend({
-        background: "#ffffff",
-        bottom: CHART_PADDING * CHART_RASTER_SCALE,
-        left: CHART_PADDING * CHART_RASTER_SCALE,
-        right: CHART_PADDING * CHART_RASTER_SCALE,
-        top: CHART_PADDING * CHART_RASTER_SCALE,
-      })
-      .resize({
-        fit: "inside",
-        height: (MAX_CHART_HEIGHT - CHART_PADDING * 2) * CHART_RASTER_SCALE,
-        width: (MAX_CHART_WIDTH - CHART_PADDING * 2) * CHART_RASTER_SCALE,
-        withoutEnlargement: true,
-      })
-      .png()
-      .toBuffer({ resolveWithObject: true })
-
-    return {
-      data: rendered.data,
-      height: Math.max(1, Math.round(rendered.info.height / CHART_RASTER_SCALE)),
-      title: getVegaLiteTitle(spec),
-      width: Math.max(1, Math.round(rendered.info.width / CHART_RASTER_SCALE)),
-    }
-  } finally {
-    view.finalize()
+  return {
+    data: rendered.data,
+    height: Math.max(1, Math.round(rendered.info.height / CHART_RASTER_SCALE)),
+    title: getVegaLiteTitle(spec, "Vega-Lite chart"),
+    width: Math.max(1, Math.round(rendered.info.width / CHART_RASTER_SCALE)),
   }
 }
 

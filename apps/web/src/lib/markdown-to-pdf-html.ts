@@ -29,6 +29,10 @@ import {
   type PdfDocumentBundle,
   type PdfSourceDocument,
 } from "@/lib/pdf-document-bundle"
+import {
+  getVegaLiteTitle,
+  renderVegaLiteToSvg,
+} from "@/lib/vega-lite-renderer"
 
 const MAX_VEGA_CHARTS = 20
 const MAX_DATA_IMAGE_BYTES = 4 * 1024 * 1024
@@ -87,22 +91,6 @@ function withAbort<T>(operation: Promise<T>, signal?: AbortSignal): Promise<T> {
   })
 }
 
-async function renderVegaLiteToSvg(spec: Record<string, unknown>): Promise<string> {
-  const vega = await import("vega")
-  const vegaLite = await import("vega-lite")
-
-  const config = buildVegaConfig(FALLBACK_THEME)
-  const specWithConfig = { ...spec, config }
-  const compiled = vegaLite.compile(specWithConfig as Parameters<typeof vegaLite.compile>[0])
-  const runtime = vega.parse(compiled.spec)
-  const view = new vega.View(runtime, { renderer: "none" })
-  try {
-    return await view.toSVG()
-  } finally {
-    view.finalize()
-  }
-}
-
 type VegaLiteTarget = {
   parent: Element | Root
   index: number
@@ -131,21 +119,6 @@ function extractVegaLiteSpec(preNode: Element): Record<string, unknown> | null {
   }
 
   return parseChartSpec(parsed)
-}
-
-function getVegaLiteTitle(spec: Record<string, unknown>): string {
-  const title = spec.title
-  if (typeof title === "string" && title.trim()) return title.trim()
-  if (!title || typeof title !== "object" || Array.isArray(title)) return "Untitled figure"
-
-  const text = (title as Record<string, unknown>).text
-  if (typeof text === "string" && text.trim()) return text.trim()
-  if (Array.isArray(text)) {
-    const lines = text.filter((line): line is string => typeof line === "string")
-    if (lines.length > 0) return lines.join(" ")
-  }
-
-  return "Untitled figure"
 }
 
 function normalizeFigureLabel(label: string): string {
@@ -228,7 +201,13 @@ function rehypeVegaLiteToSvg(state: PdfRenderState, signal?: AbortSignal) {
       state.vegaChartCount += 1
       let svg: string | null = null
       try {
-        svg = await withAbort(renderVegaLiteToSvg(target.spec), signal)
+        svg = await withAbort(
+          renderVegaLiteToSvg({
+            ...target.spec,
+            config: buildVegaConfig(FALLBACK_THEME),
+          }),
+          signal,
+        )
       } catch {
         continue
       }
@@ -243,7 +222,7 @@ function rehypeVegaLiteToSvg(state: PdfRenderState, signal?: AbortSignal) {
               children: [{ type: "raw", value: svg } as unknown as ElementContent],
             },
           ],
-          getVegaLiteTitle(target.spec),
+          getVegaLiteTitle(target.spec, "Untitled figure"),
         ),
       }
     }
