@@ -33,6 +33,7 @@ import type { ChatMessage } from "@/types/workspace";
 type ChatPanelMessagesProps = {
   chatContentStyle: CSSProperties;
   connectorNamesById: Record<string, string>;
+  isInitialSessionsReady?: boolean;
   isLoadingMessages: boolean;
   isStartingNewSession: boolean;
   messages: ChatMessage[];
@@ -47,6 +48,7 @@ type ChatPanelMessagesProps = {
   onSelectSessionTab?: (id: string) => void;
   scrollContainerRef: RefObject<HTMLDivElement | null>;
   sessionTabs: SessionTabInfo[];
+  sessionsError?: string | null;
   slug: string;
   workspaceRoot?: string;
 };
@@ -345,6 +347,7 @@ function groupMessageParts(parts: MessagePart[]): PartGroup[] {
 export function ChatPanelMessages({
   chatContentStyle,
   connectorNamesById,
+  isInitialSessionsReady = true,
   isLoadingMessages,
   isStartingNewSession,
   messages,
@@ -355,11 +358,14 @@ export function ChatPanelMessages({
   onSelectSessionTab,
   scrollContainerRef,
   sessionTabs,
+  sessionsError = null,
   slug,
   workspaceRoot,
 }: ChatPanelMessagesProps) {
   const isLoadingConversation = isLoadingMessages && messages.length === 0;
-  const showsCenteredState = isStartingNewSession || isLoadingConversation || messages.length === 0;
+  const isLoadingSession = !isInitialSessionsReady && !sessionsError && messages.length === 0;
+  const hasSessionsError = Boolean(sessionsError) && messages.length === 0;
+  const showsCenteredState = isStartingNewSession || isLoadingConversation || isLoadingSession || hasSessionsError || messages.length === 0;
 
   return (
     <div className="relative min-h-0 flex-1">
@@ -388,6 +394,18 @@ export function ChatPanelMessages({
                 <div className="h-16 w-16 animate-spin rounded-full border-4 border-muted border-t-primary" />
                 <p className="max-w-[260px] text-sm text-muted-foreground">Loading conversation...</p>
               </div>
+            </div>
+          ) : isLoadingSession ? (
+            <div className="grid h-full place-items-center text-center">
+              <div className="flex flex-col items-center gap-3">
+                <div className="h-16 w-16 animate-spin rounded-full border-4 border-muted border-t-primary" />
+                <p className="max-w-[260px] text-sm text-muted-foreground">Loading session...</p>
+              </div>
+            </div>
+          ) : hasSessionsError ? (
+            <div className="flex h-full flex-col items-center justify-center px-6 text-center text-card-foreground">
+              <XCircle size={24} weight="fill" className="text-destructive/70" />
+              <p className="mt-4 max-w-[280px] text-sm font-medium text-foreground/80">Couldn&apos;t load sessions.</p>
             </div>
           ) : messages.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center px-6 text-center text-card-foreground">

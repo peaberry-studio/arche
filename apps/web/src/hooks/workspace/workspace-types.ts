@@ -384,6 +384,8 @@ export type UseWorkspaceReturn = {
   activeSessionId: string | null;
   activeSession: WorkspaceSession | null;
   isLoadingSessions: boolean;
+  isInitialSessionsReady: boolean;
+  sessionsError: string | null;
   isLoadingMoreSessions: boolean;
   hasMoreSessions: boolean;
   unseenCompletedSessions: ReadonlySet<string>;

@@ -60,7 +60,9 @@ describe("WorkspaceSessionsSidebar", () => {
         sessions={[]}
         activeSessionId={null}
         hasMoreSessions={false}
+        isInitialSessionsReady={true}
         isLoadingMoreSessions={false}
+        sessionsError={null}
         unseenCompletedSessions={new Set<string>()}
         onCreateSession={vi.fn()}
         onLoadMoreSessions={async () => {}}
