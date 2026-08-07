@@ -15,9 +15,9 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock("@/lib/csrf", () => ({ validateSameOrigin: mocks.validateSameOrigin }))
-vi.mock("@/lib/pdf-document-bundle", async (importOriginal) => {
-  const original = await importOriginal<typeof import("@/lib/pdf-document-bundle")>()
-  return { ...original, findDirectPdfDocumentPaths: mocks.findDirectDocumentPaths }
+vi.mock("@/lib/document-bundle", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/lib/document-bundle")>()
+  return { ...original, findDirectDocumentPaths: mocks.findDirectDocumentPaths }
 })
 vi.mock("@/lib/markdown-to-docx", () => ({ markdownToDocx: mocks.markdownToDocx }))
 vi.mock("@/lib/runtime/capabilities", () => ({
@@ -133,6 +133,7 @@ describe("POST /api/w/[slug]/files/export-docx", () => {
     expect(mocks.readWorkspaceFileFromAgent).toHaveBeenCalledWith(
       { baseUrl: "http://agent" },
       "Research/article.md",
+      undefined,
     )
     expect(mocks.markdownToDocx).toHaveBeenCalledWith({
       appendices: [],

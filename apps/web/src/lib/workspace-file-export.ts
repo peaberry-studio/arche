@@ -1,14 +1,16 @@
 import { normalizeWorkspacePath } from "@/lib/workspace-paths"
 
-export type WorkspaceFilePdfExportResult =
+export type WorkspaceFileExportResult =
   | { ok: true }
   | { error: string; ok: false }
+
+export type WorkspaceFileExportFormat = "docx" | "pdf"
 
 export async function exportWorkspaceFile(
   slug: string,
   path: string,
-  format: "docx" | "pdf",
-): Promise<WorkspaceFilePdfExportResult> {
+  format: WorkspaceFileExportFormat,
+): Promise<WorkspaceFileExportResult> {
   const normalizedPath = normalizeWorkspacePath(path)
   if (!normalizedPath) return { error: "invalid_path", ok: false }
   if (typeof document === "undefined") {
@@ -63,11 +65,4 @@ export async function exportWorkspaceFile(
     if (link?.parentNode) link.parentNode.removeChild(link)
     if (url) URL.revokeObjectURL(url)
   }
-}
-
-export function exportWorkspaceFileAsPdf(
-  slug: string,
-  path: string,
-): Promise<WorkspaceFilePdfExportResult> {
-  return exportWorkspaceFile(slug, path, "pdf")
 }

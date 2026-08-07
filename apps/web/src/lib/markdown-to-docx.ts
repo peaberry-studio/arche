@@ -37,17 +37,17 @@ import {
 import { parseMarkdownFrontmatter } from "@/components/workspace/markdown-frontmatter"
 import { workspaceRemarkPlugins } from "@/components/workspace/markdown-plugins"
 import {
+  getDocumentTitle,
+  getObsidianLinkLabel,
+  resolveInternalLink,
+  type DocumentBundle,
+  type SourceDocument,
+} from "@/lib/document-bundle"
+import {
   getDocxDocumentAnchor,
   getDocxHeadingAnchor,
 } from "@/lib/docx-document-bundle"
 import { findObsidianLinks } from "@/lib/kb-internal-links"
-import {
-  getObsidianPdfLinkLabel as getObsidianLinkLabel,
-  getPdfDocumentTitle as getDocumentTitle,
-  resolvePdfInternalLink as resolveInternalLink,
-  type PdfDocumentBundle as DocumentBundle,
-  type PdfSourceDocument as SourceDocument,
-} from "@/lib/pdf-document-bundle"
 
 type MarkdownNode = {
   type: string

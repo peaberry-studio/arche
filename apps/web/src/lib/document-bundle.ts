@@ -14,18 +14,18 @@ import {
 } from "@/lib/kb-internal-links"
 import { normalizeWorkspacePath } from "@/lib/workspace-paths"
 
-export type PdfSourceDocument = {
+export type SourceDocument = {
   markdown: string
   path: string
 }
 
-export type PdfDocumentBundle = {
-  appendices: PdfSourceDocument[]
+export type DocumentBundle = {
+  appendices: SourceDocument[]
   availablePaths: string[]
-  primary: PdfSourceDocument
+  primary: SourceDocument
 }
 
-export type PdfInternalLink =
+export type InternalLink =
   | { kind: "external" }
   | { kind: "resolved"; heading: string | null; path: string }
   | { kind: "unresolved" }
@@ -109,12 +109,12 @@ function getMarkdownAstText(node: MarkdownAstNode): string {
   return `${value}${children}`
 }
 
-export function resolvePdfInternalLink(
+export function resolveInternalLink(
   rawTarget: string,
   sourcePath: string,
   availablePaths: string[],
   syntax: "markdown" | "obsidian",
-): PdfInternalLink {
+): InternalLink {
   const normalizedTarget =
     syntax === "obsidian" ? getObsidianLinkFullPath(rawTarget) : rawTarget.trim()
 
@@ -153,7 +153,7 @@ export function resolvePdfInternalLink(
   }
 }
 
-export function findDirectPdfDocumentPaths(
+export function findDirectDocumentPaths(
   markdown: string,
   sourcePath: string,
   availablePaths: string[],
@@ -165,7 +165,7 @@ export function findDirectPdfDocumentPaths(
   const seen = new Set<string>()
 
   function addTarget(rawTarget: string, syntax: "markdown" | "obsidian") {
-    const resolved = resolvePdfInternalLink(
+    const resolved = resolveInternalLink(
       rawTarget,
       sourcePath,
       availablePaths,
@@ -218,7 +218,7 @@ export function getPdfHeadingAnchor(documentPath: string, heading: string): stri
   return `${getPdfDocumentAnchor(documentPath)}--${slug}`
 }
 
-export function getPdfDocumentTitle(document: PdfSourceDocument): string {
+export function getDocumentTitle(document: SourceDocument): string {
   const frontmatter = parseMarkdownFrontmatter(document.markdown)
   const title = frontmatter.properties.find(
     (property) => property.key.toLowerCase() === "title" && property.type === "string",
@@ -242,6 +242,6 @@ export function getPdfDocumentTitle(document: PdfSourceDocument): string {
   return stripMarkdownExtension(basename) || document.path
 }
 
-export function getObsidianPdfLinkLabel(rawTarget: string): string {
+export function getObsidianLinkLabel(rawTarget: string): string {
   return getObsidianLinkDisplayLabel(rawTarget)
 }
