@@ -57,7 +57,6 @@ type MarkdownNode = {
   lang?: string
   depth?: number
   ordered?: boolean
-  start?: number | null
   checked?: boolean | null
   children?: MarkdownNode[]
   chart?: RenderedChart
@@ -97,6 +96,7 @@ const MAX_CHART_HEIGHT = 760
 const CHART_RASTER_SCALE = 3
 const CHART_PADDING = 8
 const TABLE_BORDER = { color: "D1D5DB", size: 4, style: BorderStyle.SINGLE }
+const PAGE = { margin: { bottom: 720, left: 1080, right: 1080, top: 1080 } }
 
 function getNodeText(node: MarkdownNode): string {
   return `${node.value ?? ""}${node.children?.map(getNodeText).join("") ?? ""}`
@@ -114,17 +114,13 @@ function isSafeExternalUrl(value: string | undefined): value is string {
 
 function getVegaLiteTitle(spec: Record<string, unknown>): string {
   const title = spec.title
-  if (typeof title === "string" && title.trim()) return title.trim()
-  if (!title || typeof title !== "object" || Array.isArray(title)) return "Vega-Lite chart"
-
-  const text = (title as Record<string, unknown>).text
-  if (typeof text === "string" && text.trim()) return text.trim()
-  if (Array.isArray(text)) {
-    const lines = text.filter((line): line is string => typeof line === "string")
-    if (lines.length > 0) return lines.join(" ")
-  }
-
-  return "Vega-Lite chart"
+  const text = title && typeof title === "object" && !Array.isArray(title)
+    ? (title as Record<string, unknown>).text
+    : title
+  const label = Array.isArray(text)
+    ? text.filter((line): line is string => typeof line === "string").join(" ")
+    : typeof text === "string" ? text : ""
+  return label.trim() || "Vega-Lite chart"
 }
 
 async function renderVegaLiteToPng(spec: Record<string, unknown>): Promise<RenderedChart> {
@@ -233,11 +229,9 @@ function getIncludedLinkAnchor(
 
 function textChildren(
   value: string,
+  context: DocxRenderContext,
   style: InlineStyle,
-  context?: DocxRenderContext,
 ): ParagraphChild[] {
-  if (!context) return [new TextRun({ text: value, ...style })]
-
   const links = findObsidianLinks(value)
   if (links.length === 0) return [new TextRun({ text: value, ...style })]
 
@@ -269,19 +263,19 @@ function textChildren(
 
 function inlineChildren(
   nodes: MarkdownNode[],
+  context: DocxRenderContext,
   style: InlineStyle = {},
-  context?: DocxRenderContext,
 ): ParagraphChild[] {
   return nodes.flatMap((node): ParagraphChild[] => {
     switch (node.type) {
       case "text":
-        return textChildren(node.value ?? "", style, context)
+        return textChildren(node.value ?? "", context, style)
       case "strong":
-        return inlineChildren(node.children ?? [], { ...style, bold: true }, context)
+        return inlineChildren(node.children ?? [], context, { ...style, bold: true })
       case "emphasis":
-        return inlineChildren(node.children ?? [], { ...style, italics: true }, context)
+        return inlineChildren(node.children ?? [], context, { ...style, italics: true })
       case "delete":
-        return inlineChildren(node.children ?? [], { ...style, strike: true }, context)
+        return inlineChildren(node.children ?? [], context, { ...style, strike: true })
       case "inlineCode":
         return [
           new TextRun({
@@ -294,24 +288,22 @@ function inlineChildren(
       case "inlineMath":
         return [new DocxMath({ children: [new MathRun(node.value ?? "")] })]
       case "link": {
-        const anchor = context
-          ? getIncludedLinkAnchor(node.url ?? "", "markdown", context)
-          : null
+        const anchor = getIncludedLinkAnchor(node.url ?? "", "markdown", context)
         if (anchor) {
           return [
             new InternalHyperlink({
               anchor,
-              children: inlineChildren(node.children ?? [], style, context),
+              children: inlineChildren(node.children ?? [], context, style),
             }),
           ]
         }
         if (!isSafeExternalUrl(node.url)) {
-          return inlineChildren(node.children ?? [], style, context)
+          return inlineChildren(node.children ?? [], context, style)
         }
         return [
           new ExternalHyperlink({
             link: node.url,
-            children: inlineChildren(node.children ?? [], style, context),
+            children: inlineChildren(node.children ?? [], context, style),
           }),
         ]
       }
@@ -332,27 +324,27 @@ function inlineChildren(
       case "html":
         return [new TextRun({ text: node.value ?? "", ...style })]
       default:
-        return inlineChildren(node.children ?? [], style, context)
+        return inlineChildren(node.children ?? [], context, style)
     }
   })
 }
 
 function paragraphFromInline(
   nodes: MarkdownNode[],
+  context: DocxRenderContext,
   options: IParagraphOptions = {},
-  context?: DocxRenderContext,
 ): Paragraph {
   return new Paragraph({
     spacing: { after: 160, line: 300 },
     ...options,
-    children: inlineChildren(nodes, {}, context),
+    children: inlineChildren(nodes, context),
   })
 }
 
 function listChildren(
   node: MarkdownNode,
+  context: DocxRenderContext,
   level: number,
-  context?: DocxRenderContext,
 ): FileChild[] {
   const output: FileChild[] = []
   const reference = node.ordered ? ORDERED_NUMBERING : BULLET_NUMBERING
@@ -363,12 +355,12 @@ function listChildren(
 
     for (const child of children) {
       if (child.type === "list") {
-        output.push(...listChildren(child, Math.min(level + 1, 8), context))
+        output.push(...listChildren(child, context, Math.min(level + 1, 8)))
         continue
       }
 
       if (child.type !== "paragraph") {
-        output.push(...blockChildren(child, level + 1, context))
+        output.push(...blockChildren(child, context, level + 1))
         continue
       }
 
@@ -377,7 +369,7 @@ function listChildren(
         : []
       output.push(
         new Paragraph({
-          children: [...prefix, ...inlineChildren(child.children ?? [], {}, context)],
+          children: [...prefix, ...inlineChildren(child.children ?? [], context)],
           numbering: { reference, level },
           spacing: { after: 80, line: 280 },
         }),
@@ -389,7 +381,7 @@ function listChildren(
   return output
 }
 
-function tableFromNode(node: MarkdownNode, context?: DocxRenderContext): Table {
+function tableFromNode(node: MarkdownNode, context: DocxRenderContext): Table {
   const rows = (node.children ?? []).map((row, rowIndex) =>
     new TableRow({
       children: (row.children ?? []).map((cell) =>
@@ -405,8 +397,8 @@ function tableFromNode(node: MarkdownNode, context?: DocxRenderContext): Table {
             new Paragraph({
               children: inlineChildren(
                 cell.children ?? [],
-                rowIndex === 0 ? { bold: true } : {},
                 context,
+                rowIndex === 0 ? { bold: true } : {},
               ),
               spacing: { after: 80, before: 80 },
             }),
@@ -425,8 +417,8 @@ function tableFromNode(node: MarkdownNode, context?: DocxRenderContext): Table {
 
 function blockChildren(
   node: MarkdownNode,
+  context: DocxRenderContext,
   quoteDepth = 0,
-  context?: DocxRenderContext,
 ): FileChild[] {
   const quoteOptions = quoteDepth > 0
     ? {
@@ -446,12 +438,12 @@ function blockChildren(
         HeadingLevel.HEADING_6,
       ]
       const sourceDepth = node.depth ?? 1
-      const depth = Math.min(6, sourceDepth + (context?.headingOffset ?? 0))
+      const depth = Math.min(6, sourceDepth + context.headingOffset)
       const headingText = getNodeText(node)
         .replace(/\s+/gu, " ")
         .trim()
-      const content = inlineChildren(node.children ?? [], {}, context)
-      const headingChildren = context && headingText
+      const content = inlineChildren(node.children ?? [], context)
+      const headingChildren = headingText
         ? [
             new Bookmark({
               id: getDocxHeadingAnchor(context.document.path, headingText),
@@ -469,13 +461,13 @@ function blockChildren(
       ]
     }
     case "paragraph":
-      return [paragraphFromInline(node.children ?? [], quoteOptions, context)]
+      return [paragraphFromInline(node.children ?? [], context, quoteOptions)]
     case "blockquote":
       return (node.children ?? []).flatMap((child) =>
-        blockChildren(child, quoteDepth + 1, context),
+        blockChildren(child, context, quoteDepth + 1),
       )
     case "list":
-      return listChildren(node, 0, context)
+      return listChildren(node, context, 0)
     case "code": {
       if (node.chart) {
         return [
@@ -536,7 +528,7 @@ function blockChildren(
       return [new Paragraph({ children: [new TextRun(node.value ?? "")] })]
     default:
       if (node.children) {
-        return node.children.flatMap((child) => blockChildren(child, quoteDepth, context))
+        return node.children.flatMap((child) => blockChildren(child, context, quoteDepth))
       }
       if (node.value) return [new Paragraph({ children: [new TextRun(node.value)] })]
       return []
@@ -601,7 +593,7 @@ async function sourceDocumentChildren(
 
   await renderVegaLiteCharts(children, state)
   const context: DocxRenderContext = { document, headingOffset, state }
-  return children.flatMap((node) => blockChildren(node, 0, context))
+  return children.flatMap((node) => blockChildren(node, context))
 }
 
 export async function markdownToDocx(
@@ -626,9 +618,7 @@ export async function markdownToDocx(
   const sections: ISectionOptions[] = [
     {
       properties: {
-        page: {
-          margin: { bottom: 720, left: 1080, right: 1080, top: 1080 },
-        },
+        page: PAGE,
       },
       children: [documentAnchorParagraph(bundle.primary), ...primaryChildren],
     },
@@ -641,9 +631,7 @@ export async function markdownToDocx(
     sections.push({
       properties: {
         type: SectionType.NEXT_PAGE,
-        page: {
-          margin: { bottom: 720, left: 1080, right: 1080, top: 1080 },
-        },
+        page: PAGE,
       },
       children: [
         documentAnchorParagraph(appendix),

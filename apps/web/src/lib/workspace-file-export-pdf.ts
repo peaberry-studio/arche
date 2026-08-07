@@ -4,9 +4,10 @@ export type WorkspaceFilePdfExportResult =
   | { ok: true }
   | { error: string; ok: false }
 
-export async function exportWorkspaceFileAsPdf(
+export async function exportWorkspaceFile(
   slug: string,
   path: string,
+  format: "docx" | "pdf",
 ): Promise<WorkspaceFilePdfExportResult> {
   const normalizedPath = normalizeWorkspacePath(path)
   if (!normalizedPath) return { error: "invalid_path", ok: false }
@@ -17,7 +18,7 @@ export async function exportWorkspaceFileAsPdf(
   let url: string | undefined
   let link: HTMLAnchorElement | undefined
   try {
-    const response = await fetch(`/api/w/${encodeURIComponent(slug)}/files/export-pdf`, {
+    const response = await fetch(`/api/w/${encodeURIComponent(slug)}/files/export-${format}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path: normalizedPath }),
@@ -32,7 +33,7 @@ export async function exportWorkspaceFileAsPdf(
         typeof payload.error === "string"
           ? payload.error
           : "unknown_error"
-      console.error("[pdf-export] Export request failed", {
+      console.error(`[${format}-export] Export request failed`, {
         error,
         path: normalizedPath,
         status: response.status,
@@ -46,14 +47,14 @@ export async function exportWorkspaceFileAsPdf(
 
     link = document.createElement("a")
     link.href = url
-    link.download = `${basename}.pdf`
+    link.download = `${basename}.${format}`
     link.rel = "noopener"
     document.body.appendChild(link)
     link.click()
 
     return { ok: true }
   } catch (error) {
-    console.error("[pdf-export] Export request threw", {
+    console.error(`[${format}-export] Export request threw`, {
       error,
       path: normalizedPath,
     })
@@ -62,4 +63,11 @@ export async function exportWorkspaceFileAsPdf(
     if (link?.parentNode) link.parentNode.removeChild(link)
     if (url) URL.revokeObjectURL(url)
   }
+}
+
+export function exportWorkspaceFileAsPdf(
+  slug: string,
+  path: string,
+): Promise<WorkspaceFilePdfExportResult> {
+  return exportWorkspaceFile(slug, path, "pdf")
 }

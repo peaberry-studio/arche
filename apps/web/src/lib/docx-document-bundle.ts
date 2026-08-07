@@ -2,18 +2,15 @@ import { createHash } from "node:crypto"
 
 import { normalizeWorkspacePath } from "@/lib/workspace-paths"
 
+function getAnchor(prefix: string, value: string): string {
+  const digest = createHash("sha256").update(value).digest("hex").slice(0, 12)
+  return `${prefix}_${digest}`
+}
+
 export function getDocxDocumentAnchor(documentPath: string): string {
-  const digest = createHash("sha256")
-    .update(normalizeWorkspacePath(documentPath))
-    .digest("hex")
-    .slice(0, 12)
-  return `document_${digest}`
+  return getAnchor("document", normalizeWorkspacePath(documentPath))
 }
 
 export function getDocxHeadingAnchor(documentPath: string, heading: string): string {
-  const digest = createHash("sha256")
-    .update(`${normalizeWorkspacePath(documentPath)}#${heading.toLowerCase()}`)
-    .digest("hex")
-    .slice(0, 12)
-  return `heading_${digest}`
+  return getAnchor("heading", `${normalizeWorkspacePath(documentPath)}#${heading.toLowerCase()}`)
 }

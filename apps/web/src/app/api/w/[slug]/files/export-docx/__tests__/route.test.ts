@@ -57,6 +57,48 @@ function jsonRequest(body: unknown): NextRequest {
   return request(JSON.stringify(body))
 }
 
+function failureCase(
+  name: string,
+  status: number,
+  error: string | null,
+  arrange: () => void,
+  path = "article.md",
+) {
+  return { arrange, error, name, path, status }
+}
+
+const FAILURE_CASES = [
+  failureCase("workspace listing failures", 502, "list_failed", () =>
+    mocks.listWorkspaceFilesFromAgent.mockResolvedValue({
+      error: "list_failed",
+      ok: false,
+      response: new Response(JSON.stringify({ error: "list_failed" }), { status: 502 }),
+    })),
+  failureCase("more than 25 direct links", 413, "bundle_too_large", () =>
+    mocks.findDirectDocumentPaths.mockReturnValue(
+      Array.from({ length: 26 }, (_, index) => `appendix-${index}.md`),
+    )),
+  failureCase("workspace read failures", 404, null, () =>
+    mocks.readWorkspaceFileFromAgent.mockResolvedValue({
+      ok: false,
+      response: new Response(null, { status: 404 }),
+    }), "missing.md"),
+  failureCase("a stopped workspace agent", 503, "instance_unavailable", () =>
+    mocks.createWorkspaceAgentClient.mockResolvedValue(null)),
+  failureCase("non-text workspace content", 502, "invalid_file_content", () =>
+    mocks.readWorkspaceFileFromAgent.mockResolvedValue({
+      data: { content: null, encoding: "utf-8", ok: true },
+      ok: true,
+    })),
+  failureCase("articles larger than four MiB", 413, "file_too_large", () =>
+    mocks.readWorkspaceFileFromAgent.mockResolvedValue({
+      data: { content: "x".repeat(4 * 1024 * 1024 + 1), encoding: "utf-8", ok: true },
+      ok: true,
+    }), "large.md"),
+  failureCase("conversion failures", 500, "export_failed", () =>
+    mocks.markdownToDocx.mockRejectedValue(new Error("conversion failed"))),
+]
+
 describe("POST /api/w/[slug]/files/export-docx", () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -143,28 +185,6 @@ describe("POST /api/w/[slug]/files/export-docx", () => {
     })
   })
 
-  it("forwards workspace listing failures", async () => {
-    mocks.listWorkspaceFilesFromAgent.mockResolvedValue({
-      ok: false,
-      response: new Response(JSON.stringify({ error: "list_failed" }), { status: 502 }),
-    })
-
-    const response = await POST(jsonRequest({ path: "article.md" }), CONTEXT)
-
-    expect(response.status).toBe(502)
-  })
-
-  it("rejects bundles with more than 25 direct links", async () => {
-    mocks.findDirectDocumentPaths.mockReturnValue(
-      Array.from({ length: 26 }, (_, index) => `appendix-${index}.md`),
-    )
-
-    const response = await POST(jsonRequest({ path: "article.md" }), CONTEXT)
-
-    expect(response.status).toBe(413)
-    expect(await response.json()).toEqual({ error: "bundle_too_large" })
-  })
-
   it.each([
     { body: "{", error: "invalid_body" },
     { body: JSON.stringify([]), error: "invalid_body" },
@@ -178,57 +198,12 @@ describe("POST /api/w/[slug]/files/export-docx", () => {
     expect(await response.json()).toEqual({ error })
   })
 
-  it("forwards workspace read failures", async () => {
-    mocks.readWorkspaceFileFromAgent.mockResolvedValue({
-      ok: false,
-      response: new Response(JSON.stringify({ error: "not_found" }), { status: 404 }),
-    })
+  it.each(FAILURE_CASES)("handles $name", async ({ arrange, error, path, status }) => {
+    arrange()
+    const response = await POST(jsonRequest({ path }), CONTEXT)
 
-    const response = await POST(jsonRequest({ path: "missing.md" }), CONTEXT)
-
-    expect(response.status).toBe(404)
-  })
-
-  it("returns unavailable when the workspace agent is stopped", async () => {
-    mocks.createWorkspaceAgentClient.mockResolvedValue(null)
-
-    const response = await POST(jsonRequest({ path: "article.md" }), CONTEXT)
-
-    expect(response.status).toBe(503)
-    expect(await response.json()).toEqual({ error: "instance_unavailable" })
-  })
-
-  it("rejects non-text workspace content", async () => {
-    mocks.readWorkspaceFileFromAgent.mockResolvedValue({
-      ok: true,
-      data: { content: null, encoding: "utf-8", ok: true },
-    })
-
-    const response = await POST(jsonRequest({ path: "article.md" }), CONTEXT)
-
-    expect(response.status).toBe(502)
-    expect(await response.json()).toEqual({ error: "invalid_file_content" })
-  })
-
-  it("rejects articles larger than four MiB", async () => {
-    mocks.readWorkspaceFileFromAgent.mockResolvedValue({
-      ok: true,
-      data: { content: "x".repeat(4 * 1024 * 1024 + 1), encoding: "utf-8", ok: true },
-    })
-
-    const response = await POST(jsonRequest({ path: "large.md" }), CONTEXT)
-
-    expect(response.status).toBe(413)
-    expect(await response.json()).toEqual({ error: "file_too_large" })
-  })
-
-  it("returns export_failed when conversion fails", async () => {
-    mocks.markdownToDocx.mockRejectedValue(new Error("conversion failed"))
-
-    const response = await POST(jsonRequest({ path: "article.md" }), CONTEXT)
-
-    expect(response.status).toBe(500)
-    expect(await response.json()).toEqual({ error: "export_failed" })
+    expect(response.status).toBe(status)
+    if (error) expect(await response.json()).toEqual({ error })
   })
 
   it("requires authentication", async () => {

@@ -1,26 +1,19 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
-vi.mock("@/lib/workspace-paths", () => ({
-  normalizeWorkspacePath: (path: string) => {
-    const trimmed = path.trim().replace(/^\/+/, "")
-    return trimmed || ""
-  },
-}))
+const exportWorkspaceFile = vi.hoisted(() => vi.fn())
+
+vi.mock("@/lib/workspace-file-export-pdf", () => ({ exportWorkspaceFile }))
 
 import { exportWorkspaceFileAsDocx } from "../workspace-file-export-docx"
 
 describe("exportWorkspaceFileAsDocx", () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-  })
+  it.each([
+    [{ ok: true }, true],
+    [{ error: "export_failed", ok: false }, false],
+  ])("maps the shared exporter result to %s", async (result, expected) => {
+    exportWorkspaceFile.mockResolvedValue(result)
 
-  it("returns false when the path normalizes to empty", async () => {
-    const result = await exportWorkspaceFileAsDocx("alice", "  ")
-    expect(result).toBe(false)
-  })
-
-  it("returns false when document is unavailable (node environment)", async () => {
-    const result = await exportWorkspaceFileAsDocx("alice", "docs/readme.md")
-    expect(result).toBe(false)
+    await expect(exportWorkspaceFileAsDocx("alice", "docs/readme.md")).resolves.toBe(expected)
+    expect(exportWorkspaceFile).toHaveBeenCalledWith("alice", "docs/readme.md", "docx")
   })
 })

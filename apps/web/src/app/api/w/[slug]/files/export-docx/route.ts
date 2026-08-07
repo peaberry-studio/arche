@@ -89,13 +89,9 @@ export const POST = withAuth<{ error: string }>(
 
       let listResult = await listWorkspaceFilesFromAgent(agent, "", true)
       if (!listResult.ok) {
-        const payload: unknown = await listResult.response.clone().json().catch(() => null)
         const sourceDirectory = path.posix.dirname(normalizedPath)
         if (
-          typeof payload === "object" &&
-          payload !== null &&
-          "error" in payload &&
-          payload.error === "path_required" &&
+          listResult.error === "path_required" &&
           sourceDirectory !== "."
         ) {
           listResult = await listWorkspaceFilesFromAgent(agent, sourceDirectory, true)
