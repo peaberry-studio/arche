@@ -96,6 +96,33 @@ describe("markdownToDocx", () => {
     expect(document).toContain(`w:name="${anchor}"`)
   })
 
+  it("matches heading bookmarks for conventional kebab-case slugs", async () => {
+    const buffer = await markdownToDocx([
+      "[Go](#bold-section)",
+      "",
+      "## Bold section",
+    ].join("\n"))
+    const { document } = docxXml(buffer)
+    const anchor = getDocxHeadingAnchor("article.md", "bold-section")
+
+    expect(document).toContain(`w:anchor="${anchor}"`)
+    expect(document).toContain(`w:name="${anchor}"`)
+  })
+
+  it("numbers only the first paragraph in multi-paragraph list items", async () => {
+    const buffer = await markdownToDocx([
+      "- First paragraph.",
+      "",
+      "  Second paragraph of the same item.",
+      "",
+      "- Next item.",
+    ].join("\n"))
+    const { document } = docxXml(buffer)
+    const numPrMatches = document.match(/<w:numPr>/gu) ?? []
+
+    expect(numPrMatches).toHaveLength(2)
+  })
+
   it("renders Vega-Lite fences as embedded PNG charts", async () => {
     const spec = JSON.stringify({
       $schema: "https://vega.github.io/schema/vega-lite/v5.json",

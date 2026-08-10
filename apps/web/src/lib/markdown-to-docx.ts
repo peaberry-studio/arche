@@ -177,15 +177,15 @@ async function renderVegaLiteToPng(spec: Record<string, unknown>): Promise<Rende
 async function renderVegaLiteCharts(
   nodes: MarkdownNode[],
   state: DocxRenderState,
+  signal?: AbortSignal,
 ): Promise<void> {
   for (const node of nodes) {
+    if (signal?.aborted) return
+
     if (
       node.type === "code" &&
       node.lang === "vega-lite"
     ) {
-      if (state.chartCount >= MAX_VEGA_CHARTS) {
-        throw new Error("DOCX chart limit exceeded")
-      }
       let parsed: unknown
       try {
         parsed = JSON.parse(node.value?.trim() ?? "")
@@ -194,7 +194,7 @@ async function renderVegaLiteCharts(
       }
 
       const spec = parseChartSpec(parsed)
-      if (spec) {
+      if (spec && state.chartCount < MAX_VEGA_CHARTS) {
         try {
           node.chart = await renderVegaLiteToPng(spec)
           state.chartCount += 1
@@ -204,7 +204,7 @@ async function renderVegaLiteCharts(
       }
     }
 
-    if (node.children) await renderVegaLiteCharts(node.children, state)
+    if (node.children) await renderVegaLiteCharts(node.children, state, signal)
   }
 }
 
@@ -370,7 +370,9 @@ function listChildren(
       output.push(
         new Paragraph({
           children: [...prefix, ...inlineChildren(child.children ?? [], context)],
-          numbering: { reference, level },
+          ...(wroteFirstParagraph
+            ? { indent: { left: 720 + level * 360 } }
+            : { numbering: { reference, level } }),
           spacing: { after: 80, line: 280 },
         }),
       )
@@ -573,6 +575,7 @@ async function sourceDocumentChildren(
   document: SourceDocument,
   headingOffset: number,
   state: DocxRenderState,
+  signal?: AbortSignal,
 ): Promise<FileChild[]> {
   const frontmatter = parseMarkdownFrontmatter(document.markdown)
   let processor = unified().use(remarkParse)
@@ -591,13 +594,14 @@ async function sourceDocumentChildren(
     if (titleHeadingIndex >= 0) children.splice(titleHeadingIndex, 1)
   }
 
-  await renderVegaLiteCharts(children, state)
+  await renderVegaLiteCharts(children, state, signal)
   const context: DocxRenderContext = { document, headingOffset, state }
   return children.flatMap((node) => blockChildren(node, context))
 }
 
 export async function markdownToDocx(
   input: string | DocumentBundle,
+  signal?: AbortSignal,
 ): Promise<Buffer> {
   const bundle: DocumentBundle = typeof input === "string"
     ? {
@@ -614,7 +618,7 @@ export async function markdownToDocx(
       [bundle.primary, ...bundle.appendices].map((document) => document.path.toLowerCase()),
     ),
   }
-  const primaryChildren = await sourceDocumentChildren(bundle.primary, 0, state)
+  const primaryChildren = await sourceDocumentChildren(bundle.primary, 0, state, signal)
   const sections: ISectionOptions[] = [
     {
       properties: {
@@ -627,7 +631,7 @@ export async function markdownToDocx(
   for (const appendix of bundle.appendices) {
     const sourceTitle = getDocumentTitle(appendix)
     const appendixTitle = `Appendix. ${getAppendixTitle(appendix, title)}`
-    const content = await sourceDocumentChildren(appendix, 1, state)
+    const content = await sourceDocumentChildren(appendix, 1, state, signal)
     sections.push({
       properties: {
         type: SectionType.NEXT_PAGE,

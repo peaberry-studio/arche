@@ -133,13 +133,16 @@ describe("POST /api/w/[slug]/files/export-docx", () => {
     expect(mocks.readWorkspaceFileFromAgent).toHaveBeenCalledWith(
       { baseUrl: "http://agent" },
       "Research/article.md",
-      undefined,
+      expect.any(AbortSignal),
     )
-    expect(mocks.markdownToDocx).toHaveBeenCalledWith({
-      appendices: [],
-      availablePaths: ["Research/article.md"],
-      primary: { markdown: "# Article", path: "Research/article.md" },
-    })
+    expect(mocks.markdownToDocx).toHaveBeenCalledWith(
+      {
+        appendices: [],
+        availablePaths: ["Research/article.md"],
+        primary: { markdown: "# Article", path: "Research/article.md" },
+      },
+      expect.any(AbortSignal),
+    )
   })
 
   it("decodes base64 article content before conversion", async () => {
@@ -151,11 +154,14 @@ describe("POST /api/w/[slug]/files/export-docx", () => {
     const response = await POST(jsonRequest({ path: "encoded.md" }), CONTEXT)
 
     expect(response.status).toBe(200)
-    expect(mocks.markdownToDocx).toHaveBeenCalledWith({
-      appendices: [],
-      availablePaths: ["encoded.md", "Research/article.md"],
-      primary: { markdown: "# Encoded", path: "encoded.md" },
-    })
+    expect(mocks.markdownToDocx).toHaveBeenCalledWith(
+      {
+        appendices: [],
+        availablePaths: ["encoded.md", "Research/article.md"],
+        primary: { markdown: "# Encoded", path: "encoded.md" },
+      },
+      expect.any(AbortSignal),
+    )
   })
 
   it("loads directly linked Markdown documents as ordered appendices", async () => {
@@ -179,11 +185,14 @@ describe("POST /api/w/[slug]/files/export-docx", () => {
     const response = await POST(jsonRequest({ path: "Research/report.md" }), CONTEXT)
 
     expect(response.status).toBe(200)
-    expect(mocks.markdownToDocx).toHaveBeenCalledWith({
-      appendices: [{ markdown: "# Plots", path: "Research/report/plots.md" }],
-      availablePaths: ["Research/report.md", "Research/report/plots.md"],
-      primary: { markdown: "# Report", path: "Research/report.md" },
-    })
+    expect(mocks.markdownToDocx).toHaveBeenCalledWith(
+      {
+        appendices: [{ markdown: "# Plots", path: "Research/report/plots.md" }],
+        availablePaths: ["Research/report.md", "Research/report/plots.md"],
+        primary: { markdown: "# Report", path: "Research/report.md" },
+      },
+      expect.any(AbortSignal),
+    )
   })
 
   it.each([

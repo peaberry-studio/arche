@@ -14,8 +14,39 @@ export const dynamic = "force-dynamic"
 export const maxDuration = 60
 
 const MAX_CONCURRENT_EXPORTS = 4
+const DOCX_EXPORT_TIMEOUT_MS = 45_000
 
 let activeExports = 0
+
+class DocxExportTimeoutError extends Error {
+  constructor() {
+    super("docx_export_timeout")
+  }
+}
+
+function getAbortReason(signal: AbortSignal): Error {
+  if (signal.reason instanceof Error) return signal.reason
+  return new Error("docx_export_aborted")
+}
+
+function withAbort<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(getAbortReason(signal))
+
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(getAbortReason(signal))
+    signal.addEventListener("abort", abort, { once: true })
+    operation.then(
+      (value) => {
+        signal.removeEventListener("abort", abort)
+        resolve(value)
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", abort)
+        reject(error)
+      },
+    )
+  })
+}
 
 export const POST = withAuth<{ error: string }>(
   { csrf: false },
@@ -28,14 +59,33 @@ export const POST = withAuth<{ error: string }>(
     }
 
     activeExports++
+    const controller = new AbortController()
+    const timeout = setTimeout(
+      () => controller.abort(new DocxExportTimeoutError()),
+      DOCX_EXPORT_TIMEOUT_MS,
+    )
+    const abort = () => controller.abort(request.signal.reason)
+    request.signal.addEventListener("abort", abort, { once: true })
     try {
-      const agent = await createWorkspaceAgentClient(slug)
+      const agent = await withAbort(
+        createWorkspaceAgentClient(slug),
+        controller.signal,
+      )
       if (!agent) return jsonResponse(503, { error: "instance_unavailable" })
 
-      const bundleResult = await gatherWorkspaceDocumentBundle(agent, pathResult.path)
+      if (controller.signal.aborted) throw getAbortReason(controller.signal)
+
+      const bundleResult = await gatherWorkspaceDocumentBundle(
+        agent,
+        pathResult.path,
+        controller.signal,
+      )
       if (!bundleResult.ok) return bundleResult.response
 
-      const docx = await markdownToDocx(bundleResult.bundle)
+      const docx = await withAbort(
+        markdownToDocx(bundleResult.bundle, controller.signal),
+        controller.signal,
+      )
       return new Response(new Uint8Array(docx), {
         status: 200,
         headers: {
@@ -43,9 +93,14 @@ export const POST = withAuth<{ error: string }>(
           "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         },
       })
-    } catch {
+    } catch (error) {
+      if (error instanceof DocxExportTimeoutError) {
+        return jsonResponse(504, { error: "export_timeout" })
+      }
       return jsonResponse(500, { error: "export_failed" })
     } finally {
+      clearTimeout(timeout)
+      request.signal.removeEventListener("abort", abort)
       activeExports--
     }
   },
