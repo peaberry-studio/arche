@@ -84,6 +84,21 @@ describe('supply chain hardening', () => {
     }
   }, 30_000)
 
+  it('does not declare a root pnpm workspace aggregating the apps', () => {
+    expect(
+      existsSync(resolve(repoRoot, 'pnpm-workspace.yaml')),
+      'repo root must not contain a pnpm-workspace.yaml',
+    ).toBe(false)
+
+    const rootConfigList = execFileSync('pnpm', ['config', 'list'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    expect(rootConfigList, 'root pnpm config must not define workspace packages').not.toMatch(/"packages"/)
+    expect(rootConfigList, 'root pnpm config must not define workspace allowBuilds').not.toMatch(/"allowBuilds"/)
+  }, 30_000)
+
   it('pins direct dependency specs exactly', () => {
     for (const manifestPath of directDependencyManifests) {
       const manifest = readJsonRepoFile(manifestPath)

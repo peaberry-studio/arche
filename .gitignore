@@ -59,5 +59,8 @@ archectl_*
 infra/**/.env
 infra/**/.env.local*
 
+# CodeGraph local index (per-machine cache, regenerable with `codegraph init`)
+.codegraph/
+
 # Claude AI local config
 .claude/
