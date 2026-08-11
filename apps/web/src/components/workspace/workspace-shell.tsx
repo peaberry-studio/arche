@@ -12,6 +12,11 @@ import { useWorkspace } from "@/hooks/use-workspace";
 import type { KnowledgeGraphAgentSource } from "@/lib/kb-graph";
 import type { WorkspaceSession } from "@/lib/opencode/types";
 import { getDesktopFlowsHref, getDesktopWorkspaceHref } from "@/lib/runtime/desktop/current-vault";
+import { downloadWorkspaceFile } from "@/lib/workspace-file-download";
+import {
+  exportWorkspaceFile,
+  type WorkspaceFileExportFormat,
+} from "@/lib/workspace-file-export";
 import {
   isProtectedWorkspacePath,
   normalizeWorkspacePath,
@@ -22,8 +27,6 @@ import {
   isBusyFlowWorkspaceSession,
   isFlowSession,
 } from "@/lib/workspace-session-utils";
-import { downloadWorkspaceFile } from "@/lib/workspace-file-download";
-import { exportWorkspaceFileAsPdf } from "@/lib/workspace-file-export-pdf";
 import {
   getWorkspaceLayoutCookieName,
   getWorkspaceLayoutStorageKey,
@@ -1598,26 +1601,36 @@ export function WorkspaceShell({
     [slug]
   );
 
-  const handleExportFilePdf = useCallback(
-    async (path: string) => {
-      const toastId = `pdf-export:${path}`;
-      toast.loading("Exporting PDF…", { id: toastId });
-      const result = await exportWorkspaceFileAsPdf(slug, path);
+  const handleExportFile = useCallback(
+    async (format: WorkspaceFileExportFormat, path: string) => {
+      const label = format.toUpperCase();
+      const toastId = `${format}-export:${path}`;
+      toast.loading(`Exporting ${label}…`, { id: toastId });
+      const result = await exportWorkspaceFile(slug, path, format);
       if (result.ok) {
-        toast.success("PDF exported", { id: toastId });
+        toast.success(`${label} exported`, { id: toastId });
       } else if (result.error === "export_busy") {
-        toast.error("Another PDF export is already in progress", { id: toastId });
+        toast.error(`Another ${label} export is already in progress`, { id: toastId });
       } else if (result.error === "file_too_large") {
         toast.error("The document is too large to export", { id: toastId });
       } else if (result.error === "bundle_too_large") {
         toast.error("The document bundle is too large to export", { id: toastId });
       } else if (result.error === "export_timeout") {
-        toast.error("PDF export timed out; try again", { id: toastId });
+        toast.error(`${label} export timed out; try again`, { id: toastId });
       } else {
-        toast.error("PDF export failed", { id: toastId });
+        toast.error(`${label} export failed`, { id: toastId });
       }
     },
     [slug]
+  );
+
+  const handleExportFilePdf = useCallback(
+    (path: string) => handleExportFile("pdf", path),
+    [handleExportFile]
+  );
+  const handleExportFileDocx = useCallback(
+    (path: string) => handleExportFile("docx", path),
+    [handleExportFile]
   );
 
   // Resize handlers - now work via the gap area between panels
@@ -1865,6 +1878,7 @@ export function WorkspaceShell({
       fileNodes={workspace.fileTree}
       headerActions={leftPanelHeaderActions}
       onDownloadFile={handleDownloadFile}
+      onExportFileDocx={handleExportFileDocx}
       onExportFilePdf={handleExportFilePdf}
       onOpenFile={handleOpenFile}
       openFiles={openFiles}

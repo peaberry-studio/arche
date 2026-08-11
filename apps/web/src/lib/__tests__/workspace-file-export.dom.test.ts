@@ -2,18 +2,18 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { exportWorkspaceFileAsPdf } from "../workspace-file-export-pdf"
+import { exportWorkspaceFile } from "../workspace-file-export"
 
-describe("exportWorkspaceFileAsPdf in the browser", () => {
+describe("exportWorkspaceFile in the browser", () => {
   afterEach(() => {
     vi.restoreAllMocks()
   })
 
-  it("fetches the PDF, creates a blob download link, and cleans up", async () => {
-    const pdfBlob = new Blob(["%PDF-1.4"], { type: "application/pdf" })
+  it.each(["docx", "pdf"] as const)("fetches %s and cleans up the download link", async (format) => {
+    const blob = new Blob([format], { type: "application/octet-stream" })
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
-      blob: () => Promise.resolve(pdfBlob),
+      blob: () => Promise.resolve(blob),
     })
     vi.stubGlobal("fetch", fetchMock)
 
@@ -41,18 +41,18 @@ describe("exportWorkspaceFileAsPdf in the browser", () => {
       return element
     })
 
-    const result = await exportWorkspaceFileAsPdf("alice", "docs/notes.md")
+    const result = await exportWorkspaceFile("alice", "docs/notes.md", format)
 
     expect(result).toEqual({ ok: true })
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/w/alice/files/export-pdf",
+      `/api/w/alice/files/export-${format}`,
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({ path: "docs/notes.md" }),
       }),
     )
     expect(clickMock).toHaveBeenCalledTimes(1)
-    expect(capturedDownload).toBe("notes.pdf")
+    expect(capturedDownload).toBe(`notes.${format}`)
     expect(revokeUrl).toHaveBeenCalledWith("blob:test")
     expect(document.body.querySelector("a")).toBeNull()
   })
@@ -65,7 +65,7 @@ describe("exportWorkspaceFileAsPdf in the browser", () => {
       status: 502,
     }))
 
-    const result = await exportWorkspaceFileAsPdf("alice", "docs/notes.md")
+    const result = await exportWorkspaceFile("alice", "docs/notes.md", "pdf")
     expect(result).toEqual({ error: "path_required", ok: false })
     expect(consoleError).toHaveBeenCalledWith(
       "[pdf-export] Export request failed",
@@ -84,7 +84,7 @@ describe("exportWorkspaceFileAsPdf in the browser", () => {
       status: 503,
     }))
 
-    const result = await exportWorkspaceFileAsPdf("alice", "docs/notes.md")
+    const result = await exportWorkspaceFile("alice", "docs/notes.md", "pdf")
 
     expect(result).toEqual({ error: "export_busy", ok: false })
   })

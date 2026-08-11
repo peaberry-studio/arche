@@ -1,6 +1,6 @@
 "use client";
 
-import { DownloadSimple, File, FilePdf } from "@phosphor-icons/react";
+import { DownloadSimple, File, FileDoc, FilePdf } from "@phosphor-icons/react";
 
 import {
   DropdownMenu,
@@ -13,6 +13,7 @@ import {
 type FileTreeContextMenuProps = {
   fileName: string;
   onDownload: () => void;
+  onExportDocx?: () => void;
   onExportPdf?: () => void;
   onOpenChange: (open: boolean) => void;
   open: boolean;
@@ -23,6 +24,7 @@ type FileTreeContextMenuProps = {
 export function FileTreeContextMenu({
   fileName,
   onDownload,
+  onExportDocx,
   onExportPdf,
   onOpenChange,
   open,
@@ -53,6 +55,12 @@ export function FileTreeContextMenu({
           <DropdownMenuItem onSelect={onExportPdf}>
             <FilePdf size={14} />
             Export as PDF
+          </DropdownMenuItem>
+        ) : null}
+        {onExportDocx ? (
+          <DropdownMenuItem onSelect={onExportDocx}>
+            <FileDoc size={14} />
+            Export as DOCX
           </DropdownMenuItem>
         ) : null}
       </DropdownMenuContent>
