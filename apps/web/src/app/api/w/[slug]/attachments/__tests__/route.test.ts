@@ -261,6 +261,23 @@ describe('/api/w/[slug]/attachments', () => {
       expect(json.error).toBe('invalid_path')
     })
 
+    it('returns 400 and skips the agent when rename destination path is invalid', async () => {
+      mocks.isWorkspaceAttachmentPath.mockImplementation(
+        (path: string) => path !== '/workspace/attachments/new.txt',
+      )
+      const res = await PATCH(
+        makeRequest('PATCH', 'http://localhost/api/w/alice/attachments', {
+          body: JSON.stringify({ path: '/workspace/attachments/old.txt', name: 'new.txt' }),
+          headers: { 'content-type': 'application/json' },
+        }),
+        bodyParams(),
+      )
+      expect(res.status).toBe(400)
+      const json = await res.json()
+      expect(json.error).toBe('invalid_path')
+      expect(mocks.workspaceAgentFetch).not.toHaveBeenCalled()
+    })
+
     it('returns 400 for invalid name', async () => {
       mocks.sanitizeAttachmentFilename.mockReturnValue('')
       const res = await PATCH(
