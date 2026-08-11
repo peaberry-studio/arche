@@ -273,6 +273,9 @@ export const PATCH = withAuth(
     }
 
     const newPath = `${WORKSPACE_ATTACHMENTS_DIR}/${sanitizedName}`
+    if (!isWorkspaceAttachmentPath(newPath)) {
+      return jsonResponse(400, { error: 'invalid_path' })
+    }
 
     const response = await workspaceAgentFetch<{ ok: boolean; path?: string; newPath?: string; error?: string }>(
       auth.agent,
