@@ -203,7 +203,7 @@ export function getPdfDocumentAnchor(documentPath: string): string {
   return `document-${digest}`
 }
 
-export function slugifyPdfHeading(heading: string): string {
+export function slugifyHeading(heading: string): string {
   return heading
     .normalize("NFKD")
     .toLowerCase()
@@ -214,7 +214,7 @@ export function slugifyPdfHeading(heading: string): string {
 }
 
 export function getPdfHeadingAnchor(documentPath: string, heading: string): string {
-  const slug = slugifyPdfHeading(heading) || "section"
+  const slug = slugifyHeading(heading) || "section"
   return `${getPdfDocumentAnchor(documentPath)}--${slug}`
 }
 

@@ -246,4 +246,30 @@ describe("POST /api/w/[slug]/files/export-docx", () => {
     releaseRead?.()
     await Promise.all(active)
   })
+
+  it("keeps the export slot leased until the conversion settles after timeout", async () => {
+    let releaseConversion: (() => void) | undefined
+    const blockedConversion = new Promise<void>((resolve) => {
+      releaseConversion = resolve
+    })
+    mocks.markdownToDocx.mockImplementation(async () => {
+      await blockedConversion
+      return Buffer.from("PK late")
+    })
+
+    const active = Array.from({ length: 4 }, () =>
+      POST(jsonRequest({ path: "article.md" }), CONTEXT),
+    )
+    await vi.waitFor(() => expect(mocks.markdownToDocx).toHaveBeenCalledTimes(4))
+
+    const busyWhileStalled = await POST(jsonRequest({ path: "article.md" }), CONTEXT)
+    expect(busyWhileStalled.status).toBe(503)
+
+    releaseConversion?.()
+    const results = await Promise.all(active)
+    expect(results.every((r) => r.status === 200)).toBe(true)
+
+    const afterSettled = await POST(jsonRequest({ path: "article.md" }), CONTEXT)
+    expect(afterSettled.status).toBe(200)
+  })
 })

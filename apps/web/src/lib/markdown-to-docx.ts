@@ -180,7 +180,7 @@ async function renderVegaLiteCharts(
   signal?: AbortSignal,
 ): Promise<void> {
   for (const node of nodes) {
-    if (signal?.aborted) return
+    if (signal?.aborted) throw signal.reason ?? new Error("aborted")
 
     if (
       node.type === "code" &&
@@ -603,6 +603,7 @@ export async function markdownToDocx(
   input: string | DocumentBundle,
   signal?: AbortSignal,
 ): Promise<Buffer> {
+  if (signal?.aborted) throw signal.reason ?? new Error("aborted")
   const bundle: DocumentBundle = typeof input === "string"
     ? {
         appendices: [],
@@ -629,6 +630,7 @@ export async function markdownToDocx(
   ]
 
   for (const appendix of bundle.appendices) {
+    if (signal?.aborted) throw signal.reason ?? new Error("aborted")
     const sourceTitle = getDocumentTitle(appendix)
     const appendixTitle = `Appendix. ${getAppendixTitle(appendix, title)}`
     const content = await sourceDocumentChildren(appendix, 1, state, signal)
@@ -675,5 +677,6 @@ export async function markdownToDocx(
     },
   })
 
+  if (signal?.aborted) throw signal.reason ?? new Error("aborted")
   return Packer.toBuffer(document)
 }

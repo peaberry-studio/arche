@@ -210,6 +210,34 @@ describe("markdownToDocx", () => {
     expect(document).not.toContain("vega-lite")
   })
 
+  it("renders exactly 100 charts and falls back to code for the 101st", async () => {
+    const spec = JSON.stringify({
+      $schema: "https://vega.github.io/schema/vega-lite/v5.json",
+      data: { values: [{ value: 1 }] },
+      encoding: { x: { field: "value", type: "quantitative" } },
+      height: 20,
+      mark: "point",
+      width: 20,
+    })
+    const markdown = Array.from(
+      { length: 101 },
+      () => `\`\`\`vega-lite\n${spec}\n\`\`\``,
+    ).join("\n\n")
+    const archive = docxArchive(await markdownToDocx(markdown))
+    const document = strFromU8(archive["word/document.xml"])
+
+    expect(document.match(/<w:drawing>/gu) ?? []).toHaveLength(100)
+    expect(document).toContain("vega-lite")
+  }, 120_000)
+
+  it("rejects with the abort reason when the signal is already aborted", async () => {
+    const controller = new AbortController()
+    const reason = new Error("test_abort")
+    controller.abort(reason)
+
+    await expect(markdownToDocx("# Test", controller.signal)).rejects.toThrow("test_abort")
+  })
+
   it("adds directly linked documents as next-page appendices", async () => {
     const buffer = await markdownToDocx({
       appendices: [

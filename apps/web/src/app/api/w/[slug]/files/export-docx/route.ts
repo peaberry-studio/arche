@@ -18,7 +18,7 @@ const DOCX_EXPORT_TIMEOUT_MS = 45_000
 
 let activeExports = 0
 
-class DocxExportTimeoutError extends Error {
+export class DocxExportTimeoutError extends Error {
   constructor() {
     super("docx_export_timeout")
   }
@@ -27,25 +27,6 @@ class DocxExportTimeoutError extends Error {
 function getAbortReason(signal: AbortSignal): Error {
   if (signal.reason instanceof Error) return signal.reason
   return new Error("docx_export_aborted")
-}
-
-function withAbort<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
-  if (signal.aborted) return Promise.reject(getAbortReason(signal))
-
-  return new Promise<T>((resolve, reject) => {
-    const abort = () => reject(getAbortReason(signal))
-    signal.addEventListener("abort", abort, { once: true })
-    operation.then(
-      (value) => {
-        signal.removeEventListener("abort", abort)
-        resolve(value)
-      },
-      (error: unknown) => {
-        signal.removeEventListener("abort", abort)
-        reject(error)
-      },
-    )
-  })
 }
 
 export const POST = withAuth<{ error: string }>(
@@ -66,11 +47,10 @@ export const POST = withAuth<{ error: string }>(
     )
     const abort = () => controller.abort(request.signal.reason)
     request.signal.addEventListener("abort", abort, { once: true })
+
+    let conversionSettled: Promise<void> | undefined
     try {
-      const agent = await withAbort(
-        createWorkspaceAgentClient(slug),
-        controller.signal,
-      )
+      const agent = await createWorkspaceAgentClient(slug)
       if (!agent) return jsonResponse(503, { error: "instance_unavailable" })
 
       if (controller.signal.aborted) throw getAbortReason(controller.signal)
@@ -82,10 +62,10 @@ export const POST = withAuth<{ error: string }>(
       )
       if (!bundleResult.ok) return bundleResult.response
 
-      const docx = await withAbort(
-        markdownToDocx(bundleResult.bundle, controller.signal),
-        controller.signal,
-      )
+      const conversionPromise = markdownToDocx(bundleResult.bundle, controller.signal)
+      conversionSettled = conversionPromise.then(() => {}, () => {})
+
+      const docx = await conversionPromise
       return new Response(new Uint8Array(docx), {
         status: 200,
         headers: {
@@ -101,6 +81,7 @@ export const POST = withAuth<{ error: string }>(
     } finally {
       clearTimeout(timeout)
       request.signal.removeEventListener("abort", abort)
+      if (conversionSettled) await conversionSettled
       activeExports--
     }
   },

@@ -6,7 +6,7 @@ import {
   getDocumentTitle,
   getPdfHeadingAnchor,
   resolveInternalLink,
-  slugifyPdfHeading,
+  slugifyHeading,
 } from "@/lib/document-bundle"
 
 const AVAILABLE_PATHS = [
@@ -114,7 +114,7 @@ describe("document-bundle", () => {
     expect(getPdfDocumentAnchor("docs/main.md")).not.toBe(
       getPdfDocumentAnchor("docs/alpha.md"),
     )
-    expect(slugifyPdfHeading("Résumé: GPU / CPU")).toBe("resume-gpu-cpu")
+    expect(slugifyHeading("Résumé: GPU / CPU")).toBe("resume-gpu-cpu")
     expect(getPdfHeadingAnchor("docs/main.md", "Main Results")).toMatch(
       /^document-[a-f0-9]{12}--main-results$/u,
     )
