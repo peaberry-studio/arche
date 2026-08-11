@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   isDesktop: vi.fn(),
   prisma: {
+    $transaction: vi.fn(),
     knowledgeLearningProposal: {
       create: vi.fn(),
       findFirst: vi.fn(),
@@ -15,6 +16,13 @@ const mocks = vi.hoisted(() => ({
       findFirst: vi.fn(),
       findMany: vi.fn(),
       update: vi.fn(),
+      updateMany: vi.fn(),
+    },
+    knowledgeReviewChange: {
+      create: vi.fn(),
+      findFirst: vi.fn(),
+      findMany: vi.fn(),
+      findUnique: vi.fn(),
       updateMany: vi.fn(),
     },
   },
@@ -49,6 +57,7 @@ const runRecord = {
   userId: 'user-1',
   sourceSessionId: 'session-1',
   internalSessionId: 'learning-session-1',
+  regenerationChangeId: null,
   title: 'Session',
   trigger: 'manual',
   status: 'pending',
@@ -58,10 +67,40 @@ const runRecord = {
   updatedAt: now,
 }
 
+const reviewRecord = {
+  id: 'change-1',
+  userId: 'user-1',
+  sourceProposalId: null,
+  regeneratedFromId: null,
+  runId: null,
+  author: 'Alice',
+  agent: 'curator',
+  origin: 'learning',
+  title: 'Remember preference',
+  reason: 'Durable preference',
+  evidence: { quote: 'Use concise answers' },
+  confidence: 0.8,
+  kbPath: 'Preferences/Answers.md',
+  operation: 'update',
+  baseContent: 'Old preference',
+  baseHash: 'base-hash',
+  actualContent: 'Current preference',
+  actualHash: 'current-hash',
+  proposedContent: 'Use concise answers.',
+  status: 'needs_rebase',
+  appliedAt: null,
+  appliedHash: null,
+  publishedAt: null,
+  auditTrail: [],
+  createdAt: now,
+  updatedAt: now,
+}
+
 describe('learning repository', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.isDesktop.mockReturnValue(false)
+    mocks.prisma.$transaction.mockImplementation(async (callback: (transaction: typeof mocks.prisma) => unknown) => callback(mocks.prisma))
   })
 
   it('maps list results', async () => {
@@ -193,5 +232,94 @@ describe('learning repository', () => {
       where: { id: 'run-1', status: 'running' },
       data: { error: 'provider_failed', finishedAt: expect.any(Date), status: 'failed' },
     })
+  })
+
+  it('does not supersede a conflicted change when its replacement cannot be created', async () => {
+    const { createKnowledgeReviewChange } = await import('@/lib/learning/repository')
+    mocks.prisma.knowledgeReviewChange.create.mockRejectedValue(new Error('database unavailable'))
+
+    await expect(createKnowledgeReviewChange('user-1', {
+      author: 'Alice',
+      confidence: 0.8,
+      evidence: { quote: 'Use concise answers' },
+      kbPath: reviewRecord.kbPath,
+      operation: 'update',
+      origin: 'learning',
+      proposedContent: 'Replacement content',
+      reason: 'Regenerated against current content',
+      regeneratedFromId: reviewRecord.id,
+      runId: 'run-2',
+      title: 'Replacement',
+    })).rejects.toThrow('database unavailable')
+
+    expect(mocks.prisma.knowledgeReviewChange.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: { not: reviewRecord.id } }),
+    }))
+    expect(mocks.prisma.knowledgeReviewChange.findFirst).not.toHaveBeenCalled()
+  })
+
+  it('creates and links a replacement before superseding its conflicted source', async () => {
+    const { createKnowledgeReviewChange } = await import('@/lib/learning/repository')
+    mocks.prisma.knowledgeReviewChange.create.mockResolvedValue({
+      ...reviewRecord,
+      id: 'change-2',
+      regeneratedFromId: reviewRecord.id,
+      runId: 'run-2',
+      status: 'open',
+    })
+    mocks.prisma.knowledgeReviewChange.findFirst.mockResolvedValue(reviewRecord)
+    mocks.prisma.knowledgeReviewChange.updateMany.mockResolvedValue({ count: 1 })
+
+    await expect(createKnowledgeReviewChange('user-1', {
+      author: 'Alice',
+      confidence: 0.8,
+      evidence: { quote: 'Use concise answers' },
+      kbPath: reviewRecord.kbPath,
+      operation: 'update',
+      origin: 'learning',
+      proposedContent: 'Replacement content',
+      reason: 'Regenerated against current content',
+      regeneratedFromId: reviewRecord.id,
+      runId: 'run-2',
+      title: 'Replacement',
+    })).resolves.toEqual(expect.objectContaining({
+      id: 'change-2',
+      regeneratedFromId: reviewRecord.id,
+    }))
+
+    expect(mocks.prisma.knowledgeReviewChange.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ regeneratedFromId: reviewRecord.id, runId: 'run-2' }),
+    }))
+    expect(mocks.prisma.knowledgeReviewChange.create.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.prisma.knowledgeReviewChange.findFirst.mock.invocationCallOrder[0],
+    )
+    expect(mocks.prisma.knowledgeReviewChange.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'superseded' }),
+      where: { id: reviewRecord.id, userId: 'user-1', status: 'needs_rebase' },
+    }))
+  })
+
+  it('creates a regeneration run only while the source is conflicted', async () => {
+    const { startLearningRunForKnowledgeReviewRegeneration } = await import('@/lib/learning/repository')
+    mocks.prisma.knowledgeReviewChange.findFirst.mockResolvedValue(reviewRecord)
+    mocks.prisma.knowledgeReviewChange.updateMany.mockResolvedValue({ count: 1 })
+    mocks.prisma.knowledgeLearningRun.create.mockResolvedValue({
+      ...runRecord,
+      id: 'run-2',
+      regenerationChangeId: reviewRecord.id,
+      sourceSessionId: null,
+      internalSessionId: null,
+    })
+
+    await expect(startLearningRunForKnowledgeReviewRegeneration({
+      actor: 'Alice',
+      changeId: reviewRecord.id,
+      title: 'Regenerate Remember preference',
+      userId: 'user-1',
+    })).resolves.toEqual(expect.objectContaining({ id: 'run-2', regenerationChangeId: reviewRecord.id }))
+
+    expect(mocks.prisma.knowledgeLearningRun.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ regenerationChangeId: reviewRecord.id, trigger: 'manual' }),
+    }))
   })
 })

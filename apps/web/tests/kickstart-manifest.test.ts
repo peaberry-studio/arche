@@ -30,8 +30,8 @@ describe('kickstart manifests', () => {
     expect(assistant?.systemPrompt.toLowerCase()).toContain('remember')
     expect(assistant?.systemPrompt.toLowerCase()).toContain('knowledge-curator')
 
-    expect(curator?.systemPrompt.toLowerCase()).toContain('confirmation')
-    expect(curator?.systemPrompt.toLowerCase()).toContain('before creating or updating')
+    expect(curator?.systemPrompt.toLowerCase()).toContain('knowledge review')
+    expect(curator?.systemPrompt.toLowerCase()).toContain('never write')
   })
 
   it('marketing template exposes curated prompt overrides for specialist agents', () => {

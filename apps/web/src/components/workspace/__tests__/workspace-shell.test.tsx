@@ -1234,44 +1234,52 @@ describe("WorkspaceShell", () => {
     expect(readCookieValue("arche-workspace-layout-alice")).toContain('"leftCollapsed":true');
   });
 
-  it("starts with the curator panel collapsed in chat mode and expands it on demand", async () => {
+  it("starts with Knowledge Review collapsed in chat mode and expands it on demand", async () => {
     render(<WorkspaceShell slug="alice" />);
 
-    const expandButton = await screen.findByRole("button", { name: "Expand curator panel" });
-    expect(screen.queryByText("Knowledge Curator")).toBeNull();
+    const expandButton = await screen.findByRole("button", { name: "Review Panel" });
+    expect(expandButton.dataset.collapsed).toBe("true");
 
     fireEvent.click(expandButton);
 
-    expect(await screen.findByText("Knowledge Curator")).toBeTruthy();
-    expect(await screen.findByText("No pending proposals.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Review Panel" }).dataset.collapsed).toBe("false");
   });
 
-  it("opens a curator learning run in the workspace session", async () => {
+  it("shows an open Knowledge Review change in the unified review panel", async () => {
     learningApiResponse = {
-      runs: [
-        {
-          id: "run-1",
-          sourceSessionId: "root-session",
-          internalSessionId: "internal-session-1",
-          title: "Learning from session",
-          trigger: "manual",
-          status: "running",
-          error: null,
-          messageCount: 10,
-          createdAt: "2026-01-01T00:00:00.000Z",
-          updatedAt: "2026-01-01T00:00:00.000Z",
-        },
-      ],
-      proposals: [],
+      runs: [],
+      proposals: [{
+        id: "review-1",
+        sourceProposalId: null,
+        runId: null,
+        author: "knowledge-curator",
+        agent: "knowledge-curator",
+        origin: "learning",
+        title: "Remember preference",
+        reason: "Durable user preference.",
+        evidence: { quote: "Use concise answers" },
+        confidence: 0.8,
+        kbPath: "Preferences/Answers.md",
+        operation: "update",
+        baseContent: "# Preference\n",
+        baseHash: "sha256:old",
+        proposedContent: "# Preference\n\nUse concise answers.\n",
+        status: "open",
+        actualContent: null,
+        actualHash: null,
+        appliedHash: null,
+        publishCommitSha: null,
+        auditTrail: [],
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      }],
     };
 
     render(<WorkspaceShell slug="alice" />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Expand curator panel" }));
-    expect(await screen.findByText("Learning from session")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Open session" }));
-
-    expect(selectSessionMock).toHaveBeenCalledWith("internal-session-1");
+    const reviewPanel = await screen.findByRole("button", { name: "Review Panel" });
+    expect(reviewPanel.dataset.panelMode).toBe("review");
+    expect(reviewPanel.dataset.collapsed).toBe("true");
   });
 
   it("shows chat as default view in compact layout", async () => {

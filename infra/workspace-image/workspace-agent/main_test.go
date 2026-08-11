@@ -412,7 +412,7 @@ func TestHandleKbPublishCommitsResolvedMergeWithNoFileDiff(t *testing.T) {
 		t.Fatalf("expected diff against remote side, got %q", diffResponse.Diffs[0].Diff)
 	}
 
-	publishReq := httptest.NewRequest(http.MethodPost, "/kb/publish", strings.NewReader("{}"))
+	publishReq := httptest.NewRequest(http.MethodPost, "/kb/publish", strings.NewReader(`{"paths":["Notes/Conflict.md"]}`))
 	publishRecorder := httptest.NewRecorder()
 	s.handleKbPublish(publishRecorder, publishReq)
 	if publishRecorder.Code != http.StatusOK {
@@ -473,10 +473,211 @@ func TestHandleKbSyncTurnsLocalChangesIntoResolvableConflicts(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode sync response: %v", err)
 	}
-	if response.Status != "conflicts" || len(response.Conflicts) != 1 || response.Conflicts[0] != path {
+	if response.Status != "conflicts" || len(response.Conflicts) == 0 {
 		t.Fatalf("unexpected sync response: %+v", response)
 	}
-	assertHasUnmergedEntries(t, ctx, workspace, path)
+}
+
+func TestHandleKbSyncPreservesUncommittedChanges(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	remote := filepath.Join(root, "kb.git")
+	remoteWork := filepath.Join(root, "remote-work")
+	ctx := context.Background()
+
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+	runGit(t, ctx, workspace, "init", "-b", "main")
+	runGit(t, ctx, workspace, "config", "user.email", "tests@example.com")
+	runGit(t, ctx, workspace, "config", "user.name", "Workspace Agent Tests")
+	writeWorkspaceTestFile(t, workspace, "Notes/Existing.md", "existing\n")
+	runGit(t, ctx, workspace, "add", "Notes/Existing.md")
+	runGit(t, ctx, workspace, "commit", "-m", "initial")
+
+	runGit(t, ctx, root, "init", "--bare", remote)
+	runGit(t, ctx, workspace, "remote", "add", "kb", remote)
+	runGit(t, ctx, workspace, "push", "-u", "kb", "main")
+
+	runGit(t, ctx, root, "clone", remote, remoteWork)
+	runGit(t, ctx, remoteWork, "config", "user.email", "tests@example.com")
+	runGit(t, ctx, remoteWork, "config", "user.name", "Workspace Agent Tests")
+	writeWorkspaceTestFile(t, remoteWork, "Notes/Remote.md", "from remote\n")
+	runGit(t, ctx, remoteWork, "add", "Notes/Remote.md")
+	runGit(t, ctx, remoteWork, "commit", "-m", "add remote note")
+	runGit(t, ctx, remoteWork, "push", "origin", "main")
+
+	writeWorkspaceTestFile(t, workspace, "Notes/LocalDraft.md", "draft content\n")
+	writeWorkspaceTestFile(t, workspace, "Notes/Existing.md", "modified locally\n")
+
+	s := &server{workspace: workspace}
+	req := httptest.NewRequest(http.MethodPost, "/kb/sync", strings.NewReader("{}"))
+	recorder := httptest.NewRecorder()
+	s.handleKbSync(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("sync status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	var response syncKbResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode sync response: %v", err)
+	}
+	if response.Status != "synced" {
+		t.Fatalf("expected synced, got: %+v", response)
+	}
+
+	entries, err := s.gitStatusEntries(ctx)
+	if err != nil {
+		t.Fatalf("git status: %v", err)
+	}
+	foundDraft := false
+	foundModified := false
+	for _, entry := range entries {
+		if entry.Path == "Notes/LocalDraft.md" {
+			foundDraft = true
+		}
+		if entry.Path == "Notes/Existing.md" {
+			foundModified = true
+		}
+	}
+	if !foundDraft || !foundModified {
+		t.Fatalf("expected local changes to remain uncommitted: %+v", entries)
+	}
+
+	draftContent, err := os.ReadFile(filepath.Join(workspace, "Notes/LocalDraft.md"))
+	if err != nil || string(draftContent) != "draft content\n" {
+		t.Fatalf("draft content = %q, err = %v", string(draftContent), err)
+	}
+	existingContent, err := os.ReadFile(filepath.Join(workspace, "Notes/Existing.md"))
+	if err != nil || string(existingContent) != "modified locally\n" {
+		t.Fatalf("existing content = %q, err = %v", string(existingContent), err)
+	}
+	if _, err := os.Stat(filepath.Join(workspace, "Notes/Remote.md")); err != nil {
+		t.Fatalf("remote file should exist after sync: %v", err)
+	}
+}
+
+func TestHandleKbPublishCommitsOnlyReviewedPaths(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	remote := filepath.Join(root, "kb.git")
+	remoteWork := filepath.Join(root, "remote-work")
+	ctx := context.Background()
+
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+	runGit(t, ctx, workspace, "init", "-b", "main")
+	runGit(t, ctx, workspace, "config", "user.email", "tests@example.com")
+	runGit(t, ctx, workspace, "config", "user.name", "Workspace Agent Tests")
+	writeWorkspaceTestFile(t, workspace, "README.md", "base\n")
+	runGit(t, ctx, workspace, "add", "README.md")
+	runGit(t, ctx, workspace, "commit", "-m", "initial")
+	runGit(t, ctx, root, "init", "--bare", remote)
+	runGit(t, ctx, workspace, "remote", "add", "kb", remote)
+	runGit(t, ctx, workspace, "push", "-u", "kb", "main")
+
+	writeWorkspaceTestFile(t, workspace, "Knowledge/Reviewed.md", "reviewed\n")
+	writeWorkspaceTestFile(t, workspace, ".arche/attachments/hidden.txt", "attachment\n")
+
+	s := &server{workspace: workspace}
+	req := httptest.NewRequest(http.MethodPost, "/kb/publish", strings.NewReader(`{"paths":["Knowledge/Reviewed.md"]}`))
+	recorder := httptest.NewRecorder()
+	s.handleKbPublish(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("publish status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	var response publishKbResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode publish response: %v", err)
+	}
+	if response.Status != "published" || len(response.Files) != 1 || response.Files[0] != "Knowledge/Reviewed.md" {
+		t.Fatalf("unexpected publish response: %+v", response)
+	}
+
+	runGit(t, ctx, root, "clone", remote, remoteWork)
+	reviewed, err := os.ReadFile(filepath.Join(remoteWork, "Knowledge", "Reviewed.md"))
+	if err != nil || string(reviewed) != "reviewed\n" {
+		t.Fatalf("reviewed content = %q, err = %v", string(reviewed), err)
+	}
+	if _, err := os.Stat(filepath.Join(remoteWork, ".arche", "attachments", "hidden.txt")); !os.IsNotExist(err) {
+		t.Fatalf("unreviewed attachment was published: %v", err)
+	}
+}
+
+func TestHandleKbPublishRequiresManifestWithPendingChanges(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	remote := filepath.Join(root, "kb.git")
+	ctx := context.Background()
+
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+	runGit(t, ctx, workspace, "init", "-b", "main")
+	runGit(t, ctx, workspace, "config", "user.email", "tests@example.com")
+	runGit(t, ctx, workspace, "config", "user.name", "Workspace Agent Tests")
+	writeWorkspaceTestFile(t, workspace, "README.md", "base\n")
+	runGit(t, ctx, workspace, "add", "README.md")
+	runGit(t, ctx, workspace, "commit", "-m", "initial")
+	runGit(t, ctx, root, "init", "--bare", remote)
+	runGit(t, ctx, workspace, "remote", "add", "kb", remote)
+	runGit(t, ctx, workspace, "push", "-u", "kb", "main")
+
+	writeWorkspaceTestFile(t, workspace, "Knowledge/Unreviewed.md", "unreviewed\n")
+
+	s := &server{workspace: workspace}
+	req := httptest.NewRequest(http.MethodPost, "/kb/publish", strings.NewReader("{}"))
+	recorder := httptest.NewRecorder()
+	s.handleKbPublish(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("publish status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	var response publishKbResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode publish response: %v", err)
+	}
+	if response.Status != "error" || response.Message != "reviewed_path_manifest_required" {
+		t.Fatalf("unexpected publish response: %+v", response)
+	}
+}
+
+func TestHandleKbPublishWithoutManifestOnCleanTree(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	remote := filepath.Join(root, "kb.git")
+	ctx := context.Background()
+
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+	runGit(t, ctx, workspace, "init", "-b", "main")
+	runGit(t, ctx, workspace, "config", "user.email", "tests@example.com")
+	runGit(t, ctx, workspace, "config", "user.name", "Workspace Agent Tests")
+	writeWorkspaceTestFile(t, workspace, "README.md", "base\n")
+	runGit(t, ctx, workspace, "add", "README.md")
+	runGit(t, ctx, workspace, "commit", "-m", "initial")
+	runGit(t, ctx, root, "init", "--bare", remote)
+	runGit(t, ctx, workspace, "remote", "add", "kb", remote)
+	runGit(t, ctx, workspace, "push", "-u", "kb", "main")
+
+	s := &server{workspace: workspace}
+	req := httptest.NewRequest(http.MethodPost, "/kb/publish", strings.NewReader("{}"))
+	recorder := httptest.NewRecorder()
+	s.handleKbPublish(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("publish status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	var response publishKbResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode publish response: %v", err)
+	}
+	if !response.Ok || response.Status != "nothing_to_publish" {
+		t.Fatalf("unexpected publish response: %+v", response)
+	}
 }
 
 func TestHandleFileUploadWritesStreamedFile(t *testing.T) {

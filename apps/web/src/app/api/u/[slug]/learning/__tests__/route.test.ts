@@ -5,7 +5,7 @@ const mocks = vi.hoisted(() => ({
   createLearningRun: vi.fn(),
   dispatchLearningRunExecution: vi.fn(),
   findLearningRunForUser: vi.fn(),
-  listLearningProposals: vi.fn(),
+  listKnowledgeReviewChanges: vi.fn(),
   listLearningRuns: vi.fn(),
 }))
 
@@ -13,7 +13,7 @@ vi.mock('@/lib/learning/service', () => ({
   createLearningRun: mocks.createLearningRun,
   dispatchLearningRunExecution: mocks.dispatchLearningRunExecution,
   findLearningRunForUser: mocks.findLearningRunForUser,
-  listLearningProposals: mocks.listLearningProposals,
+  listKnowledgeReviewChanges: mocks.listKnowledgeReviewChanges,
   listLearningRuns: mocks.listLearningRuns,
 }))
 
@@ -45,7 +45,7 @@ describe('/api/u/[slug]/learning', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.listLearningRuns.mockResolvedValue([{ id: 'run-1' }])
-    mocks.listLearningProposals.mockResolvedValue([{ id: 'proposal-1' }])
+    mocks.listKnowledgeReviewChanges.mockResolvedValue([{ id: 'proposal-1' }])
     mocks.createLearningRun.mockResolvedValue({ ok: true, run: createdRun })
   })
 

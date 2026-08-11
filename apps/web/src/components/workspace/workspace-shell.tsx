@@ -48,7 +48,6 @@ import { ArcLoader } from "./arc-loader";
 import { FilePreviewPanel } from "./file-preview-panel";
 import { InspectorPanel } from "./inspector-panel";
 import { KnowledgeEmptyState } from "./knowledge-empty-state";
-import { KnowledgeCuratorPanel } from "./knowledge-curator-panel";
 import { KnowledgeNavigationPanel, type KnowledgeNavigationView } from "./knowledge-navigation-panel";
 import { FlowsEmptyState } from "./flows-empty-state";
 import { WorkspaceCommandPalette } from "./workspace-command-palette";
@@ -2031,6 +2030,8 @@ export function WorkspaceShell({
       isLoadingDiffs={workspace.isLoadingDiffs}
       diffsError={workspace.diffsError}
       onOpenFile={handleOpenFile}
+      onKnowledgeReviewApplied={handleLearningProposalSentToReview}
+      knowledgeReviewRefreshKey={learningRefreshKey}
       internalLinkPaths={markdownFilePaths}
       onReloadFile={handleReloadFile}
       onSaveFile={workspaceAgentEnabled ? handleSaveFile : undefined}
@@ -2059,6 +2060,8 @@ export function WorkspaceShell({
       isLoadingDiffs={workspace.isLoadingDiffs}
       diffsError={workspace.diffsError}
       onOpenFile={handleOpenFile}
+      onKnowledgeReviewApplied={handleLearningProposalSentToReview}
+      knowledgeReviewRefreshKey={learningRefreshKey}
       internalLinkPaths={markdownFilePaths}
       onReloadFile={handleReloadFile}
       onSaveFile={workspaceAgentEnabled ? handleSaveFile : undefined}
@@ -2092,18 +2095,7 @@ export function WorkspaceShell({
   const hasRightPanel = isKnowledgeMode || hasPreviewPanel || workspaceMode === "chat";
   const rightPanelContent = hasPreviewPanel
     ? previewPanelElement
-    : isKnowledgeMode
-      ? reviewPanelElement
-      : (
-          <KnowledgeCuratorPanel
-            slug={slug}
-            collapsed={isCompactLayout ? false : rightCollapsed}
-            onToggleCollapse={isCompactLayout ? handleShowChat : handleToggleRight}
-            onOpenSession={handleSelectSession}
-            onProposalSentToReview={handleLearningProposalSentToReview}
-            refreshKey={learningRefreshKey}
-          />
-        );
+    : reviewPanelElement;
 
   const isLeftPanelActive = mobileView === "left";
   const isChatActive = mobileView === "chat";

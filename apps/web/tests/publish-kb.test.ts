@@ -26,8 +26,16 @@ vi.mock('@/lib/services', () => ({
   },
 }))
 
+const mockListAppliedKnowledgeReviewChanges = vi.fn()
+const mockMarkKnowledgeReviewChangesPublished = vi.fn()
+vi.mock('@/lib/learning/service', () => ({
+  listAppliedKnowledgeReviewChanges: (...args: unknown[]) => mockListAppliedKnowledgeReviewChanges(...args),
+  markKnowledgeReviewChangesPublished: (...args: unknown[]) => mockMarkKnowledgeReviewChangesPublished(...args),
+}))
+
 const mockGetAuthenticatedUser = vi.fn()
 vi.mock('@/lib/auth', () => ({
+  auditEvent: vi.fn(),
   getAuthenticatedUser: (...args: unknown[]) => mockGetAuthenticatedUser(...args),
   SESSION_COOKIE_NAME: 'arche_session',
 }))
@@ -42,7 +50,7 @@ function instance(status = 'running', containerId = 'ctr-1') {
   return { containerId, status }
 }
 
-function mockFetchResponse(payload: unknown, status = 200) {
+function mockFetchResponse(payload: unknown, status = 200, diffPaths = ['file1.md']) {
   const ok = status >= 200 && status < 300
   const response = {
     ok,
@@ -50,7 +58,13 @@ function mockFetchResponse(payload: unknown, status = 200) {
     json: async () => payload,
     text: async () => JSON.stringify(payload),
   }
-  ;(global.fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(response)
+  ;(global.fetch as unknown as ReturnType<typeof vi.fn>)
+    .mockResolvedValueOnce({
+      ok: true,
+    status: 200,
+    json: async () => ({ ok: true, diffs: diffPaths.map((path) => ({ path })) }),
+    })
+    .mockResolvedValue(response)
 }
 
 async function callPOST(slug = 'alice') {
@@ -78,6 +92,8 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     mockIsWorkspaceReachable.mockResolvedValue(true)
     mockCreateWorkspaceRemoteConfig.mockResolvedValue({ ok: true, remote: null })
     mockUpdateSyncState.mockResolvedValue(undefined)
+    mockListAppliedKnowledgeReviewChanges.mockResolvedValue([{ kbPath: 'file1.md' }])
+    mockMarkKnowledgeReviewChangesPublished.mockResolvedValue([])
   })
 
   it('returns 401 without session cookie', async () => {
@@ -185,6 +201,40 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     expect(body.status).toBe('published')
     expect(body.commitHash).toBe('abc1234')
     expect(body.files).toEqual(['file1.md', 'file2.md'])
+  })
+
+  it('publishes only reviewed applied paths and records the resulting commit', async () => {
+    mockGetAuthenticatedUser.mockResolvedValue(session('alice'))
+    mockFindUnique.mockResolvedValue(instance())
+    mockCreateWorkspaceAgentClient.mockResolvedValue({
+      baseUrl: 'http://agent',
+      authHeader: 'Basic abc',
+    })
+    mockListAppliedKnowledgeReviewChanges.mockResolvedValue([{ id: 'change-1', kbPath: 'reviewed.md' }])
+    mockFetchResponse({
+      ok: true,
+      status: 'published',
+      commitHash: 'abc1234',
+      files: ['reviewed.md', 'unreviewed.md'],
+    }, 200, ['reviewed.md', 'unreviewed.md'])
+
+    const { status, body } = await callPOST('alice')
+
+    expect(status).toBe(200)
+    expect(body).toMatchObject({ ok: true, status: 'published', commitHash: 'abc1234' })
+    expect(mockListAppliedKnowledgeReviewChanges).toHaveBeenCalledWith({
+      paths: ['reviewed.md', 'unreviewed.md'],
+      userId: '1',
+    })
+    expect(global.fetch).toHaveBeenLastCalledWith('http://agent/kb/publish', expect.objectContaining({
+      body: JSON.stringify({ paths: ['reviewed.md'] }),
+    }))
+    expect(mockMarkKnowledgeReviewChangesPublished).toHaveBeenCalledWith({
+      actor: '1',
+      commitSha: 'abc1234',
+      paths: ['reviewed.md'],
+      userId: '1',
+    })
   })
 
   it('returns push_rejected when push fails with rejected', async () => {

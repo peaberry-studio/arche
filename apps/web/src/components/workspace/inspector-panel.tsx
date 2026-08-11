@@ -74,6 +74,8 @@ type InspectorPanelProps = {
   onDiscardFileChanges?: (path: string) => Promise<{ ok: true } | { ok: false; error: string }>;
   onPublish?: () => void;
   onResolveConflict?: (path: string) => void | Promise<void>;
+  onKnowledgeReviewApplied?: () => void | Promise<void>;
+  knowledgeReviewRefreshKey?: number;
   hideCollapseButton?: boolean;
 };
 
@@ -276,6 +278,8 @@ export function InspectorPanel({
   isLoadingDiffs,
   diffsError,
   onOpenFile,
+  onKnowledgeReviewApplied,
+  knowledgeReviewRefreshKey,
   internalLinkPaths,
   onReloadFile,
   onSaveFile,
@@ -314,6 +318,8 @@ export function InspectorPanel({
       isLoadingDiffs={isLoadingDiffs}
       diffsError={diffsError}
       onOpenFile={onOpenFile}
+      onKnowledgeReviewApplied={onKnowledgeReviewApplied}
+      knowledgeReviewRefreshKey={knowledgeReviewRefreshKey}
       internalLinkPaths={internalLinkPaths}
       onReloadFile={onReloadFile}
       onSaveFile={onSaveFile}
@@ -340,6 +346,8 @@ function ExpandedInspectorPanel({
   isLoadingDiffs,
   diffsError,
   onOpenFile,
+  onKnowledgeReviewApplied,
+  knowledgeReviewRefreshKey,
   internalLinkPaths = [],
   onReloadFile,
   onSaveFile,
@@ -692,6 +700,8 @@ function ExpandedInspectorPanel({
               error={diffsError ?? undefined}
               onOpenFile={onOpenFile}
               onDiscardFileChanges={onDiscardFileChanges}
+              onKnowledgeReviewApplied={onKnowledgeReviewApplied}
+              knowledgeReviewRefreshKey={knowledgeReviewRefreshKey}
               onResolveConflict={onResolveConflict}
             />
           </div>

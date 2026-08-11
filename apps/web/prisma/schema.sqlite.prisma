@@ -34,6 +34,7 @@ model User {
   flowRunsExecuted    FlowRun[] @relation("FlowRunExecutionUser")
   knowledgeLearningRuns KnowledgeLearningRun[]
   knowledgeLearningProposals KnowledgeLearningProposal[]
+  knowledgeReviewChanges KnowledgeReviewChange[]
   slackThreadBindings SlackThreadBinding[]
   slackUserLinks      SlackUserLink[]
   slackDmSessionBindings SlackDmSessionBinding[]
@@ -287,6 +288,7 @@ model KnowledgeLearningRun {
   status                String   @default("pending")
   error                 String?
   messageCount          Int      @default(0) @map("message_count")
+  regenerationChangeId  String?  @map("regeneration_change_id")
   startedAt             DateTime? @map("started_at")
   finishedAt            DateTime? @map("finished_at")
   createdAt             DateTime @default(now()) @map("created_at")
@@ -297,6 +299,7 @@ model KnowledgeLearningRun {
   @@index([userId, createdAt])
   @@index([userId, sourceSessionId])
   @@index([status])
+  @@index([regenerationChangeId])
   @@map("knowledge_learning_runs")
 }
 
@@ -326,6 +329,46 @@ model KnowledgeLearningProposal {
   @@index([runId])
   @@index([kbPath])
   @@map("knowledge_learning_proposals")
+}
+
+model KnowledgeReviewChange {
+  id               String   @id @default(cuid())
+  userId           String   @map("user_id")
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourceProposalId String?  @unique @map("source_proposal_id")
+  regeneratedFromId String? @map("regenerated_from_id")
+  regeneratedFrom KnowledgeReviewChange? @relation("KnowledgeReviewRegeneration", fields: [regeneratedFromId], references: [id], onDelete: SetNull)
+  regeneratedChanges KnowledgeReviewChange[] @relation("KnowledgeReviewRegeneration")
+  runId            String?  @map("run_id")
+  author           String
+  agent            String?
+  origin           String
+  title            String
+  reason           String
+  evidence         String
+  confidence       Float
+  kbPath           String   @map("kb_path")
+  operation        String
+  baseContent      String?  @map("base_content")
+  baseHash         String?  @map("base_hash")
+  proposedContent  String   @map("proposed_content")
+  status           String   @default("open")
+  actualContent    String?  @map("actual_content")
+  actualHash       String?  @map("actual_hash")
+  appliedHash      String?  @map("applied_hash")
+  publishCommitSha String?  @map("publish_commit_sha")
+  auditTrail       String   @default("[]") @map("audit_trail")
+  appliedAt        DateTime? @map("applied_at")
+  rejectedAt       DateTime? @map("rejected_at")
+  publishedAt      DateTime? @map("published_at")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@index([userId, status, createdAt])
+  @@index([userId, kbPath, status])
+  @@index([runId])
+  @@index([regeneratedFromId])
+  @@map("knowledge_review_changes")
 }
 
 model Flow {

@@ -221,4 +221,28 @@ describe('buildCuratorPrompt', () => {
     expect(prompt).toContain('review the most recent sessions')
     expect(prompt).not.toContain('sessionIds:')
   })
+
+  it('includes canonical conflict context for a linked regeneration run', () => {
+    const prompt = buildCuratorPrompt({
+      ...baseInput,
+      sourceSessionId: null,
+      regeneration: {
+        actualContent: 'Current preference',
+        baseContent: 'Old preference',
+        changeId: 'change-1',
+        kbPath: 'Preferences/Answers.md',
+        operation: 'update',
+        proposedContent: 'Previous proposal',
+      },
+    })
+
+    expect(prompt).toContain('Knowledge Review change id: change-1')
+    expect(prompt).toContain('Target path: Preferences/Answers.md')
+    expect(prompt).toContain('--- Base content ---')
+    expect(prompt).toContain('Old preference')
+    expect(prompt).toContain('--- Current content ---')
+    expect(prompt).toContain('Current preference')
+    expect(prompt).toContain('--- Previous proposal ---')
+    expect(prompt).toContain('Previous proposal')
+  })
 })

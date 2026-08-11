@@ -50,9 +50,9 @@ vi.mock('node:fs/promises', () => ({
   writeFile: mockWriteFile,
 }))
 
-import { createKbArticle } from '@/lib/mcp/kb-content-store'
+import { captureKbArticleForReview } from '@/lib/mcp/kb-content-store'
 
-describe('KB content store Git conflicts', () => {
+describe('KB content store review snapshots', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockResolveRepoRoot.mockResolvedValue('/data/kb/content.git')
@@ -78,15 +78,10 @@ describe('KB content store Git conflicts', () => {
     mockMutateBareRepo.mockResolvedValue({ ok: false, error: 'conflict' })
   })
 
-  it('maps recoverable non-fast-forward pushes to conflict', async () => {
-    const result = await createKbArticle({ path: 'new.md', content: '# New' })
+  it('reports a missing article without invoking bare-repository mutation', async () => {
+    const result = await captureKbArticleForReview({ path: 'new.md' })
 
-    expect(result).toEqual({ ok: false, error: 'conflict' })
-    expect(mockMutateBareRepo).toHaveBeenCalledWith(expect.objectContaining({
-      commitMessage: 'Create KB article new.md',
-      gitAuthorEmail: 'mcp@arche.local',
-      gitAuthorName: 'Arche MCP',
-      root: '/data/kb/content.git',
-    }))
+    expect(result).toEqual({ ok: false, error: 'not_found' })
+    expect(mockMutateBareRepo).not.toHaveBeenCalled()
   })
 })

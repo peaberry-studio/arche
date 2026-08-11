@@ -4,14 +4,14 @@ import {
   createLearningRun,
   dispatchLearningRunExecution,
   findLearningRunForUser,
-  listLearningProposals,
+  listKnowledgeReviewChanges,
   listLearningRuns,
 } from '@/lib/learning/service'
 import { withAuth } from '@/lib/runtime/with-auth'
-import type { LearningProposal, LearningRun } from '@/types/learning'
+import type { KnowledgeReviewChange, LearningRun } from '@/types/learning'
 
 type LearningResponse = {
-  proposals: LearningProposal[]
+  proposals: KnowledgeReviewChange[]
   runs: LearningRun[]
 }
 
@@ -26,7 +26,7 @@ export const GET = withAuth<LearningResponse | { error: string }>(
   async (_request, context) => {
     const [runs, proposals] = await Promise.all([
       listLearningRuns(context.user.id),
-      listLearningProposals(context.user.id),
+      listKnowledgeReviewChanges(context.user.id),
     ])
     return NextResponse.json({ runs, proposals })
   }

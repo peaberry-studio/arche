@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({
   isWorkspaceReachable: vi.fn(),
   createWorkspaceAgentClient: vi.fn(),
   createWorkspaceRemoteConfig: vi.fn(),
+  listAppliedKnowledgeReviewChanges: vi.fn(),
+  markKnowledgeReviewChangesPublished: vi.fn(),
   updateSyncState: vi.fn(),
 }))
 
@@ -33,6 +35,11 @@ vi.mock('@/lib/services', () => ({
     updateSyncState: mocks.updateSyncState,
   },
 }))
+vi.mock('@/lib/learning/service', () => ({
+  listAppliedKnowledgeReviewChanges: mocks.listAppliedKnowledgeReviewChanges,
+  markKnowledgeReviewChangesPublished: mocks.markKnowledgeReviewChangesPublished,
+}))
+vi.mock('@/lib/auth', () => ({ auditEvent: vi.fn() }))
 
 import { POST } from '../route'
 
@@ -53,12 +60,14 @@ function params(slug: string) {
 }
 
 function mockFetch(body: object, status = 200) {
-  return vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-    new Response(JSON.stringify(body), {
+  return vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, diffs: [{ path: 'Notes/Reviewed.md' }] }), {
+      headers: { 'Content-Type': 'application/json' },
+    }))
+    .mockResolvedValue(new Response(JSON.stringify(body), {
       status,
       headers: { 'Content-Type': 'application/json' },
-    }),
-  )
+    }))
 }
 
 describe('POST /api/instances/[slug]/publish-kb', () => {
@@ -72,6 +81,8 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     })
     mocks.createWorkspaceRemoteConfig.mockResolvedValue({ ok: true, remote: null })
     mocks.updateSyncState.mockResolvedValue(undefined)
+    mocks.listAppliedKnowledgeReviewChanges.mockResolvedValue([{ kbPath: 'Notes/Reviewed.md' }])
+    mocks.markKnowledgeReviewChangesPublished.mockResolvedValue([])
   })
 
   it('returns published result on success', async () => {
@@ -79,6 +90,53 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     const res = await POST(makeRequest(), params('alice'))
     const body = await res.json()
     expect(body).toEqual({ ok: true, status: 'published', commitHash: 'abc123' })
+    spy.mockRestore()
+  })
+
+  it('publishes without a path manifest when the workspace has no diffs', async () => {
+    mocks.listAppliedKnowledgeReviewChanges.mockResolvedValue([])
+    const spy = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, diffs: [] }), {
+        headers: { 'Content-Type': 'application/json' },
+      }))
+      .mockResolvedValue(new Response(JSON.stringify({ ok: true, status: 'nothing_to_publish' }), {
+        headers: { 'Content-Type': 'application/json' },
+      }))
+
+    const res = await POST(makeRequest(), params('alice'))
+    const body = await res.json()
+
+    expect(body).toEqual({ ok: true, status: 'nothing_to_publish' })
+    expect(mocks.listAppliedKnowledgeReviewChanges).not.toHaveBeenCalled()
+    expect(spy).toHaveBeenLastCalledWith('http://agent:8080/kb/publish', expect.objectContaining({
+      body: JSON.stringify({}),
+    }))
+    spy.mockRestore()
+  })
+
+  it('rejects unreviewed workspace diffs with a readable message', async () => {
+    mocks.listAppliedKnowledgeReviewChanges.mockResolvedValue([])
+    const spy = mockFetch({ ok: true, status: 'published' })
+
+    const res = await POST(makeRequest(), params('alice'))
+    const body = await res.json()
+
+    expect(body).toEqual({
+      ok: false,
+      status: 'error',
+      message: 'No reviewed changes to publish. Apply changes from Knowledge Review first, or discard unreviewed edits.',
+    })
+    expect(spy).toHaveBeenCalledTimes(1)
+    spy.mockRestore()
+  })
+
+  it('translates agent manifest errors into readable messages', async () => {
+    const spy = mockFetch({ ok: false, status: 'error', message: 'unreviewed_changes_present' })
+
+    const res = await POST(makeRequest(), params('alice'))
+    const body = await res.json()
+
+    expect(body.message).toBe('The workspace contains unreviewed changes. Review or discard them before publishing.')
     spy.mockRestore()
   })
 
@@ -168,6 +226,7 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
           repoCloneUrl: 'https://github.com/acme/kb.git',
           token: 'token-1',
         },
+        paths: ['Notes/Reviewed.md'],
       }),
     }))
     expect(mocks.updateSyncState).toHaveBeenCalledWith(expect.objectContaining({

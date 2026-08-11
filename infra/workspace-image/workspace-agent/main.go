@@ -149,7 +149,8 @@ type fileUploadResponse struct {
 }
 
 type fileDeleteRequest struct {
-	Path string `json:"path"`
+	Path         string `json:"path"`
+	ExpectedHash string `json:"expectedHash"`
 }
 
 type fileDeleteResponse struct {
@@ -214,6 +215,7 @@ type kbSyncRequest struct {
 
 type kbPublishRequest struct {
 	Github *kbGithubRemoteRequest `json:"github,omitempty"`
+	Paths  []string               `json:"paths"`
 }
 
 type kbGithubRemoteConfig struct {
@@ -651,7 +653,6 @@ func (s *server) handleFileRead(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, err.Error())
 		return
 	}
-
 	info, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -996,6 +997,25 @@ func (s *server) handleFileDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, err.Error())
 		return
 	}
+	if req.ExpectedHash != "" {
+		currentHash, ok, verifyErr := verifyExpectedHash(path, req.ExpectedHash)
+		if verifyErr != nil {
+			if errors.Is(verifyErr, os.ErrNotExist) {
+				writeError(w, http.StatusNotFound, "not_found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "hash_check_failed")
+			return
+		}
+		if !ok {
+			writeJSON(w, http.StatusConflict, map[string]any{
+				"ok":          false,
+				"error":       "conflict",
+				"currentHash": currentHash,
+			})
+			return
+		}
+	}
 
 	info, err := os.Stat(path)
 	if err != nil {
@@ -1225,7 +1245,6 @@ func (s *server) handleKbSync(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-
 	_, _, remoteCode, remoteExecErr := runCmd(r.Context(), s.workspace, []string{
 		"git", "remote", "get-url", "kb",
 	})
@@ -1249,16 +1268,39 @@ func (s *server) handleKbSync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, _, commitErrMsg := s.commitWorkspaceChangesIfNeeded(r.Context()); commitErrMsg != "" {
+	stashed, stashErrMsg := s.stashWorkspaceChanges(r.Context())
+	if stashErrMsg != "" {
 		writeJSON(w, http.StatusOK, syncKbResponse{
 			Ok:      false,
 			Status:  "error",
-			Message: commitErrMsg,
+			Message: stashErrMsg,
 		})
 		return
 	}
 
 	mergeOk, conflicts, mergeErrMsg := s.fetchAndMergeKb(r.Context())
+
+	if stashed {
+		popConflicts, popErr := s.popWorkspaceStash(r.Context())
+		if popErr != "" {
+			writeJSON(w, http.StatusOK, syncKbResponse{
+				Ok:      false,
+				Status:  "error",
+				Message: popErr,
+			})
+			return
+		}
+		if popConflicts {
+			writeJSON(w, http.StatusOK, syncKbResponse{
+				Ok:        true,
+				Status:    "conflicts",
+				Message:   "Local changes conflict with incoming remote changes",
+				Conflicts: s.listConflictFiles(r.Context()),
+			})
+			return
+		}
+	}
+
 	if mergeOk {
 		if hasGithubRemote {
 			githubResult := s.syncGithubRemote(r.Context(), githubRemote)
@@ -1347,6 +1389,28 @@ func (s *server) handleKbPublish(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	// A reviewed-path manifest is only required when there are workspace
+	// changes to commit. A clean tree (e.g. the initial GitHub sync, which
+	// pushes already-committed content) has nothing to gate.
+	if len(req.Paths) == 0 {
+		pendingEntries, statusErr := s.gitStatusEntries(r.Context())
+		if statusErr != nil {
+			writeJSON(w, http.StatusOK, publishKbResponse{
+				Ok:      false,
+				Status:  "error",
+				Message: statusErr.Error(),
+			})
+			return
+		}
+		if len(pendingEntries) > 0 || s.mergeInProgress(r.Context()) {
+			writeJSON(w, http.StatusOK, publishKbResponse{
+				Ok:      false,
+				Status:  "error",
+				Message: "reviewed_path_manifest_required",
+			})
+			return
+		}
+	}
 
 	_, _, remoteCode, remoteExecErr := runCmd(r.Context(), s.workspace, []string{
 		"git", "remote", "get-url", "kb",
@@ -1371,14 +1435,18 @@ func (s *server) handleKbPublish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	committedLocalChanges, files, commitErrMsg := s.commitWorkspaceChangesIfNeeded(r.Context())
-	if commitErrMsg != "" {
-		writeJSON(w, http.StatusOK, publishKbResponse{
-			Ok:      false,
-			Status:  "error",
-			Message: commitErrMsg,
-		})
-		return
+	committedLocalChanges := false
+	if len(req.Paths) > 0 {
+		var commitErrMsg string
+		committedLocalChanges, _, commitErrMsg = s.commitWorkspacePathsIfNeeded(r.Context(), req.Paths)
+		if commitErrMsg != "" {
+			writeJSON(w, http.StatusOK, publishKbResponse{
+				Ok:      false,
+				Status:  "error",
+				Message: commitErrMsg,
+			})
+			return
+		}
 	}
 
 	// Fetch and merge remote before pushing to avoid rejected pushes.
@@ -1402,6 +1470,16 @@ func (s *server) handleKbPublish(w http.ResponseWriter, r *http.Request) {
 	}
 
 	kbBranch := s.resolveKbBranch(r.Context())
+	files := s.changedFilesToPublish(r.Context(), kbBranch)
+	if len(req.Paths) > 0 && !pathsAreWithinManifest(files, req.Paths) {
+		writeJSON(w, http.StatusOK, publishKbResponse{
+			Ok:      false,
+			Status:  "error",
+			Files:   files,
+			Message: "unreviewed_changes_present",
+		})
+		return
+	}
 	if hasGithubRemote {
 		githubResult := s.syncGithubRemote(r.Context(), githubRemote)
 		if !githubResult.Ok {
@@ -1423,10 +1501,6 @@ func (s *server) handleKbPublish(w http.ResponseWriter, r *http.Request) {
 				GithubMessage: githubResult.Message,
 			})
 			return
-		}
-
-		if files == nil || len(files) == 0 {
-			files = s.changedFilesToPublish(r.Context(), kbBranch)
 		}
 
 		hashOut, _, _, _ := runCmd(r.Context(), s.workspace, []string{
@@ -1455,10 +1529,6 @@ func (s *server) handleKbPublish(w http.ResponseWriter, r *http.Request) {
 			Message: "Nothing to publish.",
 		})
 		return
-	}
-
-	if len(files) == 0 {
-		files = s.changedFilesToPublish(r.Context(), kbBranch)
 	}
 
 	hashOut, _, _, _ := runCmd(r.Context(), s.workspace, []string{
@@ -1548,19 +1618,81 @@ func (s *server) diffEntriesAgainstBase(ctx context.Context, base string) ([]git
 	return entries, nil
 }
 
-func (s *server) commitWorkspaceChangesIfNeeded(ctx context.Context) (bool, []string, string) {
+// stashWorkspaceChanges saves uncommitted working-tree changes (including
+// untracked files) to the git stash so a merge can proceed on a clean tree.
+// Returns true if something was stashed; false if the tree was already clean.
+func (s *server) stashWorkspaceChanges(ctx context.Context) (bool, string) {
 	entries, statusErr := s.gitStatusEntries(ctx)
+	if statusErr != nil {
+		return false, statusErr.Error()
+	}
+	if len(entries) == 0 {
+		return false, ""
+	}
+
+	_, stashErr, stashCode, stashExecErr := runCmd(ctx, s.workspace, []string{
+		"git", "stash", "push", "--include-untracked", "-m", "auto-stash before kb sync",
+	})
+	if stashExecErr != nil || stashCode != 0 {
+		msg := strings.TrimSpace(stashErr)
+		if msg == "" {
+			msg = "git_stash_failed"
+		}
+		return false, "git stash failed: " + msg
+	}
+	return true, ""
+}
+
+// popWorkspaceStash restores the most recent stash entry created by
+// stashWorkspaceChanges. Conflicts are left in the working tree for Review.
+func (s *server) popWorkspaceStash(ctx context.Context) (bool, string) {
+	_, popErr, popCode, popExecErr := runCmd(ctx, s.workspace, []string{
+		"git", "stash", "pop",
+	})
+	if popExecErr != nil {
+		return false, "git stash pop failed: " + popExecErr.Error()
+	}
+	if popCode != 0 {
+		if len(s.listConflictFiles(ctx)) > 0 {
+			return true, ""
+		}
+		msg := strings.TrimSpace(popErr)
+		if msg == "" {
+			msg = "git_stash_pop_failed"
+		}
+		return false, "git stash pop failed: " + msg
+	}
+	return false, ""
+}
+
+func (s *server) commitWorkspacePathsIfNeeded(ctx context.Context, paths []string) (bool, []string, string) {
+	manifest := make([]string, 0, len(paths))
+	seen := map[string]bool{}
+	for _, path := range paths {
+		relPath, _, err := s.resolveRelPath(path)
+		if err != nil || !isReviewableKbPath(relPath) {
+			return false, nil, "invalid_reviewed_path"
+		}
+		if seen[relPath] {
+			continue
+		}
+		seen[relPath] = true
+		manifest = append(manifest, relPath)
+	}
+	if len(manifest) == 0 {
+		return false, nil, "reviewed_path_manifest_required"
+	}
+
+	entries, statusErr := s.gitStatusEntries(ctx, manifest...)
 	if statusErr != nil {
 		return false, nil, statusErr.Error()
 	}
-
 	if len(entries) == 0 && !s.mergeInProgress(ctx) {
 		return false, []string{}, ""
 	}
 
-	_, addErr, addCode, addExecErr := runCmd(ctx, s.workspace, []string{
-		"git", "add", "-A",
-	})
+	addArgs := append([]string{"git", "add", "-A", "--"}, manifest...)
+	_, addErr, addCode, addExecErr := runCmd(ctx, s.workspace, addArgs)
 	if addExecErr != nil || addCode != 0 {
 		msg := strings.TrimSpace(addErr)
 		if msg == "" {
@@ -1569,14 +1701,28 @@ func (s *server) commitWorkspaceChangesIfNeeded(ctx context.Context) (bool, []st
 		return false, nil, "git add failed: " + msg
 	}
 
-	statOut, _, _, _ := runCmd(ctx, s.workspace, []string{
-		"git", "diff", "--cached", "--stat",
-	})
+	statArgs := append([]string{"git", "diff", "--cached", "--stat", "--"}, manifest...)
+	statOut, _, _, _ := runCmd(ctx, s.workspace, statArgs)
+	if strings.TrimSpace(statOut) == "" && !s.mergeInProgress(ctx) {
+		return false, []string{}, ""
+	}
 	commitMessage := generateCommitMessage(statOut)
-
-	_, commitErr, commitCode, commitExecErr := runCmd(ctx, s.workspace, []string{
-		"git", "commit", "-m", commitMessage,
-	})
+	commitArgs := append([]string{"git", "commit", "--only", "-m", commitMessage, "--"}, manifest...)
+	if s.mergeInProgress(ctx) {
+		allEntries, allStatusErr := s.gitStatusEntries(ctx)
+		if allStatusErr != nil {
+			return false, nil, allStatusErr.Error()
+		}
+		allPaths := make([]string, 0, len(allEntries))
+		for _, entry := range allEntries {
+			allPaths = append(allPaths, entry.Path)
+		}
+		if !pathsAreWithinManifest(allPaths, manifest) {
+			return false, nil, "unreviewed_changes_present"
+		}
+		commitArgs = []string{"git", "commit", "-m", commitMessage}
+	}
+	_, commitErr, commitCode, commitExecErr := runCmd(ctx, s.workspace, commitArgs)
 	if commitExecErr != nil || commitCode != 0 {
 		msg := strings.TrimSpace(commitErr)
 		if msg == "" {
@@ -1589,6 +1735,31 @@ func (s *server) commitWorkspaceChangesIfNeeded(ctx context.Context) (bool, []st
 		"git", "diff-tree", "--no-commit-id", "--name-only", "-r", "-m", "HEAD",
 	})
 	return true, splitUniqueLines(filesOut), ""
+}
+
+func pathsAreWithinManifest(paths []string, manifest []string) bool {
+	allowed := map[string]bool{}
+	for _, path := range manifest {
+		allowed[path] = true
+	}
+	for _, path := range paths {
+		if !allowed[path] {
+			return false
+		}
+	}
+	return true
+}
+
+func isReviewableKbPath(path string) bool {
+	if isInternalWorkspacePath(path) {
+		return false
+	}
+	for _, segment := range strings.Split(filepath.ToSlash(path), "/") {
+		if segment == "" || strings.HasPrefix(segment, ".") {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *server) stageResolvedFileIfConflicted(ctx context.Context, relPath string, content []byte) error {

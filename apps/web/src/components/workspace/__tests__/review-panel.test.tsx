@@ -50,7 +50,7 @@ describe('ReviewPanel', () => {
     expect(screen.getByText('Loading changes…')).toBeDefined()
 
     rerender(<ReviewPanel diffs={[]} onOpenFile={onOpenFile} slug="alice" />)
-    expect(screen.getByText('No pending changes')).toBeDefined()
+    expect(screen.getByText('No workspace changes')).toBeDefined()
   })
 
   it('opens diffs, toggles long previews, and discards changes', async () => {
