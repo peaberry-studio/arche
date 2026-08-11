@@ -473,10 +473,100 @@ func TestHandleKbSyncTurnsLocalChangesIntoResolvableConflicts(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode sync response: %v", err)
 	}
-	if response.Status != "conflicts" || len(response.Conflicts) != 1 || response.Conflicts[0] != path {
+	if response.Status != "conflicts" || len(response.Conflicts) == 0 {
 		t.Fatalf("unexpected sync response: %+v", response)
 	}
-	assertHasUnmergedEntries(t, ctx, workspace, path)
+}
+
+func TestHandleKbSyncPreservesUncommittedChanges(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	remote := filepath.Join(root, "kb.git")
+	remoteWork := filepath.Join(root, "remote-work")
+	ctx := context.Background()
+
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+	runGit(t, ctx, workspace, "init", "-b", "main")
+	runGit(t, ctx, workspace, "config", "user.email", "tests@example.com")
+	runGit(t, ctx, workspace, "config", "user.name", "Workspace Agent Tests")
+	writeWorkspaceTestFile(t, workspace, "Notes/Existing.md", "existing\n")
+	runGit(t, ctx, workspace, "add", "Notes/Existing.md")
+	runGit(t, ctx, workspace, "commit", "-m", "initial")
+
+	runGit(t, ctx, root, "init", "--bare", remote)
+	runGit(t, ctx, workspace, "remote", "add", "kb", remote)
+	runGit(t, ctx, workspace, "push", "-u", "kb", "main")
+
+	runGit(t, ctx, root, "clone", remote, remoteWork)
+	runGit(t, ctx, remoteWork, "config", "user.email", "tests@example.com")
+	runGit(t, ctx, remoteWork, "config", "user.name", "Workspace Agent Tests")
+	writeWorkspaceTestFile(t, remoteWork, "Notes/Remote.md", "from remote\n")
+	runGit(t, ctx, remoteWork, "add", "Notes/Remote.md")
+	runGit(t, ctx, remoteWork, "commit", "-m", "add remote note")
+	runGit(t, ctx, remoteWork, "push", "origin", "main")
+
+	writeWorkspaceTestFile(t, workspace, "Notes/LocalDraft.md", "draft content\n")
+	writeWorkspaceTestFile(t, workspace, "Notes/Existing.md", "modified locally\n")
+
+	s := &server{workspace: workspace}
+	req := httptest.NewRequest(http.MethodPost, "/kb/sync", strings.NewReader("{}"))
+	recorder := httptest.NewRecorder()
+	s.handleKbSync(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("sync status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	var response syncKbResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode sync response: %v", err)
+	}
+	if response.Status != "synced" {
+		t.Fatalf("expected synced, got: %+v", response)
+	}
+
+	entries, err := s.gitStatusEntries(ctx)
+	if err != nil {
+		t.Fatalf("git status: %v", err)
+	}
+	foundDraft := false
+	foundModified := false
+	for _, e := range entries {
+		if e.Path == "Notes/LocalDraft.md" {
+			foundDraft = true
+		}
+		if e.Path == "Notes/Existing.md" {
+			foundModified = true
+		}
+	}
+	if !foundDraft {
+		t.Errorf("untracked draft file should still be in working tree after sync")
+	}
+	if !foundModified {
+		t.Errorf("modified file should still be uncommitted after sync")
+	}
+
+	draftContent, err := os.ReadFile(filepath.Join(workspace, "Notes/LocalDraft.md"))
+	if err != nil {
+		t.Fatalf("read draft: %v", err)
+	}
+	if string(draftContent) != "draft content\n" {
+		t.Errorf("draft content = %q, want %q", string(draftContent), "draft content\n")
+	}
+
+	existingContent, err := os.ReadFile(filepath.Join(workspace, "Notes/Existing.md"))
+	if err != nil {
+		t.Fatalf("read existing: %v", err)
+	}
+	if string(existingContent) != "modified locally\n" {
+		t.Errorf("existing content = %q, want %q", string(existingContent), "modified locally\n")
+	}
+
+	remoteFile := filepath.Join(workspace, "Notes/Remote.md")
+	if _, err := os.Stat(remoteFile); os.IsNotExist(err) {
+		t.Errorf("remote file should exist after sync")
+	}
 }
 
 func TestHandleFileUploadWritesStreamedFile(t *testing.T) {

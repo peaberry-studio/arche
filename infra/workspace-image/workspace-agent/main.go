@@ -1249,16 +1249,39 @@ func (s *server) handleKbSync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, _, commitErrMsg := s.commitWorkspaceChangesIfNeeded(r.Context()); commitErrMsg != "" {
+	stashed, stashErrMsg := s.stashWorkspaceChanges(r.Context())
+	if stashErrMsg != "" {
 		writeJSON(w, http.StatusOK, syncKbResponse{
 			Ok:      false,
 			Status:  "error",
-			Message: commitErrMsg,
+			Message: stashErrMsg,
 		})
 		return
 	}
 
 	mergeOk, conflicts, mergeErrMsg := s.fetchAndMergeKb(r.Context())
+
+	if stashed {
+		popConflicts, popErr := s.popWorkspaceStash(r.Context())
+		if popErr != "" {
+			writeJSON(w, http.StatusOK, syncKbResponse{
+				Ok:      false,
+				Status:  "error",
+				Message: popErr,
+			})
+			return
+		}
+		if popConflicts {
+			writeJSON(w, http.StatusOK, syncKbResponse{
+				Ok:        true,
+				Status:    "conflicts",
+				Message:   "Local changes conflict with incoming remote changes",
+				Conflicts: s.listConflictFiles(r.Context()),
+			})
+			return
+		}
+	}
+
 	if mergeOk {
 		if hasGithubRemote {
 			githubResult := s.syncGithubRemote(r.Context(), githubRemote)
@@ -1546,6 +1569,56 @@ func (s *server) diffEntriesAgainstBase(ctx context.Context, base string) ([]git
 	}
 
 	return entries, nil
+}
+
+// stashWorkspaceChanges saves uncommitted working-tree changes (including
+// untracked files) to the git stash so a merge can proceed on a clean tree.
+// Returns true if something was stashed; false if the tree was already clean.
+func (s *server) stashWorkspaceChanges(ctx context.Context) (bool, string) {
+	entries, statusErr := s.gitStatusEntries(ctx)
+	if statusErr != nil {
+		return false, statusErr.Error()
+	}
+	if len(entries) == 0 {
+		return false, ""
+	}
+
+	_, stashErr, stashCode, stashExecErr := runCmd(ctx, s.workspace, []string{
+		"git", "stash", "push", "--include-untracked", "-m", "auto-stash before kb sync",
+	})
+	if stashExecErr != nil || stashCode != 0 {
+		msg := strings.TrimSpace(stashErr)
+		if msg == "" {
+			msg = "git_stash_failed"
+		}
+		return false, "git stash failed: " + msg
+	}
+	return true, ""
+}
+
+// popWorkspaceStash restores the most recent stash entry created by
+// stashWorkspaceChanges. Returns (hadConflicts, errorMsg). Conflicts
+// during pop are not errors — they leave the user's changes in the
+// working tree with conflict markers for manual resolution.
+func (s *server) popWorkspaceStash(ctx context.Context) (bool, string) {
+	_, popErr, popCode, popExecErr := runCmd(ctx, s.workspace, []string{
+		"git", "stash", "pop",
+	})
+	if popExecErr != nil {
+		return false, "git stash pop failed: " + popExecErr.Error()
+	}
+	if popCode != 0 {
+		conflicts := s.listConflictFiles(ctx)
+		if len(conflicts) > 0 {
+			return true, ""
+		}
+		msg := strings.TrimSpace(popErr)
+		if msg == "" {
+			msg = "git_stash_pop_failed"
+		}
+		return false, "git stash pop failed: " + msg
+	}
+	return false, ""
 }
 
 func (s *server) commitWorkspaceChangesIfNeeded(ctx context.Context) (bool, []string, string) {
