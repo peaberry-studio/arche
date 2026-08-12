@@ -3,6 +3,7 @@
 import { createFlowActorScope } from "@/lib/flows/authorization";
 import { isLearningSessionTitle } from "@/lib/learning/session-title";
 import { createInstanceClient, getInstanceUrl } from "@/lib/opencode/client";
+import { getTerminalRetryError } from "@/lib/opencode/retry-state";
 import {
   abortSessionFamilyAndConfirmIdle,
   EXECUTION_TERMINATION_UNCONFIRMED_ERROR,
@@ -438,8 +439,19 @@ type ListWorkspaceSessionFamilyResult = {
   error?: string;
 };
 
-function toBusyStatus(type: unknown): "active" | "idle" | "busy" | "error" {
-  if (type === "busy" || type === "retry") {
+type RuntimeSessionStatus = {
+  action?: {
+    reason?: string;
+  };
+  type?: string;
+};
+
+function toBusyStatus(status: RuntimeSessionStatus | undefined): "active" | "idle" | "busy" | "error" {
+  if (getTerminalRetryError(status)) {
+    return "error";
+  }
+
+  if (status?.type === "busy" || status?.type === "retry") {
     return "busy";
   }
 
@@ -448,7 +460,7 @@ function toBusyStatus(type: unknown): "active" | "idle" | "busy" | "error" {
 
 function toWorkspaceSessions(
   sessions: WorkspaceSessionListEntry[],
-  statuses: Record<string, { type?: string }>,
+  statuses: Record<string, RuntimeSessionStatus>,
   flowBySessionId: Map<string, Awaited<ReturnType<typeof flowService.findSessionMetadataForWorkspace>>[number]>,
 ): WorkspaceSession[] {
   return sessions.map((session) => {
@@ -457,7 +469,7 @@ function toWorkspaceSessions(
     return {
       id: session.id,
       title: session.title || "Untitled",
-      status: toBusyStatus(statuses[session.id]?.type),
+      status: toBusyStatus(statuses[session.id]),
       updatedAt: formatTimestamp(session.updatedAtRaw),
       updatedAtRaw: session.updatedAtRaw,
       parentId: session.parentId,
@@ -509,7 +521,7 @@ async function getWorkspaceSessionMetadata(
     client.session.status(),
     getAuthorizedWorkspaceUserId(slug),
   ]);
-  const statuses = statusResult?.data ?? {};
+  const statuses = (statusResult?.data ?? {}) as Record<string, RuntimeSessionStatus>;
   const targetUserId = workspaceUser.ok ? workspaceUser.userId : null;
   const flowMetadata = targetUserId
     ? await flowService.findSessionMetadataForWorkspace(targetUserId, sessionIds)
@@ -815,13 +827,12 @@ export async function listMessagesAction(
     const messages = result.data ?? [];
 
     let sessionRuntimeStatus: "busy" | "idle" | "unknown" = "unknown";
+    let terminalRetryError: string | null = null;
     try {
       const statusResult = await client!.session.status();
-      const statuses = (statusResult.data ?? {}) as Record<
-        string,
-        { type?: string } | undefined
-      >;
+      const statuses = (statusResult.data ?? {}) as Record<string, RuntimeSessionStatus | undefined>;
       const sessionStatus = statuses[sessionId]?.type;
+      terminalRetryError = getTerminalRetryError(statuses[sessionId]);
       if (sessionStatus === "busy" || sessionStatus === "retry") {
         sessionRuntimeStatus = "busy";
       } else if (sessionStatus === "idle") {
@@ -830,6 +841,14 @@ export async function listMessagesAction(
     } catch {
       // Keep unknown status when status endpoint fails.
     }
+
+    const terminalAssistantMessageId = terminalRetryError
+      ? [...messages].reverse().find((message) => {
+          if (normalizeMessageRole(message.info.role) !== "assistant") return false;
+          const completedAt = (message.info.time as { completed?: number } | undefined)?.completed;
+          return typeof completedAt !== "number" || completedAt <= 0;
+        })?.info.id
+      : undefined;
 
     const pendingPermissions = await client!.permission.list()
       .then((result) => result.data)
@@ -858,6 +877,8 @@ export async function listMessagesAction(
         completedAt,
         parts,
         sessionStatus: sessionRuntimeStatus,
+        terminalError:
+          m.info.id === terminalAssistantMessageId ? terminalRetryError ?? undefined : undefined,
       });
       const info = m.info as Record<string, unknown>;
       const infoModel = info.model as Record<string, unknown> | undefined;

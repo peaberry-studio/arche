@@ -19,16 +19,16 @@ import {
   workspaceRehypePlugins,
   workspaceRemarkPlugins,
 } from "@/components/workspace/markdown-plugins"
-import { findObsidianLinks } from "@/lib/kb-internal-links"
 import {
-  getObsidianPdfLinkLabel,
+  getDocumentTitle,
+  getObsidianLinkLabel,
   getPdfDocumentAnchor,
-  getPdfDocumentTitle,
   getPdfHeadingAnchor,
-  resolvePdfInternalLink,
-  type PdfDocumentBundle,
-  type PdfSourceDocument,
-} from "@/lib/pdf-document-bundle"
+  resolveInternalLink,
+  type DocumentBundle,
+  type SourceDocument,
+} from "@/lib/document-bundle"
+import { findObsidianLinks } from "@/lib/kb-internal-links"
 
 const MAX_VEGA_CHARTS = 20
 const MAX_DATA_IMAGE_BYTES = 4 * 1024 * 1024
@@ -57,7 +57,7 @@ type PdfRenderState = {
 }
 
 type PdfDocumentRenderContext = {
-  document: PdfSourceDocument
+  document: SourceDocument
   headingOffset: number
   state: PdfRenderState
 }
@@ -266,7 +266,7 @@ function removeAppendixDocumentTitleHeading(
 ): void {
   if (context.headingOffset === 0) return
 
-  const documentTitle = getPdfDocumentTitle(context.document)
+  const documentTitle = getDocumentTitle(context.document)
     .replace(/\s+/gu, " ")
     .trim()
   const initialContentIndex = tree.children.findIndex(
@@ -287,7 +287,7 @@ function getIncludedLinkHref(
   syntax: "markdown" | "obsidian",
   context: PdfDocumentRenderContext,
 ): string | null {
-  const resolved = resolvePdfInternalLink(
+  const resolved = resolveInternalLink(
     rawTarget,
     context.document.path,
     context.state.availablePaths,
@@ -313,7 +313,7 @@ function rewriteMarkdownLinks(
       const href = child.properties.href
       if (typeof href !== "string") continue
 
-      const resolved = resolvePdfInternalLink(
+      const resolved = resolveInternalLink(
         href,
         context.document.path,
         context.state.availablePaths,
@@ -368,7 +368,7 @@ function rewriteObsidianLinks(
         })
       }
 
-      const label = getObsidianPdfLinkLabel(link.target)
+      const label = getObsidianLinkLabel(link.target)
       const href = getIncludedLinkHref(link.target, "obsidian", context)
       if (href) {
         replacements.push({
@@ -810,10 +810,10 @@ function escapeHtml(value: string): string {
 }
 
 function getAppendixSectionTitle(
-  document: PdfSourceDocument,
+  document: SourceDocument,
   primaryTitle: string,
 ): string {
-  const documentTitle = getPdfDocumentTitle(document)
+  const documentTitle = getDocumentTitle(document)
   const primaryTitlePrefix = `${primaryTitle} — `
 
   return documentTitle.startsWith(primaryTitlePrefix)
@@ -822,7 +822,7 @@ function getAppendixSectionTitle(
 }
 
 async function renderPdfSourceDocument(
-  document: PdfSourceDocument,
+  document: SourceDocument,
   headingOffset: number,
   state: PdfRenderState,
   signal?: AbortSignal,
@@ -887,10 +887,10 @@ function buildTableOfFigures(figures: PdfFigureEntry[]): string {
 }
 
 export async function markdownToPdfHtml(
-  bundle: PdfDocumentBundle,
+  bundle: DocumentBundle,
   options?: { logoBase64?: string; signal?: AbortSignal },
 ): Promise<string> {
-  const title = getPdfDocumentTitle(bundle.primary)
+  const title = getDocumentTitle(bundle.primary)
   const state: PdfRenderState = {
     availablePaths: bundle.availablePaths,
     figureCount: 0,
@@ -922,7 +922,7 @@ export async function markdownToPdfHtml(
       state,
     )
     const documentTitleHeadingId = getUniquePdfId(
-      getPdfHeadingAnchor(appendix.path, getPdfDocumentTitle(appendix)),
+      getPdfHeadingAnchor(appendix.path, getDocumentTitle(appendix)),
       state,
     )
     state.headings.push({

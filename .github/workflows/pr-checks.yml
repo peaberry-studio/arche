@@ -88,6 +88,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Apply database migrations
+        run: pnpm exec prisma migrate deploy
+
+      - name: Run stale message-run reap integration test
+        run: pnpm exec vitest run src/lib/services/__tests__/message-run.e2e.test.ts
+
       - name: Install Playwright browser
         run: pnpm exec playwright install --with-deps chromium
 

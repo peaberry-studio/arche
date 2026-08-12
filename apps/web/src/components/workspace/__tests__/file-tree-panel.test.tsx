@@ -37,6 +37,7 @@ describe("FileTreePanel", () => {
 
   it("opens a context menu for tree files and downloads the selected file", async () => {
     const onDownloadFile = vi.fn();
+    const onExportFileDocx = vi.fn();
 
     render(
       <FileTreePanel
@@ -44,6 +45,7 @@ describe("FileTreePanel", () => {
         activePath={null}
         onSelect={() => {}}
         onDownloadFile={onDownloadFile}
+        onExportFileDocx={onExportFileDocx}
       />
     );
 
@@ -51,6 +53,10 @@ describe("FileTreePanel", () => {
     fireEvent.click(await screen.findByRole("menuitem", { name: /download file/i }));
 
     expect(onDownloadFile).toHaveBeenCalledWith("alpha.md");
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: /alpha.md/i }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /export as docx/i }));
+    expect(onExportFileDocx).toHaveBeenCalledWith("alpha.md");
   });
 
   it("supports downloading files from search results too", async () => {
@@ -71,4 +77,5 @@ describe("FileTreePanel", () => {
 
     expect(onDownloadFile).toHaveBeenCalledWith("docs/notes.md");
   });
+
 });

@@ -1,4 +1,9 @@
+import { getTerminalRetryError } from '@/lib/opencode/retry-state'
+
 type UpstreamSessionStatusEntry = {
+  action?: {
+    reason?: string
+  }
   type?: string
 }
 
@@ -16,6 +21,7 @@ export type UpstreamSessionStatusReadResult = {
   outcome: 'error' | 'http_error' | 'success'
   responseStatus?: number
   status: string | null
+  terminalError?: string
 }
 
 const UPSTREAM_STATUS_CACHE_WINDOW_MS = 2_000
@@ -66,8 +72,14 @@ export function createUpstreamSessionStatusReader({
       const data = await response.json().catch(() => null) as UpstreamSessionStatusResponse | null
       const sessionStatus = data?.[sessionId]
       const status = typeof sessionStatus?.type === 'string' ? sessionStatus.type : null
+      const terminalError = getTerminalRetryError(sessionStatus)
       cache = { expiresAt: now + UPSTREAM_STATUS_CACHE_WINDOW_MS, status }
-      onRead?.({ durationMs: Date.now() - startedAt, outcome: 'success', status })
+      onRead?.({
+        durationMs: Date.now() - startedAt,
+        outcome: 'success',
+        status,
+        ...(terminalError ? { terminalError } : {}),
+      })
       return status
     } catch (error) {
       console.warn('[chat-stream] Failed to read upstream session status', {

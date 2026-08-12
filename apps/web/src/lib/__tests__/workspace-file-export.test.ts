@@ -7,20 +7,20 @@ vi.mock("@/lib/workspace-paths", () => ({
   },
 }))
 
-import { exportWorkspaceFileAsPdf } from "../workspace-file-export-pdf"
+import { exportWorkspaceFile } from "../workspace-file-export"
 
-describe("exportWorkspaceFileAsPdf", () => {
+describe("exportWorkspaceFile", () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
   it("returns an error when the path normalizes to empty", async () => {
-    const result = await exportWorkspaceFileAsPdf("alice", "  ")
+    const result = await exportWorkspaceFile("alice", "  ", "pdf")
     expect(result).toEqual({ error: "invalid_path", ok: false })
   })
 
   it("returns an error when document is unavailable (node environment)", async () => {
-    const result = await exportWorkspaceFileAsPdf("alice", "docs/readme.md")
+    const result = await exportWorkspaceFile("alice", "docs/readme.md", "pdf")
     expect(result).toEqual({ error: "browser_unavailable", ok: false })
   })
 })

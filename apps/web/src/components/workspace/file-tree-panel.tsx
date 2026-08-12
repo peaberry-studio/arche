@@ -16,6 +16,7 @@ type FileTreePanelProps = {
   activePath?: string | null;
   onSelect: (path: string) => void;
   onDownloadFile?: (path: string) => void;
+  onExportFileDocx?: (path: string) => void;
   onExportFilePdf?: (path: string) => void;
   hideHeader?: boolean;
   query?: string;
@@ -28,6 +29,7 @@ export function FileTreePanel({
   activePath,
   onSelect,
   onDownloadFile,
+  onExportFileDocx,
   onExportFilePdf,
   hideHeader,
   query = "",
@@ -68,6 +70,13 @@ export function FileTreePanel({
     onExportFilePdf(contextMenu.path);
     setContextMenu(null);
   }, [contextMenu, onExportFilePdf]);
+
+  const handleExportDocxFromContextMenu = useCallback(() => {
+    if (!contextMenu || !onExportFileDocx) return;
+
+    onExportFileDocx(contextMenu.path);
+    setContextMenu(null);
+  }, [contextMenu, onExportFileDocx]);
 
   return (
     <div className="flex h-full flex-col text-card-foreground">
@@ -141,6 +150,11 @@ export function FileTreePanel({
         <FileTreeContextMenu
           fileName={contextMenu.name}
           onDownload={handleDownloadFromContextMenu}
+          onExportDocx={
+            onExportFileDocx && contextMenu.name.endsWith(".md")
+              ? handleExportDocxFromContextMenu
+              : undefined
+          }
           onExportPdf={
             onExportFilePdf && contextMenu.name.endsWith(".md")
               ? handleExportPdfFromContextMenu

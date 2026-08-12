@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   instanceService: { findCredentialsBySlug: vi.fn() },
   messageRunService: {
     createActiveRunAfterRuntimeStateCheck: vi.fn(),
+    findActiveRun: vi.fn(),
     findRunById: vi.fn(),
     markRunAborted: vi.fn(),
     markRunFailed: vi.fn(),
@@ -180,6 +181,7 @@ describe('POST /api/w/[slug]/chat/stream', () => {
       startedAt: new Date(),
       finishedAt: null,
     })
+    mocks.messageRunService.findActiveRun.mockResolvedValue(null)
     mocks.messageRunService.createActiveRunAfterRuntimeStateCheck.mockResolvedValue({
       ok: true,
       run: {
@@ -992,6 +994,102 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     expect(text).toContain('"recoverable":true')
     expect(mocks.messageRunService.markRunFailed).not.toHaveBeenCalled()
     expect(mocks.abortSessionFamilyAndConfirmIdle).not.toHaveBeenCalled()
+  })
+
+  it('fails terminal provider retries instead of leaving their run resumable', async () => {
+    const fetchMock = mockOpenCodeFetch([
+      {
+        type: 'session.status',
+        properties: {
+          info: { sessionID: 's1' },
+          status: {
+            type: 'retry',
+            action: { reason: 'free_tier_limit' },
+          },
+        },
+      },
+    ])
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { POST } = await import('../route')
+    const res = await POST(makePostRequest({ sessionId: 's1', runId: 'run-1' }), params())
+
+    await expect(res.text()).resolves.toContain('free_tier_limit')
+    expect(mocks.messageRunService.markRunFailed).toHaveBeenCalledWith(
+      'run-1',
+      'free_tier_limit',
+    )
+  })
+
+  it('fails terminal retries after the upstream event stream ends', async () => {
+    let onRead: ((result: {
+      durationMs: number
+      outcome: 'success'
+      status: string
+      terminalError: string
+    }) => void) | undefined
+    mocks.createUpstreamSessionStatusReader.mockImplementation(({ onRead: callback }) => {
+      onRead = callback
+      return vi.fn(async () => {
+        onRead?.({
+          durationMs: 0,
+          outcome: 'success',
+          status: 'retry',
+          terminalError: 'free_tier_limit',
+        })
+        return 'retry'
+      })
+    })
+    vi.stubGlobal('fetch', vi.fn((url: string | URL) => {
+      if (String(url) === 'http://test-slug:3000/event') {
+        return Promise.resolve(new Response(eventStream([]), { status: 200 }))
+      }
+      return Promise.reject(new Error(`unexpected fetch ${String(url)}`))
+    }))
+
+    const { POST } = await import('../route')
+    const res = await POST(makePostRequest({ sessionId: 's1', runId: 'run-1' }), params())
+
+    await expect(res.text()).resolves.toContain('free_tier_limit')
+    expect(mocks.messageRunService.markRunFailed).toHaveBeenCalledWith(
+      'run-1',
+      'free_tier_limit',
+    )
+  })
+
+  it('links resume streams to the active run before handling terminal retries', async () => {
+    mocks.messageRunService.findActiveRun.mockResolvedValue({
+      id: 'run-1',
+      slug: 'alice',
+      sessionId: 's1',
+      source: 'web',
+      status: 'running',
+      error: null,
+      startedAt: new Date(),
+      finishedAt: null,
+    })
+    const fetchMock = mockOpenCodeFetch([
+      {
+        type: 'session.status',
+        properties: {
+          info: { sessionID: 's1' },
+          status: {
+            type: 'retry',
+            action: { reason: 'free_tier_limit' },
+          },
+        },
+      },
+    ])
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { POST } = await import('../route')
+    const res = await POST(makePostRequest({ sessionId: 's1', resume: true }), params())
+
+    await expect(res.text()).resolves.toContain('free_tier_limit')
+    expect(mocks.messageRunService.markRunFailed).toHaveBeenCalledWith(
+      'run-1',
+      'free_tier_limit',
+    )
   })
 
   it('closes the observation recoverably when the upstream reader errors mid-stream', async () => {

@@ -14,6 +14,7 @@ type DeriveWorkspaceMessageStateInput = {
   completedAt?: number
   parts: MessagePart[]
   sessionStatus?: 'busy' | 'idle' | 'unknown'
+  terminalError?: string
 }
 
 export function deriveWorkspaceMessageRuntimeState({
@@ -21,8 +22,12 @@ export function deriveWorkspaceMessageRuntimeState({
   completedAt,
   parts,
   sessionStatus = 'unknown',
+  terminalError,
 }: DeriveWorkspaceMessageStateInput): WorkspaceMessageRuntimeState {
   if (role !== 'assistant') return { pending: false }
+  if (terminalError) {
+    return { pending: false, statusInfo: { status: 'error', detail: terminalError } }
+  }
 
   const lastPart = parts[parts.length - 1]
   if (!lastPart) {

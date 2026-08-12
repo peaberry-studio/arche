@@ -318,6 +318,11 @@ describe("ChatPanelMessages", () => {
           statusInfo: { status: "error", detail: "rate_limited" },
           attachments: [{ type: "file", label: "log.txt", path: "logs/log.txt" }],
         }),
+        assistantMessage([], {
+          id: "a3",
+          content: "",
+          statusInfo: { status: "error", detail: "free_tier_limit" },
+        }),
         {
           id: "s1",
           sessionId: "s1",
@@ -333,6 +338,8 @@ describe("ChatPanelMessages", () => {
     expect(onScrollContainer).toHaveBeenCalled();
     expect(screen.getByText("Rate limited")).toBeTruthy();
     expect(screen.getByText("Too many requests were sent at once. Try again in a moment.")).toBeTruthy();
+    expect(screen.getByText("Free model limit reached")).toBeTruthy();
+    expect(screen.getByText("Choose another model or try again after your free usage resets.")).toBeTruthy();
     expect(screen.getByText("System note")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: /input.pdf/ }));
