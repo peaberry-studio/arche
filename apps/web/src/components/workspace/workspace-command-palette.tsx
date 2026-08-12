@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import {
   ChatCircle,
+  Compass,
   Cpu,
   Database,
   File,
@@ -43,7 +44,6 @@ type WorkspaceCommandPaletteProps = {
   onRefreshSessions: () => Promise<void> | void;
   onSelectSession: (sessionId: string, mode: WorkspaceMode) => void;
   onToggleLeftPanel: () => void;
-  onToggleRightPanel: () => void;
 };
 
 type PaletteItem = {
@@ -81,7 +81,6 @@ export function WorkspaceCommandPalette({
   onRefreshSessions,
   onSelectSession,
   onToggleLeftPanel,
-  onToggleRightPanel,
 }: WorkspaceCommandPaletteProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -205,12 +204,21 @@ export function WorkspaceCommandPalette({
         run: () => onModeChange("chat"),
       },
       {
-        id: "mode-knowledge",
-        title: "Go to Knowledge mode",
+        id: "mode-explore",
+        title: "Go to Explore mode",
         subtitle: "Browse files and knowledge graph",
         section: "Modes",
-        icon: Database,
+        icon: Compass,
         keywords: "files graph kb",
+        run: () => onModeChange("explore"),
+      },
+      {
+        id: "mode-knowledge",
+        title: "Go to Knowledge mode",
+        subtitle: "Review learning proposals and workspace changes",
+        section: "Modes",
+        icon: Database,
+        keywords: "proposals changes publish",
         run: () => onModeChange("knowledge"),
       },
       {
@@ -259,15 +267,6 @@ export function WorkspaceCommandPalette({
         run: onToggleLeftPanel,
       },
       {
-        id: "toggle-right-panel",
-        title: "Toggle right panel",
-        subtitle: "Show or hide review and files panel",
-        section: "Layout",
-        icon: File,
-        keywords: "review inspector diff files",
-        run: onToggleRightPanel,
-      },
-      {
         id: "toggle-dark-mode",
         title: "Toggle dark mode",
         subtitle: "Switch between light and dark appearance",
@@ -303,7 +302,7 @@ export function WorkspaceCommandPalette({
     }
 
     return items;
-  }, [hideFlows, onCreateSession, onModeChange, onNavigateConnectors, onNavigateProviders, onNavigateSettings, onToggleLeftPanel, onToggleRightPanel, setThemeId, themeId, themes, toggleDark]);
+  }, [hideFlows, onCreateSession, onModeChange, onNavigateConnectors, onNavigateProviders, onNavigateSettings, onToggleLeftPanel, setThemeId, themeId, themes, toggleDark]);
 
   const flowItems = useMemo<PaletteItem[]>(() => {
     if (hideFlows) return [];
@@ -357,7 +356,7 @@ export function WorkspaceCommandPalette({
       icon: File,
       keywords: file.path,
       run: async () => {
-        onModeChange("knowledge");
+        onModeChange("explore");
         await onOpenFile(file.path);
       },
     }));

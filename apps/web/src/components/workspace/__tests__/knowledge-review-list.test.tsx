@@ -74,7 +74,7 @@ describe('KnowledgeReviewList', () => {
 
     render(<KnowledgeReviewList slug="alice" />)
 
-    expect(await screen.findByText('No knowledge changes awaiting review.')).toBeTruthy()
+    expect(await screen.findByText('No knowledge proposals awaiting review.')).toBeTruthy()
   })
 
   it('shows a readable error label when the load fails on the network', async () => {
@@ -82,7 +82,7 @@ describe('KnowledgeReviewList', () => {
 
     render(<KnowledgeReviewList slug="alice" />)
 
-    expect(await screen.findByText('Could not load Knowledge Review changes.')).toBeTruthy()
+    expect(await screen.findByText('Could not load Knowledge proposals.')).toBeTruthy()
   })
 
   it('surfaces action errors with readable labels', async () => {
@@ -106,8 +106,9 @@ describe('KnowledgeReviewList', () => {
       .mockResolvedValueOnce(jsonResponse({ proposal: { id: 'change-1' } }))
       .mockResolvedValueOnce(jsonResponse(learningResponse([])))
     const onApplied = vi.fn()
+    const onChanged = vi.fn()
 
-    render(<KnowledgeReviewList slug="alice" onApplied={onApplied} />)
+    render(<KnowledgeReviewList slug="alice" onApplied={onApplied} onChanged={onChanged} />)
 
     expect(await screen.findByText('Remember preference')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Apply to workspace' }))
@@ -124,6 +125,7 @@ describe('KnowledgeReviewList', () => {
       })
     })
     await waitFor(() => expect(onApplied).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1))
   })
 
   it('rejects a change without applying it', async () => {

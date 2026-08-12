@@ -62,6 +62,15 @@ export default async function WorkspaceHostPage({
     redirect(`/w/${session.user.slug}`)
   }
 
+  if (search?.mode === 'knowledge' && search.path) {
+    const params = new URLSearchParams({ mode: 'explore', path: search.path })
+    if (search.session) params.set('session', search.session)
+    if (search.settings) params.set('settings', search.settings)
+    if (search.flowId) params.set('flowId', search.flowId)
+    if (search.flows) params.set('flows', search.flows)
+    redirect(`/w/${slug}?${params.toString()}`)
+  }
+
   const kickstartStatus = await getKickstartStatus()
   if (kickstartStatus !== 'ready') {
     if (desktopVault) {
@@ -90,9 +99,11 @@ export default async function WorkspaceHostPage({
     : null
   const requestedWorkspaceMode = search?.mode === 'knowledge'
     ? 'knowledge'
-    : search?.mode === 'flows'
-      ? 'flows'
-      : 'chat'
+    : search?.mode === 'explore'
+      ? 'explore'
+      : search?.mode === 'flows'
+        ? 'flows'
+        : 'chat'
   const initialWorkspaceMode = desktopVault && requestedWorkspaceMode === 'flows'
     ? 'chat'
     : requestedWorkspaceMode

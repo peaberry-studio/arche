@@ -680,6 +680,120 @@ func TestHandleKbPublishWithoutManifestOnCleanTree(t *testing.T) {
 	}
 }
 
+func TestHandleKbPublishRejectsUnreviewedChanges(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	remote := filepath.Join(root, "kb.git")
+	ctx := context.Background()
+
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+	runGit(t, ctx, workspace, "init", "-b", "main")
+	runGit(t, ctx, workspace, "config", "user.email", "tests@example.com")
+	runGit(t, ctx, workspace, "config", "user.name", "Workspace Agent Tests")
+	writeWorkspaceTestFile(t, workspace, "README.md", "base\n")
+	runGit(t, ctx, workspace, "add", "README.md")
+	runGit(t, ctx, workspace, "commit", "-m", "initial")
+	runGit(t, ctx, root, "init", "--bare", remote)
+	runGit(t, ctx, workspace, "remote", "add", "kb", remote)
+	runGit(t, ctx, workspace, "push", "-u", "kb", "main")
+
+	// A previously committed change sits outside the reviewed manifest.
+	writeWorkspaceTestFile(t, workspace, "Knowledge/Unreviewed.md", "unreviewed\n")
+	runGit(t, ctx, workspace, "add", "Knowledge/Unreviewed.md")
+	runGit(t, ctx, workspace, "commit", "-m", "unreviewed change")
+
+	// The reviewed change is still an untracked working-tree file.
+	writeWorkspaceTestFile(t, workspace, "Knowledge/Reviewed.md", "reviewed\n")
+
+	s := &server{workspace: workspace}
+	req := httptest.NewRequest(http.MethodPost, "/kb/publish", strings.NewReader(`{"paths":["Knowledge/Reviewed.md"]}`))
+	recorder := httptest.NewRecorder()
+	s.handleKbPublish(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("publish status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	var response publishKbResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode publish response: %v", err)
+	}
+	if response.Ok || response.Status != "error" || response.Message != "unreviewed_changes_present" {
+		t.Fatalf("unexpected publish response: %+v", response)
+	}
+	if len(response.Files) != 2 {
+		t.Fatalf("expected both reviewed and unreviewed files in the report, got %v", response.Files)
+	}
+
+	// The remote must not have received anything because the publish was rejected.
+	remoteWork := filepath.Join(root, "remote-work")
+	runGit(t, ctx, root, "clone", remote, remoteWork)
+	if _, err := os.Stat(filepath.Join(remoteWork, "Knowledge", "Reviewed.md")); !os.IsNotExist(err) {
+		t.Fatalf("reviewed file was published despite unreviewed changes: %v", err)
+	}
+}
+
+func TestHandleFileDeleteExpectedHashConflict(t *testing.T) {
+	workspace := t.TempDir()
+	s := &server{workspace: workspace}
+
+	writeWorkspaceTestFile(t, workspace, "Knowledge/Notes.md", "original\n")
+	currentHash := hashBytes([]byte("original\n"))
+
+	t.Run("rejects delete when the hash no longer matches", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/files/delete", strings.NewReader(mustJSON(t, fileDeleteRequest{
+			Path:         "Knowledge/Notes.md",
+			ExpectedHash: "sha256:deadbeef",
+		})))
+		recorder := httptest.NewRecorder()
+		s.handleFileDelete(recorder, req)
+
+		if recorder.Code != http.StatusConflict {
+			t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+		}
+		var body map[string]any
+		if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+		if body["error"] != "conflict" || body["currentHash"] != currentHash {
+			t.Fatalf("unexpected conflict body: %+v", body)
+		}
+		if _, err := os.Stat(filepath.Join(workspace, "Knowledge", "Notes.md")); err != nil {
+			t.Fatalf("file was deleted despite hash mismatch: %v", err)
+		}
+	})
+
+	t.Run("deletes the file when the expected hash matches", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/files/delete", strings.NewReader(mustJSON(t, fileDeleteRequest{
+			Path:         "Knowledge/Notes.md",
+			ExpectedHash: currentHash,
+		})))
+		recorder := httptest.NewRecorder()
+		s.handleFileDelete(recorder, req)
+
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+		}
+		if _, err := os.Stat(filepath.Join(workspace, "Knowledge", "Notes.md")); !os.IsNotExist(err) {
+			t.Fatalf("file was not deleted: %v", err)
+		}
+	})
+
+	t.Run("reports not_found when expected hash targets a missing file", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/files/delete", strings.NewReader(mustJSON(t, fileDeleteRequest{
+			Path:         "Knowledge/Missing.md",
+			ExpectedHash: currentHash,
+		})))
+		recorder := httptest.NewRecorder()
+		s.handleFileDelete(recorder, req)
+
+		if recorder.Code != http.StatusNotFound {
+			t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+		}
+	})
+}
+
 func TestHandleFileUploadWritesStreamedFile(t *testing.T) {
 	workspace := t.TempDir()
 	s := &server{workspace: workspace}

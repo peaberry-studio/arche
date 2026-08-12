@@ -7,6 +7,7 @@ import { DashboardNav } from '@/components/dashboard/dashboard-nav'
 
 vi.mock('next/navigation', () => ({
   usePathname: () => '/u/admin',
+  useSearchParams: () => new URLSearchParams(),
 }))
 
 describe('DashboardNav', () => {
@@ -18,7 +19,8 @@ describe('DashboardNav', () => {
   it('keeps logout out of the dashboard nav', () => {
     render(<DashboardNav slug="admin" />)
 
-    expect(screen.getByRole('link', { name: /knowledge/i }).getAttribute('href')).toBe('/w/admin?mode=knowledge')
+    expect(screen.getByRole('link', { name: 'Explore' }).getAttribute('href')).toBe('/w/admin?mode=explore')
+    expect(screen.getByRole('link', { name: 'Knowledge' }).getAttribute('href')).toBe('/w/admin?mode=knowledge')
     expect(screen.getByRole('link', { name: /open workspace/i }).getAttribute('href')).toBe('/w/admin')
     expect(screen.queryByRole('link', { name: 'Team' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Log out' })).toBeNull()

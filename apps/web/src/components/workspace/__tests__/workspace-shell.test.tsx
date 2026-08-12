@@ -203,7 +203,7 @@ vi.mock("@/components/workspace/inspector-panel", () => ({
     onSelectFile?: (path: string) => void;
     onToggleRight: () => void;
     openFiles?: Array<{ path: string }>;
-    panelMode?: "combined" | "files" | "review";
+    panelMode?: "combined" | "files" | "knowledge" | "review";
     rightCollapsed: boolean;
   }) => (
     <div>
@@ -218,7 +218,7 @@ vi.mock("@/components/workspace/inspector-panel", () => ({
         data-open-files={openFiles.map((file) => file.path).join(",")}
         onClick={onToggleRight}
       >
-        {panelMode === "files" ? "Files Panel" : panelMode === "review" ? "Review Panel" : "Inspector Panel"}
+        {panelMode === "files" ? "Files Panel" : panelMode === "knowledge" ? "Knowledge Panel" : panelMode === "review" ? "Review Panel" : "Inspector Panel"}
       </button>
       {panelMode === "files" && activeFilePath ? (
         <>
@@ -523,6 +523,7 @@ describe("WorkspaceShell", () => {
     });
 
     expect(screen.getByRole("button", { name: "Knowledge" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Explore" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Flows" })).toBeTruthy();
 
     const accountMenuButton = screen.getByRole("button", { name: "Workspace account menu" });
@@ -577,7 +578,7 @@ describe("WorkspaceShell", () => {
     expect(desktopBridgeMocks.listRecentVaults).toHaveBeenCalledTimes(1);
   });
 
-  it("shows unread badges for sessions, flows, and knowledge modes", async () => {
+  it("shows a Knowledge badge that combines proposals and workspace changes", async () => {
     workspaceMockOverrides = {
       sessions: [
         {
@@ -621,11 +622,13 @@ describe("WorkspaceShell", () => {
       diffs: [{ path: "docs/a.md" }, { path: "docs/b.md" }, { path: "docs/c.md" }],
     };
 
+    learningApiResponse = { runs: [], proposals: [{ status: "open" }] };
+
     render(<WorkspaceShell slug="alice" />);
 
     expect(await screen.findByRole("button", { name: /Sessions.*2 unread/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Flows.*1 unread/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Knowledge.*3 pending/ })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /Knowledge.*4 pending/ })).toBeTruthy();
   });
 
   it("auto-syncs the KB after the workspace connects", async () => {
@@ -662,7 +665,7 @@ describe("WorkspaceShell", () => {
     render(
       <WorkspaceShell
         slug="alice"
-        initialWorkspaceMode="knowledge"
+        initialWorkspaceMode="explore"
         initialFilePath="docs/plan.md"
         workspaceAgentEnabled={false}
       />
@@ -775,7 +778,7 @@ describe("WorkspaceShell", () => {
     expect(refreshSessions).toHaveBeenCalledTimes(1);
   });
 
-  it("promotes a quickview file into knowledge editing", async () => {
+  it("promotes a quickview file into Explore editing", async () => {
     render(<WorkspaceShell slug="alice" />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Open plan preview" }));
@@ -784,7 +787,7 @@ describe("WorkspaceShell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Edit file" }));
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Knowledge" }).getAttribute("aria-pressed")).toBe("true");
+      expect(screen.getByRole("button", { name: "Explore" }).getAttribute("aria-pressed")).toBe("true");
     });
 
     expect(screen.getByRole("button", { name: "Files Panel" }).dataset.panelMode).toBe("files");
@@ -810,11 +813,11 @@ describe("WorkspaceShell", () => {
     });
   });
 
-  it("starts in knowledge mode with navigation, files, and review panels", async () => {
+  it("starts in Explore mode with navigation and file editing", async () => {
     render(
       <WorkspaceShell
         slug="alice"
-        initialWorkspaceMode="knowledge"
+        initialWorkspaceMode="explore"
         initialFilePath="docs/plan.md"
         knowledgeAgentSources={[{ id: "strategist", displayName: "Strategist", prompt: "[[docs/plan.md]]" }]}
       />
@@ -826,15 +829,15 @@ describe("WorkspaceShell", () => {
 
     expect(screen.getByRole("button", { name: "Graph" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Files Panel" }).dataset.panelMode).toBe("files");
-    expect(screen.getByRole("button", { name: "Review Panel" }).dataset.panelMode).toBe("review");
+    expect(screen.queryByRole("button", { name: "Knowledge Panel" })).toBeNull();
     expect(screen.queryByText("Chat Panel")).toBeNull();
   });
 
-  it("routes knowledge file actions through workspace handlers", async () => {
+  it("routes Explore file actions through workspace handlers", async () => {
     render(
       <WorkspaceShell
         slug="alice"
-        initialWorkspaceMode="knowledge"
+        initialWorkspaceMode="explore"
         initialFilePath="docs/plan.md"
       />
     );
@@ -876,7 +879,7 @@ describe("WorkspaceShell", () => {
     render(
       <WorkspaceShell
         slug="alice"
-        initialWorkspaceMode="knowledge"
+        initialWorkspaceMode="explore"
         initialFilePath="docs/plan.md"
       />
     );
@@ -890,11 +893,11 @@ describe("WorkspaceShell", () => {
     });
   });
 
-  it("ignores protected initial file paths in knowledge mode", async () => {
+  it("ignores protected initial file paths in Explore mode", async () => {
     render(
       <WorkspaceShell
         slug="alice"
-        initialWorkspaceMode="knowledge"
+        initialWorkspaceMode="explore"
         initialFilePath="node_modules/pkg/index.js"
       />
     );
@@ -930,157 +933,23 @@ describe("WorkspaceShell", () => {
     expect(screen.queryByText("Quickview")).toBeNull();
   });
 
-  it("toggles the right panel with Alt+Command+B", async () => {
+  it("keeps the Knowledge surface out of the side-panel layout", async () => {
     render(<WorkspaceShell slug="alice" initialWorkspaceMode="knowledge" />);
 
-    expect(await screen.findByRole("button", { name: "Collapse knowledge panel" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Review Panel" }).dataset.collapsed).toBe("false");
-
-    window.dispatchEvent(
-      new KeyboardEvent("keydown", {
-        key: "b",
-        code: "KeyB",
-        metaKey: true,
-        altKey: true,
-        bubbles: true,
-      })
-    );
-
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Review Panel" }).dataset.collapsed).toBe("true");
-    });
-
-    expect(screen.getByRole("button", { name: "Collapse knowledge panel" })).toBeTruthy();
+    const knowledgePanel = await screen.findByRole("button", { name: "Knowledge Panel" });
+    expect(knowledgePanel.dataset.panelMode).toBe("knowledge");
+    expect(screen.queryByRole("button", { name: /Collapse .* panel/ })).toBeNull();
+    expect(screen.queryByRole("separator", { name: "Resize left panel" })).toBeNull();
+    expect(screen.queryByRole("separator", { name: "Resize right panel" })).toBeNull();
   });
 
-  it("resizes both desktop side panels with pointer drags", async () => {
-    render(<WorkspaceShell slug="alice" initialWorkspaceMode="knowledge" initialFilePath="docs/plan.md" />);
+  it("keeps Explore editing in the left-and-center layout without a review panel", async () => {
+    render(<WorkspaceShell slug="alice" initialWorkspaceMode="explore" initialFilePath="docs/plan.md" />);
 
-    const leftSeparator = await screen.findByRole("separator", { name: "Resize left panel" });
-    const rightSeparator = screen.getByRole("separator", { name: "Resize right panel" });
-
-    fireEvent.pointerDown(leftSeparator, { clientX: 216, pointerId: 1 });
-    fireEvent.pointerMove(window, { clientX: 520, pointerId: 1 });
-    fireEvent.pointerUp(window, { pointerId: 1 });
-
-    await waitFor(() => {
-      const leftPanelWidth = Number.parseFloat(
-        findSizedPanelContainer(screen.getByRole("button", { name: "Collapse knowledge panel" }))?.style.width ?? "0"
-      );
-      expect(leftPanelWidth).toBeCloseTo(520, 0);
-    });
-
-    fireEvent.pointerDown(rightSeparator, { clientX: 1008, pointerId: 2 });
-    fireEvent.pointerMove(window, { clientX: 900, pointerId: 2 });
-    fireEvent.pointerUp(window, { pointerId: 2 });
-
-    await waitFor(() => {
-      const rightPanelWidth = Number.parseFloat(
-        findSizedPanelContainer(screen.getByRole("button", { name: "Review Panel" }))?.style.width ?? "0"
-      );
-      expect(rightPanelWidth).toBeGreaterThan(430);
-    });
-
-    expect(document.body.style.cursor).toBe("");
-    expect(document.body.style.userSelect).toBe("");
-  });
-
-  it("fits oversized persisted panel widths into a narrow desktop viewport", async () => {
-    vi.mocked(HTMLDivElement.prototype.getBoundingClientRect).mockReturnValue({
-      x: 0,
-      y: 0,
-      top: 0,
-      left: 0,
-      bottom: 900,
-      right: 900,
-      width: 900,
-      height: 900,
-      toJSON: () => ({}),
-    });
-
-    render(
-      <WorkspaceShell
-        slug="alice"
-        initialWorkspaceMode="knowledge"
-        initialFilePath="docs/plan.md"
-        initialLayoutState={{
-          leftCollapsed: false,
-          leftWidth: 800,
-          rightCollapsed: false,
-          rightWidth: 800,
-          rightTab: "review",
-        }}
-      />
-    );
-
-    const leftPanelButton = await screen.findByRole("button", { name: "Collapse knowledge panel" });
-    const leftPanelWidth = Number.parseFloat(findSizedPanelContainer(leftPanelButton)?.style.width ?? "0");
-    const rightPanelWidth = Number.parseFloat(
-      findSizedPanelContainer(screen.getByRole("button", { name: "Review Panel" }))?.style.width ?? "0"
-    );
-
-    expect(leftPanelWidth).toBeLessThan(800);
-    expect(rightPanelWidth).toBeGreaterThanOrEqual(320);
-    expect(leftPanelWidth + rightPanelWidth).toBeLessThan(1600);
-  });
-
-  it("restores right panel at 50% of available center area when re-opened", async () => {
-    render(<WorkspaceShell slug="alice" initialWorkspaceMode="knowledge" />);
-
-    const leftPanelButton = await screen.findByRole("button", { name: "Collapse knowledge panel" });
-    const inspectorButton = screen.getByRole("button", { name: "Review Panel" });
-
-    fireEvent.click(inspectorButton);
-
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Review Panel" }).dataset.collapsed).toBe("true");
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "Review Panel" }));
-
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Review Panel" }).dataset.collapsed).toBe("false");
-    });
-
-    const leftPanelWidth = Number.parseFloat(findSizedPanelContainer(leftPanelButton)?.style.width ?? "0");
-    const rightPanelWidth = Number.parseFloat(
-      findSizedPanelContainer(screen.getByRole("button", { name: "Review Panel" }))?.style.width ?? "0"
-    );
-
-    const expectedRightWidth = (1440 - leftPanelWidth) / 2;
-    expect(rightPanelWidth).toBeCloseTo(expectedRightWidth, 0);
-  });
-
-  it("restores right panel against the collapsed left rail when the left panel is hidden", async () => {
-    render(<WorkspaceShell slug="alice" initialWorkspaceMode="knowledge" />);
-
-    const leftPanelButton = await screen.findByRole("button", { name: "Collapse knowledge panel" });
-    const inspectorButton = screen.getByRole("button", { name: "Review Panel" });
-
-    fireEvent.click(leftPanelButton);
-
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Expand knowledge panel" })).toBeTruthy();
-    });
-
-    fireEvent.click(inspectorButton);
-
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Review Panel" }).dataset.collapsed).toBe("true");
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "Review Panel" }));
-
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Review Panel" }).dataset.collapsed).toBe("false");
-    });
-
-    const rightPanelWidth = Number.parseFloat(
-      findSizedPanelContainer(screen.getByRole("button", { name: "Review Panel" }))?.style.width ?? "0"
-    );
-
-    const expectedRightWidth = (1440 - 48) / 2;
-    expect(rightPanelWidth).toBeCloseTo(expectedRightWidth, 0);
+    expect(await screen.findByRole("button", { name: "Collapse explore panel" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Files Panel" }).dataset.panelMode).toBe("files");
+    expect(screen.queryByRole("button", { name: "Knowledge Panel" })).toBeNull();
+    expect(screen.queryByRole("separator", { name: "Resize right panel" })).toBeNull();
   });
 
   it("shows the flows empty state in flows mode", async () => {
@@ -1092,8 +961,8 @@ describe("WorkspaceShell", () => {
   });
 
   it("keeps a recent local mode when stale server mode props arrive late", async () => {
-    window.history.replaceState(null, "", "/w/alice?mode=knowledge&path=docs/plan.md");
-    const { rerender } = render(<WorkspaceShell slug="alice" initialWorkspaceMode="knowledge" initialFilePath="docs/plan.md" />);
+    window.history.replaceState(null, "", "/w/alice?mode=explore&path=docs/plan.md");
+    const { rerender } = render(<WorkspaceShell slug="alice" initialWorkspaceMode="explore" initialFilePath="docs/plan.md" />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Flows" }));
 
@@ -1106,32 +975,32 @@ describe("WorkspaceShell", () => {
     expect(params.get("path")).toBe("docs/plan.md");
 
     rerender(<WorkspaceShell slug="alice" initialWorkspaceMode="flows" />);
-    rerender(<WorkspaceShell slug="alice" initialWorkspaceMode="knowledge" />);
+    rerender(<WorkspaceShell slug="alice" initialWorkspaceMode="explore" />);
 
     await act(async () => {
       await Promise.resolve();
     });
 
     expect(screen.getByRole("button", { name: "Flows" }).getAttribute("aria-pressed")).toBe("true");
-    expect(screen.getByRole("button", { name: "Knowledge" }).getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByRole("button", { name: "Explore" }).getAttribute("aria-pressed")).toBe("false");
   });
 
-  it("uses the collapsed knowledge rail to switch tree and graph views", async () => {
-    render(<WorkspaceShell slug="alice" initialWorkspaceMode="knowledge" initialFilePath="docs/plan.md" />);
+  it("uses the collapsed Explore rail to switch tree and graph views", async () => {
+    render(<WorkspaceShell slug="alice" initialWorkspaceMode="explore" initialFilePath="docs/plan.md" />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Collapse knowledge panel" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Collapse explore panel" }));
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Expand knowledge panel" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Expand explore panel" })).toBeTruthy();
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Show graph view" }));
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Collapse knowledge panel" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Collapse explore panel" })).toBeTruthy();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Collapse knowledge panel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Collapse explore panel" }));
     fireEvent.click(await screen.findByRole("button", { name: "Show tree view" }));
 
     await waitFor(() => {
@@ -1139,7 +1008,7 @@ describe("WorkspaceShell", () => {
     });
   });
 
-  it("caps the compact review badge label at 99 plus", async () => {
+  it("caps the compact Knowledge badge label at 99 plus", async () => {
     setViewportWidth(720);
     workspaceMockOverrides = {
       diffs: Array.from({ length: 120 }, (_, index) => ({
@@ -1154,7 +1023,7 @@ describe("WorkspaceShell", () => {
 
     render(<WorkspaceShell slug="alice" initialWorkspaceMode="knowledge" initialFilePath="docs/plan.md" />);
 
-    expect(await screen.findAllByText("99+")).toHaveLength(2);
+    expect(await screen.findAllByText("99+")).toHaveLength(1);
   });
 
   it("opens the command palette with Command+K", async () => {
@@ -1182,15 +1051,13 @@ describe("WorkspaceShell", () => {
       rightTab: "preview",
     }))}; Path=/`;
 
-    render(<WorkspaceShell slug="alice" initialWorkspaceMode="knowledge" />);
+    render(<WorkspaceShell slug="alice" initialWorkspaceMode="explore" />);
 
     await waitFor(() => {
       expect(window.localStorage.getItem("arche.workspace.alice.layout")).toContain('"rightCollapsed":true');
     });
 
-    expect(screen.getByRole("button", { name: "Review Panel" }).dataset.collapsed).toBe("true");
-
-    const leftPanelButton = screen.getByRole("button", { name: "Collapse knowledge panel" });
+    const leftPanelButton = screen.getByRole("button", { name: "Collapse explore panel" });
     const leftPanelWrapper = findSizedPanelContainer(leftPanelButton);
 
     expect(leftPanelWrapper?.style.width).toBe("264px");
@@ -1200,7 +1067,7 @@ describe("WorkspaceShell", () => {
     render(
       <WorkspaceShell
         slug="alice"
-        initialWorkspaceMode="knowledge"
+        initialWorkspaceMode="explore"
         initialLayoutState={{
           leftWidth: 288,
           rightWidth: 410,
@@ -1212,10 +1079,9 @@ describe("WorkspaceShell", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Expand knowledge panel" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Expand explore panel" })).toBeTruthy();
     });
 
-    expect(screen.getByRole("button", { name: "Review Panel" }).dataset.collapsed).toBe("true");
   });
 
   it("persists layout changes to localStorage and cookies", async () => {
@@ -1234,18 +1100,14 @@ describe("WorkspaceShell", () => {
     expect(readCookieValue("arche-workspace-layout-alice")).toContain('"leftCollapsed":true');
   });
 
-  it("starts with Knowledge Review collapsed in chat mode and expands it on demand", async () => {
+  it("does not show a Review panel in Sessions", async () => {
     render(<WorkspaceShell slug="alice" />);
 
-    const expandButton = await screen.findByRole("button", { name: "Review Panel" });
-    expect(expandButton.dataset.collapsed).toBe("true");
-
-    fireEvent.click(expandButton);
-
-    expect(screen.getByRole("button", { name: "Review Panel" }).dataset.collapsed).toBe("false");
+    expect(await screen.findByText("Chat Panel")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Review Panel" })).toBeNull();
   });
 
-  it("shows an open Knowledge Review change in the unified review panel", async () => {
+  it("shows Knowledge as a dedicated workspace mode", async () => {
     learningApiResponse = {
       runs: [],
       proposals: [{
@@ -1275,11 +1137,11 @@ describe("WorkspaceShell", () => {
       }],
     };
 
-    render(<WorkspaceShell slug="alice" />);
+    render(<WorkspaceShell slug="alice" initialWorkspaceMode="knowledge" />);
 
-    const reviewPanel = await screen.findByRole("button", { name: "Review Panel" });
-    expect(reviewPanel.dataset.panelMode).toBe("review");
-    expect(reviewPanel.dataset.collapsed).toBe("true");
+    const knowledgePanel = await screen.findByRole("button", { name: "Knowledge Panel" });
+    expect(knowledgePanel.dataset.panelMode).toBe("knowledge");
+    expect(screen.queryByText("Chat Panel")).toBeNull();
   });
 
   it("shows chat as default view in compact layout", async () => {
@@ -1291,7 +1153,7 @@ describe("WorkspaceShell", () => {
     });
 
     expect(screen.getByText("Chat Panel")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Open review panel" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Open review panel" })).toBeNull();
   });
 
   it("switches to full-screen left panel and back in compact layout", async () => {
@@ -1313,28 +1175,16 @@ describe("WorkspaceShell", () => {
     expect(screen.getByText("Chat Panel")).toBeTruthy();
   });
 
-  it("opens and closes full-screen review panel in compact knowledge layout", async () => {
+  it("shows Knowledge as the compact primary surface", async () => {
     setViewportWidth(720);
     render(
       <WorkspaceShell
         slug="alice"
         initialWorkspaceMode="knowledge"
-        initialFilePath="docs/plan.md"
       />
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Open review panel" }));
-
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Review Panel" })).toBeTruthy();
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "Show files" }));
-
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Show files" }).getAttribute("aria-pressed")).toBe("true");
-    });
-
-    expect(screen.getByRole("button", { name: "Files Panel" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Knowledge Panel" })).toBeTruthy();
+    expect(screen.queryByRole("navigation", { name: "Workspace sections" })).toBeNull();
   });
 });

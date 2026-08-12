@@ -35,10 +35,12 @@ describe('WorkspaceModeToggle', () => {
     expect(screen.getByText('99+')).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: 'Flows' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Explore' }))
     fireEvent.click(screen.getByRole('button', { name: /Knowledge/ }))
 
     expect(onModeChange).toHaveBeenNthCalledWith(1, 'flows')
-    expect(onModeChange).toHaveBeenNthCalledWith(2, 'knowledge')
+    expect(onModeChange).toHaveBeenNthCalledWith(2, 'explore')
+    expect(onModeChange).toHaveBeenNthCalledWith(3, 'knowledge')
   })
 
   it('renders the capped sessions unread badge', () => {

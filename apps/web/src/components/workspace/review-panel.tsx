@@ -30,6 +30,7 @@ type ReviewPanelProps = {
   onDiscardFileChanges?: (path: string) => Promise<{ ok: true } | { ok: false; error: string }>;
   onResolveConflict?: (path: string) => void | Promise<void>;
   onKnowledgeReviewApplied?: () => void | Promise<void>;
+  onKnowledgeReviewChanged?: () => void | Promise<void>;
   knowledgeReviewRefreshKey?: number;
 };
 
@@ -43,6 +44,7 @@ export function ReviewPanel({
   onOpenFile,
   onDiscardFileChanges,
   onKnowledgeReviewApplied,
+  onKnowledgeReviewChanged,
   onResolveConflict,
   knowledgeReviewRefreshKey,
 }: ReviewPanelProps) {
@@ -110,6 +112,7 @@ export function ReviewPanel({
         slug={slug}
         refreshKey={knowledgeReviewRefreshKey}
         onApplied={onKnowledgeReviewApplied}
+        onChanged={onKnowledgeReviewChanged}
       />
       <section className="space-y-2">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Workspace changes</h3>

@@ -1,6 +1,7 @@
 import {
   captureKbArticleForReview,
   listKbArticles,
+  normalizeKbArticlePath,
   readKbArticle,
   searchKb,
 } from '@/lib/mcp/kb-content-store'
@@ -266,7 +267,7 @@ async function submitMcpKnowledgeReviewChange(args: {
     baseHash: snapshot.ok ? snapshot.snapshot.hash : null,
     confidence: 1,
     evidence: { source: 'MCP knowledge-base request' },
-    kbPath: snapshot.ok ? snapshot.snapshot.path : args.path.trim(),
+    kbPath: snapshot.ok ? snapshot.snapshot.path : (normalizeKbArticlePath(args.path) ?? args.path.trim()),
     operation: args.operation,
     origin: 'mcp',
     proposedContent: args.content,

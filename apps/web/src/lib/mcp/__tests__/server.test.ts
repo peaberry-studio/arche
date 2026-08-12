@@ -1,4 +1,17 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+const mocks = vi.hoisted(() => ({
+  captureKbArticleForReview: vi.fn(),
+  createKnowledgeReviewChange: vi.fn(),
+}))
+
+vi.mock('@/lib/mcp/kb-content-store', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@/lib/mcp/kb-content-store')>()
+  return { ...original, captureKbArticleForReview: mocks.captureKbArticleForReview }
+})
+vi.mock('@/lib/learning/service', () => ({
+  createKnowledgeReviewChange: mocks.createKnowledgeReviewChange,
+}))
 
 import { handleMcpJsonRpcRequest } from '@/lib/mcp/server'
 import { MCP_SCOPE_AGENTS_READ, MCP_SCOPE_KB_READ, MCP_SCOPE_KB_WRITE } from '@/lib/mcp/scopes'
@@ -98,6 +111,101 @@ describe('handleMcpJsonRpcRequest', () => {
 
     expect(response.status).toBe(400)
     expect(body.error.message).toBe('Invalid tool arguments')
+  })
+
+  describe('KB write tools route through Knowledge Review', () => {
+    const writeScopes = [MCP_SCOPE_KB_READ, MCP_SCOPE_KB_WRITE]
+
+    function makeSnapshot(content: string) {
+      return { ok: true as const, snapshot: { content, hash: `sha256:${content}`, path: 'Notes/Brief.md' } }
+    }
+
+    async function callTool(name: string, args: Record<string, string>) {
+      const response = await handleMcpJsonRpcRequest({
+        body: { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } },
+        scopes: writeScopes,
+        user,
+      })
+      const body = await response.json() as { result: { content: Array<{ text: string }>; isError?: boolean } }
+      return { isError: body.result.isError === true, result: JSON.parse(body.result.content[0].text) }
+    }
+
+    beforeEach(() => {
+      vi.clearAllMocks()
+      mocks.createKnowledgeReviewChange.mockImplementation(async (_userId: string, input: { operation: string }) => ({
+        id: 'change-1',
+        kbPath: 'Notes/Brief.md',
+        status: 'open',
+        operation: input.operation,
+      }))
+    })
+
+    it('rejects create_kb_article when the article already exists', async () => {
+      mocks.captureKbArticleForReview.mockResolvedValue(makeSnapshot('existing'))
+
+      const { isError, result } = await callTool('create_kb_article', { path: 'Notes/Brief.md', content: '# New' })
+
+      expect(isError).toBe(true)
+      expect(result).toEqual({ ok: false, error: 'article_exists' })
+      expect(mocks.createKnowledgeReviewChange).not.toHaveBeenCalled()
+    })
+
+    it('submits a create_kb_article as an open Knowledge Review change with no base', async () => {
+      mocks.captureKbArticleForReview.mockResolvedValue({ ok: false, error: 'not_found' })
+
+      const { isError, result } = await callTool('create_kb_article', { path: 'Notes/Brief.md', content: '# New' })
+
+      expect(isError).toBe(false)
+      expect(result).toEqual({ ok: true, path: 'Notes/Brief.md', proposal: { id: 'change-1', status: 'open' } })
+      expect(mocks.captureKbArticleForReview).toHaveBeenCalledWith({ path: 'Notes/Brief.md' })
+      expect(mocks.createKnowledgeReviewChange).toHaveBeenCalledWith('u1', expect.objectContaining({
+        operation: 'create',
+        baseContent: null,
+        baseHash: null,
+        proposedContent: '# New',
+        origin: 'mcp',
+        agent: 'mcp',
+        author: 'alice@example.com',
+      }))
+    })
+
+    it('submits an update_kb_article with the captured base snapshot', async () => {
+      mocks.captureKbArticleForReview.mockResolvedValue(makeSnapshot('current body'))
+
+      const { result } = await callTool('update_kb_article', { path: 'Notes/Brief.md', content: '# Updated' })
+
+      expect(result).toMatchObject({ ok: true, proposal: { id: 'change-1' } })
+      expect(mocks.createKnowledgeReviewChange).toHaveBeenCalledWith('u1', expect.objectContaining({
+        operation: 'update',
+        baseContent: 'current body',
+        baseHash: 'sha256:current body',
+        proposedContent: '# Updated',
+      }))
+    })
+
+    it('rejects update_kb_article when the article is missing', async () => {
+      mocks.captureKbArticleForReview.mockResolvedValue({ ok: false, error: 'not_found' })
+
+      const { isError, result } = await callTool('update_kb_article', { path: 'Notes/Missing.md', content: '# Updated' })
+
+      expect(isError).toBe(true)
+      expect(result).toEqual({ ok: false, error: 'not_found' })
+      expect(mocks.createKnowledgeReviewChange).not.toHaveBeenCalled()
+    })
+
+    it('submits a delete_kb_article with an empty proposed payload', async () => {
+      mocks.captureKbArticleForReview.mockResolvedValue(makeSnapshot('current body'))
+
+      const { result } = await callTool('delete_kb_article', { path: 'Notes/Brief.md' })
+
+      expect(result).toMatchObject({ ok: true, proposal: { id: 'change-1' } })
+      expect(mocks.createKnowledgeReviewChange).toHaveBeenCalledWith('u1', expect.objectContaining({
+        operation: 'delete',
+        baseContent: 'current body',
+        baseHash: 'sha256:current body',
+        proposedContent: '',
+      }))
+    })
   })
 
   it('includes canonical proactive single-agent guidance', async () => {

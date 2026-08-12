@@ -66,7 +66,6 @@ describe("InspectorPanel", () => {
 
   const defaultProps = {
     slug: "alice",
-    activeTab: "preview" as const,
     onTabChange: vi.fn(),
     openFiles: [
       {
@@ -249,44 +248,29 @@ describe("InspectorPanel", () => {
     expect(markdownEditorMock).not.toHaveBeenCalled()
   })
 
-  it('expands minified review and combined panels', () => {
+  it('expands minified panels without a Review shortcut', () => {
     const onToggleRight = vi.fn()
     const onTabChange = vi.fn()
-    const { rerender } = render(
+    render(
       <InspectorPanel
         {...defaultProps}
         rightCollapsed
-        panelMode="review"
-        pendingDiffsForBadge={120}
         onToggleRight={onToggleRight}
         onTabChange={onTabChange}
       />
     )
 
-    expect(screen.getByText('99+')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Expand review panel' }))
+    expect(screen.queryByRole('button', { name: /review/i })).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand panel' }))
     expect(onToggleRight).toHaveBeenCalledTimes(1)
-
-    rerender(
-      <InspectorPanel
-        {...defaultProps}
-        rightCollapsed
-        pendingDiffsForBadge={3}
-        onToggleRight={onToggleRight}
-        onTabChange={onTabChange}
-      />
-    )
 
     fireEvent.click(screen.getByRole('button', { name: 'Files' }))
     expect(onToggleRight).toHaveBeenCalledTimes(2)
     expect(onTabChange).toHaveBeenLastCalledWith('preview')
-
-    fireEvent.click(screen.getByRole('button', { name: 'Review' }))
-    expect(onToggleRight).toHaveBeenCalledTimes(3)
-    expect(onTabChange).toHaveBeenLastCalledWith('review')
   })
 
-  it('handles expanded header tabs, collapse, file tabs, and close buttons', () => {
+  it('handles the expanded inspector, file tabs, and close buttons', () => {
     const onCloseFile = vi.fn()
     const onSelectFile = vi.fn()
     const onTabChange = vi.fn()
@@ -331,8 +315,7 @@ describe("InspectorPanel", () => {
     fireEvent.click(screen.getByRole('button', { name: /Inspect/ }))
     expect(onTabChange).toHaveBeenCalledWith('preview')
 
-    fireEvent.click(screen.getByRole('button', { name: /Review/ }))
-    expect(onTabChange).toHaveBeenCalledWith('review')
+    expect(screen.queryByRole('button', { name: /Review/ })).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: 'second.md' }))
     expect(onSelectFile).toHaveBeenCalledWith('second.md')
@@ -341,19 +324,18 @@ describe("InspectorPanel", () => {
     expect(onCloseFile).toHaveBeenCalledWith('first.md')
   })
 
-  it('renders review-only mode with publish disabled by conflicts', () => {
+  it('renders Knowledge mode with publish disabled by conflicts', () => {
     render(
       <InspectorPanel
         {...defaultProps}
-        activeTab="review"
-        panelMode="review"
+        panelMode="knowledge"
         diffs={[
           { path: 'conflict.md', status: 'modified', additions: 1, deletions: 1, diff: 'diff', conflicted: true },
         ]}
       />
     )
 
-    expect(screen.getByText('Review')).toBeTruthy()
+    expect(screen.getByText('Knowledge')).toBeTruthy()
     expect(screen.getByText('1')).toBeTruthy()
     expect(screen.getByText('Review panel')).toBeTruthy()
     const publishButton = screen.getByRole('button', { name: 'Publish' })

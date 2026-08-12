@@ -59,7 +59,6 @@ type PaletteHandlers = {
   onRefreshSessions: ReturnType<typeof vi.fn>
   onSelectSession: ReturnType<typeof vi.fn>
   onToggleLeftPanel: ReturnType<typeof vi.fn>
-  onToggleRightPanel: ReturnType<typeof vi.fn>
 }
 
 function makeHandlers(): PaletteHandlers {
@@ -74,7 +73,6 @@ function makeHandlers(): PaletteHandlers {
     onRefreshSessions: vi.fn().mockResolvedValue(undefined),
     onSelectSession: vi.fn(),
     onToggleLeftPanel: vi.fn(),
-    onToggleRightPanel: vi.fn(),
   }
 }
 
@@ -253,7 +251,7 @@ describe("WorkspaceCommandPalette", () => {
     expect(handlers.onModeChange).toHaveBeenCalledWith("flows")
   })
 
-  it("finds files by fuzzy name and opens them in knowledge mode", async () => {
+  it("finds files by fuzzy name and opens them in Explore mode", async () => {
     searchFilesActionMock.mockResolvedValue({ ok: true, files: ["Company/Research/Customer Interviews.md"] })
     const handlers = renderPalette()
     const input = screen.getByPlaceholderText(palettePlaceholder)
@@ -264,7 +262,7 @@ describe("WorkspaceCommandPalette", () => {
     fireEvent.click(screen.getByText("Product Strategy.md"))
 
     await waitFor(() => expect(handlers.onOpenChange).toHaveBeenCalledWith(false))
-    expect(handlers.onModeChange).toHaveBeenCalledWith("knowledge")
+    expect(handlers.onModeChange).toHaveBeenCalledWith("explore")
     expect(handlers.onOpenFile).toHaveBeenCalledWith("Company/Product Strategy.md")
   })
 
