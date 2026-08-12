@@ -1,0 +1,252 @@
+name: PR Governance
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+  workflow_dispatch:
+
+jobs:
+  wip-labeler:
+    name: WIP Label
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Manage WIP labels
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const isWip = /\bwip\b/i.test(pr.title);
+            const labels = ['wip', 'not-ready-to-merge'];
+            const currentLabels = pr.labels.map(l => l.name);
+
+            for (const label of labels) {
+              const hasLabel = currentLabels.includes(label);
+
+              if (isWip && !hasLabel) {
+                await github.rest.issues.addLabels({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: pr.number,
+                  labels: [label],
+                });
+              }
+
+              if (!isWip && hasLabel) {
+                try {
+                  await github.rest.issues.removeLabel({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: pr.number,
+                    name: label,
+                  });
+                } catch {
+                  // label already removed
+                }
+              }
+            }
+
+            if (isWip) {
+              core.notice('PR title contains WIP — labeled as not ready to merge');
+            }
+
+  pinned-versions:
+    name: Pinned Versions
+    if: github.event.action != 'edited'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check dependency version pinning
+        run: |
+          violations=0
+
+          check_package() {
+            local pkg="$1"
+
+            if ! jq empty "$pkg" 2>/dev/null; then
+              echo "::warning file=${pkg}::Malformed package.json — skipped"
+              return 1
+            fi
+
+            local unpinned
+            unpinned=$(jq -r '
+              [(.dependencies // {}), (.devDependencies // {})]
+              | add // {}
+              | to_entries[]
+              | select(
+                  (.value | startswith("workspace:")) | not
+                )
+              | select(
+                  (.value | test("^[0-9]+\\.[0-9]+\\.[0-9]")) | not
+                )
+              | "  \(.key): \(.value)"
+            ' "$pkg" 2>/dev/null)
+
+            if [[ -n "$unpinned" ]]; then
+              echo "::error file=${pkg}::Unpinned dependency versions in ${pkg}:"
+              echo "$unpinned"
+              return 1
+            fi
+            return 0
+          }
+
+          for pkg in $(find . -name package.json \
+            -not -path '*/node_modules/*' \
+            -not -path '*/.next/*' \
+            -not -path '*/generated/*' \
+            -not -path '*/.pnpm/*' \
+            | sort); do
+
+            deps=$(jq -r '(.dependencies // {} | length) + (.devDependencies // {} | length)' "$pkg" 2>/dev/null)
+            if [[ "$deps" == "0" ]] || [[ -z "$deps" ]]; then
+              continue
+            fi
+
+            if ! check_package "$pkg"; then
+              violations=$((violations + 1))
+            fi
+          done
+
+          if [[ $violations -gt 0 ]]; then
+            echo ""
+            echo "::error::Found unpinned dependencies in $violations package(s). Use exact versions (e.g. \"1.2.3\"), not ranges (\"^1.2.3\", \"~1.2.3\")."
+            exit 1
+          fi
+
+          echo "All dependency versions are pinned."
+
+  security-scan:
+    name: Security Scan
+    if: github.event.action != 'edited'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get changed files
+        id: changes
+        run: |
+          changed=$(git diff --name-only --diff-filter=ACR origin/main...HEAD 2>/dev/null \
+            || git diff --name-only --diff-filter=ACR HEAD~1 2>/dev/null \
+            || echo "")
+          EOF_MARKER=$(dd if=/dev/urandom bs=15 count=1 2>/dev/null | base64)
+          echo "files<<${EOF_MARKER}" >> "$GITHUB_OUTPUT"
+          echo "$changed" >> "$GITHUB_OUTPUT"
+          echo "${EOF_MARKER}" >> "$GITHUB_OUTPUT"
+
+      - name: Check for sensitive files
+        if: steps.changes.outputs.files != ''
+        run: |
+          sensitive_patterns=(
+            '\.env$'
+            '\.env\.local'
+            '\.env\.[a-z]+$'
+            '\.pem$'
+            '\.key$'
+            '\.p12$'
+            '\.pfx$'
+            '\.jks$'
+            '\.keystore$'
+            'id_rsa'
+            'id_ed25519'
+            'id_ecdsa'
+            '\.ssh/config$'
+            'credentials\.json$'
+            'service.account.*\.json$'
+            '\.npmrc$'
+            '\.pypirc$'
+            '\.netrc$'
+            '\.htpasswd$'
+          )
+
+          found=0
+          changed_files="${{ steps.changes.outputs.files }}"
+
+          for pattern in "${sensitive_patterns[@]}"; do
+            matches=$(echo "$changed_files" | grep -iE "$pattern" || true)
+            if [[ -n "$matches" ]]; then
+              while IFS= read -r match; do
+                echo "::error file=${match}::Sensitive file detected: ${match}"
+              done <<< "$matches"
+              found=1
+            fi
+          done
+
+          if [[ $found -eq 1 ]]; then
+            echo ""
+            echo "::error::Sensitive files detected in this PR. Remove them or add to .gitignore."
+            exit 1
+          fi
+
+          echo "No sensitive files detected."
+
+      - name: Scan for hardcoded secrets
+        if: steps.changes.outputs.files != ''
+        run: |
+          changed_files="${{ steps.changes.outputs.files }}"
+
+          # Only scan text files
+          scannable=$(echo "$changed_files" | grep -vE '\.(png|jpg|jpeg|gif|ico|svg|woff2?|ttf|eot|mp[34]|webm|webp|zip|tar|gz|lock)$' || true)
+
+          if [[ -z "$scannable" ]]; then
+            echo "No text files to scan."
+            exit 0
+          fi
+
+          found=0
+
+          # Build file list safely for git diff
+          file_args=()
+          while IFS= read -r f; do
+            [[ -n "$f" ]] && file_args+=("$f")
+          done <<< "$scannable"
+
+          diff_content=$(git diff origin/main...HEAD -- "${file_args[@]}" 2>/dev/null \
+            || git diff HEAD~1 -- "${file_args[@]}" 2>/dev/null \
+            || echo "")
+
+          added_lines=$(echo "$diff_content" | grep '^+' | grep -v '^+++' || true)
+
+          secret_patterns=(
+            'AKIA[0-9A-Z]{16}'
+            'sk-[a-zA-Z0-9]{20,}'
+            'ghp_[a-zA-Z0-9]{36}'
+            'gho_[a-zA-Z0-9]{36}'
+            'github_pat_[a-zA-Z0-9_]{22,}'
+            'glpat-[a-zA-Z0-9_-]{20,}'
+            'xox[bsapr]-[a-zA-Z0-9-]+'
+            'BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY'
+            'password\s*[:=]\s*["\x27][^"\x27]{8,}'
+            'secret\s*[:=]\s*["\x27][^"\x27]{8,}'
+            'api[_-]?key\s*[:=]\s*["\x27][^"\x27]{8,}'
+            'access[_-]?token\s*[:=]\s*["\x27][^"\x27]{8,}'
+          )
+
+          for pattern in "${secret_patterns[@]}"; do
+            matches=$(echo "$added_lines" | grep -iE "$pattern" | head -5 || true)
+            if [[ -n "$matches" ]]; then
+              echo "::warning::Potential secret pattern detected: $pattern"
+              echo "$matches" | while IFS= read -r line; do
+                echo "  ${line:0:120}..."
+              done
+              found=1
+            fi
+          done
+
+          if [[ $found -eq 1 ]]; then
+            echo ""
+            echo "::error::Potential hardcoded secrets detected. Review the warnings above and use environment variables or a secrets manager instead."
+            exit 1
+          fi
+
+          echo "No hardcoded secrets detected."
