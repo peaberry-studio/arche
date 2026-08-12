@@ -7,7 +7,7 @@ on:
       - "apps/web/**"
       - "apps/desktop/**"
       - "scripts/**"
-      - ".github/workflows/pr-checks.yml"
+      - ".github/workflows/**"
   workflow_dispatch:
 
 jobs:
