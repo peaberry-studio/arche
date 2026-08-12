@@ -815,12 +815,14 @@ export const POST = withAuth(
           let streamReadResult: ReadableStreamReadResult<Uint8Array> | null = null
 
           while (!aborted && !streamReadResult) {
+            let tickTimer: ReturnType<typeof setTimeout> | undefined
             const readResult = await Promise.race([
               readPromise.then((result) => ({ type: 'data' as const, result })),
-              new Promise<{ type: 'tick' }>((resolve) =>
-                setTimeout(() => resolve({ type: 'tick' }), STREAM_RELEVANT_EVENT_TICK_MS)
-              ),
+              new Promise<{ type: 'tick' }>((resolve) => {
+                tickTimer = setTimeout(() => resolve({ type: 'tick' }), STREAM_RELEVANT_EVENT_TICK_MS)
+              }),
             ])
+            if (readResult.type !== 'tick') clearTimeout(tickTimer)
 
             if (readResult.type === 'tick') {
               if (Date.now() - lastRelevantEventAt > relevantEventTimeoutMs) {
