@@ -20,13 +20,17 @@ import type { WorkspaceDiff } from "@/hooks/use-workspace";
 import { cn } from "@/lib/utils";
 
 type QuickConflictStrategy = "ours" | "theirs";
+export type ReviewTab = "proposals" | "changes";
 
 type ReviewPanelProps = {
   slug: string;
   diffs: WorkspaceDiff[];
+  activeTab: ReviewTab;
   isLoading?: boolean;
   error?: string;
   onOpenFile: (path: string) => void;
+  internalLinkPaths?: string[];
+  onProposalCountChange?: (count: number) => void;
   onDiscardFileChanges?: (path: string) => Promise<{ ok: true } | { ok: false; error: string }>;
   onResolveConflict?: (path: string) => void | Promise<void>;
   onKnowledgeReviewApplied?: () => void | Promise<void>;
@@ -39,9 +43,12 @@ const DIFF_PREVIEW_LINES = 120;
 export function ReviewPanel({
   slug,
   diffs,
+  activeTab,
   isLoading,
   error,
   onOpenFile,
+  internalLinkPaths,
+  onProposalCountChange,
   onDiscardFileChanges,
   onKnowledgeReviewApplied,
   onKnowledgeReviewChanged,
@@ -107,25 +114,40 @@ export function ReviewPanel({
   }, []);
 
   return (
-    <div className="space-y-5">
-      <KnowledgeReviewList
-        slug={slug}
-        refreshKey={knowledgeReviewRefreshKey}
-        onApplied={onKnowledgeReviewApplied}
-        onChanged={onKnowledgeReviewChanged}
-      />
-      <section className="space-y-2">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Workspace changes</h3>
+    <div className="h-full">
+      <div
+        className={cn("h-full", activeTab !== "proposals" && "hidden")}
+        aria-hidden={activeTab !== "proposals"}
+      >
+        <KnowledgeReviewList
+          slug={slug}
+          refreshKey={knowledgeReviewRefreshKey}
+          onApplied={onKnowledgeReviewApplied}
+          onChanged={onKnowledgeReviewChanged}
+          onOpenCountChange={onProposalCountChange}
+          onOpenFile={onOpenFile}
+          internalLinkPaths={internalLinkPaths}
+        />
+      </div>
+      <div
+        className={cn("h-full", activeTab !== "changes" && "hidden")}
+        aria-hidden={activeTab !== "changes"}
+      >
         {error ? (
-          <div className="flex flex-col items-center justify-center gap-2 py-6 text-center">
+          <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
             <GitDiff size={28} className="text-muted-foreground/30" />
             <p className="text-xs text-muted-foreground">Unable to load changes</p>
             <p className="max-w-[320px] text-[11px] leading-relaxed text-muted-foreground/80">{error}</p>
           </div>
         ) : diffs.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-2 py-6 text-center">
+          <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
             <GitDiff size={28} className="text-muted-foreground/30" />
-            <p className="text-xs text-muted-foreground">{isLoading ? 'Loading changes…' : 'No workspace changes'}</p>
+            <p className="text-xs text-muted-foreground">{isLoading ? 'Loading changes…' : 'No pending changes to publish'}</p>
+            {isLoading ? null : (
+              <p className="max-w-[320px] text-[11px] leading-relaxed text-muted-foreground/70">
+                Apply a Knowledge proposal or edit a file to create publishable changes.
+              </p>
+            )}
           </div>
         ) : (
           <>
@@ -136,7 +158,7 @@ export function ReviewPanel({
               </div>
             ) : null}
 
-            <div className="space-y-3">
+            <div className="space-y-4">
               {diffs.map((diff) => {
                 const hasDiff = diff.diff.trim().length > 0;
                 const diffLineCount = hasDiff ? diff.diff.split("\n").length : 0;
@@ -242,7 +264,7 @@ export function ReviewPanel({
             </div>
           </>
         )}
-      </section>
+      </div>
 
       <Dialog open={discardOpen} onOpenChange={handleDiscardOpenChange}>
         <DialogContent className="max-w-md">

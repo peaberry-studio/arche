@@ -24,7 +24,8 @@ import { cn } from "@/lib/utils";
 import { MarkdownPreview } from "./markdown-preview";
 import { MarkdownEditor } from "./markdown-editor";
 import { PublishKbButton } from "./publish-kb-button";
-import { ReviewPanel } from "./review-panel";
+import { ReviewPanel, type ReviewTab } from "./review-panel";
+import { SegmentedControl, type SegmentedControlOption } from "./segmented-control";
 
 type WorkspaceFile = {
   path: string;
@@ -44,6 +45,11 @@ type ConflictMarkerTextEditorProps = {
   onReload?: () => void;
   modifiedAt?: string;
 };
+
+const KNOWLEDGE_REVIEW_TAB_OPTIONS: SegmentedControlOption<ReviewTab>[] = [
+  { value: "proposals", label: "Proposals" },
+  { value: "changes", label: "Pending publish" },
+];
 
 type InspectorPanelProps = {
   slug: string;
@@ -297,6 +303,8 @@ function ExpandedInspectorPanel({
   const tabsRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
+  const [reviewTab, setReviewTab] = useState<ReviewTab>("proposals");
+  const [reviewProposalCount, setReviewProposalCount] = useState(0);
   const { clearDraft, getDraft, getSaveError, getSaveState, handleChange } = useEditorDrafts({
     onSave: onSaveFile,
   });
@@ -392,7 +400,7 @@ function ExpandedInspectorPanel({
 
       {/* In-container header (combined: tabs; review: collapse + label + publish) */}
       {showHeader ? (
-        <div className="flex shrink-0 items-center gap-2 pl-2 pr-3 py-2">
+        <div className="flex shrink-0 items-center gap-2 px-4 py-3">
           {/* Collapse panel — placed on the side opposite to where the panel docks */}
           {!hideCollapseButton && (
             <button
@@ -408,12 +416,12 @@ function ExpandedInspectorPanel({
 
           {workspaceAgentEnabled && panelMode === "combined" ? (
             <div className="flex flex-1 justify-start">
-              <div className="inline-flex h-8 items-center rounded-lg bg-foreground/[0.05] p-0.5 text-[11px]">
+              <div className="inline-flex items-center gap-0.5 rounded-lg bg-foreground/[0.05] p-1 text-[11px]">
                 <button
                   type="button"
                   onClick={() => onTabChange("preview")}
                   className={cn(
-                    "relative flex h-7 items-center gap-1.5 rounded-md px-2.5 font-medium transition-colors",
+                    "relative flex h-7 items-center gap-1.5 rounded-md px-3 font-medium transition-colors",
                     "bg-background text-foreground/85"
                   )}
                   aria-pressed
@@ -423,21 +431,28 @@ function ExpandedInspectorPanel({
                 </button>
               </div>
             </div>
+          ) : panelMode === "knowledge" ? (
+            <div className="flex h-8 min-w-0 flex-1 items-center">
+              <SegmentedControl
+                variant="outline"
+                value={reviewTab}
+                onValueChange={setReviewTab}
+                options={KNOWLEDGE_REVIEW_TAB_OPTIONS.map((option) => ({
+                  ...option,
+                  badge: option.value === "proposals" ? reviewProposalCount : pendingDiffs,
+                }))}
+              />
+            </div>
           ) : (
             <div className="flex h-8 min-w-0 flex-1 items-center">
               <p className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                <span>{panelMode === "knowledge" ? "Knowledge" : "Inspect"}</span>
-                {panelMode === "knowledge" && pendingDiffs > 0 ? (
-                  <span className="inline-flex h-[15px] min-w-[15px] items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold leading-none text-primary-foreground">
-                    {pendingDiffs > 99 ? "99+" : pendingDiffs}
-                  </span>
-                ) : null}
+                <span>Inspect</span>
               </p>
             </div>
           )}
 
-          {/* Publish action — knowledge mode only */}
-          {panelMode === "knowledge" && workspaceAgentEnabled ? (
+          {/* Publish action — knowledge mode only, shown when there is something to publish */}
+          {panelMode === "knowledge" && workspaceAgentEnabled && diffs.length > 0 ? (
             <PublishKbButton
               slug={slug}
               onComplete={onPublish}
@@ -587,16 +602,19 @@ function ExpandedInspectorPanel({
         {(workspaceAgentEnabled || panelMode === "knowledge") && (
           <div
             className={cn(
-              "absolute inset-0 overflow-y-auto scrollbar-custom px-3 pb-3 pt-1",
+              "absolute inset-0 overflow-y-auto scrollbar-custom px-4 pb-8 pt-2",
               effectiveActiveTab !== "review" && "hidden"
             )}
           >
             <ReviewPanel
               slug={slug}
               diffs={diffs}
+              activeTab={reviewTab}
               isLoading={Boolean(isLoadingDiffs)}
               error={diffsError ?? undefined}
               onOpenFile={onOpenFile}
+              internalLinkPaths={internalLinkPaths}
+              onProposalCountChange={setReviewProposalCount}
               onDiscardFileChanges={onDiscardFileChanges}
               onKnowledgeReviewApplied={onKnowledgeReviewApplied}
               onKnowledgeReviewChanged={onKnowledgeReviewChanged}

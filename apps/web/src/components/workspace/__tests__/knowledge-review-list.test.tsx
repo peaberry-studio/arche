@@ -6,6 +6,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { KnowledgeReviewList } from '@/components/workspace/knowledge-review-list'
 import type { KnowledgeReviewChange } from '@/types/learning'
 
+vi.mock('@/components/workspace/markdown-editor', () => ({
+  MarkdownEditor: ({ value, onChange }: { value: string; onChange: (next: string) => void }) => (
+    <textarea
+      aria-label="Edit proposal content"
+      value={value}
+      onChange={(event) => onChange(event.currentTarget.value)}
+    />
+  ),
+}))
+
 const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>()
 
 function jsonResponse(body: unknown, init?: ResponseInit): Response {
@@ -65,8 +75,23 @@ describe('KnowledgeReviewList', () => {
 
     expect(await screen.findByText('Remember preference')).toBeTruthy()
     expect(screen.getByText('Durable user preference.')).toBeTruthy()
-    expect(screen.getByText(/update · Preferences\/Answers\.md · 80%/)).toBeTruthy()
+    expect(screen.getByText('update')).toBeTruthy()
+    expect(screen.getByText('Preferences/Answers.md')).toBeTruthy()
+    expect(screen.getByText('· 80%')).toBeTruthy()
+    expect(screen.getByText('by Knowledge Curator')).toBeTruthy()
     expect(screen.getByText('Use concise answers')).toBeTruthy()
+  })
+
+  it('hides the generic curator reason but keeps the author attribution', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(learningResponse([
+      makeChange({ reason: 'Proposed by the knowledge curator.' }),
+    ])))
+
+    render(<KnowledgeReviewList slug="alice" />)
+
+    expect(await screen.findByText('Remember preference')).toBeTruthy()
+    expect(screen.queryByText('Proposed by the knowledge curator.')).toBeNull()
+    expect(screen.getByText('by Knowledge Curator')).toBeTruthy()
   })
 
   it('shows the empty state when no open changes exist', async () => {
@@ -94,7 +119,7 @@ describe('KnowledgeReviewList', () => {
     render(<KnowledgeReviewList slug="alice" />)
 
     expect(await screen.findByText('Remember preference')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Apply to workspace' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
 
     expect(await screen.findByText('The target file changed. Rebase the proposal before applying it.')).toBeTruthy()
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
@@ -111,7 +136,7 @@ describe('KnowledgeReviewList', () => {
     render(<KnowledgeReviewList slug="alice" onApplied={onApplied} onChanged={onChanged} />)
 
     expect(await screen.findByText('Remember preference')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Apply to workspace' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith('/api/u/alice/learning/proposals', {
@@ -157,7 +182,7 @@ describe('KnowledgeReviewList', () => {
     expect(screen.getByText('Needs rebase')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Regenerate with curator' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Use current base' })).toBeTruthy()
-    expect((screen.getByRole('button', { name: 'Apply to workspace' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: 'Apply' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
   it('rebases a needs_rebase change', async () => {
@@ -210,7 +235,7 @@ describe('KnowledgeReviewList', () => {
     expect(await screen.findByText('Remember preference')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
 
-    const editor = await screen.findByRole('textbox', { name: 'Edit Remember preference' })
+    const editor = await screen.findByRole('textbox', { name: 'Edit proposal content' })
     fireEvent.change(editor, { target: { value: '# Edited content' } })
 
     await waitFor(() => {
@@ -219,10 +244,10 @@ describe('KnowledgeReviewList', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'save_draft', proposalId: 'change-1', content: '# Edited content' }),
       })
-    })
+    }, { timeout: 2000 })
   })
 
-  it('shows the three-way raw diff for needs_rebase changes in raw mode', async () => {
+  it('shows a git-style diff against the current file for needs_rebase changes in raw mode', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(learningResponse([
       makeChange({
         status: 'needs_rebase',
@@ -237,24 +262,35 @@ describe('KnowledgeReviewList', () => {
     expect(await screen.findByText('Remember preference')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Raw' }))
 
-    const rawPre = await screen.findByText((content, element) =>
-      element?.tagName === 'PRE' && content.includes('--- Base ---')
-    )
-    expect(rawPre.textContent).toContain('--- Base ---')
-    expect(rawPre.textContent).toContain('--- Current ---')
-    expect(rawPre.textContent).toContain('--- Proposed ---')
-    expect(rawPre.textContent).toContain('Base content')
-    expect(rawPre.textContent).toContain('Current content')
-    expect(rawPre.textContent).toContain('Proposed content')
+    expect(await screen.findByText('-Current content')).toBeTruthy()
+    expect(screen.getByText('+Proposed content')).toBeTruthy()
   })
 
-  it('renders the readable markdown preview by default', async () => {
+  it('keeps proposals collapsed by default until a view mode is selected', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(learningResponse([makeChange()])))
 
     render(<KnowledgeReviewList slug="alice" />)
 
+    expect(await screen.findByText('Remember preference')).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'Preference' })).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }))
+
     expect(await screen.findByRole('heading', { name: 'Preference' })).toBeTruthy()
     expect(screen.getByText('concise')).toBeTruthy()
+  })
+
+  it('collapses the proposal again when the active view mode is clicked', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(learningResponse([makeChange()])))
+
+    render(<KnowledgeReviewList slug="alice" />)
+
+    expect(await screen.findByText('Remember preference')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }))
+    expect(await screen.findByRole('heading', { name: 'Preference' })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }))
+    expect(screen.queryByRole('heading', { name: 'Preference' })).toBeNull()
   })
 
   it('refetches when refreshKey changes', async () => {

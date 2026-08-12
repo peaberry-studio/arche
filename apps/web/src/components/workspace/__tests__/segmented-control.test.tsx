@@ -48,4 +48,38 @@ describe('SegmentedControl', () => {
     expect(onValueChange).toHaveBeenCalledWith('graph')
     expect(screen.getByRole('button', { name: 'Files' }).className).toContain('transition-colors')
   })
+
+  it('renders a count badge only when it is positive', () => {
+    render(
+      <SegmentedControl
+        onValueChange={() => undefined}
+        options={[
+          { value: 'proposals', label: 'Proposals', badge: 3 },
+          { value: 'changes', label: 'Changes', badge: 0 },
+        ]}
+        value="proposals"
+      />
+    )
+
+    const proposalsTab = screen.getByRole('button', { name: /Proposals/ })
+    expect(proposalsTab.textContent).toContain('3')
+    expect(screen.getByRole('button', { name: 'Changes' })).toBeDefined()
+  })
+
+  it('highlights the active option with the accent variant', () => {
+    render(
+      <SegmentedControl
+        onValueChange={() => undefined}
+        options={[
+          { value: 'proposals', label: 'Proposals' },
+          { value: 'changes', label: 'Changes' },
+        ]}
+        value="proposals"
+        variant="accent"
+      />
+    )
+
+    expect(screen.getByRole('button', { name: 'Proposals' }).className).toContain('text-primary')
+    expect(screen.getByRole('button', { name: 'Changes' }).className).not.toContain('text-primary')
+  })
 })

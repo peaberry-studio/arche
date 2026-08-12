@@ -14,6 +14,10 @@ vi.mock('@/actions/workspace-agent', () => ({
   resolveWorkspaceConflictAction: mocks.resolveWorkspaceConflictAction,
 }))
 
+vi.mock('@/components/workspace/knowledge-review-list', () => ({
+  KnowledgeReviewList: () => null,
+}))
+
 beforeEach(() => {
   mocks.resolveWorkspaceConflictAction.mockResolvedValue({ ok: true })
 })
@@ -40,17 +44,18 @@ describe('ReviewPanel', () => {
     const onOpenFile = vi.fn()
 
     const { rerender } = render(
-      <ReviewPanel diffs={[]} error="git unavailable" onOpenFile={onOpenFile} slug="alice" />
+      <ReviewPanel activeTab="changes" diffs={[]} error="git unavailable" onOpenFile={onOpenFile} slug="alice" />
     )
 
     expect(screen.getByText('Unable to load changes')).toBeDefined()
     expect(screen.getByText('git unavailable')).toBeDefined()
 
-    rerender(<ReviewPanel diffs={[]} isLoading onOpenFile={onOpenFile} slug="alice" />)
+    rerender(<ReviewPanel activeTab="changes" diffs={[]} isLoading onOpenFile={onOpenFile} slug="alice" />)
     expect(screen.getByText('Loading changes…')).toBeDefined()
 
-    rerender(<ReviewPanel diffs={[]} onOpenFile={onOpenFile} slug="alice" />)
-    expect(screen.getByText('No workspace changes')).toBeDefined()
+    rerender(<ReviewPanel activeTab="changes" diffs={[]} onOpenFile={onOpenFile} slug="alice" />)
+    expect(screen.getByText('No pending changes to publish')).toBeDefined()
+    expect(screen.getByText('Apply a Knowledge proposal or edit a file to create publishable changes.')).toBeDefined()
   })
 
   it('opens diffs, toggles long previews, and discards changes', async () => {
@@ -64,6 +69,7 @@ describe('ReviewPanel', () => {
 
     render(
       <ReviewPanel
+        activeTab="changes"
         diffs={diffs}
         onDiscardFileChanges={onDiscardFileChanges}
         onOpenFile={onOpenFile}
@@ -94,6 +100,7 @@ describe('ReviewPanel', () => {
 
     render(
       <ReviewPanel
+        activeTab="changes"
         diffs={[makeDiff()]}
         onDiscardFileChanges={onDiscardFileChanges}
         onOpenFile={vi.fn()}
@@ -113,6 +120,7 @@ describe('ReviewPanel', () => {
 
     render(
       <ReviewPanel
+        activeTab="changes"
         diffs={[makeDiff({ conflicted: true, path: 'Notes/Conflict.md' })]}
         onOpenFile={vi.fn()}
         onResolveConflict={onResolveConflict}
@@ -145,6 +153,7 @@ describe('ReviewPanel', () => {
 
     render(
       <ReviewPanel
+        activeTab="changes"
         diffs={[makeDiff({ conflicted: true, path: 'Notes/Conflict.md' })]}
         onOpenFile={vi.fn()}
         slug="alice"

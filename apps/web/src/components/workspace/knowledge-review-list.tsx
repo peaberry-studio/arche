@@ -2,15 +2,24 @@
 
 import { useCallback, useEffect, useState } from 'react'
 
+import { GitPullRequest } from '@phosphor-icons/react'
+
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { DiffViewer } from '@/components/ui/diff-viewer'
+import { MarkdownEditor } from '@/components/workspace/markdown-editor'
 import { MarkdownPreview } from '@/components/workspace/markdown-preview'
 import { SegmentedControl, type SegmentedControlOption } from '@/components/workspace/segmented-control'
-import type { KnowledgeReviewChange } from '@/types/learning'
+import { useEditorDrafts } from '@/hooks/use-editor-drafts'
+import { createUnifiedDiff } from '@/lib/line-diff'
+import type { KnowledgeReviewChange, KnowledgeReviewOperation } from '@/types/learning'
 
 type KnowledgeReviewListProps = {
+  internalLinkPaths?: string[]
   onApplied?: () => void | Promise<void>
   onChanged?: () => void | Promise<void>
+  onOpenCountChange?: (count: number) => void
+  onOpenFile?: (path: string) => void
   refreshKey?: number
   slug: string
 }
@@ -51,34 +60,58 @@ function errorLabel(error: string): string {
 type ViewMode = 'readable' | 'edit' | 'raw'
 
 const VIEW_MODE_OPTIONS: SegmentedControlOption<ViewMode>[] = [
-  { value: 'readable', label: 'Readable' },
+  { value: 'readable', label: 'Preview' },
   { value: 'edit', label: 'Edit' },
   { value: 'raw', label: 'Raw' },
 ]
 
-function rawChange(change: KnowledgeReviewChange): string {
-  return [
-    `Path: ${change.kbPath}`,
-    `Operation: ${change.operation}`,
-    '',
-    '--- Base ---',
-    change.baseContent ?? '(file did not exist)',
-    '',
-    '--- Current ---',
-    change.actualContent ?? change.baseContent ?? '(file did not exist)',
-    '',
-    '--- Proposed ---',
-    change.proposedContent || '(delete file)',
-  ].join('\n')
+const GENERIC_REASON = 'Proposed by the knowledge curator.'
+
+const OPERATION_BADGE_VARIANTS: Record<KnowledgeReviewOperation, 'success' | 'default' | 'warning'> = {
+  create: 'success',
+  update: 'default',
+  delete: 'warning',
 }
 
-export function KnowledgeReviewList({ onApplied, onChanged, refreshKey = 0, slug }: KnowledgeReviewListProps) {
+function formatAuthor(author: string): string {
+  return author
+    .replace(/[-_]+/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase())
+}
+
+export function KnowledgeReviewList({
+  internalLinkPaths,
+  onApplied,
+  onChanged,
+  onOpenCountChange,
+  onOpenFile,
+  refreshKey = 0,
+  slug,
+}: KnowledgeReviewListProps) {
   const [changes, setChanges] = useState<KnowledgeReviewChange[]>([])
-  const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isBusy, setIsBusy] = useState<string | null>(null)
-  const [modeByChange, setModeByChange] = useState<Record<string, ViewMode>>({})
+  const [modeByChange, setModeByChange] = useState<Record<string, ViewMode | null>>({})
+
+  const { clearDraft, getDraft, getSaveError, getSaveState, handleChange } = useEditorDrafts({
+    onSave: async (changeId, content) => {
+      try {
+        const response = await fetch(`/api/u/${slug}/learning/proposals`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'save_draft', proposalId: changeId, content }),
+        })
+        if (!response.ok) {
+          const data: unknown = await response.json().catch(() => null)
+          return { ok: false, error: errorLabel(responseError(data, 'knowledge_review_draft_failed')) }
+        }
+        return { ok: true }
+      } catch {
+        return { ok: false, error: errorLabel('knowledge_review_draft_failed') }
+      }
+    },
+  })
 
   const refresh = useCallback(async () => {
     try {
@@ -119,6 +152,7 @@ export function KnowledgeReviewList({ onApplied, onChanged, refreshKey = 0, slug
         return
       }
       setError(null)
+      clearDraft(changeId)
       if (action === 'apply') await onApplied?.()
       await refresh()
       await onChanged?.()
@@ -127,89 +161,114 @@ export function KnowledgeReviewList({ onApplied, onChanged, refreshKey = 0, slug
     } finally {
       setIsBusy(null)
     }
-  }, [onApplied, onChanged, refresh, slug])
-
-  const saveDraft = useCallback(async (changeId: string, content: string) => {
-    const response = await fetch(`/api/u/${slug}/learning/proposals`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'save_draft', proposalId: changeId, content }),
-    })
-    if (!response.ok) {
-      const data: unknown = await response.json().catch(() => null)
-      setError(responseError(data, 'knowledge_review_draft_failed'))
-    }
-  }, [slug])
+  }, [clearDraft, onApplied, onChanged, refresh, slug])
 
   const openChanges = changes.filter((change) => change.status === 'open' || change.status === 'needs_rebase')
 
+  useEffect(() => {
+    onOpenCountChange?.(openChanges.length)
+  }, [onOpenCountChange, openChanges.length])
+
   return (
-    <section className="space-y-2">
-      <div className="flex items-center justify-between gap-2">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Knowledge proposals</h3>
-        {openChanges.length > 0 ? <span className="text-[11px] text-muted-foreground">{openChanges.length}</span> : null}
-      </div>
+    <div className="space-y-6">
       {error ? <p className="text-xs text-destructive">{errorLabel(error)}</p> : null}
-      {openChanges.length > 0 ? (
-        <div className="space-y-3">
-          {openChanges.map((change) => {
-            const content = drafts[change.id] ?? change.proposedContent
-            const mode = modeByChange[change.id] ?? 'readable'
-            const isRebase = change.status === 'needs_rebase'
-            return (
-              <article key={change.id} className="space-y-3 rounded-md border-[0.5px] border-border/20 bg-foreground/[0.015] p-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">{change.title}</p>
-                    <p className="truncate text-[11px] text-muted-foreground">{change.operation} · {change.kbPath} · {Math.round(change.confidence * 100)}%</p>
-                  </div>
+      {openChanges.map((change) => {
+        const content = getDraft(change.id, change.proposedContent)
+        const mode = modeByChange[change.id] ?? null
+        const isRebase = change.status === 'needs_rebase'
+        return (
+          <article key={change.id} className="overflow-hidden rounded-md border-[0.5px] border-border/20 bg-foreground/[0.015]">
+            <div className="p-4">
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <p className="min-w-0 truncate text-sm font-medium">{change.title}</p>
                   {isRebase ? (
                     <Badge variant="warning" className="shrink-0 px-2 py-0 text-[10px]">Needs rebase</Badge>
                   ) : null}
+                  <span className="ml-auto shrink-0 text-[10px] text-muted-foreground/70">
+                    by {formatAuthor(change.author)}
+                  </span>
                 </div>
-                <p className="text-xs text-muted-foreground">{change.reason}</p>
-                {change.evidence.quote ? <blockquote className="border-l-2 border-primary/30 pl-2 text-xs text-muted-foreground">{change.evidence.quote}</blockquote> : null}
-                <SegmentedControl
-                  value={mode}
-                  onValueChange={(next) => setModeByChange((current) => ({ ...current, [change.id]: next }))}
-                  options={VIEW_MODE_OPTIONS}
-                />
-                {mode === 'readable' ? (
-                  <div className="max-h-56 overflow-y-auto rounded-md border-[0.5px] border-border/20 p-3">
-                    <MarkdownPreview content={content || '_Delete this file_'} />
-                  </div>
-                ) : mode === 'edit' ? (
-                  <textarea
-                    aria-label={`Edit ${change.title}`}
-                    className="h-40 w-full rounded-md border border-border bg-background p-2 font-mono text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
-                    disabled={isBusy === change.id}
+                <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                  <Badge
+                    variant={OPERATION_BADGE_VARIANTS[change.operation]}
+                    className="shrink-0 px-1.5 py-0 text-[10px] capitalize"
+                  >
+                    {change.operation}
+                  </Badge>
+                  <span className="min-w-0 truncate font-mono text-[10px]" title={change.kbPath}>{change.kbPath}</span>
+                  <span className="shrink-0 text-muted-foreground/60">· {Math.round(change.confidence * 100)}%</span>
+                </div>
+              </div>
+              {change.reason && change.reason !== GENERIC_REASON ? (
+                <p className="mt-6 text-xs text-muted-foreground">{change.reason}</p>
+              ) : null}
+              {change.evidence.quote ? (
+                <p className="mt-1.5 text-xs text-muted-foreground/80">{change.evidence.quote}</p>
+              ) : null}
+            </div>
+            <div className="flex items-center justify-between gap-2 px-4 pb-2 pt-1">
+              <SegmentedControl
+                size="sm"
+                variant="minimal"
+                className="-ml-3"
+                value={mode}
+                onValueChange={(next) => setModeByChange((current) => ({ ...current, [change.id]: next === mode ? null : next }))}
+                options={VIEW_MODE_OPTIONS}
+              />
+              <div className="flex shrink-0 items-center gap-2">
+                <Button size="sm" variant="outline" className="h-7 border-border/40 px-2.5 text-xs" disabled={isBusy !== null} onClick={() => void submitAction(change.id, 'reject')}>Reject</Button>
+                {isRebase ? <Button size="sm" variant="outline" className="h-7 border-border/40 px-2.5 text-xs" disabled={isBusy !== null} onClick={() => void submitAction(change.id, 'regenerate')}>Regenerate with curator</Button> : null}
+                {isRebase ? <Button size="sm" variant="outline" className="h-7 border-border/40 px-2.5 text-xs" disabled={isBusy !== null} onClick={() => void submitAction(change.id, 'rebase')}>Use current base</Button> : null}
+                <Button size="sm" className="h-7 px-2.5 text-xs" disabled={isBusy !== null || isRebase} onClick={() => void submitAction(change.id, 'apply', content)}>{isBusy === change.id ? 'Applying…' : 'Apply'}</Button>
+              </div>
+            </div>
+            {mode !== null ? (
+            <div className="border-t border-border/20">
+              {mode === 'readable' ? (
+                <div className="h-[70vh] overflow-y-auto scrollbar-custom">
+                  <MarkdownPreview content={content || '_Delete this file_'} />
+                </div>
+              ) : mode === 'edit' ? (
+                <div className="h-[70vh]">
+                  <MarkdownEditor
+                    key={change.id}
                     value={content}
-                    onChange={(event) => {
-                      const next = event.currentTarget.value
-                      setDrafts((current) => ({ ...current, [change.id]: next }))
-                      void saveDraft(change.id, next)
-                    }}
+                    onChange={(next) => handleChange(change.id, next, change.proposedContent)}
+                    saveState={getSaveState(change.id)}
+                    saveError={getSaveError(change.id)}
+                    internalLinkPaths={internalLinkPaths}
+                    onOpenInternalLink={onOpenFile}
                   />
-                ) : (
-                  <pre className="max-h-56 overflow-auto rounded-md border-[0.5px] border-border/20 bg-muted/20 p-3 text-[11px] leading-relaxed">{rawChange({ ...change, proposedContent: content })}</pre>
-                )}
-                {isRebase ? (
-                  <div className="rounded-md border-[0.5px] border-amber-500/25 bg-amber-500/5 px-2.5 py-1.5 text-[11px] text-amber-700 dark:text-amber-300">
-                    Compare the base, current, and proposed content in Raw mode. Edit the proposal, then rebase it on the current file before applying.
-                  </div>
-                ) : null}
-                <div className="flex justify-end gap-2">
-                  <Button size="sm" variant="outline" disabled={isBusy !== null} onClick={() => void submitAction(change.id, 'reject')}>Reject</Button>
-                  {isRebase ? <Button size="sm" variant="outline" disabled={isBusy !== null} onClick={() => void submitAction(change.id, 'regenerate')}>Regenerate with curator</Button> : null}
-                  {isRebase ? <Button size="sm" variant="outline" disabled={isBusy !== null} onClick={() => void submitAction(change.id, 'rebase')}>Use current base</Button> : null}
-                  <Button size="sm" disabled={isBusy !== null || isRebase} onClick={() => void submitAction(change.id, 'apply', content)}>{isBusy === change.id ? 'Applying…' : 'Apply to workspace'}</Button>
                 </div>
-              </article>
-            )
-          })}
+              ) : (
+                <div className="h-[70vh] overflow-y-auto scrollbar-custom">
+                  <DiffViewer
+                    diff={createUnifiedDiff({
+                      oldText: isRebase ? change.actualContent ?? change.baseContent ?? '' : change.baseContent ?? '',
+                      newText: content,
+                      path: change.kbPath,
+                      operation: change.operation,
+                    })}
+                  />
+                </div>
+              )}
+            </div>
+            ) : null}
+            {isRebase ? (
+              <div className="border-t border-border/20 bg-amber-500/5 px-4 py-2 text-[11px] text-amber-700 dark:text-amber-300">
+                The file changed since this proposal was created. Raw shows the diff against the current file. Edit the proposal, then rebase it before applying.
+              </div>
+            ) : null}
+          </article>
+        )
+      })}
+      {openChanges.length === 0 ? (
+        <div className="flex flex-col items-center justify-center gap-2 py-10 text-center">
+          <GitPullRequest size={28} className="text-muted-foreground/30" />
+          <p className="text-xs text-muted-foreground">{isLoading ? 'Loading Knowledge proposals…' : 'No knowledge proposals awaiting review.'}</p>
         </div>
       ) : null}
-      {openChanges.length === 0 ? <p className="text-xs text-muted-foreground">{isLoading ? 'Loading Knowledge proposals…' : 'No knowledge proposals awaiting review.'}</p> : null}
-    </section>
+    </div>
   )
 }

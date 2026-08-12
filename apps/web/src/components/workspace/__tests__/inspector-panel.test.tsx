@@ -335,8 +335,10 @@ describe("InspectorPanel", () => {
       />
     )
 
-    expect(screen.getByText('Knowledge')).toBeTruthy()
-    expect(screen.getByText('1')).toBeTruthy()
+    const proposalsTab = screen.getByRole('button', { name: /Proposals/ })
+    expect(proposalsTab.getAttribute('aria-pressed')).toBe('true')
+    const changesTab = screen.getByRole('button', { name: /Pending publish/ })
+    expect(changesTab.textContent).toContain('1')
     expect(screen.getByText('Review panel')).toBeTruthy()
     const publishButton = screen.getByRole('button', { name: 'Publish' })
     expect(publishButton.hasAttribute('disabled')).toBe(true)
