@@ -79,6 +79,10 @@ const CHAT_ERROR_MESSAGES: Record<string, { title: string; description?: string 
     title: "Permission denied",
     description: "You are not allowed to perform this action.",
   },
+  free_tier_limit: {
+    title: "Free model limit reached",
+    description: "Choose another model or try again after your free usage resets.",
+  },
   instance_unavailable: {
     title: "Workspace unavailable",
     description: "The workspace is not ready right now. Try again in a moment.",

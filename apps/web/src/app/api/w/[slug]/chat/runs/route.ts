@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { getInstanceUrl } from '@/lib/opencode/client'
+import { getTerminalRetryError } from '@/lib/opencode/retry-state'
 import { withAuth } from '@/lib/runtime/with-auth'
 import { instanceService, messageRunService } from '@/lib/services'
 import type { ActiveRunRuntimeState, MessageRunRecord } from '@/lib/services/message-run'
@@ -12,6 +13,10 @@ export const dynamic = 'force-dynamic'
 function jsonErrorResponse(status: number, error: string) {
   return NextResponse.json({ error }, { status })
 }
+
+type RuntimeSessionState =
+  | ActiveRunRuntimeState
+  | { terminalError: string }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
@@ -31,7 +36,7 @@ async function readRuntimeSessionState(params: {
   authHeader: string
   baseUrl: string
   sessionId: string
-}): Promise<ActiveRunRuntimeState> {
+}): Promise<RuntimeSessionState> {
   try {
     const response = await fetch(`${params.baseUrl}/session/status`, {
       headers: {
@@ -47,6 +52,9 @@ async function readRuntimeSessionState(params: {
 
     const statusRecord = data[params.sessionId]
     if (!isRecord(statusRecord)) return 'idle'
+
+    const terminalError = getTerminalRetryError(statusRecord)
+    if (terminalError) return { terminalError }
 
     const statusType = statusRecord.type
     if (statusType === 'busy' || statusType === 'retry') return 'busy'
@@ -101,6 +109,11 @@ export const GET = withAuth(
       baseUrl: connection.baseUrl,
       sessionId,
     })
+    if (typeof runtimeState === 'object') {
+      await messageRunService.markRunFailed(activeRun.id, runtimeState.terminalError)
+      return NextResponse.json({ activeRun: null })
+    }
+
     if (runtimeState === 'idle') {
       await messageRunService.markRunSucceeded(activeRun.id)
       return NextResponse.json({ activeRun: null })

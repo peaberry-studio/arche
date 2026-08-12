@@ -67,4 +67,36 @@ describe('createUpstreamSessionStatusReader', () => {
       }),
     )
   })
+
+  it('reports terminal retry reasons from the upstream status', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          'session-1': {
+            type: 'retry',
+            action: { reason: 'free_tier_limit' },
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const onRead = vi.fn()
+
+    const readStatus = createUpstreamSessionStatusReader({
+      baseUrl: 'http://127.0.0.1:4096',
+      authHeader: 'Basic token',
+      sessionId: 'session-1',
+      onRead,
+    })
+
+    await expect(readStatus()).resolves.toBe('retry')
+
+    expect(onRead).toHaveBeenCalledWith({
+      durationMs: 0,
+      outcome: 'success',
+      status: 'retry',
+      terminalError: 'free_tier_limit',
+    })
+  })
 })

@@ -8,6 +8,7 @@ const mockIsDesktop = vi.fn(() => false)
 const mockValidateDesktopToken = vi.fn(() => false)
 
 const mockFindCredentialsBySlug = vi.fn()
+const mockFindActiveRun = vi.fn()
 const mockFindRunById = vi.fn()
 const mockMarkRunFailed = vi.fn()
 const mockMarkRunSucceeded = vi.fn()
@@ -51,6 +52,7 @@ async function loadRoute() {
       findCredentialsBySlug: (...args: unknown[]) => mockFindCredentialsBySlug(...args),
     },
     messageRunService: {
+      findActiveRun: (...args: unknown[]) => mockFindActiveRun(...args),
       findRunById: (...args: unknown[]) => mockFindRunById(...args),
       markRunFailed: (...args: unknown[]) => mockMarkRunFailed(...args),
       markRunSucceeded: (...args: unknown[]) => mockMarkRunSucceeded(...args),
@@ -142,6 +144,7 @@ describe('POST /api/w/[slug]/chat/stream', () => {
       startedAt: new Date(),
       finishedAt: null,
     })
+    mockFindActiveRun.mockResolvedValue(null)
     mockMarkRunFailed.mockResolvedValue(undefined)
     mockMarkRunSucceeded.mockResolvedValue(undefined)
     mockDecryptPassword.mockReturnValue('secret-password')
