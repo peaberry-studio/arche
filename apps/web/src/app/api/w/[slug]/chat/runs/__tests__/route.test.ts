@@ -205,6 +205,26 @@ describe('/api/w/[slug]/chat/runs', () => {
     })
   })
 
+  it('fails active runs for terminal provider retries', async () => {
+    mocks.messageRunService.findActiveRun.mockResolvedValue(activeRun())
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      s1: {
+        type: 'retry',
+        action: { reason: 'free_tier_limit' },
+      },
+    }), { status: 200 })))
+
+    const { GET } = await import('../route')
+    const res = await GET(getRequest('s1'), params())
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toEqual({ activeRun: null })
+    expect(mocks.messageRunService.markRunFailed).toHaveBeenCalledWith(
+      'run-1',
+      'free_tier_limit',
+    )
+  })
+
   it('keeps active runs when runtime status cannot be read', async () => {
     mocks.messageRunService.findActiveRun.mockResolvedValue(activeRun())
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('status down')))

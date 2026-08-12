@@ -8,6 +8,7 @@ import { AUTO_LEARNING_MIN_MESSAGES, canQueueAutoLearningRun, dispatchLearningRu
 import { getInstanceUrl } from '@/lib/opencode/client'
 import { createConfiguredOpencodeClient } from '@/lib/opencode/client-factory'
 import { ensureProviderAccessFreshForExecution } from '@/lib/opencode/providers'
+import { getTerminalRetryError } from '@/lib/opencode/retry-state'
 import {
   abortSessionFamilyAndConfirmIdle,
   EXECUTION_TERMINATION_UNCONFIRMED_ERROR,
@@ -341,6 +342,14 @@ export const POST = withAuth(
       runStartedAt = run.startedAt.getTime()
     }
 
+    if (!activeRunId && resume) {
+      const activeRun = await messageRunService.findActiveRun(slug, sessionId)
+      if (activeRun?.status === 'running') {
+        activeRunId = activeRun.id
+        runStartedAt = activeRun.startedAt.getTime()
+      }
+    }
+
     if (startsPrompt) {
       const runResult = await messageRunService.createActiveRunAfterRuntimeStateCheck({
         readRuntimeSessionState: () => readRuntimeSessionState({
@@ -530,11 +539,15 @@ export const POST = withAuth(
 
         try {
           sendEvent('status', { status: 'connecting' })
+          let terminalRetryError: string | null = null
           const readUpstreamSessionStatus = createUpstreamSessionStatusReader({
             baseUrl,
             authHeader,
             sessionId,
-            onRead: ({ durationMs, outcome, responseStatus, status }) => {
+            onRead: ({ durationMs, outcome, responseStatus, status, terminalError }) => {
+              if (terminalError) {
+                terminalRetryError = terminalError
+              }
               logObservation('upstream_status_read', {
                 durationMs,
                 outcome,
@@ -713,6 +726,15 @@ export const POST = withAuth(
           sendEvent('status', { status, toolName, detail })
         }
 
+        const failForTerminalRetry = (detail: string) => {
+          emitStatus('error', undefined, detail)
+          sendEvent('error', { error: detail })
+          recordRunUsage()
+          markRunFailed(detail)
+          recordTerminalReason('terminal_retry', { detail })
+          aborted = true
+        }
+
         const getPartKey = (partMessageId: string, partId: unknown) =>
           typeof partId === 'string' && partId.trim().length > 0
             ? `${partMessageId}:${partId}`
@@ -808,6 +830,10 @@ export const POST = withAuth(
                 }
 
                 const upstreamStatus = await readUpstreamSessionStatus()
+                if (terminalRetryError) {
+                  failForTerminalRetry(terminalRetryError)
+                  continue
+                }
                 const statusReadAt = Date.now()
                 if (upstreamStatus === 'busy' || upstreamStatus === 'retry' || upstreamStatus === 'idle') {
                   unknownStatusSince = null
@@ -880,7 +906,10 @@ export const POST = withAuth(
           const { done, value } = streamReadResult
           if (done || !value) {
             logObservation('upstream_eof')
-            if (!aborted && await readUpstreamSessionStatus() === 'idle') {
+            const upstreamStatus = await readUpstreamSessionStatus()
+            if (terminalRetryError) {
+              failForTerminalRetry(terminalRetryError)
+            } else if (!aborted && upstreamStatus === 'idle') {
               finalizeFromIdle()
             } else if (!aborted) {
               closeForObservationInterruption('upstream_eof')
@@ -945,7 +974,10 @@ export const POST = withAuth(
                     markRelevantEvent()
                     const status = event.properties?.status
 
-                    if (status?.type === 'busy') {
+                    const terminalError = getTerminalRetryError(status)
+                    if (terminalError) {
+                      failForTerminalRetry(terminalError)
+                    } else if (status?.type === 'busy') {
                       emitStatus('thinking')
                     } else if (status?.type === 'retry') {
                       emitStatus('thinking', undefined, status?.message)

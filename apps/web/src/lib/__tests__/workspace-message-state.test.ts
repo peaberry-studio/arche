@@ -26,6 +26,20 @@ describe('deriveWorkspaceMessageRuntimeState', () => {
     expect(result).toEqual({ pending: true, statusInfo: { status: 'thinking' } })
   })
 
+  it('marks terminal retry errors as non-pending', () => {
+    const result = deriveWorkspaceMessageRuntimeState({
+      role: 'assistant',
+      parts: [],
+      sessionStatus: 'busy',
+      terminalError: 'free_tier_limit',
+    })
+
+    expect(result).toEqual({
+      pending: false,
+      statusInfo: { status: 'error', detail: 'free_tier_limit' },
+    })
+  })
+
   it('marks empty assistant response as incomplete when session is idle', () => {
     const result = deriveWorkspaceMessageRuntimeState({
       role: 'assistant',

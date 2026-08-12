@@ -733,6 +733,35 @@ describe('listMessagesAction', () => {
     expect(result.ok).toBe(true)
   })
 
+  it('stops the latest incomplete assistant for terminal provider retries', async () => {
+    mockSessionMessages.mockResolvedValue({
+      data: [
+        {
+          info: { id: 'msg-1', role: 'assistant', time: { created: Date.now() } },
+          parts: [],
+        },
+      ],
+    })
+    mockSessionStatus.mockResolvedValue({
+      data: {
+        'sess-1': {
+          type: 'retry',
+          action: { reason: 'free_tier_limit' },
+        },
+      },
+    })
+
+    const result = await listMessagesAction('alice', 'sess-1')
+
+    expect(result.messages).toMatchObject([
+      {
+        id: 'msg-1',
+        pending: false,
+        statusInfo: { status: 'error', detail: 'free_tier_limit' },
+      },
+    ])
+  })
+
   it('hydrates pending permissions onto their assistant message and keeps it pending', async () => {
     mockSessionMessages.mockResolvedValue({
       data: [
