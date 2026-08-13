@@ -77,7 +77,7 @@ type InspectorPanelProps = {
   onPublish?: () => void;
   onResolveConflict?: (path: string) => void | Promise<void>;
   onKnowledgeReviewApplied?: () => void | Promise<void>;
-  onKnowledgeReviewChanged?: () => void | Promise<void>;
+  onProposalCountChange?: (count: number) => void;
   knowledgeReviewRefreshKey?: number;
   hideCollapseButton?: boolean;
 };
@@ -220,7 +220,7 @@ export function InspectorPanel({
   diffsError,
   onOpenFile,
   onKnowledgeReviewApplied,
-  onKnowledgeReviewChanged,
+  onProposalCountChange,
   knowledgeReviewRefreshKey,
   internalLinkPaths,
   onReloadFile,
@@ -257,7 +257,7 @@ export function InspectorPanel({
       diffsError={diffsError}
       onOpenFile={onOpenFile}
       onKnowledgeReviewApplied={onKnowledgeReviewApplied}
-      onKnowledgeReviewChanged={onKnowledgeReviewChanged}
+      onProposalCountChange={onProposalCountChange}
       knowledgeReviewRefreshKey={knowledgeReviewRefreshKey}
       internalLinkPaths={internalLinkPaths}
       onReloadFile={onReloadFile}
@@ -285,7 +285,7 @@ function ExpandedInspectorPanel({
   diffsError,
   onOpenFile,
   onKnowledgeReviewApplied,
-  onKnowledgeReviewChanged,
+  onProposalCountChange,
   knowledgeReviewRefreshKey,
   internalLinkPaths = [],
   onReloadFile,
@@ -305,6 +305,12 @@ function ExpandedInspectorPanel({
   const [canScrollRight, setCanScrollRight] = useState(false);
   const [reviewTab, setReviewTab] = useState<ReviewTab>("proposals");
   const [reviewProposalCount, setReviewProposalCount] = useState(0);
+  // The review list already refetches after every action, so it is the source
+  // of the open-proposal count for both the tab badge and the shell.
+  const handleProposalCountChange = useCallback((count: number) => {
+    setReviewProposalCount(count);
+    onProposalCountChange?.(count);
+  }, [onProposalCountChange]);
   const { clearDraft, getDraft, getSaveError, getSaveState, handleChange } = useEditorDrafts({
     onSave: onSaveFile,
   });
@@ -614,10 +620,9 @@ function ExpandedInspectorPanel({
               error={diffsError ?? undefined}
               onOpenFile={onOpenFile}
               internalLinkPaths={internalLinkPaths}
-              onProposalCountChange={setReviewProposalCount}
+              onProposalCountChange={handleProposalCountChange}
               onDiscardFileChanges={onDiscardFileChanges}
               onKnowledgeReviewApplied={onKnowledgeReviewApplied}
-              onKnowledgeReviewChanged={onKnowledgeReviewChanged}
               knowledgeReviewRefreshKey={knowledgeReviewRefreshKey}
               onResolveConflict={onResolveConflict}
             />

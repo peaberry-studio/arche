@@ -186,6 +186,7 @@ vi.mock("@/components/workspace/inspector-panel", () => ({
     onReloadFile,
     onResolveConflict,
     onSaveFile,
+    onProposalCountChange,
     onSelectFile,
     onToggleRight,
     openFiles = [],
@@ -197,6 +198,7 @@ vi.mock("@/components/workspace/inspector-panel", () => ({
     onDiscardFileChanges?: (path: string) => Promise<{ ok: true } | { ok: false; error: string }>;
     onOpenFile?: (path: string) => void;
     onPublish?: () => void;
+    onProposalCountChange?: (count: number) => void;
     onReloadFile?: (path: string) => Promise<void>;
     onResolveConflict?: (path: string) => void | Promise<void>;
     onSaveFile?: (path: string, content: string, expectedHash?: string) => Promise<{ ok: true; hash?: string } | { ok: false; error: string }>;
@@ -220,6 +222,9 @@ vi.mock("@/components/workspace/inspector-panel", () => ({
       >
         {panelMode === "files" ? "Files Panel" : panelMode === "knowledge" ? "Knowledge Panel" : panelMode === "review" ? "Review Panel" : "Inspector Panel"}
       </button>
+      {panelMode === "knowledge" && onProposalCountChange ? (
+        <button type="button" onClick={() => onProposalCountChange(3)}>Report proposal count</button>
+      ) : null}
       {panelMode === "files" && activeFilePath ? (
         <>
           <button type="button" onClick={() => onSelectFile?.(activeFilePath)}>Select active file</button>
@@ -1142,6 +1147,23 @@ describe("WorkspaceShell", () => {
     const knowledgePanel = await screen.findByRole("button", { name: "Knowledge Panel" });
     expect(knowledgePanel.dataset.panelMode).toBe("knowledge");
     expect(screen.queryByText("Chat Panel")).toBeNull();
+  });
+
+  it("takes the knowledge badge count from the review list without refetching it", async () => {
+    render(<WorkspaceShell slug="alice" initialWorkspaceMode="knowledge" />);
+
+    await screen.findByRole("button", { name: "Knowledge Panel" });
+    const learningCalls = () => (globalThis.fetch as unknown as { mock: { calls: unknown[][] } })
+      .mock.calls.filter(([input]) => String(input).endsWith("/learning")).length;
+    await waitFor(() => expect(learningCalls()).toBeGreaterThan(0));
+    const callsBefore = learningCalls();
+
+    // The review list reports the count it already loaded; the shell must trust
+    // it rather than issuing its own request for the same data.
+    fireEvent.click(screen.getByRole("button", { name: "Report proposal count" }));
+
+    expect(await screen.findByLabelText("3 pending")).toBeTruthy();
+    expect(learningCalls()).toBe(callsBefore);
   });
 
   it("shows chat as default view in compact layout", async () => {

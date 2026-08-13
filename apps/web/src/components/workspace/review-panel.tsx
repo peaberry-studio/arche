@@ -34,7 +34,6 @@ type ReviewPanelProps = {
   onDiscardFileChanges?: (path: string) => Promise<{ ok: true } | { ok: false; error: string }>;
   onResolveConflict?: (path: string) => void | Promise<void>;
   onKnowledgeReviewApplied?: () => void | Promise<void>;
-  onKnowledgeReviewChanged?: () => void | Promise<void>;
   knowledgeReviewRefreshKey?: number;
 };
 
@@ -51,7 +50,6 @@ export function ReviewPanel({
   onProposalCountChange,
   onDiscardFileChanges,
   onKnowledgeReviewApplied,
-  onKnowledgeReviewChanged,
   onResolveConflict,
   knowledgeReviewRefreshKey,
 }: ReviewPanelProps) {
@@ -123,7 +121,6 @@ export function ReviewPanel({
           slug={slug}
           refreshKey={knowledgeReviewRefreshKey}
           onApplied={onKnowledgeReviewApplied}
-          onChanged={onKnowledgeReviewChanged}
           onOpenCountChange={onProposalCountChange}
           onOpenFile={onOpenFile}
           internalLinkPaths={internalLinkPaths}

@@ -12,12 +12,17 @@ import { MarkdownPreview } from '@/components/workspace/markdown-preview'
 import { SegmentedControl, type SegmentedControlOption } from '@/components/workspace/segmented-control'
 import { useEditorDrafts } from '@/hooks/use-editor-drafts'
 import { createUnifiedDiff } from '@/lib/line-diff'
-import type { KnowledgeReviewChange, KnowledgeReviewOperation } from '@/types/learning'
+import { cn } from '@/lib/utils'
+import type {
+  KnowledgeReviewChange,
+  KnowledgeReviewOperation,
+  LearningRun,
+  LearningRunStatus,
+} from '@/types/learning'
 
 type KnowledgeReviewListProps = {
   internalLinkPaths?: string[]
   onApplied?: () => void | Promise<void>
-  onChanged?: () => void | Promise<void>
   onOpenCountChange?: (count: number) => void
   onOpenFile?: (path: string) => void
   refreshKey?: number
@@ -26,6 +31,7 @@ type KnowledgeReviewListProps = {
 
 type LearningResponse = {
   proposals: KnowledgeReviewChange[]
+  runs: LearningRun[]
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -33,7 +39,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isLearningResponse(value: unknown): value is LearningResponse {
-  return isRecord(value) && Array.isArray(value.proposals)
+  return isRecord(value) && Array.isArray(value.proposals) && Array.isArray(value.runs)
 }
 
 function responseError(value: unknown, fallback: string): string {
@@ -51,11 +57,61 @@ const ERROR_LABELS: Record<string, string> = {
   knowledge_review_load_failed: 'Could not load Knowledge proposals.',
   knowledge_review_action_failed: 'The action failed. Try again.',
   knowledge_review_draft_failed: 'Could not save your edit. Try again.',
+  run_not_cancelable: 'This curator run can no longer be cancelled.',
+  run_not_retryable: 'This curator run is already executing.',
+  cancel_failed: 'Could not cancel the curator run. Try again.',
+  instance_unavailable: 'The workspace instance is unavailable. Try again later.',
 }
 
 function errorLabel(error: string): string {
   return ERROR_LABELS[error] ?? error
 }
+
+const ACTIVE_RUN_POLL_INTERVAL_MS = 5_000
+const IDLE_POLL_INTERVAL_MS = 45_000
+// Dispatch happens right after a run is created, so a run still pending after
+// this window lost its executor (e.g. a server restart) and can be retried.
+const STALE_PENDING_RUN_MS = 2 * 60 * 1000
+
+const RUN_STATUS_LABELS: Record<LearningRunStatus, string> = {
+  pending: 'Queued',
+  running: 'Running',
+  succeeded: 'Succeeded',
+  failed: 'Failed',
+  cancelled: 'Cancelled',
+}
+
+const RUN_STATUS_CLASSES: Record<LearningRunStatus, string> = {
+  pending: 'bg-muted/60 text-muted-foreground',
+  running: 'bg-primary/15 text-primary',
+  succeeded: 'bg-emerald-500/15 text-emerald-500',
+  failed: 'bg-destructive/15 text-destructive',
+  cancelled: 'bg-muted/60 text-muted-foreground',
+}
+
+function isRunActive(run: LearningRun): boolean {
+  return run.status === 'pending' || run.status === 'running'
+}
+
+function RunStatusBadge({ status }: { status: LearningRunStatus }) {
+  return (
+    <span
+      className={cn(
+        'inline-flex shrink-0 items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-none',
+        RUN_STATUS_CLASSES[status] ?? RUN_STATUS_CLASSES.pending,
+      )}
+    >
+      {RUN_STATUS_LABELS[status] ?? status}
+    </span>
+  )
+}
+
+// The panel these panes live in is often much shorter than the viewport, so a
+// fixed viewport-relative height overflowed it and forced a nested scrollbar.
+// Scrollable panes grow with their content up to a cap; the editor needs a
+// definite height, clamped so it stays usable on short and tall viewports.
+const VIEW_PANE_SCROLL_CLASS = 'max-h-[60vh] min-h-[8rem]'
+const VIEW_PANE_EDITOR_CLASS = 'h-[clamp(18rem,60vh,45rem)]'
 
 type ViewMode = 'readable' | 'edit' | 'raw'
 
@@ -82,16 +138,18 @@ function formatAuthor(author: string): string {
 export function KnowledgeReviewList({
   internalLinkPaths,
   onApplied,
-  onChanged,
   onOpenCountChange,
   onOpenFile,
   refreshKey = 0,
   slug,
 }: KnowledgeReviewListProps) {
   const [changes, setChanges] = useState<KnowledgeReviewChange[]>([])
+  const [runs, setRuns] = useState<LearningRun[]>([])
+  const [refreshedAt, setRefreshedAt] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isBusy, setIsBusy] = useState<string | null>(null)
+  const [busyRunId, setBusyRunId] = useState<string | null>(null)
   const [modeByChange, setModeByChange] = useState<Record<string, ViewMode | null>>({})
 
   const { clearDraft, getDraft, getSaveError, getSaveState, handleChange } = useEditorDrafts({
@@ -122,6 +180,8 @@ export function KnowledgeReviewList({
         return
       }
       setChanges(data.proposals)
+      setRuns(data.runs)
+      setRefreshedAt(Date.now())
       setError(null)
     } catch {
       setError('knowledge_review_load_failed')
@@ -136,6 +196,42 @@ export function KnowledgeReviewList({
     }, 0)
     return () => window.clearTimeout(timeout)
   }, [refresh, refreshKey])
+
+  const hasActiveRun = runs.some(isRunActive)
+
+  // A curator run writes its proposals when it finishes, so without polling a
+  // regeneration started from here never shows up until a manual refresh.
+  useEffect(() => {
+    const interval = window.setInterval(
+      () => { void refresh() },
+      hasActiveRun ? ACTIVE_RUN_POLL_INTERVAL_MS : IDLE_POLL_INTERVAL_MS,
+    )
+    return () => window.clearInterval(interval)
+  }, [hasActiveRun, refresh])
+
+  const submitRunAction = useCallback(async (runId: string, action: 'cancel' | 'retry') => {
+    setBusyRunId(runId)
+    try {
+      const response = action === 'cancel'
+        ? await fetch(`/api/u/${slug}/learning/runs/${runId}/cancel`, { method: 'POST' })
+        : await fetch(`/api/u/${slug}/learning`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ runId }),
+        })
+      const data: unknown = await response.json().catch(() => null)
+      // Refresh first: a successful reload clears the error state, so setting
+      // the message afterwards is what keeps it on screen.
+      await refresh()
+      if (!response.ok) {
+        setError(responseError(data, action === 'cancel' ? 'cancel_failed' : 'knowledge_review_action_failed'))
+      }
+    } catch {
+      setError(action === 'cancel' ? 'cancel_failed' : 'knowledge_review_action_failed')
+    } finally {
+      setBusyRunId(null)
+    }
+  }, [refresh, slug])
 
   const submitAction = useCallback(async (changeId: string, action: 'apply' | 'reject' | 'rebase' | 'regenerate', content?: string) => {
     setIsBusy(changeId)
@@ -155,13 +251,12 @@ export function KnowledgeReviewList({
       clearDraft(changeId)
       if (action === 'apply') await onApplied?.()
       await refresh()
-      await onChanged?.()
     } catch {
       setError('knowledge_review_action_failed')
     } finally {
       setIsBusy(null)
     }
-  }, [clearDraft, onApplied, onChanged, refresh, slug])
+  }, [clearDraft, onApplied, refresh, slug])
 
   const openChanges = changes.filter((change) => change.status === 'open' || change.status === 'needs_rebase')
 
@@ -169,9 +264,54 @@ export function KnowledgeReviewList({
     onOpenCountChange?.(openChanges.length)
   }, [onOpenCountChange, openChanges.length])
 
+  // Succeeded and cancelled runs are already represented by the proposals they
+  // produced; only runs the user can still act on are worth the space here.
+  const actionableRuns = runs.filter((run) => isRunActive(run) || run.status === 'failed')
+
   return (
     <div className="space-y-6">
       {error ? <p className="text-xs text-destructive">{errorLabel(error)}</p> : null}
+      {actionableRuns.length > 0 ? (
+        <section className="space-y-2" aria-label="Curator runs">
+          {actionableRuns.map((run) => {
+            const isStalePending = run.status === 'pending' && refreshedAt - Date.parse(run.createdAt) > STALE_PENDING_RUN_MS
+            const isRetryable = run.status === 'failed' || isStalePending
+            return (
+              <div key={run.id} className="rounded-md border-[0.5px] border-border/20 bg-foreground/[0.015] px-3 py-2">
+                <div className="flex items-center gap-2">
+                  <RunStatusBadge status={run.status} />
+                  <p className="min-w-0 flex-1 truncate text-xs">{run.title}</p>
+                  {isRunActive(run) ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-6 shrink-0 border-border/40 px-2 text-[11px]"
+                      disabled={busyRunId !== null}
+                      onClick={() => void submitRunAction(run.id, 'cancel')}
+                    >
+                      Cancel
+                    </Button>
+                  ) : null}
+                  {isRetryable ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-6 shrink-0 border-border/40 px-2 text-[11px]"
+                      disabled={busyRunId !== null}
+                      onClick={() => void submitRunAction(run.id, 'retry')}
+                    >
+                      {run.status === 'failed' ? 'Retry' : 'Run now'}
+                    </Button>
+                  ) : null}
+                </div>
+                {run.status === 'failed' && run.error ? (
+                  <p className="mt-1.5 text-[11px] text-destructive">{errorLabel(run.error)}</p>
+                ) : null}
+              </div>
+            )
+          })}
+        </section>
+      ) : null}
       {openChanges.map((change) => {
         const content = getDraft(change.id, change.proposedContent)
         const mode = modeByChange[change.id] ?? null
@@ -226,11 +366,11 @@ export function KnowledgeReviewList({
             {mode !== null ? (
             <div className="border-t border-border/20">
               {mode === 'readable' ? (
-                <div className="h-[70vh] overflow-y-auto scrollbar-custom">
+                <div className={cn(VIEW_PANE_SCROLL_CLASS, 'overflow-y-auto scrollbar-custom')}>
                   <MarkdownPreview content={content || '_Delete this file_'} />
                 </div>
               ) : mode === 'edit' ? (
-                <div className="h-[70vh]">
+                <div className={VIEW_PANE_EDITOR_CLASS}>
                   <MarkdownEditor
                     key={change.id}
                     value={content}
@@ -242,7 +382,7 @@ export function KnowledgeReviewList({
                   />
                 </div>
               ) : (
-                <div className="h-[70vh] overflow-y-auto scrollbar-custom">
+                <div className={cn(VIEW_PANE_SCROLL_CLASS, 'overflow-y-auto scrollbar-custom')}>
                   <DiffViewer
                     diff={createUnifiedDiff({
                       oldText: isRebase ? change.actualContent ?? change.baseContent ?? '' : change.baseContent ?? '',

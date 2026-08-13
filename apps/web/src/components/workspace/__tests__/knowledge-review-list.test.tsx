@@ -1,10 +1,10 @@
 /** @vitest-environment jsdom */
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { KnowledgeReviewList } from '@/components/workspace/knowledge-review-list'
-import type { KnowledgeReviewChange } from '@/types/learning'
+import type { KnowledgeReviewChange, LearningRun } from '@/types/learning'
 
 vi.mock('@/components/workspace/markdown-editor', () => ({
   MarkdownEditor: ({ value, onChange }: { value: string; onChange: (next: string) => void }) => (
@@ -55,7 +55,24 @@ function makeChange(overrides: Partial<KnowledgeReviewChange> = {}): KnowledgeRe
   }
 }
 
-const learningResponse = (proposals: KnowledgeReviewChange[]) => ({ runs: [], proposals })
+function makeRun(overrides: Partial<LearningRun> = {}): LearningRun {
+  return {
+    id: 'run-1',
+    sourceSessionId: null,
+    internalSessionId: null,
+    regenerationChangeId: null,
+    title: 'Learn from session',
+    trigger: 'manual',
+    status: 'running',
+    error: null,
+    messageCount: 4,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    ...overrides,
+  }
+}
+
+const learningResponse = (proposals: KnowledgeReviewChange[], runs: LearningRun[] = []) => ({ runs, proposals })
 
 describe('KnowledgeReviewList', () => {
   beforeEach(() => {
@@ -131,9 +148,8 @@ describe('KnowledgeReviewList', () => {
       .mockResolvedValueOnce(jsonResponse({ proposal: { id: 'change-1' } }))
       .mockResolvedValueOnce(jsonResponse(learningResponse([])))
     const onApplied = vi.fn()
-    const onChanged = vi.fn()
 
-    render(<KnowledgeReviewList slug="alice" onApplied={onApplied} onChanged={onChanged} />)
+    render(<KnowledgeReviewList slug="alice" onApplied={onApplied} />)
 
     expect(await screen.findByText('Remember preference')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
@@ -150,7 +166,6 @@ describe('KnowledgeReviewList', () => {
       })
     })
     await waitFor(() => expect(onApplied).toHaveBeenCalledTimes(1))
-    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1))
   })
 
   it('rejects a change without applying it', async () => {
@@ -301,6 +316,174 @@ describe('KnowledgeReviewList', () => {
 
     rerender(<KnowledgeReviewList slug="alice" refreshKey={1} />)
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+  })
+
+  describe('curator runs', () => {
+    it('surfaces an in-progress run so a regeneration is not invisible', async () => {
+      fetchMock.mockResolvedValue(jsonResponse(learningResponse([], [makeRun({ status: 'running' })])))
+
+      render(<KnowledgeReviewList slug="alice" />)
+
+      expect(await screen.findByText('Running')).toBeTruthy()
+      expect(screen.getByText('Learn from session')).toBeTruthy()
+      expect(screen.getByRole('button', { name: 'Cancel' })).toBeTruthy()
+    })
+
+    it('cancels an active run through the run cancel endpoint', async () => {
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse(learningResponse([], [makeRun({ status: 'running' })])))
+        .mockResolvedValueOnce(jsonResponse({ run: { id: 'run-1', status: 'cancelled' } }))
+        .mockResolvedValueOnce(jsonResponse(learningResponse([])))
+
+      render(<KnowledgeReviewList slug="alice" />)
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }))
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledWith('/api/u/alice/learning/runs/run-1/cancel', { method: 'POST' })
+      })
+      await waitFor(() => expect(screen.queryByText('Running')).toBeNull())
+    })
+
+    it('surfaces a readable error when a run cannot be cancelled', async () => {
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse(learningResponse([], [makeRun({ status: 'running' })])))
+        .mockResolvedValueOnce(jsonResponse({ error: 'run_not_cancelable' }, { status: 400 }))
+        .mockResolvedValue(jsonResponse(learningResponse([], [makeRun({ status: 'running' })])))
+
+      render(<KnowledgeReviewList slug="alice" />)
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }))
+
+      expect(await screen.findByText('This curator run can no longer be cancelled.')).toBeTruthy()
+    })
+
+    it('retries a failed run and shows why it failed', async () => {
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse(learningResponse([], [
+          makeRun({ status: 'failed', error: 'instance_unavailable' }),
+        ])))
+        .mockResolvedValueOnce(jsonResponse({ run: { id: 'run-1' } }))
+        .mockResolvedValue(jsonResponse(learningResponse([], [makeRun({ status: 'pending' })])))
+
+      render(<KnowledgeReviewList slug="alice" />)
+
+      expect(await screen.findByText('Failed')).toBeTruthy()
+      expect(screen.getByText('The workspace instance is unavailable. Try again later.')).toBeTruthy()
+      expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledWith('/api/u/alice/learning', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ runId: 'run-1' }),
+        })
+      })
+    })
+
+    it('offers to re-dispatch a run left pending past the dispatch window', async () => {
+      const stale = new Date(Date.now() - 5 * 60 * 1000).toISOString()
+      fetchMock.mockResolvedValue(jsonResponse(learningResponse([], [
+        makeRun({ status: 'pending', createdAt: stale }),
+      ])))
+
+      render(<KnowledgeReviewList slug="alice" />)
+
+      expect(await screen.findByText('Queued')).toBeTruthy()
+      expect(screen.getByRole('button', { name: 'Run now' })).toBeTruthy()
+    })
+
+    it('keeps a recently queued run free of a re-dispatch button', async () => {
+      fetchMock.mockResolvedValue(jsonResponse(learningResponse([], [
+        makeRun({ status: 'pending', createdAt: new Date().toISOString() }),
+      ])))
+
+      render(<KnowledgeReviewList slug="alice" />)
+
+      expect(await screen.findByText('Queued')).toBeTruthy()
+      expect(screen.queryByRole('button', { name: 'Run now' })).toBeNull()
+    })
+
+    it('hides settled runs whose outcome the proposal list already shows', async () => {
+      fetchMock.mockResolvedValue(jsonResponse(learningResponse([], [
+        makeRun({ id: 'run-ok', status: 'succeeded' }),
+        makeRun({ id: 'run-cancelled', status: 'cancelled' }),
+      ])))
+
+      render(<KnowledgeReviewList slug="alice" />)
+
+      expect(await screen.findByText('No knowledge proposals awaiting review.')).toBeTruthy()
+      expect(screen.queryByText('Succeeded')).toBeNull()
+      expect(screen.queryByText('Cancelled')).toBeNull()
+    })
+  })
+
+  describe('polling', () => {
+    // Advancing inside act() flushes the state update from the resolved fetch,
+    // so the effect has re-armed the interval at the new cadence before the
+    // next assertion.
+    const advanceTimers = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms) })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('polls every 5s while a run is active so finished proposals appear', async () => {
+      vi.useFakeTimers()
+      fetchMock.mockResolvedValue(jsonResponse(learningResponse([], [makeRun({ status: 'running' })])))
+
+      render(<KnowledgeReviewList slug="alice" />)
+      await advanceTimers(0)
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+
+      await advanceTimers(5_000)
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+
+      await advanceTimers(5_000)
+      expect(fetchMock).toHaveBeenCalledTimes(3)
+    })
+
+    it('backs off to a slow poll when no run is active', async () => {
+      vi.useFakeTimers()
+      fetchMock.mockResolvedValue(jsonResponse(learningResponse([])))
+
+      render(<KnowledgeReviewList slug="alice" />)
+      await advanceTimers(0)
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+
+      await advanceTimers(5_000)
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+
+      await advanceTimers(40_000)
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+    })
+
+    it('stops polling once unmounted', async () => {
+      vi.useFakeTimers()
+      fetchMock.mockResolvedValue(jsonResponse(learningResponse([], [makeRun({ status: 'running' })])))
+
+      const { unmount } = render(<KnowledgeReviewList slug="alice" />)
+      await advanceTimers(0)
+      unmount()
+
+      await advanceTimers(30_000)
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  it('sizes view panes against the panel instead of a fixed viewport height', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(learningResponse([makeChange()])))
+
+    const { container } = render(<KnowledgeReviewList slug="alice" />)
+
+    expect(await screen.findByText('Remember preference')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }))
+
+    await screen.findByRole('heading', { name: 'Preference' })
+    expect(container.querySelector('.h-\\[70vh\\]')).toBeNull()
+    expect(container.querySelector('.max-h-\\[60vh\\]')).toBeTruthy()
   })
 
   it('only shows open and needs_rebase changes, hiding applied ones', async () => {

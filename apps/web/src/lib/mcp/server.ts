@@ -252,6 +252,12 @@ async function submitMcpKnowledgeReviewChange(args: {
   path: string
   user: RuntimeUser
 }): Promise<unknown> {
+  // Normalize up front so the path persisted for a create on a missing file is
+  // a checked one, rather than depending on captureKbArticleForReview having
+  // rejected everything unnormalizable before it answered `not_found`.
+  const normalizedPath = normalizeKbArticlePath(args.path)
+  if (!normalizedPath) return { ok: false, error: 'invalid_path' }
+
   const snapshot = await captureKbArticleForReview({ path: args.path })
   if (args.operation === 'create') {
     if (snapshot.ok) return { ok: false, error: 'article_exists' }
@@ -267,7 +273,7 @@ async function submitMcpKnowledgeReviewChange(args: {
     baseHash: snapshot.ok ? snapshot.snapshot.hash : null,
     confidence: 1,
     evidence: { source: 'MCP knowledge-base request' },
-    kbPath: snapshot.ok ? snapshot.snapshot.path : (normalizeKbArticlePath(args.path) ?? args.path.trim()),
+    kbPath: snapshot.ok ? snapshot.snapshot.path : normalizedPath,
     operation: args.operation,
     origin: 'mcp',
     proposedContent: args.content,

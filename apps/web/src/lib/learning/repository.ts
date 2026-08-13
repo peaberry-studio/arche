@@ -412,17 +412,34 @@ function serializeAuditTrailForStorage(entries: KnowledgeReviewAuditEntry[]): Pr
   return isDesktop() ? JSON.stringify(entries) : entries
 }
 
+// Actions repeated by autosave rather than by a user decision. Appending one
+// entry per save would grow the audit JSON without bound over a proposal's
+// lifetime, so a run of them by the same actor collapses into its latest entry.
+const COALESCED_AUDIT_ACTIONS = new Set(['draft_saved'])
+
 function withAuditEntry(entries: KnowledgeReviewAuditEntry[], args: {
   action: string
   actor: string
   hash?: string
 }): KnowledgeReviewAuditEntry[] {
-  return [...entries, {
+  const entry: KnowledgeReviewAuditEntry = {
     action: args.action,
     actor: args.actor,
     at: new Date().toISOString(),
     ...(args.hash ? { hash: args.hash } : {}),
-  }]
+  }
+
+  const previous = entries[entries.length - 1]
+  if (
+    previous &&
+    COALESCED_AUDIT_ACTIONS.has(args.action) &&
+    previous.action === args.action &&
+    previous.actor === args.actor
+  ) {
+    return [...entries.slice(0, -1), entry]
+  }
+
+  return [...entries, entry]
 }
 
 export async function createKnowledgeReviewChange(
@@ -511,6 +528,11 @@ async function transitionKnowledgeReviewChange(args: {
       id: args.changeId,
       userId: args.userId,
       status: { in: args.allowedStatuses },
+      // The audit trail is read here and written back whole, so the row must not
+      // have moved since. The status guard alone misses transitions that leave
+      // the status untouched (a draft save is `open -> open`), which let a stale
+      // writer overwrite a newer one and drop its audit entry.
+      updatedAt: current.updatedAt,
     },
     data: {
       ...args.data,
@@ -540,7 +562,15 @@ export async function startLearningRunForKnowledgeReviewRegeneration(args: {
     if (!change || change.status !== 'needs_rebase') return null
 
     const updated = await transaction.knowledgeReviewChange.updateMany({
-      where: { id: change.id, userId: args.userId, status: 'needs_rebase' },
+      // Read Committed does not make the read-modify-write above atomic, so the
+      // row is guarded on the snapshot it was read from, same as
+      // transitionKnowledgeReviewChange.
+      where: {
+        id: change.id,
+        userId: args.userId,
+        status: 'needs_rebase',
+        updatedAt: change.updatedAt,
+      },
       data: {
         auditTrail: serializeAuditTrailForStorage(withAuditEntry(parseAuditTrail(change.auditTrail), {
           action: 'regeneration_requested',

@@ -42,7 +42,14 @@ vi.mock("@/components/workspace/markdown-preview", () => ({
 }));
 
 vi.mock("@/components/workspace/review-panel", () => ({
-  ReviewPanel: () => <div>Review panel</div>,
+  ReviewPanel: ({ onProposalCountChange }: { onProposalCountChange?: (count: number) => void }) => (
+    <div>
+      Review panel
+      <button type="button" onClick={() => onProposalCountChange?.(3)}>
+        Report proposal count
+      </button>
+    </div>
+  ),
 }));
 
 describe("InspectorPanel", () => {
@@ -368,5 +375,29 @@ describe("InspectorPanel", () => {
     expect(screen.queryByRole('button', { name: /Review/ })).toBeNull()
     expect(screen.getAllByText('notes.txt').length).toBe(2)
     expect(screen.getByText('Plain text note')).toBeTruthy()
+  })
+
+  it('forwards the open-proposal count so the shell need not refetch it', () => {
+    const onProposalCountChange = vi.fn()
+
+    render(
+      <InspectorPanel
+        {...defaultProps}
+        panelMode="knowledge"
+        onProposalCountChange={onProposalCountChange}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Report proposal count' }))
+
+    expect(onProposalCountChange).toHaveBeenCalledWith(3)
+  })
+
+  it('still drives its own tab badge from the review list count', () => {
+    render(<InspectorPanel {...defaultProps} panelMode="knowledge" />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Report proposal count' }))
+
+    expect(screen.getByText('3')).toBeTruthy()
   })
 });

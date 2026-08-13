@@ -462,12 +462,18 @@ export function WorkspaceShell({
   const reloadKnowledgeGraph = useCallback(() => {
     setKnowledgeGraphReloadKey((current) => current + 1);
   }, []);
-  const refreshKnowledgeReview = useCallback(() => {
+  const refreshKnowledgeWorkspace = useCallback(() => {
     workspace.refreshDiffs();
     workspace.refreshFiles();
     reloadKnowledgeGraph();
+  }, [reloadKnowledgeGraph, workspace]);
+  // Only for callers that can run while the review list is unmounted (connect,
+  // publish, starting a learning run). When the list is on screen it reports the
+  // count itself, so refetching here would just duplicate its request.
+  const refreshKnowledgeReview = useCallback(() => {
+    refreshKnowledgeWorkspace();
     void refreshKnowledgePendingCount();
-  }, [refreshKnowledgePendingCount, reloadKnowledgeGraph, workspace]);
+  }, [refreshKnowledgePendingCount, refreshKnowledgeWorkspace]);
 
   const sessionsById = useMemo(() => {
     const map = new Map<string, WorkspaceSession>();
@@ -1616,9 +1622,9 @@ export function WorkspaceShell({
   );
 
   const handleLearningProposalSentToReview = useCallback(() => {
-    refreshKnowledgeReview();
+    refreshKnowledgeWorkspace();
     void refreshOpenFilesCache();
-  }, [refreshKnowledgeReview, refreshOpenFilesCache]);
+  }, [refreshKnowledgeWorkspace, refreshOpenFilesCache]);
 
   const handleFlowHumanResponseSubmitted = useCallback(async () => {
     await Promise.all([
@@ -2109,7 +2115,7 @@ export function WorkspaceShell({
         void handleOpenFile(path, { forceExploreMode: true })
       }}
       onKnowledgeReviewApplied={handleLearningProposalSentToReview}
-      onKnowledgeReviewChanged={refreshKnowledgePendingCount}
+      onProposalCountChange={setKnowledgeProposalCount}
       knowledgeReviewRefreshKey={learningRefreshKey}
       internalLinkPaths={markdownFilePaths}
       onReloadFile={handleReloadFile}

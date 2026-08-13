@@ -206,6 +206,30 @@ describe('handleMcpJsonRpcRequest', () => {
         proposedContent: '',
       }))
     })
+
+    it.each([
+      ['a non-markdown target', 'Notes/Brief.txt'],
+      ['an absolute path', '/etc/passwd.md'],
+      ['a parent traversal', '../../secrets.md'],
+    ])('rejects %s before reading or persisting anything', async (_label, path) => {
+      const { isError, result } = await callTool('create_kb_article', { path, content: '# New' })
+
+      expect(isError).toBe(true)
+      expect(result).toEqual({ ok: false, error: 'invalid_path' })
+      expect(mocks.captureKbArticleForReview).not.toHaveBeenCalled()
+      expect(mocks.createKnowledgeReviewChange).not.toHaveBeenCalled()
+    })
+
+    it('persists the normalized path when creating an article that does not exist yet', async () => {
+      mocks.captureKbArticleForReview.mockResolvedValue({ ok: false, error: 'not_found' })
+
+      const { result } = await callTool('create_kb_article', { path: '  Notes//Brief.md  ', content: '# New' })
+
+      expect(result).toMatchObject({ ok: true })
+      expect(mocks.createKnowledgeReviewChange).toHaveBeenCalledWith('u1', expect.objectContaining({
+        kbPath: 'Notes/Brief.md',
+      }))
+    })
   })
 
   it('includes canonical proactive single-agent guidance', async () => {
