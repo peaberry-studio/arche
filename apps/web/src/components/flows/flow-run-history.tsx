@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import Link from 'next/link'
 import {
   ArrowSquareOut,
@@ -10,10 +11,14 @@ import {
   Hourglass,
   MinusCircle,
   Prohibit,
+  SpinnerGap,
+  Stop,
   XCircle,
 } from '@phosphor-icons/react'
 
 import { HumanStepResponseCard } from '@/components/flows/human-step-response-card'
+import { Button } from '@/components/ui/button'
+import { cancelFlowRunRequest } from '@/lib/flows/client'
 import { formatFlowRunDate } from '@/lib/flows/cron'
 import { cn } from '@/lib/utils'
 import type { FlowDetail, FlowRunListItem, FlowRunStepListItem } from '@/lib/flows/types'
@@ -185,6 +190,7 @@ function RunCard({
   now: Date
   onRefresh?: () => Promise<void> | void
 }) {
+  const [isCancelling, setIsCancelling] = useState(false)
   const tone = getRunTone(run.status)
   const startedDate = new Date(run.startedAt)
   const relative = formatRelativeTime(startedDate, now)
@@ -192,6 +198,21 @@ function RunCard({
   const duration = formatDuration(run.startedAt, run.finishedAt)
   const executionUser = run.executionUser ?? flow.owner
   const canOpenSession = Boolean(run.openCodeSessionId && (!executionUser || executionUser.slug === slug))
+  const isActive = run.status === 'running'
+  const canCancel = isActive && (!executionUser || executionUser.slug === slug)
+
+  async function handleCancel() {
+    setIsCancelling(true)
+    try {
+      const result = await cancelFlowRunRequest(slug, run.id)
+      if (!result.ok) return
+      await onRefresh?.()
+    } catch {
+      // API enforces permissions; silent on network error
+    } finally {
+      setIsCancelling(false)
+    }
+  }
 
   return (
     <li className="rounded-xl border border-border/60 bg-card/40 p-5">
@@ -227,15 +248,29 @@ function RunCard({
           ) : null}
         </div>
 
-        {canOpenSession && run.openCodeSessionId ? (
-          <Link
-            href={getWorkspaceHref(slug, { mode: 'flows', sessionId: run.openCodeSessionId })}
-            className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          >
-            Open session
-            <ArrowSquareOut size={12} weight="bold" />
-          </Link>
-        ) : null}
+        <div className="flex shrink-0 items-center gap-2">
+          {canCancel ? (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void handleCancel()}
+              disabled={isCancelling}
+              className="h-7 gap-1.5 px-2.5 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+            >
+              {isCancelling ? <SpinnerGap size={12} className="animate-spin" /> : <Stop size={12} weight="fill" />}
+              {isCancelling ? 'Stopping' : 'Stop'}
+            </Button>
+          ) : null}
+          {canOpenSession && run.openCodeSessionId ? (
+            <Link
+              href={getWorkspaceHref(slug, { mode: 'flows', sessionId: run.openCodeSessionId })}
+              className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              Open session
+              <ArrowSquareOut size={12} weight="bold" />
+            </Link>
+          ) : null}
+        </div>
       </div>
 
       {run.steps.length > 0 ? (

@@ -4,14 +4,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 
-import { ClockCountdown, ClockCounterClockwise, DotsThreeVertical, DownloadSimple, GitBranch, PencilSimple, Play, SpinnerGap, TreeStructure } from '@phosphor-icons/react'
+import { ClockCountdown, ClockCounterClockwise, DotsThreeVertical, DownloadSimple, GitBranch, PencilSimple, Play, SpinnerGap, Stop, TreeStructure } from '@phosphor-icons/react'
 
 import { DashboardEmptyState } from '@/components/dashboard/dashboard-empty-state'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { fetchFlowList, runFlowRequest } from '@/lib/flows/client'
+import { cancelFlowRunRequest, fetchFlowList, runFlowRequest } from '@/lib/flows/client'
 import { formatFlowRunDate } from '@/lib/flows/cron'
 import { getFlowErrorMessage } from '@/lib/flows/errors'
 import type { FlowListItem } from '@/lib/flows/types'
@@ -51,6 +51,7 @@ export function FlowsPage({ buildCreateHref, buildEditHref, buildHistoryHref, hi
   const [loadError, setLoadError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [runningFlowId, setRunningFlowId] = useState<string | null>(null)
+  const [cancellingFlowId, setCancellingFlowId] = useState<string | null>(null)
 
   const loadFlows = useCallback(async () => {
     setIsLoading(true)
@@ -102,6 +103,23 @@ export function FlowsPage({ buildCreateHref, buildEditHref, buildHistoryHref, hi
       setRunningFlowId(null)
     }
   }, [getHistoryHref, loadFlows, navigateToHistoryOnRun, router, slug])
+
+  const cancelFlow = useCallback(async (runId: string, flowId: string) => {
+    setCancellingFlowId(flowId)
+    setActionError(null)
+    try {
+      const result = await cancelFlowRunRequest(slug, runId)
+      if (!result.ok) {
+        setActionError(result.error)
+        return
+      }
+      await loadFlows()
+    } catch {
+      setActionError('network_error')
+    } finally {
+      setCancellingFlowId(null)
+    }
+  }, [loadFlows, slug])
 
   useEffect(() => {
     let cancelled = false
@@ -218,7 +236,18 @@ export function FlowsPage({ buildCreateHref, buildEditHref, buildHistoryHref, hi
                   </span>
                 </div>
 
-                {flow.permissions.canRun ? (
+                {flow.permissions.canRun && flow.latestRun && (flow.latestRun.status === 'running' || flow.latestRun.status === 'waiting_for_human') ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void cancelFlow(flow.latestRun!.id, flow.id)}
+                    disabled={cancellingFlowId === flow.id}
+                    className="h-8 shrink-0 gap-1.5 px-3.5 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  >
+                    {cancellingFlowId === flow.id ? <SpinnerGap size={14} className="animate-spin" /> : <Stop size={14} weight="fill" />}
+                    {cancellingFlowId === flow.id ? 'Stopping' : 'Stop'}
+                  </Button>
+                ) : flow.permissions.canRun ? (
                   <Button
                     size="sm"
                     onClick={() => void runFlow(flow.id)}

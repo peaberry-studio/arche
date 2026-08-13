@@ -370,7 +370,16 @@ async function settleFlowRun(params: {
     sessionTitle: params.sessionTitle,
     slug: params.slug,
     trigger: params.trigger,
-  }).catch(() => ({ retryScheduled: false }))
+  }).catch((error) => {
+    console.error('[flows] Failed to finalize run; preserving lease for recovery', {
+      flowId: params.flow.id,
+      runId: params.run.id,
+      error: String(error),
+    })
+    return null
+  })
+
+  if (!finalization) return
 
   const result = await flowService.releaseFlowLease(
     params.flow.id,
