@@ -8,10 +8,12 @@ import type { WorkspaceDiff } from '@/hooks/use-workspace'
 
 const mocks = vi.hoisted(() => ({
   resolveWorkspaceConflictAction: vi.fn(),
+  submitWorkspaceDiffForReviewAction: vi.fn(),
 }))
 
 vi.mock('@/actions/workspace-agent', () => ({
   resolveWorkspaceConflictAction: mocks.resolveWorkspaceConflictAction,
+  submitWorkspaceDiffForReviewAction: mocks.submitWorkspaceDiffForReviewAction,
 }))
 
 vi.mock('@/components/workspace/knowledge-review-list', () => ({
@@ -20,6 +22,7 @@ vi.mock('@/components/workspace/knowledge-review-list', () => ({
 
 beforeEach(() => {
   mocks.resolveWorkspaceConflictAction.mockResolvedValue({ ok: true })
+  mocks.submitWorkspaceDiffForReviewAction.mockResolvedValue({ ok: true })
 })
 
 afterEach(() => {
@@ -163,5 +166,98 @@ describe('ReviewPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Keep remote' }))
 
     expect(await screen.findByText('resolve_failed')).toBeDefined()
+  })
+
+  it('submits a workspace diff for review with the diff operation', async () => {
+    const onSubmittedForReview = vi.fn()
+    render(
+      <ReviewPanel
+        activeTab="changes"
+        diffs={[makeDiff({ status: 'modified', path: 'Notes/A.md' })]}
+        onOpenFile={vi.fn()}
+        onSubmittedForReview={onSubmittedForReview}
+        slug="alice"
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Submit for review' }))
+
+    await waitFor(() => {
+      expect(mocks.submitWorkspaceDiffForReviewAction).toHaveBeenCalledWith('alice', {
+        path: 'Notes/A.md',
+        operation: 'update',
+      })
+    })
+    await waitFor(() => expect(onSubmittedForReview).toHaveBeenCalledTimes(1))
+    expect(await screen.findByRole('button', { name: 'Submitted' })).toBeDefined()
+  })
+
+  it('maps an added file to a create review submission', async () => {
+    render(
+      <ReviewPanel
+        activeTab="changes"
+        diffs={[makeDiff({ status: 'added', path: 'Notes/New.md' })]}
+        onOpenFile={vi.fn()}
+        slug="alice"
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Submit for review' }))
+
+    await waitFor(() => {
+      expect(mocks.submitWorkspaceDiffForReviewAction).toHaveBeenCalledWith('alice', {
+        path: 'Notes/New.md',
+        operation: 'create',
+      })
+    })
+  })
+
+  it('maps a deleted file to a delete review submission', async () => {
+    render(
+      <ReviewPanel
+        activeTab="changes"
+        diffs={[makeDiff({ status: 'deleted', path: 'Notes/Gone.md' })]}
+        onOpenFile={vi.fn()}
+        slug="alice"
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Submit for review' }))
+
+    await waitFor(() => {
+      expect(mocks.submitWorkspaceDiffForReviewAction).toHaveBeenCalledWith('alice', {
+        path: 'Notes/Gone.md',
+        operation: 'delete',
+      })
+    })
+  })
+
+  it('surfaces a readable error when submitting a diff fails', async () => {
+    mocks.submitWorkspaceDiffForReviewAction.mockResolvedValueOnce({ ok: false, error: 'workspace_diff_changed' })
+    render(
+      <ReviewPanel
+        activeTab="changes"
+        diffs={[makeDiff({ path: 'Notes/A.md' })]}
+        onOpenFile={vi.fn()}
+        slug="alice"
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Submit for review' }))
+
+    expect(await screen.findByText(/workspace_diff_changed/)).toBeDefined()
+  })
+
+  it('does not offer to submit conflicted diffs for review', () => {
+    render(
+      <ReviewPanel
+        activeTab="changes"
+        diffs={[makeDiff({ conflicted: true, path: 'Notes/Conflict.md' })]}
+        onOpenFile={vi.fn()}
+        slug="alice"
+      />
+    )
+
+    expect(screen.queryByRole('button', { name: 'Submit for review' })).toBeNull()
   })
 })

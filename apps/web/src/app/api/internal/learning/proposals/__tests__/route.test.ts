@@ -44,7 +44,7 @@ describe('POST /api/internal/learning/proposals', () => {
       ok: true,
       data: { baseContent: 'Use concise answers.', baseHash: 'sha256:old', initialStatus: 'open' },
     })
-    mocks.createKnowledgeReviewChange.mockResolvedValue({ id: 'proposal-1' })
+    mocks.createKnowledgeReviewChange.mockResolvedValue({ ok: true, change: { id: 'proposal-1' } })
     mocks.findLearningRunForUser.mockResolvedValue(null)
   })
 
@@ -105,6 +105,36 @@ describe('POST /api/internal/learning/proposals', () => {
     expect(mocks.createKnowledgeReviewChange).toHaveBeenCalledWith('user-1', expect.objectContaining({
       regeneratedFromId: 'change-1',
       runId: 'run-2',
+    }))
+  })
+
+  it('maps a regeneration race to a 409 conflict response', async () => {
+    mocks.findLearningRunForUser.mockResolvedValue({
+      id: 'run-2',
+      regenerationChangeId: 'change-1',
+    })
+    mocks.createKnowledgeReviewChange.mockResolvedValue({
+      ok: false,
+      error: 'regeneration_source_not_rebaseable',
+    })
+
+    const response = await POST(makeRequest({ ...validBody, runId: 'run-2' }))
+
+    expect(response.status).toBe(409)
+    await expect(response.json()).resolves.toEqual({ error: 'regeneration_source_not_rebaseable' })
+  })
+
+  it('accepts a delete operation with empty proposed content', async () => {
+    const response = await POST(makeRequest({
+      ...validBody,
+      operation: 'delete',
+      proposedContent: '',
+    }))
+
+    expect(response.status).toBe(200)
+    expect(mocks.createKnowledgeReviewChange).toHaveBeenCalledWith('user-1', expect.objectContaining({
+      operation: 'delete',
+      proposedContent: '',
     }))
   })
 })

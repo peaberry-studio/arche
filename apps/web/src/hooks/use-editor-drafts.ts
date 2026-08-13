@@ -23,6 +23,12 @@ type UseEditorDraftsReturn = {
     sourceHash?: string
   ) => void;
   clearDraft: (path: string) => void;
+  flushDraft: (path: string) => Promise<void>;
+};
+
+type PendingSave = {
+  timer: ReturnType<typeof setTimeout>;
+  args: { content: string; baseline: string; expectedHash?: string };
 };
 
 export function useEditorDrafts(config: EditorDraftsConfig): UseEditorDraftsReturn {
@@ -32,7 +38,7 @@ export function useEditorDrafts(config: EditorDraftsConfig): UseEditorDraftsRetu
   const [lastSaved, setLastSaved] = useState<Record<string, string>>({});
   const [saveState, setSaveState] = useState<Record<string, SaveState>>({});
   const [saveError, setSaveError] = useState<Record<string, string | null>>({});
-  const saveTimersRef = useRef<Record<string, ReturnType<typeof setTimeout> | null>>({});
+  const saveTimersRef = useRef<Record<string, PendingSave | null>>({});
   const draftsRef = useRef(drafts);
 
   const lastSavedRef = useRef(lastSaved);
@@ -54,12 +60,45 @@ export function useEditorDrafts(config: EditorDraftsConfig): UseEditorDraftsRetu
   }, [config.onSave]);
 
   const clearTimer = useCallback((path: string) => {
-    const timer = saveTimersRef.current[path];
-    if (timer) {
-      clearTimeout(timer);
+    const pending = saveTimersRef.current[path];
+    if (pending) {
+      clearTimeout(pending.timer);
       saveTimersRef.current[path] = null;
     }
   }, []);
+
+  const runSave = useCallback(
+    async (path: string, content: string, baseline: string, expectedHash?: string) => {
+      if (baseline === content) {
+        setSaveState((prev) => ({ ...prev, [path]: "idle" }));
+        setSaveError((prev) => ({ ...prev, [path]: null }));
+        return;
+      }
+
+      setSaveState((prev) => ({ ...prev, [path]: "saving" }));
+      setSaveError((prev) => ({ ...prev, [path]: null }));
+
+      const onSave = onSaveRef.current;
+      if (!onSave) {
+        setSaveState((prev) => ({ ...prev, [path]: "dirty" }));
+        return;
+      }
+
+      const result = await onSave(path, content, expectedHash);
+      if (result.ok) {
+        setLastSaved((prev) => ({ ...prev, [path]: content }));
+        baseContentRef.current[path] = content;
+        baseHashRef.current[path] = result.hash;
+        setSaveState((prev) => ({ ...prev, [path]: "saved" }));
+        setSaveError((prev) => ({ ...prev, [path]: null }));
+        return;
+      }
+
+      setSaveState((prev) => ({ ...prev, [path]: "error" }));
+      setSaveError((prev) => ({ ...prev, [path]: result.error }));
+    },
+    []
+  );
 
   const scheduleAutosave = useCallback(
     (path: string, content: string, baseline: string, expectedHash?: string) => {
@@ -67,39 +106,15 @@ export function useEditorDrafts(config: EditorDraftsConfig): UseEditorDraftsRetu
 
       clearTimer(path);
 
-      saveTimersRef.current[path] = setTimeout(async () => {
-        saveTimersRef.current[path] = null;
-
-        if (baseline === content) {
-          setSaveState((prev) => ({ ...prev, [path]: "idle" }));
-          setSaveError((prev) => ({ ...prev, [path]: null }));
-          return;
-        }
-
-        setSaveState((prev) => ({ ...prev, [path]: "saving" }));
-        setSaveError((prev) => ({ ...prev, [path]: null }));
-
-        const onSave = onSaveRef.current;
-        if (!onSave) {
-          setSaveState((prev) => ({ ...prev, [path]: "dirty" }));
-          return;
-        }
-
-        const result = await onSave(path, content, expectedHash);
-        if (result.ok) {
-          setLastSaved((prev) => ({ ...prev, [path]: content }));
-          baseContentRef.current[path] = content;
-          baseHashRef.current[path] = result.hash;
-          setSaveState((prev) => ({ ...prev, [path]: "saved" }));
-          setSaveError((prev) => ({ ...prev, [path]: null }));
-          return;
-        }
-
-        setSaveState((prev) => ({ ...prev, [path]: "error" }));
-        setSaveError((prev) => ({ ...prev, [path]: result.error }));
-      }, debounceMs);
+      saveTimersRef.current[path] = {
+        timer: setTimeout(() => {
+          saveTimersRef.current[path] = null;
+          void runSave(path, content, baseline, expectedHash);
+        }, debounceMs),
+        args: { content, baseline, expectedHash },
+      };
     },
-    [clearTimer, debounceMs]
+    [clearTimer, debounceMs, runSave]
   );
 
   const handleChange = useCallback(
@@ -131,10 +146,22 @@ export function useEditorDrafts(config: EditorDraftsConfig): UseEditorDraftsRetu
     [clearTimer, scheduleAutosave]
   );
 
+  const flushDraft = useCallback(
+    async (path: string) => {
+      const pending = saveTimersRef.current[path];
+      if (!pending) return;
+
+      clearTimeout(pending.timer);
+      saveTimersRef.current[path] = null;
+      await runSave(path, pending.args.content, pending.args.baseline, pending.args.expectedHash);
+    },
+    [runSave]
+  );
+
   const clearDraft = useCallback((path: string) => {
-    const timer = saveTimersRef.current[path];
-    if (timer) {
-      clearTimeout(timer);
+    const pending = saveTimersRef.current[path];
+    if (pending) {
+      clearTimeout(pending.timer);
       saveTimersRef.current[path] = null;
     }
 
@@ -157,8 +184,8 @@ export function useEditorDrafts(config: EditorDraftsConfig): UseEditorDraftsRetu
   useEffect(() => {
     const timers = saveTimersRef.current;
     return () => {
-      Object.values(timers).forEach((timer) => {
-        if (timer) clearTimeout(timer);
+      Object.values(timers).forEach((pending) => {
+        if (pending) clearTimeout(pending.timer);
       });
     };
   }, []);
@@ -182,7 +209,8 @@ export function useEditorDrafts(config: EditorDraftsConfig): UseEditorDraftsRetu
       getSaveError,
       handleChange,
       clearDraft,
+      flushDraft,
     }),
-    [clearDraft, getDraft, getSaveError, getSaveState, handleChange]
+    [clearDraft, flushDraft, getDraft, getSaveError, getSaveState, handleChange]
   );
 }

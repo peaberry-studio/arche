@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   auditEvent: vi.fn(),
   cancelLearningRun: vi.fn(),
   createInstanceClient: vi.fn(),
+  findIdBySlug: vi.fn(),
   findLearningRunForUser: vi.fn(),
   abortSessionFamilyAndConfirmIdle: vi.fn(),
 }))
@@ -18,6 +19,8 @@ vi.mock('@/lib/learning/service', () => ({
   cancelLearningRun: mocks.cancelLearningRun,
   findLearningRunForUser: mocks.findLearningRunForUser,
 }))
+
+vi.mock('@/lib/services/user', () => ({ findIdBySlug: mocks.findIdBySlug }))
 
 vi.mock('@/lib/opencode/client', () => ({
   createInstanceClient: mocks.createInstanceClient,
@@ -76,6 +79,7 @@ function routeContext(runId = 'run-1') {
 describe('/api/u/[slug]/learning/runs/[runId]/cancel', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.findIdBySlug.mockResolvedValue({ id: 'user-1' })
     mocks.findLearningRunForUser.mockResolvedValue(runningRun)
     mocks.cancelLearningRun.mockResolvedValue({ ...runningRun, status: 'cancelled' })
     mocks.auditEvent.mockResolvedValue(undefined)
@@ -179,6 +183,28 @@ describe('/api/u/[slug]/learning/runs/[runId]/cancel', () => {
 
     expect(response.status).toBe(400)
     await expect(response.json()).resolves.toEqual({ error: 'run_not_cancelable' })
+    expect(mocks.cancelLearningRun).not.toHaveBeenCalled()
+  })
+
+  it('cancels the workspace owner run for admin cross-slug requests', async () => {
+    mocks.findIdBySlug.mockResolvedValue({ id: 'alice-owner' })
+
+    const response = await POST(makeRequest(), routeContext())
+
+    expect(response.status).toBe(200)
+    expect(mocks.findLearningRunForUser).toHaveBeenCalledWith({ runId: 'run-1', userId: 'alice-owner' })
+    expect(mocks.cancelLearningRun).toHaveBeenCalledWith({ runId: 'run-1', userId: 'alice-owner' })
+    expect(mocks.auditEvent).toHaveBeenCalledWith(expect.objectContaining({ actorUserId: 'user-1' }))
+  })
+
+  it('rejects the request when the workspace owner cannot be resolved', async () => {
+    mocks.findIdBySlug.mockResolvedValue(null)
+
+    const response = await POST(makeRequest(), routeContext())
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({ error: 'workspace_owner_not_found' })
+    expect(mocks.findLearningRunForUser).not.toHaveBeenCalled()
     expect(mocks.cancelLearningRun).not.toHaveBeenCalled()
   })
 })

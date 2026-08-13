@@ -994,3 +994,197 @@ func assertNoUnmergedEntries(t *testing.T, ctx context.Context, workspace string
 		t.Fatalf("expected no unmerged index entries, got %q", out)
 	}
 }
+
+func TestHandleKbPublishRejectsChangedReviewedContent(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	remote := filepath.Join(root, "kb.git")
+	ctx := context.Background()
+
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+	runGit(t, ctx, workspace, "init", "-b", "main")
+	runGit(t, ctx, workspace, "config", "user.email", "tests@example.com")
+	runGit(t, ctx, workspace, "config", "user.name", "Workspace Agent Tests")
+	writeWorkspaceTestFile(t, workspace, "README.md", "base\n")
+	runGit(t, ctx, workspace, "add", "README.md")
+	runGit(t, ctx, workspace, "commit", "-m", "initial")
+	runGit(t, ctx, root, "init", "--bare", remote)
+	runGit(t, ctx, workspace, "remote", "add", "kb", remote)
+	runGit(t, ctx, workspace, "push", "-u", "kb", "main")
+
+	// The reviewed change was applied, then unreviewed bytes landed on top.
+	writeWorkspaceTestFile(t, workspace, "Knowledge/Reviewed.md", "reviewed content\n")
+	appliedHash := hashBytes([]byte("reviewed content\n"))
+	writeWorkspaceTestFile(t, workspace, "Knowledge/Reviewed.md", "reviewed content\n+ unreviewed edit\n")
+
+	s := &server{workspace: workspace}
+	req := httptest.NewRequest(http.MethodPost, "/kb/publish", strings.NewReader(mustJSON(t, kbPublishRequest{
+		Paths:      []string{"Knowledge/Reviewed.md"},
+		PathHashes: map[string]string{"Knowledge/Reviewed.md": appliedHash},
+	})))
+	recorder := httptest.NewRecorder()
+	s.handleKbPublish(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("publish status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	var response publishKbResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode publish response: %v", err)
+	}
+	if response.Ok || response.Status != "error" || response.Message != "reviewed_content_changed" {
+		t.Fatalf("unexpected publish response: %+v", response)
+	}
+
+	// The remote must not have received the changed bytes.
+	remoteWork := filepath.Join(root, "remote-work")
+	runGit(t, ctx, root, "clone", remote, remoteWork)
+	if _, err := os.Stat(filepath.Join(remoteWork, "Knowledge", "Reviewed.md")); !os.IsNotExist(err) {
+		t.Fatalf("reviewed file was published despite changed content: %v", err)
+	}
+}
+
+func TestHandleKbPublishDeletesRequireAbsentFile(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	remote := filepath.Join(root, "kb.git")
+	ctx := context.Background()
+
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+	runGit(t, ctx, workspace, "init", "-b", "main")
+	runGit(t, ctx, workspace, "config", "user.email", "tests@example.com")
+	runGit(t, ctx, workspace, "config", "user.name", "Workspace Agent Tests")
+	writeWorkspaceTestFile(t, workspace, "README.md", "base\n")
+	runGit(t, ctx, workspace, "add", "README.md")
+	runGit(t, ctx, workspace, "commit", "-m", "initial")
+	runGit(t, ctx, root, "init", "--bare", remote)
+	runGit(t, ctx, workspace, "remote", "add", "kb", remote)
+	runGit(t, ctx, workspace, "push", "-u", "kb", "main")
+
+	// A reviewed delete whose target file came back must fail closed.
+	writeWorkspaceTestFile(t, workspace, "Knowledge/Gone.md", "should have been deleted\n")
+
+	s := &server{workspace: workspace}
+	req := httptest.NewRequest(http.MethodPost, "/kb/publish", strings.NewReader(mustJSON(t, kbPublishRequest{
+		Paths:      []string{"Knowledge/Gone.md"},
+		PathHashes: map[string]string{"Knowledge/Gone.md": "deleted"},
+	})))
+	recorder := httptest.NewRecorder()
+	s.handleKbPublish(recorder, req)
+
+	var response publishKbResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode publish response: %v", err)
+	}
+	if response.Ok || response.Status != "error" || response.Message != "reviewed_content_changed" {
+		t.Fatalf("unexpected publish response: %+v", response)
+	}
+}
+
+func TestHandleKbPublishUnicodePath(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	remote := filepath.Join(root, "kb.git")
+	remoteWork := filepath.Join(root, "remote-work")
+	ctx := context.Background()
+	unicodePath := "Notes/Café.md"
+
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+	runGit(t, ctx, workspace, "init", "-b", "main")
+	runGit(t, ctx, workspace, "config", "user.email", "tests@example.com")
+	runGit(t, ctx, workspace, "config", "user.name", "Workspace Agent Tests")
+	writeWorkspaceTestFile(t, workspace, "README.md", "base\n")
+	runGit(t, ctx, workspace, "add", "README.md")
+	runGit(t, ctx, workspace, "commit", "-m", "initial")
+	runGit(t, ctx, root, "init", "--bare", remote)
+	runGit(t, ctx, workspace, "remote", "add", "kb", remote)
+	runGit(t, ctx, workspace, "push", "-u", "kb", "main")
+
+	writeWorkspaceTestFile(t, workspace, unicodePath, "reviewed unicode\n")
+	currentHash := hashBytes([]byte("reviewed unicode\n"))
+
+	s := &server{workspace: workspace}
+	req := httptest.NewRequest(http.MethodPost, "/kb/publish", strings.NewReader(mustJSON(t, kbPublishRequest{
+		Paths:      []string{unicodePath},
+		PathHashes: map[string]string{unicodePath: currentHash},
+	})))
+	recorder := httptest.NewRecorder()
+	s.handleKbPublish(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("publish status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	var response publishKbResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode publish response: %v", err)
+	}
+	if response.Status != "published" {
+		t.Fatalf("unexpected publish response: %+v", response)
+	}
+	found := false
+	for _, f := range response.Files {
+		if f == unicodePath {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("unicode path missing from published files: %v", response.Files)
+	}
+
+	runGit(t, ctx, root, "clone", remote, remoteWork)
+	content, err := os.ReadFile(filepath.Join(remoteWork, "Notes", "Café.md"))
+	if err != nil || string(content) != "reviewed unicode\n" {
+		t.Fatalf("unicode content = %q, err = %v", string(content), err)
+	}
+}
+
+func TestHandleFileReadRef(t *testing.T) {
+	workspace := t.TempDir()
+	ctx := context.Background()
+	s := &server{workspace: workspace}
+
+	runGit(t, ctx, workspace, "init", "-b", "main")
+	runGit(t, ctx, workspace, "config", "user.email", "tests@example.com")
+	runGit(t, ctx, workspace, "config", "user.name", "Workspace Agent Tests")
+	writeWorkspaceTestFile(t, workspace, "Notes/A.md", "committed content\n")
+	runGit(t, ctx, workspace, "add", "Notes/A.md")
+	runGit(t, ctx, workspace, "commit", "-m", "base")
+
+	// Working tree diverges from HEAD.
+	writeWorkspaceTestFile(t, workspace, "Notes/A.md", "working tree content\n")
+
+	req := httptest.NewRequest(http.MethodPost, "/files/read_ref", strings.NewReader(mustJSON(t, fileReadRefRequest{
+		Path: "Notes/A.md",
+		Ref:  "HEAD",
+	})))
+	recorder := httptest.NewRecorder()
+	s.handleFileReadRef(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("read_ref status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	var response fileReadRefResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode read_ref response: %v", err)
+	}
+	if !response.Ok || response.Content != "committed content\n" || response.Hash != hashBytes([]byte("committed content\n")) {
+		t.Fatalf("unexpected read_ref response: %+v", response)
+	}
+
+	// Unreviewable paths are rejected before running git.
+	hiddenReq := httptest.NewRequest(http.MethodPost, "/files/read_ref", strings.NewReader(mustJSON(t, fileReadRefRequest{
+		Path: ".hidden.md",
+		Ref:  "HEAD",
+	})))
+	hiddenRecorder := httptest.NewRecorder()
+	s.handleFileReadRef(hiddenRecorder, hiddenReq)
+	if hiddenRecorder.Code != http.StatusForbidden {
+		t.Fatalf("hidden path status = %d, body = %s", hiddenRecorder.Code, hiddenRecorder.Body.String())
+	}
+}

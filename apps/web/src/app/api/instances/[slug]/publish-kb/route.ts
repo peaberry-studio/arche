@@ -8,6 +8,7 @@ import {
 import { isWorkspaceReachable } from '@/lib/runtime/workspace-host'
 import { withAuth } from '@/lib/runtime/with-auth'
 import { kbGithubRemoteService } from '@/lib/services'
+import { findIdBySlug } from '@/lib/services/user'
 import { createWorkspaceAgentClient } from '@/lib/workspace-agent/client'
 
 export interface PublishKbResult {
@@ -35,7 +36,10 @@ const PUBLISH_MESSAGE_LABELS: Record<string, string> = {
   no_reviewed_changes_to_publish: 'No reviewed changes to publish. Apply changes from Knowledge Review first, or discard unreviewed edits.',
   reviewed_path_manifest_required: 'Unreviewed workspace changes must be reviewed or discarded before publishing.',
   unreviewed_changes_present: 'The workspace contains unreviewed changes. Review or discard them before publishing.',
+  reviewed_content_changed: 'A reviewed file changed after it was applied. Re-apply or discard the newer edits before publishing.',
+  reviewed_hash_missing: 'A reviewed change has no recorded content hash. Re-apply it before publishing.',
   workspace_diffs_unavailable: 'Could not read workspace changes. Try again.',
+  workspace_owner_not_found: 'Could not resolve the workspace owner. Try again.',
 }
 
 function publishMessage(code: string): string {
@@ -55,6 +59,18 @@ export const POST = withAuth<PublishKbResult | { error: string }>(
       const agent = await createWorkspaceAgentClient(slug)
       if (!agent) {
         return NextResponse.json({ error: 'instance_unavailable' }, { status: 409 })
+      }
+
+      // Review records belong to the workspace owner. An ADMIN can publish
+      // another user's workspace, so the owner must be resolved from the slug
+      // instead of assuming the acting user is the owner.
+      const owner = await findIdBySlug(slug)
+      if (!owner) {
+        return NextResponse.json({
+          ok: false,
+          status: 'error',
+          message: publishMessage('workspace_owner_not_found'),
+        })
       }
 
       const githubRemote = await kbGithubRemoteService.createWorkspaceRemoteConfig()
@@ -85,7 +101,7 @@ export const POST = withAuth<PublishKbResult | { error: string }>(
       // With no workspace diffs there is nothing to gate: let the agent push
       // already-committed content (e.g. the initial GitHub sync).
       const appliedChanges = diffPaths.length > 0
-        ? await listAppliedKnowledgeReviewChanges({ paths: diffPaths, userId: user.id })
+        ? await listAppliedKnowledgeReviewChanges({ paths: diffPaths, userId: owner.id })
         : []
       const reviewedPaths = appliedChanges.map((change) => change.kbPath)
       if (diffPaths.length > 0 && reviewedPaths.length === 0) {
@@ -96,9 +112,30 @@ export const POST = withAuth<PublishKbResult | { error: string }>(
         })
       }
 
+      // Publication authorizes the applied content by hash, not just the path:
+      // the agent re-verifies these hashes immediately before committing so
+      // later unreviewed bytes at an approved path cannot be published. A
+      // legacy applied change without a recorded hash cannot be verified, so
+      // publishing fails closed instead of sending an empty hash the agent
+      // would skip.
+      const pathHashes: Record<string, string> = {}
+      for (const change of appliedChanges) {
+        if (change.operation === 'delete') {
+          pathHashes[change.kbPath] = 'deleted'
+        } else if (!change.appliedHash) {
+          return NextResponse.json({
+            ok: false,
+            status: 'error',
+            message: publishMessage('reviewed_hash_missing'),
+          })
+        } else {
+          pathHashes[change.kbPath] = change.appliedHash
+        }
+      }
+
       const body = JSON.stringify({
         ...(githubRemote.remote ? { github: githubRemote.remote } : {}),
-        ...(reviewedPaths.length > 0 ? { paths: reviewedPaths } : {}),
+        ...(reviewedPaths.length > 0 ? { paths: reviewedPaths, pathHashes } : {}),
       })
 
       const response = await fetch(`${agent.baseUrl}/kb/publish`, {
@@ -136,12 +173,12 @@ export const POST = withAuth<PublishKbResult | { error: string }>(
             actor: user.id,
             commitSha: data.commitHash,
             paths: publishedPaths,
-            userId: user.id,
+            userId: owner.id,
           })
           await auditEvent({
             actorUserId: user.id,
             action: 'knowledge.review_published',
-            metadata: { commitSha: data.commitHash, paths: publishedPaths },
+            metadata: { commitSha: data.commitHash, paths: publishedPaths, workspaceOwnerId: owner.id },
           })
         }
       }

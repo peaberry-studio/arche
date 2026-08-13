@@ -78,6 +78,7 @@ type InspectorPanelProps = {
   onResolveConflict?: (path: string) => void | Promise<void>;
   onKnowledgeReviewApplied?: () => void | Promise<void>;
   onProposalCountChange?: (count: number) => void;
+  onSubmittedForReview?: () => void | Promise<void>;
   knowledgeReviewRefreshKey?: number;
   hideCollapseButton?: boolean;
 };
@@ -221,6 +222,7 @@ export function InspectorPanel({
   onOpenFile,
   onKnowledgeReviewApplied,
   onProposalCountChange,
+  onSubmittedForReview,
   knowledgeReviewRefreshKey,
   internalLinkPaths,
   onReloadFile,
@@ -258,6 +260,7 @@ export function InspectorPanel({
       onOpenFile={onOpenFile}
       onKnowledgeReviewApplied={onKnowledgeReviewApplied}
       onProposalCountChange={onProposalCountChange}
+      onSubmittedForReview={onSubmittedForReview}
       knowledgeReviewRefreshKey={knowledgeReviewRefreshKey}
       internalLinkPaths={internalLinkPaths}
       onReloadFile={onReloadFile}
@@ -286,6 +289,7 @@ function ExpandedInspectorPanel({
   onOpenFile,
   onKnowledgeReviewApplied,
   onProposalCountChange,
+  onSubmittedForReview,
   knowledgeReviewRefreshKey,
   internalLinkPaths = [],
   onReloadFile,
@@ -623,6 +627,7 @@ function ExpandedInspectorPanel({
               onProposalCountChange={handleProposalCountChange}
               onDiscardFileChanges={onDiscardFileChanges}
               onKnowledgeReviewApplied={onKnowledgeReviewApplied}
+              onSubmittedForReview={onSubmittedForReview}
               knowledgeReviewRefreshKey={knowledgeReviewRefreshKey}
               onResolveConflict={onResolveConflict}
             />

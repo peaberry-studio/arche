@@ -191,4 +191,39 @@ describe("useEditorDrafts", () => {
 
     expect(onSave).not.toHaveBeenCalled();
   });
+
+  it("flushDraft sends a pending debounced edit immediately without losing it", async () => {
+    const onSave = vi.fn<
+      (path: string, content: string) => Promise<SaveResult>
+    >(async () => ({ ok: true }));
+    const { result } = renderHook(() => useEditorDrafts({ onSave }));
+
+    act(() => {
+      result.current.handleChange("kb/note.md", "pending edit", "original");
+    });
+
+    expect(result.current.getSaveState("kb/note.md")).toBe("dirty");
+
+    await act(async () => {
+      await result.current.flushDraft("kb/note.md");
+    });
+
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(onSave).toHaveBeenCalledWith("kb/note.md", "pending edit", undefined);
+    expect(result.current.getSaveState("kb/note.md")).toBe("saved");
+    expect(result.current.getDraft("kb/note.md", "original")).toBe("pending edit");
+  });
+
+  it("flushDraft is a no-op when no save is pending", async () => {
+    const onSave = vi.fn<
+      (path: string, content: string) => Promise<SaveResult>
+    >(async () => ({ ok: true }));
+    const { result } = renderHook(() => useEditorDrafts({ onSave }));
+
+    await act(async () => {
+      await result.current.flushDraft("kb/note.md");
+    });
+
+    expect(onSave).not.toHaveBeenCalled();
+  });
 });

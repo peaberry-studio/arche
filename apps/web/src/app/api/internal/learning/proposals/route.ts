@@ -36,7 +36,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: base.error }, { status })
   }
 
-  const proposal = await createKnowledgeReviewChange(context.userId, {
+  const result = await createKnowledgeReviewChange(context.userId, {
     runId: input.runId ?? null,
     regeneratedFromId: run?.regenerationChangeId ?? null,
     author: 'knowledge-curator',
@@ -54,5 +54,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     initialStatus: base.data.initialStatus,
   })
 
-  return NextResponse.json({ proposal })
+  if (!result.ok) {
+    const status = result.error === 'regeneration_source_not_rebaseable' ? 409 : 400
+    return NextResponse.json({ error: result.error }, { status })
+  }
+
+  return NextResponse.json({ proposal: result.change })
 }

@@ -1,16 +1,16 @@
 import {
+  KNOWLEDGE_REVIEW_OPERATIONS,
   LEARNING_EVIDENCE_QUOTE_MAX_LENGTH,
   LEARNING_EVIDENCE_SOURCE_MAX_LENGTH,
   LEARNING_KB_PATH_MAX_LENGTH,
-  LEARNING_OPERATIONS,
   LEARNING_PROPOSAL_ACTIONS,
   LEARNING_PROPOSAL_TYPES,
   LEARNING_PROPOSED_CONTENT_MAX_LENGTH,
   LEARNING_TITLE_MAX_LENGTH,
   LEARNING_TRIGGERS,
+  type KnowledgeReviewOperation,
   type LearningEvidence,
   type LearningProposalAction,
-  type LearningProposalOperation,
   type LearningProposalType,
   type LearningTrigger,
 } from '@/types/learning'
@@ -22,7 +22,7 @@ export type LearningProposalRequest = {
   confidence?: number
   evidence?: LearningEvidence
   kbPath: string
-  operation: LearningProposalOperation
+  operation: KnowledgeReviewOperation
   proposedContent: string
   reason?: string
   currentFileHash?: string | null
@@ -52,8 +52,8 @@ function isProposalType(value: unknown): value is LearningProposalType {
   return typeof value === 'string' && LEARNING_PROPOSAL_TYPES.includes(value as LearningProposalType)
 }
 
-function isOperation(value: unknown): value is LearningProposalOperation {
-  return typeof value === 'string' && LEARNING_OPERATIONS.includes(value as LearningProposalOperation)
+function isOperation(value: unknown): value is KnowledgeReviewOperation {
+  return typeof value === 'string' && KNOWLEDGE_REVIEW_OPERATIONS.includes(value as KnowledgeReviewOperation)
 }
 
 function isTrigger(value: unknown): value is LearningTrigger {
@@ -107,7 +107,14 @@ export function parseProposalRequest(body: unknown):
   if (!isRecord(body)) return { ok: false }
   if (!isBoundedString(body.title, LEARNING_TITLE_MAX_LENGTH)) return { ok: false }
   if (!isValidKbPath(body.kbPath)) return { ok: false }
-  if (!isBoundedString(body.proposedContent, LEARNING_PROPOSED_CONTENT_MAX_LENGTH)) return { ok: false }
+  // A delete operation carries no file content, so its proposed content may be
+  // empty; create/update must always propose a full file.
+  if (typeof body.proposedContent !== 'string' || body.proposedContent.length > LEARNING_PROPOSED_CONTENT_MAX_LENGTH) {
+    return { ok: false }
+  }
+  if (body.operation !== 'delete' && !isBoundedString(body.proposedContent, LEARNING_PROPOSED_CONTENT_MAX_LENGTH)) {
+    return { ok: false }
+  }
   if (!isOperation(body.operation)) return { ok: false }
   if (!isOptionalStringOrNull(body.runId)) return { ok: false }
   if (!isOptionalStringOrNull(body.currentFileHash)) return { ok: false }
@@ -155,8 +162,13 @@ export function parseProposalActionRequest(body: unknown):
   if (body.action === 'save_draft' && (typeof body.content !== 'string' || body.content.length > LEARNING_PROPOSED_CONTENT_MAX_LENGTH)) {
     return { ok: false }
   }
-  if (body.action !== 'save_draft' && body.content !== undefined && !isBoundedString(body.content, LEARNING_PROPOSED_CONTENT_MAX_LENGTH)) {
-    return { ok: false }
+  if (body.action !== 'save_draft' && body.content !== undefined) {
+    // Applying a delete change carries no content. Other actions either ignore
+    // content or need a bounded non-empty payload.
+    const isEmptyApply = body.action === 'apply' && body.content === ''
+    if (!isEmptyApply && !isBoundedString(body.content, LEARNING_PROPOSED_CONTENT_MAX_LENGTH)) {
+      return { ok: false }
+    }
   }
 
   return {

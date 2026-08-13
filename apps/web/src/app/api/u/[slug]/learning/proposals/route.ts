@@ -9,6 +9,7 @@ import {
 } from '@/lib/learning/service'
 import { parseProposalActionRequest } from '@/lib/learning/validation'
 import { withAuth } from '@/lib/runtime/with-auth'
+import { findIdBySlug } from '@/lib/services/user'
 import type { KnowledgeReviewChange, LearningProposalAction, LearningRun } from '@/types/learning'
 
 type KnowledgeReviewActionResult =
@@ -54,17 +55,29 @@ export const POST = withAuth<{ proposal: KnowledgeReviewChange } | { run: Learni
     }
 
     const { action, proposalId, content } = parsed.value
+
+    // Review records belong to the workspace owner. An ADMIN can act on
+    // another user's workspace, so the owner must be resolved from the slug
+    // instead of assuming the acting user is the owner.
+    const owner = await findIdBySlug(context.slug)
+    if (!owner) {
+      return NextResponse.json({ error: 'workspace_owner_not_found' }, { status: 400 })
+    }
+
     const result = await dispatchKnowledgeReviewAction({
       action,
       actor: context.user.id,
       changeId: proposalId,
       content,
       slug: context.slug,
-      userId: context.user.id,
+      userId: owner.id,
     })
 
     if (!result.ok) {
-      return NextResponse.json({ error: result.error }, { status: 400 })
+      // The change's state moved underneath a regeneration or apply; these are
+      // concurrency conflicts rather than malformed requests.
+      const status = CONFLICT_ERRORS.has(result.error) ? 409 : 400
+      return NextResponse.json({ error: result.error }, { status })
     }
 
     return 'run' in result
@@ -72,3 +85,9 @@ export const POST = withAuth<{ proposal: KnowledgeReviewChange } | { run: Learni
       : NextResponse.json({ proposal: result.change })
   }
 )
+
+const CONFLICT_ERRORS = new Set([
+  'needs_rebase',
+  'not_rebaseable',
+  'regeneration_source_not_rebaseable',
+])

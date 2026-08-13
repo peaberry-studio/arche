@@ -188,6 +188,30 @@ describe('KnowledgeReviewList', () => {
     })
   })
 
+  it('applies a delete change with empty content', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(learningResponse([
+        makeChange({ operation: 'delete', proposedContent: '', title: 'Remove old file' }),
+      ])))
+      .mockResolvedValueOnce(jsonResponse({ proposal: { id: 'change-1' } }))
+      .mockResolvedValueOnce(jsonResponse(learningResponse([])))
+    const onApplied = vi.fn()
+
+    render(<KnowledgeReviewList slug="alice" onApplied={onApplied} />)
+
+    expect(await screen.findByText('Remove old file')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith('/api/u/alice/learning/proposals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'apply', proposalId: 'change-1', content: '' }),
+      })
+    })
+    await waitFor(() => expect(onApplied).toHaveBeenCalledTimes(1))
+  })
+
   it('shows rebase controls and disables apply for needs_rebase changes', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(learningResponse([makeChange({ status: 'needs_rebase' })])))
 
@@ -238,6 +262,62 @@ describe('KnowledgeReviewList', () => {
         body: JSON.stringify({ action: 'regenerate', proposalId: 'change-1', content: undefined }),
       })
     })
+  })
+
+  it('flushes a pending debounced edit before rebasing so the draft is not lost', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(learningResponse([makeChange({ status: 'needs_rebase' })])))
+      .mockResolvedValueOnce(jsonResponse({ proposal: { id: 'change-1' } }))
+      .mockResolvedValueOnce(jsonResponse({ proposal: { id: 'change-1' } }))
+      .mockResolvedValueOnce(jsonResponse(learningResponse([makeChange()])))
+
+    render(<KnowledgeReviewList slug="alice" />)
+
+    expect(await screen.findByText('Remember preference')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    const editor = await screen.findByRole('textbox', { name: 'Edit proposal content' })
+    fireEvent.change(editor, { target: { value: '# Edited before rebase' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Use current base' }))
+
+    await waitFor(() => {
+      const actions = fetchMock.mock.calls
+        .filter(([, init]) => String(init?.method) === 'POST')
+        .map(([, init]) => String(init?.body))
+      const draftCall = actions.findIndex((body) => body.includes('save_draft'))
+      const rebaseCall = actions.findIndex((body) => body.includes('"rebase"'))
+      expect(draftCall).toBeGreaterThanOrEqual(0)
+      expect(rebaseCall).toBeGreaterThanOrEqual(0)
+      expect(draftCall).toBeLessThan(rebaseCall)
+      expect(actions[draftCall]).toContain('# Edited before rebase')
+    }, { timeout: 2000 })
+  })
+
+  it('flushes a pending debounced edit before regenerating so the draft is not lost', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(learningResponse([makeChange({ status: 'needs_rebase' })])))
+      .mockResolvedValueOnce(jsonResponse({ proposal: { id: 'change-1' } }))
+      .mockResolvedValueOnce(jsonResponse({ run: { id: 'run-1' } }))
+      .mockResolvedValueOnce(jsonResponse(learningResponse([makeChange({ status: 'needs_rebase' })])))
+
+    render(<KnowledgeReviewList slug="alice" />)
+
+    expect(await screen.findByText('Remember preference')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    const editor = await screen.findByRole('textbox', { name: 'Edit proposal content' })
+    fireEvent.change(editor, { target: { value: '# Edited before regenerate' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Regenerate with curator' }))
+
+    await waitFor(() => {
+      const actions = fetchMock.mock.calls
+        .filter(([, init]) => String(init?.method) === 'POST')
+        .map(([, init]) => String(init?.body))
+      const draftCall = actions.findIndex((body) => body.includes('save_draft'))
+      const regenerateCall = actions.findIndex((body) => body.includes('"regenerate"'))
+      expect(draftCall).toBeGreaterThanOrEqual(0)
+      expect(regenerateCall).toBeGreaterThanOrEqual(0)
+      expect(draftCall).toBeLessThan(regenerateCall)
+      expect(actions[draftCall]).toContain('# Edited before regenerate')
+    }, { timeout: 2000 })
   })
 
   it('persists draft edits through save_draft', async () => {

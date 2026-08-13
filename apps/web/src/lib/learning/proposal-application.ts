@@ -1,16 +1,16 @@
 import { auditEvent } from '@/lib/auth'
 import {
+  createKnowledgeReviewChange,
   findKnowledgeReviewChange,
-  findPendingLearningProposal,
   markKnowledgeReviewChangeApplied,
+  markKnowledgeReviewChangeApplying,
   markKnowledgeReviewChangeNeedsRebase,
   rebaseKnowledgeReviewChange,
   rejectKnowledgeReviewChange,
   saveKnowledgeReviewDraft,
   startLearningRunForKnowledgeReviewRegeneration,
-  updatePendingLearningProposalApplied,
-  updatePendingLearningProposalRejected,
 } from '@/lib/learning/repository'
+import { isValidKbPath } from '@/lib/learning/validation'
 import { dispatchLearningRunExecution } from '@/lib/learning/run-executor'
 import { createWorkspaceAgentClient } from '@/lib/workspace-agent/client'
 import { workspaceAgentFetch } from '@/lib/workspace-agent-client'
@@ -18,7 +18,6 @@ import type {
   KnowledgeReviewChange,
   KnowledgeReviewOperation,
   KnowledgeReviewRegenerationContext,
-  LearningProposal,
   LearningRun,
 } from '@/types/learning'
 
@@ -40,6 +39,14 @@ type FileDeleteResponse = {
   ok: boolean
   path: string
   deleted: boolean
+}
+
+type FileReadRefResponse = {
+  ok: boolean
+  path: string
+  content: string
+  encoding: string
+  hash: string
 }
 
 export type KnowledgeReviewBaseCapture = {
@@ -86,66 +93,6 @@ async function captureCurrentKnowledgeReviewFile(args: {
 }): Promise<{ content: string | null; hash: string | null }> {
   const read = await workspaceAgentFetch<FileReadResponse>(args.agent, '/files/read', { path: args.kbPath })
   return read.ok ? { content: read.data.content, hash: read.data.hash } : { content: null, hash: null }
-}
-
-export async function rejectLearningProposal(args: {
-  userId: string
-  proposalId: string
-}): Promise<{ ok: true; proposal: LearningProposal } | { ok: false; error: string }> {
-  const proposal = await findPendingLearningProposal({ proposalId: args.proposalId, userId: args.userId })
-  if (!proposal) return { ok: false, error: 'not_found' }
-  if (proposal.status !== 'pending') return { ok: false, error: 'not_pending' }
-
-  const updated = await updatePendingLearningProposalRejected({ proposalId: proposal.id, userId: args.userId })
-  if (!updated) return { ok: false, error: 'not_pending' }
-
-  await auditEvent({ actorUserId: args.userId, action: 'learning.proposal_rejected', metadata: { proposalId: proposal.id } })
-  return { ok: true, proposal: updated }
-}
-
-export async function applyLearningProposal(args: {
-  userId: string
-  slug: string
-  proposalId: string
-  content?: string
-}): Promise<{ ok: true; proposal: LearningProposal } | { ok: false; error: string }> {
-  const proposal = await findPendingLearningProposal({ proposalId: args.proposalId, userId: args.userId })
-  if (!proposal) return { ok: false, error: 'not_found' }
-  if (proposal.status !== 'pending') return { ok: false, error: 'not_pending' }
-
-  const agent = await createWorkspaceAgentClient(args.slug)
-  if (!agent) return { ok: false, error: 'workspace_agent_unavailable' }
-
-  const read = await workspaceAgentFetch<FileReadResponse>(agent, '/files/read', { path: proposal.kbPath })
-  if (proposal.operation === 'create') {
-    if (read.ok) return { ok: false, error: 'file_exists' }
-    if (read.status !== 404) return { ok: false, error: read.error }
-  } else {
-    if (!read.ok) return { ok: false, error: read.error }
-    if (proposal.currentFileHash && read.data.hash !== proposal.currentFileHash) {
-      return { ok: false, error: 'hash_conflict' }
-    }
-  }
-
-  const expectedHash = proposal.operation === 'create' ? '' : read.ok ? read.data.hash : ''
-  const content = args.content ?? proposal.proposedContent
-  const write = await workspaceAgentFetch<FileWriteResponse>(agent, '/files/write', {
-    path: proposal.kbPath,
-    content,
-    encoding: 'utf-8',
-    expectedHash,
-  })
-  if (!write.ok) return { ok: false, error: write.error }
-
-  const updated = await updatePendingLearningProposalApplied({ proposalId: proposal.id, userId: args.userId, content })
-  if (!updated) return { ok: false, error: 'not_pending' }
-
-  await auditEvent({
-    actorUserId: args.userId,
-    action: 'learning.proposal_applied',
-    metadata: { proposalId: proposal.id, kbPath: proposal.kbPath },
-  })
-  return { ok: true, proposal: updated }
 }
 
 export async function saveKnowledgeReviewChangeDraft(args: {
@@ -240,6 +187,65 @@ export async function regenerateKnowledgeReviewChangeForUser(args: {
   return { ok: true, run }
 }
 
+export async function submitWorkspaceDiffForReview(args: {
+  actor: string
+  author: string
+  operation: KnowledgeReviewOperation
+  path: string
+  slug: string
+  userId: string
+}): Promise<{ ok: true; change: KnowledgeReviewChange } | { ok: false; error: string }> {
+  if (!isValidKbPath(args.path)) return { ok: false, error: 'invalid_path' }
+
+  const agent = await createWorkspaceAgentClient(args.slug)
+  if (!agent) return { ok: false, error: 'workspace_agent_unavailable' }
+
+  // The working tree already carries the change: its bytes become the proposal,
+  // and the committed revision becomes the base the proposal is reviewed against.
+  const current = await workspaceAgentFetch<FileReadResponse>(agent, '/files/read', { path: args.path })
+
+  let currentContent: string
+  if (args.operation === 'delete') {
+    if (current.ok) return { ok: false, error: 'workspace_diff_changed' }
+    if (current.status !== 404) return { ok: false, error: current.error }
+    currentContent = ''
+  } else {
+    if (!current.ok) return { ok: false, error: current.error }
+    currentContent = current.data.content
+  }
+
+  const base = await workspaceAgentFetch<FileReadRefResponse>(agent, '/files/read_ref', {
+    path: args.path,
+    ref: 'HEAD',
+  })
+  const baseContent = base.ok ? base.data.content : null
+  const baseHash = base.ok ? base.data.hash : null
+
+  const result = await createKnowledgeReviewChange(args.userId, {
+    author: args.author,
+    agent: 'workspace',
+    origin: 'workspace',
+    title: `${args.operation.charAt(0).toUpperCase()}${args.operation.slice(1)} ${args.path}`,
+    reason: 'Submitted from workspace changes for review.',
+    confidence: 1,
+    evidence: { source: 'workspace' },
+    kbPath: args.path,
+    operation: args.operation,
+    baseContent,
+    baseHash,
+    proposedContent: currentContent,
+    initialStatus: 'open',
+  })
+  if (!result.ok) return result
+
+  await auditEvent({
+    actorUserId: args.userId,
+    action: 'knowledge.review_submitted',
+    metadata: { changeId: result.change.id, kbPath: args.path, origin: 'workspace' },
+  })
+  return { ok: true, change: result.change }
+}
+
 export async function applyKnowledgeReviewChange(args: {
   actor: string
   changeId: string
@@ -255,10 +261,45 @@ export async function applyKnowledgeReviewChange(args: {
   const agent = await createWorkspaceAgentClient(args.slug)
   if (!agent) return { ok: false, error: 'workspace_agent_unavailable' }
 
-  const content = args.content ?? change.proposedContent
+  // Empty content is valid for a delete; for create/update it falls back to the
+  // proposed content so an emptied editor cannot silently write an empty file.
+  const content = args.content !== undefined && args.content !== ''
+    ? args.content
+    : change.proposedContent
   const current = await captureCurrentKnowledgeReviewFile({ agent, kbPath: change.kbPath })
+
+  // Reserve the open -> applying transition before touching the KB so a
+  // concurrent Reject (or a second Apply) cannot win after the file changed.
+  // The record is finalized with markKnowledgeReviewChangeApplied or rolled
+  // back to needs_rebase if the mutation fails.
+  const reserved = await markKnowledgeReviewChangeApplying({
+    actor: args.actor,
+    actualContent: current.content,
+    actualHash: current.hash,
+    changeId: change.id,
+    content,
+    userId: args.userId,
+  })
+  if (!reserved) return { ok: false, error: 'not_open' }
+
+  const rollbackToNeedsRebase = async (): Promise<void> => {
+    const actual = await captureCurrentKnowledgeReviewFile({ agent, kbPath: change.kbPath })
+    await markKnowledgeReviewChangeNeedsRebase({
+      actor: args.actor,
+      actualContent: actual.content,
+      actualHash: actual.hash,
+      changeId: change.id,
+      userId: args.userId,
+    })
+  }
+
+  // The file may already carry exactly the proposed change (e.g. an Explore
+  // edit submitted for review, or a delete that already ran). In that case the
+  // mutation is a no-op and applying only finalizes the record.
+  const currentMatchesProposed = current.content === content
+
   if (change.operation === 'create') {
-    if (current.hash) {
+    if (current.hash && !currentMatchesProposed) {
       await markKnowledgeReviewChangeNeedsRebase({
         actor: args.actor,
         actualContent: current.content,
@@ -268,7 +309,9 @@ export async function applyKnowledgeReviewChange(args: {
       })
       return { ok: false, error: 'needs_rebase' }
     }
-  } else if (!current.hash || current.hash !== change.baseHash) {
+  } else if (change.operation !== 'delete' && (!current.hash || (current.hash !== change.baseHash && !currentMatchesProposed))) {
+    // Deletes verify the base through the delete call's expected hash, and an
+    // already-deleted file is the applied state rather than a conflict.
     await markKnowledgeReviewChangeNeedsRebase({
       actor: args.actor,
       actualContent: current.content,
@@ -280,20 +323,15 @@ export async function applyKnowledgeReviewChange(args: {
   }
 
   if (change.operation === 'delete') {
-    const deleted = await workspaceAgentFetch<FileDeleteResponse>(agent, '/files/delete', {
-      path: change.kbPath,
-      expectedHash: change.baseHash ?? '',
-    })
-    if (!deleted.ok) {
-      const actual = await captureCurrentKnowledgeReviewFile({ agent, kbPath: change.kbPath })
-      await markKnowledgeReviewChangeNeedsRebase({
-        actor: args.actor,
-        actualContent: actual.content,
-        actualHash: actual.hash,
-        changeId: change.id,
-        userId: args.userId,
+    if (current.hash) {
+      const deleted = await workspaceAgentFetch<FileDeleteResponse>(agent, '/files/delete', {
+        path: change.kbPath,
+        expectedHash: change.baseHash ?? '',
       })
-      return { ok: false, error: 'needs_rebase' }
+      if (!deleted.ok) {
+        await rollbackToNeedsRebase()
+        return { ok: false, error: 'needs_rebase' }
+      }
     }
 
     const updated = await markKnowledgeReviewChangeApplied({
@@ -308,27 +346,38 @@ export async function applyKnowledgeReviewChange(args: {
     return { ok: true, change: updated }
   }
 
-  const write = await workspaceAgentFetch<FileWriteResponse>(agent, '/files/write', {
-    path: change.kbPath,
-    content,
-    encoding: 'utf-8',
-    expectedHash: change.operation === 'create' ? '' : change.baseHash ?? '',
-  })
-  if (!write.ok) {
-    const actual = await captureCurrentKnowledgeReviewFile({ agent, kbPath: change.kbPath })
-    await markKnowledgeReviewChangeNeedsRebase({
+  if (!currentMatchesProposed) {
+    const write = await workspaceAgentFetch<FileWriteResponse>(agent, '/files/write', {
+      path: change.kbPath,
+      content,
+      encoding: 'utf-8',
+      expectedHash: change.operation === 'create' ? '' : change.baseHash ?? '',
+    })
+    if (!write.ok) {
+      await rollbackToNeedsRebase()
+      return { ok: false, error: 'needs_rebase' }
+    }
+
+    const updated = await markKnowledgeReviewChangeApplied({
       actor: args.actor,
-      actualContent: actual.content,
-      actualHash: actual.hash,
+      appliedHash: write.data.hash,
       changeId: change.id,
+      content,
       userId: args.userId,
     })
-    return { ok: false, error: 'needs_rebase' }
+    if (!updated) return { ok: false, error: 'not_open' }
+
+    await auditEvent({
+      actorUserId: args.userId,
+      action: 'knowledge.review_applied',
+      metadata: { changeId: change.id, kbPath: change.kbPath, appliedHash: write.data.hash },
+    })
+    return { ok: true, change: updated }
   }
 
   const updated = await markKnowledgeReviewChangeApplied({
     actor: args.actor,
-    appliedHash: write.data.hash,
+    appliedHash: current.hash ?? 'deleted',
     changeId: change.id,
     content,
     userId: args.userId,
@@ -338,7 +387,7 @@ export async function applyKnowledgeReviewChange(args: {
   await auditEvent({
     actorUserId: args.userId,
     action: 'knowledge.review_applied',
-    metadata: { changeId: change.id, kbPath: change.kbPath, appliedHash: write.data.hash },
+    metadata: { changeId: change.id, kbPath: change.kbPath, appliedHash: current.hash ?? 'deleted' },
   })
   return { ok: true, change: updated }
 }

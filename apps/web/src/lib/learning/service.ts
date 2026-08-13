@@ -1,23 +1,19 @@
 export {
   applyKnowledgeReviewChange,
-  applyLearningProposal,
   captureKnowledgeReviewBase,
   regenerateKnowledgeReviewChangeForUser,
   rebaseKnowledgeReviewChangeForUser,
   rejectKnowledgeReviewChangeForUser,
-  rejectLearningProposal,
   saveKnowledgeReviewChangeDraft,
+  submitWorkspaceDiffForReview,
 } from '@/lib/learning/proposal-application'
 export {
   cancelLearningRun,
-  createLearningProposal,
   createKnowledgeReviewChange,
   findLearningRunForUser,
   listAppliedKnowledgeReviewChanges,
   listKnowledgeReviewChanges,
-  learningRunBelongsToUser,
   markKnowledgeReviewChangesPublished,
-  listLearningProposals,
   listLearningRuns,
 } from '@/lib/learning/repository'
 export {

@@ -8,27 +8,10 @@ import type {
   KnowledgeReviewChangeStatus,
   KnowledgeReviewOperation,
   LearningEvidence,
-  LearningProposal,
-  LearningProposalOperation,
-  LearningProposalType,
   LearningRun,
   LearningRunStatus,
   LearningTrigger,
 } from '@/types/learning'
-
-export type ProposalInput = {
-  runId?: string | null
-  title: string
-  type?: LearningProposalType
-  confidence: number
-  evidence: LearningEvidence
-  kbPath: string
-  operation: LearningProposalOperation
-  proposedContent: string
-  currentFileHash?: string | null
-  internalSessionId?: string | null
-  trigger: LearningTrigger
-}
 
 export type KnowledgeReviewChangeInput = {
   agent?: string | null
@@ -124,42 +107,6 @@ function parseAuditTrail(value: Prisma.JsonValue | string): KnowledgeReviewAudit
   })
 }
 
-export function mapProposal(proposal: {
-  id: string
-  runId: string | null
-  status: 'pending' | 'rejected' | 'applied'
-  title: string
-  type: LearningProposalType
-  confidence: number
-  evidence: Prisma.JsonValue
-  kbPath: string
-  operation: LearningProposalOperation
-  proposedContent: string
-  currentFileHash: string | null
-  internalSessionId: string | null
-  trigger: LearningTrigger
-  createdAt: Date
-  updatedAt: Date
-}): LearningProposal {
-  return {
-    id: proposal.id,
-    runId: proposal.runId,
-    status: proposal.status,
-    title: proposal.title,
-    type: proposal.type,
-    confidence: proposal.confidence,
-    evidence: parseEvidence(proposal.evidence),
-    kbPath: proposal.kbPath,
-    operation: proposal.operation,
-    proposedContent: proposal.proposedContent,
-    currentFileHash: proposal.currentFileHash,
-    internalSessionId: proposal.internalSessionId,
-    trigger: proposal.trigger,
-    createdAt: toIso(proposal.createdAt),
-    updatedAt: toIso(proposal.updatedAt),
-  }
-}
-
 export function mapKnowledgeReviewChange(change: {
   id: string
   sourceProposalId: string | null
@@ -186,6 +133,10 @@ export function mapKnowledgeReviewChange(change: {
   createdAt: Date
   updatedAt: Date
 }): KnowledgeReviewChange {
+  // A crashed apply leaves a record reserved as `applying` with no mutation
+  // finalized. From every read path it is a proposal whose base is stale, so
+  // surface it as needs_rebase for the user to rebase, regenerate, or reject.
+  const status: KnowledgeReviewChangeStatus = change.status === 'applying' ? 'needs_rebase' : change.status
   return {
     id: change.id,
     sourceProposalId: change.sourceProposalId,
@@ -203,7 +154,7 @@ export function mapKnowledgeReviewChange(change: {
     baseContent: change.baseContent,
     baseHash: change.baseHash,
     proposedContent: change.proposedContent,
-    status: change.status,
+    status,
     actualContent: change.actualContent,
     actualHash: change.actualHash,
     appliedHash: change.appliedHash,
@@ -223,14 +174,7 @@ export async function listLearningRuns(userId: string): Promise<LearningRun[]> {
   return runs.map(mapRun)
 }
 
-export async function listLearningProposals(userId: string): Promise<LearningProposal[]> {
-  const proposals = await prisma.knowledgeLearningProposal.findMany({
-    where: { userId },
-    orderBy: { createdAt: 'desc' },
-    take: 50,
-  })
-  return proposals.map(mapProposal)
-}
+
 
 export async function listKnowledgeReviewChanges(userId: string): Promise<KnowledgeReviewChange[]> {
   const changes = await prisma.knowledgeReviewChange.findMany({
@@ -336,13 +280,7 @@ export async function hasActiveLearningRun(args: {
   return Boolean(activeRun)
 }
 
-export async function learningRunBelongsToUser(args: { userId: string; runId: string }): Promise<boolean> {
-  const run = await prisma.knowledgeLearningRun.findFirst({
-    where: { id: args.runId, userId: args.userId },
-    select: { id: true },
-  })
-  return Boolean(run)
-}
+
 
 export async function hasRecentLearningRun(args: { userId: string; sessionId: string; since: Date }): Promise<boolean> {
   const recentRun = await prisma.knowledgeLearningRun.findFirst({
@@ -355,11 +293,7 @@ export async function hasRecentLearningRun(args: { userId: string; sessionId: st
   return Boolean(recentRun)
 }
 
-export async function findPendingLearningProposal(args: { userId: string; proposalId: string }) {
-  return prisma.knowledgeLearningProposal.findFirst({
-    where: { id: args.proposalId, userId: args.userId },
-  })
-}
+
 
 export async function findKnowledgeReviewChange(args: {
   changeId: string
@@ -369,39 +303,6 @@ export async function findKnowledgeReviewChange(args: {
     where: { id: args.changeId, userId: args.userId },
   })
   return change ? mapKnowledgeReviewChange(change) : null
-}
-
-export async function updatePendingLearningProposalRejected(args: {
-  proposalId: string
-  userId: string
-}): Promise<LearningProposal | null> {
-  const result = await prisma.knowledgeLearningProposal.updateMany({
-    where: { id: args.proposalId, userId: args.userId, status: 'pending' },
-    data: { status: 'rejected', rejectedAt: new Date() },
-  })
-  if (result.count !== 1) return null
-
-  const updated = await prisma.knowledgeLearningProposal.findUnique({ where: { id: args.proposalId } })
-  if (!updated) return null
-
-  return mapProposal(updated)
-}
-
-export async function updatePendingLearningProposalApplied(args: {
-  proposalId: string
-  userId: string
-  content: string
-}): Promise<LearningProposal | null> {
-  const result = await prisma.knowledgeLearningProposal.updateMany({
-    where: { id: args.proposalId, userId: args.userId, status: 'pending' },
-    data: { status: 'applied', appliedAt: new Date(), proposedContent: args.content },
-  })
-  if (result.count !== 1) return null
-
-  const updated = await prisma.knowledgeLearningProposal.findUnique({ where: { id: args.proposalId } })
-  if (!updated) return null
-
-  return mapProposal(updated)
 }
 
 function serializeEvidenceForStorage(evidence: LearningEvidence): Prisma.InputJsonValue {
@@ -445,68 +346,75 @@ function withAuditEntry(entries: KnowledgeReviewAuditEntry[], args: {
 export async function createKnowledgeReviewChange(
   userId: string,
   input: KnowledgeReviewChangeInput,
-): Promise<KnowledgeReviewChange> {
-  const change = await prisma.$transaction(async (transaction) => {
-    const supersededWhere: Prisma.KnowledgeReviewChangeWhereInput = {
-      userId,
-      kbPath: input.kbPath,
-      status: { in: ['open', 'needs_rebase'] },
-      ...(input.regeneratedFromId ? { id: { not: input.regeneratedFromId } } : {}),
-    }
-    await transaction.knowledgeReviewChange.updateMany({
-      where: supersededWhere,
-      data: { status: 'superseded' },
-    })
-
-    const created = await transaction.knowledgeReviewChange.create({
-      data: {
+): Promise<{ ok: true; change: KnowledgeReviewChange } | { ok: false; error: string }> {
+  try {
+    const change = await prisma.$transaction(async (transaction) => {
+      const supersededWhere: Prisma.KnowledgeReviewChangeWhereInput = {
         userId,
-        sourceProposalId: input.sourceProposalId ?? null,
-        regeneratedFromId: input.regeneratedFromId ?? null,
-        runId: input.runId ?? null,
-        author: input.author,
-        agent: input.agent ?? null,
-        origin: input.origin,
-        title: input.title,
-        reason: input.reason,
-        evidence: serializeEvidenceForStorage(input.evidence),
-        confidence: input.confidence,
         kbPath: input.kbPath,
-        operation: input.operation,
-        baseContent: input.baseContent ?? null,
-        baseHash: input.baseHash ?? null,
-        proposedContent: input.proposedContent,
-        status: input.initialStatus ?? 'open',
-        auditTrail: serializeAuditTrailForStorage(withAuditEntry([], {
-          action: 'created',
-          actor: input.author,
-          hash: input.baseHash ?? undefined,
-        })),
-      },
-    })
-    if (!input.regeneratedFromId) return created
+        status: { in: ['open', 'needs_rebase', 'applying'] },
+        ...(input.regeneratedFromId ? { id: { not: input.regeneratedFromId } } : {}),
+      }
+      await transaction.knowledgeReviewChange.updateMany({
+        where: supersededWhere,
+        data: { status: 'superseded' },
+      })
 
-    const original = await transaction.knowledgeReviewChange.findFirst({
-      where: { id: input.regeneratedFromId, userId },
+      const created = await transaction.knowledgeReviewChange.create({
+        data: {
+          userId,
+          sourceProposalId: input.sourceProposalId ?? null,
+          regeneratedFromId: input.regeneratedFromId ?? null,
+          runId: input.runId ?? null,
+          author: input.author,
+          agent: input.agent ?? null,
+          origin: input.origin,
+          title: input.title,
+          reason: input.reason,
+          evidence: serializeEvidenceForStorage(input.evidence),
+          confidence: input.confidence,
+          kbPath: input.kbPath,
+          operation: input.operation,
+          baseContent: input.baseContent ?? null,
+          baseHash: input.baseHash ?? null,
+          proposedContent: input.proposedContent,
+          status: input.initialStatus ?? 'open',
+          auditTrail: serializeAuditTrailForStorage(withAuditEntry([], {
+            action: 'created',
+            actor: input.author,
+            hash: input.baseHash ?? undefined,
+          })),
+        },
+      })
+      if (!input.regeneratedFromId) return created
+
+      const original = await transaction.knowledgeReviewChange.findFirst({
+        where: { id: input.regeneratedFromId, userId },
+      })
+      if (!original || (original.status !== 'needs_rebase' && original.status !== 'applying')) {
+        throw new Error('regeneration_source_not_rebaseable')
+      }
+      const superseded = await transaction.knowledgeReviewChange.updateMany({
+        where: { id: original.id, userId, status: { in: ['needs_rebase', 'applying'] } },
+        data: {
+          status: 'superseded',
+          auditTrail: serializeAuditTrailForStorage(withAuditEntry(parseAuditTrail(original.auditTrail), {
+            action: 'regenerated',
+            actor: input.author,
+          })),
+        },
+      })
+      if (superseded.count !== 1) throw new Error('regeneration_source_not_rebaseable')
+      return created
     })
-    if (!original || original.status !== 'needs_rebase') {
-      throw new Error('regeneration_source_not_rebaseable')
+
+    return { ok: true, change: mapKnowledgeReviewChange(change) }
+  } catch (error) {
+    if (error instanceof Error && error.message === 'regeneration_source_not_rebaseable') {
+      return { ok: false, error: 'regeneration_source_not_rebaseable' }
     }
-    const superseded = await transaction.knowledgeReviewChange.updateMany({
-      where: { id: original.id, userId, status: 'needs_rebase' },
-      data: {
-        status: 'superseded',
-        auditTrail: serializeAuditTrailForStorage(withAuditEntry(parseAuditTrail(original.auditTrail), {
-          action: 'regenerated',
-          actor: input.author,
-        })),
-      },
-    })
-    if (superseded.count !== 1) throw new Error('regeneration_source_not_rebaseable')
-    return created
-  })
-
-  return mapKnowledgeReviewChange(change)
+    throw error
+  }
 }
 
 async function transitionKnowledgeReviewChange(args: {
@@ -555,44 +463,51 @@ export async function startLearningRunForKnowledgeReviewRegeneration(args: {
   userId: string
   title: string
 }): Promise<LearningRun | null> {
-  const run = await prisma.$transaction(async (transaction) => {
-    const change = await transaction.knowledgeReviewChange.findFirst({
-      where: { id: args.changeId, userId: args.userId },
-    })
-    if (!change || change.status !== 'needs_rebase') return null
+  try {
+    const run = await prisma.$transaction(async (transaction) => {
+      const change = await transaction.knowledgeReviewChange.findFirst({
+        where: { id: args.changeId, userId: args.userId },
+      })
+      if (!change || (change.status !== 'needs_rebase' && change.status !== 'applying')) return null
 
-    const updated = await transaction.knowledgeReviewChange.updateMany({
-      // Read Committed does not make the read-modify-write above atomic, so the
-      // row is guarded on the snapshot it was read from, same as
-      // transitionKnowledgeReviewChange.
-      where: {
-        id: change.id,
-        userId: args.userId,
-        status: 'needs_rebase',
-        updatedAt: change.updatedAt,
-      },
-      data: {
-        auditTrail: serializeAuditTrailForStorage(withAuditEntry(parseAuditTrail(change.auditTrail), {
-          action: 'regeneration_requested',
-          actor: args.actor,
-        })),
-      },
-    })
-    if (updated.count !== 1) throw new Error('regeneration_source_not_rebaseable')
+      const updated = await transaction.knowledgeReviewChange.updateMany({
+        // Read Committed does not make the read-modify-write above atomic, so the
+        // row is guarded on the snapshot it was read from, same as
+        // transitionKnowledgeReviewChange.
+        where: {
+          id: change.id,
+          userId: args.userId,
+          status: { in: ['needs_rebase', 'applying'] },
+          updatedAt: change.updatedAt,
+        },
+        data: {
+          auditTrail: serializeAuditTrailForStorage(withAuditEntry(parseAuditTrail(change.auditTrail), {
+            action: 'regeneration_requested',
+            actor: args.actor,
+          })),
+        },
+      })
+      if (updated.count !== 1) throw new Error('regeneration_source_not_rebaseable')
 
-    return transaction.knowledgeLearningRun.create({
-      data: {
-        userId: args.userId,
-        sourceSessionId: null,
-        internalSessionId: null,
-        regenerationChangeId: change.id,
-        title: args.title,
-        trigger: 'manual',
-        status: 'pending',
-      },
+      return transaction.knowledgeLearningRun.create({
+        data: {
+          userId: args.userId,
+          sourceSessionId: null,
+          internalSessionId: null,
+          regenerationChangeId: change.id,
+          title: args.title,
+          trigger: 'manual',
+          status: 'pending',
+        },
+      })
     })
-  })
-  return run ? mapRun(run) : null
+    return run ? mapRun(run) : null
+  } catch (error) {
+    if (error instanceof Error && error.message === 'regeneration_source_not_rebaseable') {
+      return null
+    }
+    throw error
+  }
 }
 
 export async function saveKnowledgeReviewDraft(args: {
@@ -621,12 +536,41 @@ export async function markKnowledgeReviewChangeNeedsRebase(args: {
   return transitionKnowledgeReviewChange({
     action: 'needs_rebase',
     actor: args.actor,
-    allowedStatuses: ['open', 'needs_rebase'],
+    allowedStatuses: ['open', 'needs_rebase', 'applying'],
     changeId: args.changeId,
     data: {
       status: 'needs_rebase',
       actualContent: args.actualContent,
       actualHash: args.actualHash,
+    },
+    hash: args.actualHash ?? undefined,
+    userId: args.userId,
+  })
+}
+
+// Atomically claims an open change before its KB mutation so a concurrent
+// Reject (or second Apply) cannot win after the file was already changed.
+// The record is finalized with markKnowledgeReviewChangeApplied or rolled
+// back to needs_rebase if the mutation fails.
+export async function markKnowledgeReviewChangeApplying(args: {
+  actor: string
+  actualContent: string | null
+  actualHash: string | null
+  changeId: string
+  content: string
+  userId: string
+}): Promise<KnowledgeReviewChange | null> {
+  return transitionKnowledgeReviewChange({
+    action: 'apply_started',
+    actor: args.actor,
+    allowedStatuses: ['open'],
+    changeId: args.changeId,
+    data: {
+      status: 'applying',
+      appliedAt: new Date(),
+      actualContent: args.actualContent,
+      actualHash: args.actualHash,
+      proposedContent: args.content,
     },
     hash: args.actualHash ?? undefined,
     userId: args.userId,
@@ -644,7 +588,7 @@ export async function rebaseKnowledgeReviewChange(args: {
   return transitionKnowledgeReviewChange({
     action: 'rebased',
     actor: args.actor,
-    allowedStatuses: ['needs_rebase'],
+    allowedStatuses: ['needs_rebase', 'applying'],
     changeId: args.changeId,
     data: {
       status: 'open',
@@ -668,7 +612,7 @@ export async function markKnowledgeReviewChangeApplied(args: {
   return transitionKnowledgeReviewChange({
     action: 'applied',
     actor: args.actor,
-    allowedStatuses: ['open'],
+    allowedStatuses: ['applying'],
     changeId: args.changeId,
     data: {
       status: 'applied',
@@ -734,25 +678,7 @@ export async function markKnowledgeReviewChangesPublished(args: {
   return published.filter((change): change is KnowledgeReviewChange => change !== null)
 }
 
-export async function createLearningProposal(userId: string, input: ProposalInput): Promise<LearningProposal> {
-  const proposal = await prisma.knowledgeLearningProposal.create({
-    data: {
-      userId,
-      runId: input.runId ?? null,
-      title: input.title,
-      type: input.type ?? 'other',
-      confidence: input.confidence,
-      evidence: serializeEvidenceForStorage(input.evidence),
-      kbPath: input.kbPath,
-      operation: input.operation,
-      proposedContent: input.proposedContent,
-      currentFileHash: input.currentFileHash ?? null,
-      internalSessionId: input.internalSessionId ?? null,
-      trigger: input.trigger,
-    },
-  })
-  return mapProposal(proposal)
-}
+
 
 export async function markLearningRunRunning(runId: string): Promise<void> {
   await prisma.knowledgeLearningRun.update({

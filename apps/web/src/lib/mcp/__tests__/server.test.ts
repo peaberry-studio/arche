@@ -133,10 +133,13 @@ describe('handleMcpJsonRpcRequest', () => {
     beforeEach(() => {
       vi.clearAllMocks()
       mocks.createKnowledgeReviewChange.mockImplementation(async (_userId: string, input: { operation: string }) => ({
-        id: 'change-1',
-        kbPath: 'Notes/Brief.md',
-        status: 'open',
-        operation: input.operation,
+        ok: true as const,
+        change: {
+          id: 'change-1',
+          kbPath: 'Notes/Brief.md',
+          status: 'open',
+          operation: input.operation,
+        },
       }))
     })
 
@@ -211,6 +214,8 @@ describe('handleMcpJsonRpcRequest', () => {
       ['a non-markdown target', 'Notes/Brief.txt'],
       ['an absolute path', '/etc/passwd.md'],
       ['a parent traversal', '../../secrets.md'],
+      ['a dot-prefixed segment publish rejects', '.hidden/secret.md'],
+      ['a dot-prefixed article publish rejects', '.obsidian.md'],
     ])('rejects %s before reading or persisting anything', async (_label, path) => {
       const { isError, result } = await callTool('create_kb_article', { path, content: '# New' })
 

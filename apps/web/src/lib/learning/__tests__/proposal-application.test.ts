@@ -2,30 +2,28 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   applyKnowledgeReviewChange,
-  applyLearningProposal,
   captureKnowledgeReviewBase,
   rebaseKnowledgeReviewChangeForUser,
   regenerateKnowledgeReviewChangeForUser,
   rejectKnowledgeReviewChangeForUser,
-  rejectLearningProposal,
   saveKnowledgeReviewChangeDraft,
+  submitWorkspaceDiffForReview,
 } from '@/lib/learning/proposal-application'
-import type { KnowledgeReviewChange, LearningProposal } from '@/types/learning'
+import type { KnowledgeReviewChange } from '@/types/learning'
 
 const mocks = vi.hoisted(() => ({
   auditEvent: vi.fn(),
+  createKnowledgeReviewChange: vi.fn(),
   createWorkspaceAgentClient: vi.fn(),
   dispatchLearningRunExecution: vi.fn(),
   findKnowledgeReviewChange: vi.fn(),
-  findPendingLearningProposal: vi.fn(),
   markKnowledgeReviewChangeApplied: vi.fn(),
+  markKnowledgeReviewChangeApplying: vi.fn(),
   markKnowledgeReviewChangeNeedsRebase: vi.fn(),
   rebaseKnowledgeReviewChange: vi.fn(),
   rejectKnowledgeReviewChange: vi.fn(),
   saveKnowledgeReviewDraft: vi.fn(),
   startLearningRunForKnowledgeReviewRegeneration: vi.fn(),
-  updatePendingLearningProposalApplied: vi.fn(),
-  updatePendingLearningProposalRejected: vi.fn(),
   workspaceAgentFetch: vi.fn(),
 }))
 
@@ -33,36 +31,18 @@ vi.mock('@/lib/auth', () => ({ auditEvent: mocks.auditEvent }))
 vi.mock('@/lib/workspace-agent/client', () => ({ createWorkspaceAgentClient: mocks.createWorkspaceAgentClient }))
 vi.mock('@/lib/workspace-agent-client', () => ({ workspaceAgentFetch: mocks.workspaceAgentFetch }))
 vi.mock('@/lib/learning/repository', () => ({
+  createKnowledgeReviewChange: mocks.createKnowledgeReviewChange,
   findKnowledgeReviewChange: mocks.findKnowledgeReviewChange,
-  findPendingLearningProposal: mocks.findPendingLearningProposal,
   markKnowledgeReviewChangeApplied: mocks.markKnowledgeReviewChangeApplied,
+  markKnowledgeReviewChangeApplying: mocks.markKnowledgeReviewChangeApplying,
   markKnowledgeReviewChangeNeedsRebase: mocks.markKnowledgeReviewChangeNeedsRebase,
   rebaseKnowledgeReviewChange: mocks.rebaseKnowledgeReviewChange,
   rejectKnowledgeReviewChange: mocks.rejectKnowledgeReviewChange,
   saveKnowledgeReviewDraft: mocks.saveKnowledgeReviewDraft,
   startLearningRunForKnowledgeReviewRegeneration: mocks.startLearningRunForKnowledgeReviewRegeneration,
-  updatePendingLearningProposalApplied: mocks.updatePendingLearningProposalApplied,
-  updatePendingLearningProposalRejected: mocks.updatePendingLearningProposalRejected,
 }))
+vi.mock('@/lib/learning/validation', () => ({ isValidKbPath: vi.fn(() => true) }))
 vi.mock('@/lib/learning/run-executor', () => ({ dispatchLearningRunExecution: mocks.dispatchLearningRunExecution }))
-
-const proposal: LearningProposal = {
-  id: 'proposal-1',
-  runId: 'run-1',
-  status: 'pending',
-  title: 'Remember preference',
-  type: 'preference',
-  confidence: 0.9,
-  evidence: { quote: 'Prefer concise answers' },
-  kbPath: 'Preferences/Answers.md',
-  operation: 'update',
-  proposedContent: 'Prefer concise answers.',
-  currentFileHash: 'hash-old',
-  internalSessionId: null,
-  trigger: 'agent',
-  createdAt: '2026-01-01T00:00:00.000Z',
-  updatedAt: '2026-01-01T00:00:00.000Z',
-}
 
 const change: KnowledgeReviewChange = {
   id: 'change-1',
@@ -92,79 +72,6 @@ const change: KnowledgeReviewChange = {
 }
 
 const agent = { baseUrl: 'http://agent', authHeader: 'Basic x' }
-
-describe('applyLearningProposal', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    mocks.createWorkspaceAgentClient.mockResolvedValue(agent)
-    mocks.findPendingLearningProposal.mockResolvedValue(proposal)
-    mocks.updatePendingLearningProposalApplied.mockResolvedValue({ ...proposal, status: 'applied' })
-  })
-
-  it('rejects create proposals when the target file already exists', async () => {
-    mocks.findPendingLearningProposal.mockResolvedValue({ ...proposal, operation: 'create', currentFileHash: null })
-    mocks.workspaceAgentFetch.mockResolvedValueOnce({ ok: true, data: { hash: 'existing' }, status: 200 })
-
-    const result = await applyLearningProposal({ userId: 'user-1', slug: 'alice', proposalId: 'proposal-1' })
-
-    expect(result).toEqual({ ok: false, error: 'file_exists' })
-    expect(mocks.workspaceAgentFetch).toHaveBeenCalledTimes(1)
-    expect(mocks.updatePendingLearningProposalApplied).not.toHaveBeenCalled()
-  })
-
-  it('applies create proposals only after a not-found read', async () => {
-    mocks.findPendingLearningProposal.mockResolvedValue({ ...proposal, operation: 'create', currentFileHash: null })
-    mocks.workspaceAgentFetch
-      .mockResolvedValueOnce({ ok: false, error: 'not_found', status: 404 })
-      .mockResolvedValueOnce({ ok: true, data: { hash: 'hash-new' }, status: 200 })
-
-    const result = await applyLearningProposal({ userId: 'user-1', slug: 'alice', proposalId: 'proposal-1' })
-
-    expect(result).toMatchObject({ ok: true })
-    expect(mocks.workspaceAgentFetch).toHaveBeenLastCalledWith(
-      { baseUrl: 'http://agent', authHeader: 'Basic x' },
-      '/files/write',
-      { path: proposal.kbPath, content: proposal.proposedContent, encoding: 'utf-8', expectedHash: '' },
-    )
-  })
-
-  it('returns hash_conflict when the current file hash changed', async () => {
-    mocks.workspaceAgentFetch.mockResolvedValueOnce({ ok: true, data: { hash: 'hash-new' }, status: 200 })
-
-    const result = await applyLearningProposal({ userId: 'user-1', slug: 'alice', proposalId: 'proposal-1' })
-
-    expect(result).toEqual({ ok: false, error: 'hash_conflict' })
-    expect(mocks.updatePendingLearningProposalApplied).not.toHaveBeenCalled()
-  })
-
-  it('returns not_pending when the guarded status update loses the race', async () => {
-    mocks.workspaceAgentFetch
-      .mockResolvedValueOnce({ ok: true, data: { hash: 'hash-old' }, status: 200 })
-      .mockResolvedValueOnce({ ok: true, data: { hash: 'hash-new' }, status: 200 })
-    mocks.updatePendingLearningProposalApplied.mockResolvedValue(null)
-
-    const result = await applyLearningProposal({ userId: 'user-1', slug: 'alice', proposalId: 'proposal-1' })
-
-    expect(result).toEqual({ ok: false, error: 'not_pending' })
-    expect(mocks.auditEvent).not.toHaveBeenCalled()
-  })
-})
-
-describe('rejectLearningProposal', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    mocks.findPendingLearningProposal.mockResolvedValue(proposal)
-  })
-
-  it('returns not_pending when the guarded reject update loses the race', async () => {
-    mocks.updatePendingLearningProposalRejected.mockResolvedValue(null)
-
-    const result = await rejectLearningProposal({ userId: 'user-1', proposalId: 'proposal-1' })
-
-    expect(result).toEqual({ ok: false, error: 'not_pending' })
-    expect(mocks.auditEvent).not.toHaveBeenCalled()
-  })
-})
 
 describe('captureKnowledgeReviewBase', () => {
   beforeEach(() => {
@@ -221,11 +128,133 @@ describe('captureKnowledgeReviewBase', () => {
   })
 })
 
+describe('submitWorkspaceDiffForReview', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.createWorkspaceAgentClient.mockResolvedValue(agent)
+    mocks.createKnowledgeReviewChange.mockResolvedValue({
+      ok: true,
+      change: { ...change, id: 'change-submitted' },
+    })
+  })
+
+  it('rejects paths the publish gate would reject', async () => {
+    const { isValidKbPath } = await import('@/lib/learning/validation')
+    vi.mocked(isValidKbPath).mockImplementationOnce(() => false)
+
+    const result = await submitWorkspaceDiffForReview({
+      actor: 'user-1',
+      author: 'alice@example.com',
+      operation: 'update',
+      path: '.hidden.md',
+      slug: 'alice',
+      userId: 'user-1',
+    })
+
+    expect(result).toEqual({ ok: false, error: 'invalid_path' })
+    expect(mocks.workspaceAgentFetch).not.toHaveBeenCalled()
+  })
+
+  it('creates an open change from the working tree content against the committed base', async () => {
+    mocks.workspaceAgentFetch
+      .mockResolvedValueOnce({ ok: true, data: { content: 'New content', hash: 'sha256:new', path: 'Notes/A.md', encoding: 'utf-8' }, status: 200 })
+      .mockResolvedValueOnce({ ok: true, data: { content: 'Old content', hash: 'sha256:old', path: 'Notes/A.md', encoding: 'utf-8' }, status: 200 })
+
+    const result = await submitWorkspaceDiffForReview({
+      actor: 'user-1',
+      author: 'alice@example.com',
+      operation: 'update',
+      path: 'Notes/A.md',
+      slug: 'alice',
+      userId: 'user-1',
+    })
+
+    expect(result).toMatchObject({ ok: true })
+    expect(mocks.createKnowledgeReviewChange).toHaveBeenCalledWith('user-1', expect.objectContaining({
+      operation: 'update',
+      baseContent: 'Old content',
+      baseHash: 'sha256:old',
+      proposedContent: 'New content',
+      initialStatus: 'open',
+      origin: 'workspace',
+      agent: 'workspace',
+      author: 'alice@example.com',
+    }))
+    expect(mocks.auditEvent).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'knowledge.review_submitted',
+      metadata: expect.objectContaining({ origin: 'workspace' }),
+    }))
+  })
+
+  it('submits an added file as a create with no committed base', async () => {
+    mocks.workspaceAgentFetch
+      .mockResolvedValueOnce({ ok: true, data: { content: 'New file', hash: 'sha256:new', path: 'Notes/New.md', encoding: 'utf-8' }, status: 200 })
+      .mockResolvedValueOnce({ ok: false, error: 'not_found', status: 404 })
+
+    const result = await submitWorkspaceDiffForReview({
+      actor: 'user-1',
+      author: 'alice@example.com',
+      operation: 'create',
+      path: 'Notes/New.md',
+      slug: 'alice',
+      userId: 'user-1',
+    })
+
+    expect(result).toMatchObject({ ok: true })
+    expect(mocks.createKnowledgeReviewChange).toHaveBeenCalledWith('user-1', expect.objectContaining({
+      operation: 'create',
+      baseContent: null,
+      baseHash: null,
+      proposedContent: 'New file',
+    }))
+  })
+
+  it('submits a deleted file as a delete with the committed base preserved', async () => {
+    mocks.workspaceAgentFetch
+      .mockResolvedValueOnce({ ok: false, error: 'not_found', status: 404 })
+      .mockResolvedValueOnce({ ok: true, data: { content: 'Old content', hash: 'sha256:old', path: 'Notes/Gone.md', encoding: 'utf-8' }, status: 200 })
+
+    const result = await submitWorkspaceDiffForReview({
+      actor: 'user-1',
+      author: 'alice@example.com',
+      operation: 'delete',
+      path: 'Notes/Gone.md',
+      slug: 'alice',
+      userId: 'user-1',
+    })
+
+    expect(result).toMatchObject({ ok: true })
+    expect(mocks.createKnowledgeReviewChange).toHaveBeenCalledWith('user-1', expect.objectContaining({
+      operation: 'delete',
+      baseContent: 'Old content',
+      baseHash: 'sha256:old',
+      proposedContent: '',
+    }))
+  })
+
+  it('returns the agent error when the current read fails for an update', async () => {
+    mocks.workspaceAgentFetch.mockResolvedValueOnce({ ok: false, error: 'read_failed', status: 500 })
+
+    const result = await submitWorkspaceDiffForReview({
+      actor: 'user-1',
+      author: 'alice@example.com',
+      operation: 'update',
+      path: 'Notes/A.md',
+      slug: 'alice',
+      userId: 'user-1',
+    })
+
+    expect(result).toEqual({ ok: false, error: 'read_failed' })
+    expect(mocks.createKnowledgeReviewChange).not.toHaveBeenCalled()
+  })
+})
+
 describe('applyKnowledgeReviewChange', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.createWorkspaceAgentClient.mockResolvedValue(agent)
     mocks.findKnowledgeReviewChange.mockResolvedValue(change)
+    mocks.markKnowledgeReviewChangeApplying.mockResolvedValue({ ...change, status: 'applying' })
   })
 
   it('returns not_found when the change does not exist', async () => {
@@ -289,6 +318,27 @@ describe('applyKnowledgeReviewChange', () => {
     }))
   })
 
+  it('reserves the change before mutating the file so a concurrent reject cannot win', async () => {
+    mocks.workspaceAgentFetch
+      .mockResolvedValueOnce({ ok: true, data: { content: 'Old preference', hash: 'sha256:old' }, status: 200 })
+      .mockResolvedValueOnce({ ok: true, data: { hash: 'sha256:new' }, status: 200 })
+    mocks.markKnowledgeReviewChangeApplied.mockResolvedValue({ ...change, status: 'applied', appliedHash: 'sha256:new' })
+
+    const result = await applyKnowledgeReviewChange({ actor: 'user-1', changeId: 'change-1', slug: 'alice', userId: 'user-1' })
+
+    expect(result).toMatchObject({ ok: true })
+    expect(mocks.markKnowledgeReviewChangeApplying).toHaveBeenCalledWith(expect.objectContaining({
+      changeId: 'change-1',
+      content: change.proposedContent,
+      actualHash: 'sha256:old',
+      userId: 'user-1',
+    }))
+    // The reserve precedes the file mutation (the write), not the base read.
+    expect(mocks.markKnowledgeReviewChangeApplying.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.workspaceAgentFetch.mock.invocationCallOrder[1],
+    )
+  })
+
   it('writes the file and marks the change applied for a matching update', async () => {
     mocks.workspaceAgentFetch
       .mockResolvedValueOnce({ ok: true, data: { content: 'Old preference', hash: 'sha256:old' }, status: 200 })
@@ -326,6 +376,34 @@ describe('applyKnowledgeReviewChange', () => {
     )
   })
 
+  it('falls back to the proposed content when apply carries empty content for a non-delete', async () => {
+    mocks.workspaceAgentFetch
+      .mockResolvedValueOnce({ ok: true, data: { content: 'Old preference', hash: 'sha256:old' }, status: 200 })
+      .mockResolvedValueOnce({ ok: true, data: { hash: 'sha256:new' }, status: 200 })
+    mocks.markKnowledgeReviewChangeApplied.mockResolvedValue({ ...change, status: 'applied' })
+
+    await applyKnowledgeReviewChange({ actor: 'user-1', changeId: 'change-1', content: '', slug: 'alice', userId: 'user-1' })
+
+    expect(mocks.workspaceAgentFetch).toHaveBeenLastCalledWith(
+      agent,
+      '/files/write',
+      expect.objectContaining({ content: change.proposedContent }),
+    )
+  })
+
+  it('applies without writing when the working tree already matches the proposal', async () => {
+    mocks.workspaceAgentFetch.mockResolvedValueOnce({ ok: true, data: { content: 'New preference.', hash: 'sha256:new' }, status: 200 })
+    mocks.markKnowledgeReviewChangeApplied.mockResolvedValue({ ...change, status: 'applied', appliedHash: 'sha256:new' })
+
+    const result = await applyKnowledgeReviewChange({ actor: 'user-1', changeId: 'change-1', slug: 'alice', userId: 'user-1' })
+
+    expect(result).toMatchObject({ ok: true })
+    expect(mocks.workspaceAgentFetch).toHaveBeenCalledTimes(1)
+    expect(mocks.markKnowledgeReviewChangeApplied).toHaveBeenCalledWith(expect.objectContaining({
+      appliedHash: 'sha256:new',
+    }))
+  })
+
   it('deletes the file and marks applied for a delete operation', async () => {
     mocks.findKnowledgeReviewChange.mockResolvedValue({ ...change, operation: 'delete' })
     mocks.workspaceAgentFetch
@@ -341,7 +419,24 @@ describe('applyKnowledgeReviewChange', () => {
       '/files/delete',
       { path: change.kbPath, expectedHash: 'sha256:old' },
     )
+    expect(mocks.markKnowledgeReviewChangeApplied).toHaveBeenCalledWith(expect.objectContaining({
+      appliedHash: 'sha256:old',
+    }))
     expect(mocks.auditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'knowledge.review_applied' }))
+  })
+
+  it('marks an already-deleted file applied without calling delete again', async () => {
+    mocks.findKnowledgeReviewChange.mockResolvedValue({ ...change, operation: 'delete' })
+    mocks.workspaceAgentFetch.mockResolvedValueOnce({ ok: false, error: 'not_found', status: 404 })
+    mocks.markKnowledgeReviewChangeApplied.mockResolvedValue({ ...change, status: 'applied' })
+
+    const result = await applyKnowledgeReviewChange({ actor: 'user-1', changeId: 'change-1', slug: 'alice', userId: 'user-1' })
+
+    expect(result).toMatchObject({ ok: true })
+    expect(mocks.workspaceAgentFetch).toHaveBeenCalledTimes(1)
+    expect(mocks.markKnowledgeReviewChangeApplied).toHaveBeenCalledWith(expect.objectContaining({
+      appliedHash: change.baseHash,
+    }))
   })
 
   it('transitions to needs_rebase when the write fails', async () => {
@@ -361,15 +456,15 @@ describe('applyKnowledgeReviewChange', () => {
     expect(mocks.markKnowledgeReviewChangeApplied).not.toHaveBeenCalled()
   })
 
-  it('returns not_open when the guarded applied update loses the race', async () => {
-    mocks.workspaceAgentFetch
-      .mockResolvedValueOnce({ ok: true, data: { content: 'Old preference', hash: 'sha256:old' }, status: 200 })
-      .mockResolvedValueOnce({ ok: true, data: { hash: 'sha256:new' }, status: 200 })
-    mocks.markKnowledgeReviewChangeApplied.mockResolvedValue(null)
+  it('returns not_open without mutating when the reserve loses the race', async () => {
+    mocks.markKnowledgeReviewChangeApplying.mockResolvedValue(null)
+    mocks.workspaceAgentFetch.mockResolvedValueOnce({ ok: true, data: { content: 'Old preference', hash: 'sha256:old' }, status: 200 })
 
     const result = await applyKnowledgeReviewChange({ actor: 'user-1', changeId: 'change-1', slug: 'alice', userId: 'user-1' })
 
     expect(result).toEqual({ ok: false, error: 'not_open' })
+    expect(mocks.workspaceAgentFetch).toHaveBeenCalledTimes(1)
+    expect(mocks.markKnowledgeReviewChangeApplied).not.toHaveBeenCalled()
     expect(mocks.auditEvent).not.toHaveBeenCalled()
   })
 })

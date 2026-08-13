@@ -103,6 +103,20 @@ type fileReadResponse struct {
 	Hash     string `json:"hash"`
 }
 
+type fileReadRefRequest struct {
+	Path string `json:"path"`
+	Ref  string `json:"ref"`
+}
+
+type fileReadRefResponse struct {
+	Ok       bool   `json:"ok"`
+	Path     string `json:"path"`
+	Ref      string `json:"ref"`
+	Content  string `json:"content"`
+	Encoding string `json:"encoding"`
+	Hash     string `json:"hash"`
+}
+
 type fileListRequest struct {
 	Path         string `json:"path"`
 	Recursive    bool   `json:"recursive"`
@@ -214,8 +228,9 @@ type kbSyncRequest struct {
 }
 
 type kbPublishRequest struct {
-	Github *kbGithubRemoteRequest `json:"github,omitempty"`
-	Paths  []string               `json:"paths"`
+	Github     *kbGithubRemoteRequest `json:"github,omitempty"`
+	Paths      []string               `json:"paths"`
+	PathHashes map[string]string      `json:"pathHashes"`
 }
 
 type kbGithubRemoteConfig struct {
@@ -260,6 +275,7 @@ func main() {
 	mux.HandleFunc("/git/resolve", s.withAuth(s.handleGitResolve))
 	mux.HandleFunc("/git/discard", s.withAuth(s.handleGitDiscard))
 	mux.HandleFunc("/files/read", s.withAuth(s.handleFileRead))
+	mux.HandleFunc("/files/read_ref", s.withAuth(s.handleFileReadRef))
 	mux.HandleFunc("/files/list", s.withAuth(s.handleFileList))
 	mux.HandleFunc("/files/upload", s.withAuth(s.handleFileUpload))
 	mux.HandleFunc("/files/write", s.withAuth(s.handleFileWrite))
@@ -677,6 +693,55 @@ func (s *server) handleFileRead(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, fileReadResponse{
 		Ok:       true,
 		Path:     req.Path,
+		Content:  content,
+		Encoding: encoding,
+		Hash:     hashBytes(data),
+	})
+}
+
+// handleFileReadRef reads a file at a fixed git revision (e.g. HEAD) without
+// touching the working tree. It backs "submit workspace diff for review",
+// which needs the committed bytes as the proposal's base.
+func (s *server) handleFileReadRef(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed")
+		return
+	}
+
+	var req fileReadRefRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json")
+		return
+	}
+	if req.Ref != "HEAD" && req.Ref != "MERGE_HEAD" {
+		writeError(w, http.StatusBadRequest, "invalid_ref")
+		return
+	}
+
+	relPath, _, err := s.resolveRelPath(req.Path)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !isReviewableKbPath(relPath) {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+
+	out, _, code, execErr := runCmd(r.Context(), s.workspace, []string{
+		"git", "show", req.Ref + ":" + relPath,
+	})
+	if execErr != nil || code != 0 {
+		writeError(w, http.StatusNotFound, "not_found")
+		return
+	}
+
+	data := []byte(out)
+	content, encoding := encodeContent(data)
+	writeJSON(w, http.StatusOK, fileReadRefResponse{
+		Ok:       true,
+		Path:     relPath,
+		Ref:      req.Ref,
 		Content:  content,
 		Encoding: encoding,
 		Hash:     hashBytes(data),
@@ -1438,7 +1503,7 @@ func (s *server) handleKbPublish(w http.ResponseWriter, r *http.Request) {
 	committedLocalChanges := false
 	if len(req.Paths) > 0 {
 		var commitErrMsg string
-		committedLocalChanges, _, commitErrMsg = s.commitWorkspacePathsIfNeeded(r.Context(), req.Paths)
+		committedLocalChanges, _, commitErrMsg = s.commitWorkspacePathsIfNeeded(r.Context(), req.Paths, req.PathHashes)
 		if commitErrMsg != "" {
 			writeJSON(w, http.StatusOK, publishKbResponse{
 				Ok:      false,
@@ -1470,6 +1535,17 @@ func (s *server) handleKbPublish(w http.ResponseWriter, r *http.Request) {
 	}
 
 	kbBranch := s.resolveKbBranch(r.Context())
+	// The remote merge can rewrite reviewed paths (a remote version of the
+	// same path wins the merge), so re-verify the reviewed hashes against the
+	// post-merge working tree before anything is committed or pushed.
+	if msg := verifyReviewManifestHashes(s.workspace, req.Paths, req.PathHashes); msg != "" {
+		writeJSON(w, http.StatusOK, publishKbResponse{
+			Ok:      false,
+			Status:  "error",
+			Message: msg,
+		})
+		return
+	}
 	files := s.changedFilesToPublish(r.Context(), kbBranch)
 	if len(req.Paths) > 0 && !pathsAreWithinManifest(files, req.Paths) {
 		writeJSON(w, http.StatusOK, publishKbResponse{
@@ -1588,7 +1664,7 @@ func (s *server) mergeInProgress(ctx context.Context) bool {
 
 func (s *server) diffEntriesAgainstBase(ctx context.Context, base string) ([]gitStatusEntry, error) {
 	out, stderr, code, err := runCmd(ctx, s.workspace, []string{
-		"git", "diff", "--name-only", "-z", base, "--",
+		"git", "-c", "core.quotepath=false", "diff", "--name-only", "-z", base, "--",
 	})
 	if err != nil || code != 0 {
 		msg := strings.TrimSpace(stderr)
@@ -1665,7 +1741,7 @@ func (s *server) popWorkspaceStash(ctx context.Context) (bool, string) {
 	return false, ""
 }
 
-func (s *server) commitWorkspacePathsIfNeeded(ctx context.Context, paths []string) (bool, []string, string) {
+func (s *server) commitWorkspacePathsIfNeeded(ctx context.Context, paths []string, expectedHashes map[string]string) (bool, []string, string) {
 	manifest := make([]string, 0, len(paths))
 	seen := map[string]bool{}
 	for _, path := range paths {
@@ -1681,6 +1757,13 @@ func (s *server) commitWorkspacePathsIfNeeded(ctx context.Context, paths []strin
 	}
 	if len(manifest) == 0 {
 		return false, nil, "reviewed_path_manifest_required"
+	}
+
+	// The BFF authorizes the applied content by hash, not just the path. Verify
+	// the working tree still carries exactly the reviewed bytes before staging
+	// so later unreviewed edits at an approved path cannot be published.
+	if msg := verifyReviewManifestHashes(s.workspace, manifest, expectedHashes); msg != "" {
+		return false, nil, msg
 	}
 
 	entries, statusErr := s.gitStatusEntries(ctx, manifest...)
@@ -1732,9 +1815,36 @@ func (s *server) commitWorkspacePathsIfNeeded(ctx context.Context, paths []strin
 	}
 
 	filesOut, _, _, _ := runCmd(ctx, s.workspace, []string{
-		"git", "diff-tree", "--no-commit-id", "--name-only", "-r", "-m", "HEAD",
+		"git", "-c", "core.quotepath=false", "diff-tree", "--no-commit-id", "--name-only", "-r", "-m", "-z", "HEAD",
 	})
-	return true, splitUniqueLines(filesOut), ""
+	return true, splitNulLines(filesOut), ""
+}
+
+// verifyReviewManifestHashes fails closed when the working tree no longer
+// matches the reviewed hashes for any manifest path. A path expected to be
+// deleted ("deleted" sentinel) must be absent; every other path must still
+// carry exactly the reviewed bytes. Paths without a recorded expectation are
+// legacy publishes and are left to the manifest path check alone.
+func verifyReviewManifestHashes(workspace string, manifest []string, expectedHashes map[string]string) string {
+	for _, path := range manifest {
+		expected, ok := expectedHashes[path]
+		if !ok || expected == "" {
+			continue
+		}
+		abs := filepath.Join(workspace, filepath.FromSlash(path))
+		if expected == "deleted" {
+			if _, err := os.Stat(abs); err == nil {
+				return "reviewed_content_changed"
+			}
+			continue
+		}
+		if _, match, err := verifyExpectedHash(abs, expected); err != nil {
+			return "reviewed_content_changed"
+		} else if !match {
+			return "reviewed_content_changed"
+		}
+	}
+	return ""
 }
 
 func pathsAreWithinManifest(paths []string, manifest []string) bool {
@@ -1882,10 +1992,10 @@ func (s *server) localHeadDiffersFromKb(ctx context.Context, branch string) bool
 func (s *server) changedFilesToPublish(ctx context.Context, branch string) []string {
 	if s.remoteBranchExists(ctx, branch) {
 		filesOut, _, code, _ := runCmd(ctx, s.workspace, []string{
-			"git", "diff", "--name-only", "kb/" + branch + "...HEAD",
+			"git", "-c", "core.quotepath=false", "diff", "--name-only", "-z", "kb/" + branch + "...HEAD",
 		})
 		if code == 0 {
-			files := splitLines(filesOut)
+			files := splitNulLines(filesOut)
 			if len(files) > 0 {
 				return files
 			}
@@ -1893,12 +2003,12 @@ func (s *server) changedFilesToPublish(ctx context.Context, branch string) []str
 	}
 
 	filesOut, _, code, _ := runCmd(ctx, s.workspace, []string{
-		"git", "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD",
+		"git", "-c", "core.quotepath=false", "diff-tree", "--no-commit-id", "--name-only", "-r", "-z", "HEAD",
 	})
 	if code != 0 {
 		return nil
 	}
-	return splitLines(filesOut)
+	return splitNulLines(filesOut)
 }
 
 func normalizeGithubRemote(req *kbGithubRemoteRequest) (kbGithubRemoteConfig, bool, string) {
@@ -2310,16 +2420,21 @@ func splitLines(output string) []string {
 	return result
 }
 
-func splitUniqueLines(output string) []string {
-	lines := splitLines(output)
-	seen := map[string]bool{}
-	result := make([]string, 0, len(lines))
-	for _, line := range lines {
-		if seen[line] {
+// splitNulLines splits NUL-delimited git output (git ... -z). Paths are kept
+// raw: no trimming, so leading/trailing spaces and non-ASCII names survive
+// verbatim instead of being mangled by C-style quoting.
+func splitNulLines(output string) []string {
+	raw := []byte(output)
+	if len(raw) == 0 {
+		return nil
+	}
+	parts := bytes.Split(raw, []byte{0})
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if len(part) == 0 {
 			continue
 		}
-		seen[line] = true
-		result = append(result, line)
+		result = append(result, string(part))
 	}
 	return result
 }

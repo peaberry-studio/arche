@@ -33,6 +33,11 @@ vi.mock('@/lib/learning/service', () => ({
   markKnowledgeReviewChangesPublished: (...args: unknown[]) => mockMarkKnowledgeReviewChangesPublished(...args),
 }))
 
+const mockFindIdBySlug = vi.fn()
+vi.mock('@/lib/services/user', () => ({
+  findIdBySlug: (...args: unknown[]) => mockFindIdBySlug(...args),
+}))
+
 const mockGetAuthenticatedUser = vi.fn()
 vi.mock('@/lib/auth', () => ({
   auditEvent: vi.fn(),
@@ -92,7 +97,8 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     mockIsWorkspaceReachable.mockResolvedValue(true)
     mockCreateWorkspaceRemoteConfig.mockResolvedValue({ ok: true, remote: null })
     mockUpdateSyncState.mockResolvedValue(undefined)
-    mockListAppliedKnowledgeReviewChanges.mockResolvedValue([{ kbPath: 'file1.md' }])
+    mockFindIdBySlug.mockResolvedValue({ id: '1' })
+    mockListAppliedKnowledgeReviewChanges.mockResolvedValue([{ kbPath: 'file1.md', operation: 'update', appliedHash: 'sha256:file1' }])
     mockMarkKnowledgeReviewChangesPublished.mockResolvedValue([])
   })
 
@@ -210,7 +216,7 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
       baseUrl: 'http://agent',
       authHeader: 'Basic abc',
     })
-    mockListAppliedKnowledgeReviewChanges.mockResolvedValue([{ id: 'change-1', kbPath: 'reviewed.md' }])
+    mockListAppliedKnowledgeReviewChanges.mockResolvedValue([{ id: 'change-1', kbPath: 'reviewed.md', operation: 'update', appliedHash: 'sha256:reviewed' }])
     mockFetchResponse({
       ok: true,
       status: 'published',
@@ -227,7 +233,10 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
       userId: '1',
     })
     expect(global.fetch).toHaveBeenLastCalledWith('http://agent/kb/publish', expect.objectContaining({
-      body: JSON.stringify({ paths: ['reviewed.md'] }),
+      body: JSON.stringify({
+        paths: ['reviewed.md'],
+        pathHashes: { 'reviewed.md': 'sha256:reviewed' },
+      }),
     }))
     expect(mockMarkKnowledgeReviewChangesPublished).toHaveBeenCalledWith({
       actor: '1',

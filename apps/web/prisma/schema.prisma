@@ -104,6 +104,7 @@ enum KnowledgeLearningOperation {
 enum KnowledgeReviewChangeStatus {
   open
   needs_rebase
+  applying
   applied
   published
   rejected

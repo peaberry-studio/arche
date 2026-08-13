@@ -6,6 +6,7 @@ import {
   searchKb,
 } from '@/lib/mcp/kb-content-store'
 import { createKnowledgeReviewChange } from '@/lib/learning/service'
+import { isValidKbPath } from '@/lib/learning/validation'
 import {
   hasMcpScope,
   MCP_SCOPE_AGENTS_READ,
@@ -257,6 +258,9 @@ async function submitMcpKnowledgeReviewChange(args: {
   // rejected everything unnormalizable before it answered `not_found`.
   const normalizedPath = normalizeKbArticlePath(args.path)
   if (!normalizedPath) return { ok: false, error: 'invalid_path' }
+  // Publish rejects dot-prefixed segments, so a proposal at such a path could
+  // never be published. Reuse the same path contract at submission time.
+  if (!isValidKbPath(normalizedPath)) return { ok: false, error: 'invalid_path' }
 
   const snapshot = await captureKbArticleForReview({ path: args.path })
   if (args.operation === 'create') {
@@ -266,7 +270,7 @@ async function submitMcpKnowledgeReviewChange(args: {
     return { ok: false, error: snapshot.error }
   }
 
-  const change = await createKnowledgeReviewChange(args.user.id, {
+  const result = await createKnowledgeReviewChange(args.user.id, {
     author: args.user.email,
     agent: 'mcp',
     baseContent: snapshot.ok ? snapshot.snapshot.content : null,
@@ -280,11 +284,14 @@ async function submitMcpKnowledgeReviewChange(args: {
     reason: `Submitted through MCP for ${args.operation}.`,
     title: `${args.operation.charAt(0).toUpperCase()}${args.operation.slice(1)} ${args.path.trim()}`,
   })
+  if (!result.ok) {
+    return { ok: false, error: result.error === 'regeneration_source_not_rebaseable' ? 'invalid_request' : result.error }
+  }
 
   return {
     ok: true,
-    path: change.kbPath,
-    proposal: { id: change.id, status: change.status },
+    path: result.change.kbPath,
+    proposal: { id: result.change.id, status: result.change.status },
   }
 }
 

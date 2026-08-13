@@ -51,6 +51,7 @@ const ERROR_LABELS: Record<string, string> = {
   not_found: 'Knowledge proposal not found.',
   not_open: 'This Knowledge proposal is no longer open.',
   not_rebaseable: 'This Knowledge proposal cannot be rebased.',
+  regeneration_source_not_rebaseable: 'This proposal changed while it was being regenerated. Review it again.',
   file_exists: 'A file already exists at this path.',
   workspace_agent_unavailable: 'Start the workspace to apply this change.',
   invalid_request: 'The request was invalid.',
@@ -152,7 +153,7 @@ export function KnowledgeReviewList({
   const [busyRunId, setBusyRunId] = useState<string | null>(null)
   const [modeByChange, setModeByChange] = useState<Record<string, ViewMode | null>>({})
 
-  const { clearDraft, getDraft, getSaveError, getSaveState, handleChange } = useEditorDrafts({
+  const { clearDraft, flushDraft, getDraft, getSaveError, getSaveState, handleChange } = useEditorDrafts({
     onSave: async (changeId, content) => {
       try {
         const response = await fetch(`/api/u/${slug}/learning/proposals`, {
@@ -236,6 +237,12 @@ export function KnowledgeReviewList({
   const submitAction = useCallback(async (changeId: string, action: 'apply' | 'reject' | 'rebase' | 'regenerate', content?: string) => {
     setIsBusy(changeId)
     try {
+      // Rebase and regenerate act on the persisted proposal content. A pending
+      // debounced edit must be flushed first so it is not silently dropped by
+      // the clearDraft that follows a successful action.
+      if (action === 'rebase' || action === 'regenerate') {
+        await flushDraft(changeId)
+      }
       const response = await fetch(`/api/u/${slug}/learning/proposals`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -256,7 +263,7 @@ export function KnowledgeReviewList({
     } finally {
       setIsBusy(null)
     }
-  }, [clearDraft, onApplied, refresh, slug])
+  }, [clearDraft, flushDraft, onApplied, refresh, slug])
 
   const openChanges = changes.filter((change) => change.status === 'open' || change.status === 'needs_rebase')
 

@@ -33,25 +33,6 @@ vi.mock('@/lib/runtime/mode', () => ({ isDesktop: mocks.isDesktop }))
 
 const now = new Date('2026-01-01T00:00:00.000Z')
 
-const proposalRecord = {
-  id: 'proposal-1',
-  userId: 'user-1',
-  runId: null,
-  status: 'pending',
-  title: 'Remember preference',
-  type: 'preference',
-  confidence: 0.8,
-  evidence: { quote: 'Use concise answers' },
-  kbPath: 'Preferences/Answers.md',
-  operation: 'update',
-  proposedContent: 'Use concise answers.',
-  currentFileHash: 'hash-old',
-  internalSessionId: null,
-  trigger: 'agent',
-  createdAt: now,
-  updatedAt: now,
-}
-
 const runRecord = {
   id: 'run-1',
   userId: 'user-1',
@@ -103,66 +84,13 @@ describe('learning repository', () => {
     mocks.prisma.$transaction.mockImplementation(async (callback: (transaction: typeof mocks.prisma) => unknown) => callback(mocks.prisma))
   })
 
-  it('maps list results', async () => {
-    const { listLearningProposals, listLearningRuns } = await import('@/lib/learning/repository')
+  it('maps learning run list results', async () => {
+    const { listLearningRuns } = await import('@/lib/learning/repository')
     mocks.prisma.knowledgeLearningRun.findMany.mockResolvedValue([runRecord])
-    mocks.prisma.knowledgeLearningProposal.findMany.mockResolvedValue([proposalRecord])
 
     await expect(listLearningRuns('user-1')).resolves.toEqual([
       expect.objectContaining({ id: 'run-1', createdAt: now.toISOString() }),
     ])
-    await expect(listLearningProposals('user-1')).resolves.toEqual([
-      expect.objectContaining({ id: 'proposal-1', evidence: { quote: 'Use concise answers' } }),
-    ])
-  })
-
-  it('serializes evidence when creating desktop proposals', async () => {
-    const { createLearningProposal } = await import('@/lib/learning/repository')
-    mocks.isDesktop.mockReturnValue(true)
-    mocks.prisma.knowledgeLearningProposal.create.mockResolvedValue({
-      ...proposalRecord,
-      evidence: JSON.stringify(proposalRecord.evidence),
-    })
-
-    await createLearningProposal('user-1', {
-      title: proposalRecord.title,
-      type: 'preference',
-      confidence: proposalRecord.confidence,
-      evidence: proposalRecord.evidence,
-      kbPath: proposalRecord.kbPath,
-      operation: 'update',
-      proposedContent: proposalRecord.proposedContent,
-      currentFileHash: proposalRecord.currentFileHash,
-      trigger: 'agent',
-    })
-
-    expect(mocks.prisma.knowledgeLearningProposal.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ evidence: JSON.stringify(proposalRecord.evidence) }),
-    })
-  })
-
-  it('updates pending proposal statuses atomically', async () => {
-    const { updatePendingLearningProposalApplied, updatePendingLearningProposalRejected } = await import('@/lib/learning/repository')
-    mocks.prisma.knowledgeLearningProposal.updateMany.mockResolvedValue({ count: 1 })
-    mocks.prisma.knowledgeLearningProposal.findUnique.mockResolvedValue(proposalRecord)
-
-    await expect(updatePendingLearningProposalApplied({ proposalId: 'proposal-1', userId: 'user-1', content: 'new' })).resolves.toEqual(
-      expect.objectContaining({ id: 'proposal-1' }),
-    )
-    await expect(updatePendingLearningProposalRejected({ proposalId: 'proposal-1', userId: 'user-1' })).resolves.toEqual(
-      expect.objectContaining({ id: 'proposal-1' }),
-    )
-    expect(mocks.prisma.knowledgeLearningProposal.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: 'proposal-1', userId: 'user-1', status: 'pending' },
-    }))
-  })
-
-  it('returns null when a guarded proposal update affects no rows', async () => {
-    const { updatePendingLearningProposalApplied } = await import('@/lib/learning/repository')
-    mocks.prisma.knowledgeLearningProposal.updateMany.mockResolvedValue({ count: 0 })
-
-    await expect(updatePendingLearningProposalApplied({ proposalId: 'proposal-1', userId: 'user-1', content: 'new' })).resolves.toBeNull()
-    expect(mocks.prisma.knowledgeLearningProposal.findUnique).not.toHaveBeenCalled()
   })
 
   it('treats running runs and only fresh pending runs as active', async () => {
@@ -180,17 +108,6 @@ describe('learning repository', () => {
           { status: 'pending', createdAt: { gte: pendingSince } },
         ],
       },
-    })
-  })
-
-  it('checks learning run ownership', async () => {
-    const { learningRunBelongsToUser } = await import('@/lib/learning/repository')
-    mocks.prisma.knowledgeLearningRun.findFirst.mockResolvedValue(null)
-
-    await expect(learningRunBelongsToUser({ userId: 'user-1', runId: 'run-other' })).resolves.toBe(false)
-    expect(mocks.prisma.knowledgeLearningRun.findFirst).toHaveBeenCalledWith({
-      where: { id: 'run-other', userId: 'user-1' },
-      select: { id: true },
     })
   })
 
@@ -270,7 +187,7 @@ describe('learning repository', () => {
     mocks.prisma.knowledgeReviewChange.findFirst.mockResolvedValue(reviewRecord)
     mocks.prisma.knowledgeReviewChange.updateMany.mockResolvedValue({ count: 1 })
 
-    await expect(createKnowledgeReviewChange('user-1', {
+    const result = await createKnowledgeReviewChange('user-1', {
       author: 'Alice',
       confidence: 0.8,
       evidence: { quote: 'Use concise answers' },
@@ -282,9 +199,14 @@ describe('learning repository', () => {
       regeneratedFromId: reviewRecord.id,
       runId: 'run-2',
       title: 'Replacement',
-    })).resolves.toEqual(expect.objectContaining({
-      id: 'change-2',
-      regeneratedFromId: reviewRecord.id,
+    })
+
+    expect(result).toEqual(expect.objectContaining({
+      ok: true,
+      change: expect.objectContaining({
+        id: 'change-2',
+        regeneratedFromId: reviewRecord.id,
+      }),
     }))
 
     expect(mocks.prisma.knowledgeReviewChange.create).toHaveBeenCalledWith(expect.objectContaining({
@@ -295,7 +217,7 @@ describe('learning repository', () => {
     )
     expect(mocks.prisma.knowledgeReviewChange.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({
       data: expect.objectContaining({ status: 'superseded' }),
-      where: { id: reviewRecord.id, userId: 'user-1', status: 'needs_rebase' },
+      where: { id: reviewRecord.id, userId: 'user-1', status: { in: ['needs_rebase', 'applying'] } },
     }))
   })
 
