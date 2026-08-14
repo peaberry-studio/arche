@@ -5,7 +5,7 @@ import * as path from 'node:path'
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { createKbArticle, readKbArticle, updateKbArticle } from '@/lib/mcp/kb-content-store'
+import { captureKbArticleForReview, readKbArticle } from '@/lib/mcp/kb-content-store'
 
 const gitAvailable = isGitAvailable()
 const originalE2eHooks = process.env.ARCHE_ENABLE_E2E_HOOKS
@@ -43,18 +43,21 @@ describe.skipIf(!gitAvailable)('MCP KB content store', () => {
     }
   })
 
-  it('blocks traversal and symlink escape for reads and writes', async () => {
+  it('blocks traversal and symlink escape for reads and review snapshots', async () => {
     await expect(readKbArticle({ path: '../outside.md' })).resolves.toEqual({ ok: false, error: 'invalid_path' })
     await expect(readKbArticle({ path: 'link.md' })).resolves.toEqual({ ok: false, error: 'invalid_path' })
-    await expect(updateKbArticle({ path: 'link.md', content: 'changed' })).resolves.toEqual({ ok: false, error: 'invalid_path' })
+    await expect(captureKbArticleForReview({ path: 'link.md' })).resolves.toEqual({ ok: false, error: 'invalid_path' })
     await expect(fs.readFile(String(outsidePath), 'utf-8')).resolves.toBe('outside')
   })
 
-  it('creates markdown articles inside the KB sandbox', async () => {
-    await expect(createKbArticle({ path: 'folder/new.md', content: '# New' })).resolves.toEqual({ ok: true, path: 'folder/new.md' })
+  it('captures canonical content and hashes without mutating the KB', async () => {
+    await expect(captureKbArticleForReview({ path: 'inside.md' })).resolves.toMatchObject({
+      ok: true,
+      snapshot: { path: 'inside.md', content: '# Inside', hash: expect.stringMatching(/^sha256:/) },
+    })
 
-    const readResult = await readKbArticle({ path: 'folder/new.md' })
-    expect(readResult).toMatchObject({ ok: true, path: 'folder/new.md', content: '# New' })
+    const readResult = await readKbArticle({ path: 'inside.md' })
+    expect(readResult).toMatchObject({ ok: true, path: 'inside.md', content: '# Inside' })
   })
 })
 

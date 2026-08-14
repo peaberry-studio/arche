@@ -14,7 +14,7 @@ import {
   waitForSessionToComplete,
 } from '@/lib/opencode/session-execution'
 import { messageRunService } from '@/lib/services'
-import type { LearningTrigger } from '@/types/learning'
+import type { KnowledgeReviewRegenerationContext, LearningTrigger } from '@/types/learning'
 
 const LEARNING_SESSION_TITLE_MAX_LENGTH = 160
 const LEARNING_RUN_CANCELLED_ERROR = 'learning_run_cancelled'
@@ -26,6 +26,7 @@ export type LearningRunExecutionInput = {
   sourceSessionId: string | null
   title: string
   trigger: LearningTrigger
+  regeneration?: KnowledgeReviewRegenerationContext
 }
 
 export type LearningRunExecutionResult =
@@ -44,6 +45,24 @@ export function buildCuratorPrompt(input: LearningRunExecutionInput): string {
     ? `Use the \`session_history_query\` tool to read the source session (sessionIds: ["${input.sourceSessionId}"], includeMessages: true).`
     : 'Use the `session_history_query` tool to review the most recent sessions (includeMessages: true).'
 
+  const regenerationInstructions = input.regeneration ? [
+    '',
+    'This run regenerates a conflicted Knowledge Review change. Create exactly one replacement proposal for the same path; the server links it to the original and supersedes the original only after that replacement is persisted.',
+    `Knowledge Review change id: ${input.regeneration.changeId}`,
+    `Target path: ${input.regeneration.kbPath}`,
+    `Operation: ${input.regeneration.operation}`,
+    '',
+    'Canonical three-way conflict context:',
+    '--- Base content ---',
+    input.regeneration.baseContent ?? '(file did not exist)',
+    '--- Current content ---',
+    input.regeneration.actualContent ?? '(file no longer exists)',
+    '--- Previous proposal ---',
+    input.regeneration.proposedContent || '(delete file)',
+    '',
+    'Regenerate the proposed content against the current content. Call `learning_propose` with this run id and the target path exactly once.',
+  ] : []
+
   return [
     'You are the Arche knowledge curator. Review workspace activity and capture durable knowledge as Knowledge Base proposals.',
     '',
@@ -61,6 +80,7 @@ export function buildCuratorPrompt(input: LearningRunExecutionInput): string {
     '   - a short title, type, confidence, and evidence quoting the session when possible',
     '4. Never write Knowledge Base files directly; proposals are reviewed and applied by the user.',
     '5. Skip transient, task-specific, or sensitive details. If there is nothing durable to learn, create no proposals.',
+    ...regenerationInstructions,
     '',
     'Finish with a one-paragraph summary of the proposals you created (or why none were needed).',
   ].join('\n')
@@ -113,6 +133,7 @@ export async function executeLearningRun(input: LearningRunExecutionInput): Prom
       const cursor = await captureSessionMessageCursor(client, sessionId)
       await client.session.promptAsync(
         {
+          agent: 'knowledge-curator',
           parts: [{ text: buildCuratorPrompt(input), type: 'text' }],
           sessionID: sessionId,
         },

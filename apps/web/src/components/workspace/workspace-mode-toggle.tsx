@@ -9,11 +9,11 @@ import {
   type ComponentType,
   type RefObject,
 } from 'react'
-import { ChatCircle, Database, GitBranch } from '@phosphor-icons/react'
+import { ChatCircle, Compass, Database, GitBranch } from '@phosphor-icons/react'
 
 import { cn } from '@/lib/utils'
 
-export type WorkspaceMode = 'chat' | 'flows' | 'knowledge'
+export type WorkspaceMode = 'chat' | 'flows' | 'explore' | 'knowledge'
 
 type WorkspaceModeToggleProps = {
   mode: WorkspaceMode
@@ -94,8 +94,15 @@ export function WorkspaceModeToggle({
   const containerRef = useRef<HTMLDivElement>(null)
   const chatRef = useRef<HTMLButtonElement>(null)
   const flowsRef = useRef<HTMLButtonElement>(null)
+  const exploreRef = useRef<HTMLButtonElement>(null)
   const knowledgeRef = useRef<HTMLButtonElement>(null)
-  const activeButtonRef = mode === 'chat' ? chatRef : mode === 'flows' ? flowsRef : knowledgeRef
+  const activeButtonRef = mode === 'chat'
+    ? chatRef
+    : mode === 'flows'
+      ? flowsRef
+      : mode === 'explore'
+        ? exploreRef
+        : knowledgeRef
 
   const [indicator, setIndicator] = useState<{ left: number; width: number } | null>(null)
   const [hasAnimated, setHasAnimated] = useState(false)
@@ -171,6 +178,13 @@ export function WorkspaceModeToggle({
           onClick={() => onModeChange('flows')}
         />
       )}
+      <ModeButton
+        active={mode === 'explore'}
+        buttonRef={exploreRef}
+        icon={Compass}
+        label="Explore"
+        onClick={() => onModeChange('explore')}
+      />
       <ModeButton
         active={mode === 'knowledge'}
         badgeDescription="pending"

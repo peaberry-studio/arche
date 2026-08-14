@@ -1,5 +1,5 @@
 type WorkspaceHrefOptions = {
-  mode?: "chat" | "knowledge" | "flows";
+  mode?: "chat" | "explore" | "flows" | "knowledge";
   sessionId?: string | null;
   settings?: string | null;
   path?: string | null;
@@ -7,9 +7,10 @@ type WorkspaceHrefOptions = {
 
 export function getWorkspaceHref(slug: string, options: WorkspaceHrefOptions = {}): string {
   const params = new URLSearchParams();
+  const mode = options.mode ?? (options.path ? "explore" : undefined);
 
-  if (options.mode && options.mode !== "chat") {
-    params.set("mode", options.mode);
+  if (mode && mode !== "chat") {
+    params.set("mode", mode);
   }
 
   if (options.sessionId) {

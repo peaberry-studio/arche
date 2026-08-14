@@ -51,7 +51,6 @@ import { ArcLoader } from "./arc-loader";
 import { FilePreviewPanel } from "./file-preview-panel";
 import { InspectorPanel } from "./inspector-panel";
 import { KnowledgeEmptyState } from "./knowledge-empty-state";
-import { KnowledgeCuratorPanel } from "./knowledge-curator-panel";
 import { KnowledgeNavigationPanel, type KnowledgeNavigationView } from "./knowledge-navigation-panel";
 import { FlowsEmptyState } from "./flows-empty-state";
 import { WorkspaceCommandPalette } from "./workspace-command-palette";
@@ -296,6 +295,19 @@ function formatInstanceStartupError(error: string): string {
   return error;
 }
 
+function countActionableKnowledgeProposals(value: unknown): number {
+  if (!value || typeof value !== "object" || !("proposals" in value) || !Array.isArray(value.proposals)) {
+    return 0;
+  }
+
+  return value.proposals.filter((proposal) => (
+    proposal &&
+    typeof proposal === "object" &&
+    "status" in proposal &&
+    (proposal.status === "open" || proposal.status === "needs_rebase")
+  )).length;
+}
+
 export function WorkspaceShell({
   slug,
   persistenceScope,
@@ -324,6 +336,7 @@ export function WorkspaceShell({
   const layoutStorageKey = getWorkspaceLayoutStorageKey(resolvedPersistenceScope);
   const openFilesStorageKey = getOpenFilesStorageKey(resolvedPersistenceScope);
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>(initialWorkspaceMode);
+  const isExploreMode = workspaceMode === "explore";
   const isKnowledgeMode = workspaceMode === "knowledge";
   const isFlowsMode = workspaceMode === "flows";
   const lastSessionByModeRef = useRef<{ chat: string | null; flows: string | null }>({
@@ -433,15 +446,34 @@ export function WorkspaceShell({
     readFile: readWorkspaceFile,
     selectSession: selectWorkspaceSession,
   } = workspace;
+  const [learningRefreshKey, setLearningRefreshKey] = useState(0);
+  const [knowledgeProposalCount, setKnowledgeProposalCount] = useState(0);
+  const refreshKnowledgePendingCount = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/u/${slug}/learning`, { cache: "no-store" });
+      const data: unknown = await response.json().catch(() => null);
+      if (!response.ok) return;
+      setKnowledgeProposalCount(countActionableKnowledgeProposals(data));
+    } catch {
+      // Keep the last known count when learning data is temporarily unavailable.
+    }
+  }, [slug]);
   const [knowledgeGraphReloadKey, setKnowledgeGraphReloadKey] = useState(0);
   const reloadKnowledgeGraph = useCallback(() => {
     setKnowledgeGraphReloadKey((current) => current + 1);
   }, []);
-  const refreshKnowledgeReview = useCallback(() => {
+  const refreshKnowledgeWorkspace = useCallback(() => {
     workspace.refreshDiffs();
     workspace.refreshFiles();
     reloadKnowledgeGraph();
   }, [reloadKnowledgeGraph, workspace]);
+  // Only for callers that can run while the review list is unmounted (connect,
+  // publish, starting a learning run). When the list is on screen it reports the
+  // count itself, so refetching here would just duplicate its request.
+  const refreshKnowledgeReview = useCallback(() => {
+    refreshKnowledgeWorkspace();
+    void refreshKnowledgePendingCount();
+  }, [refreshKnowledgePendingCount, refreshKnowledgeWorkspace]);
 
   const sessionsById = useMemo(() => {
     const map = new Map<string, WorkspaceSession>();
@@ -570,6 +602,7 @@ export function WorkspaceShell({
       return {
         chat: pickMode("chat"),
         flows: pickMode("flows"),
+        explore: pickMode("explore"),
         knowledge: pickMode("knowledge"),
       };
     },
@@ -587,6 +620,7 @@ export function WorkspaceShell({
       return {
         chat: pickMode("chat"),
         flows: pickMode("flows"),
+        explore: pickMode("explore"),
         knowledge: pickMode("knowledge"),
       };
     },
@@ -596,9 +630,7 @@ export function WorkspaceShell({
     buildInitialCollapseByMode(initialLayoutState?.leftCollapsed, initialLayoutState?.leftCollapsedByMode)
   );
   const [rightCollapsedByMode, setRightCollapsedByMode] = useState<Record<WorkspaceMode, boolean>>(() =>
-    // The chat-mode right panel (Knowledge Curator) starts collapsed so it does
-    // not take space away from the conversation by default.
-    buildInitialCollapseByMode(initialLayoutState?.rightCollapsed, initialLayoutState?.rightCollapsedByMode, { chat: true })
+    buildInitialCollapseByMode(initialLayoutState?.rightCollapsed, initialLayoutState?.rightCollapsedByMode)
   );
   const [leftWidthByMode, setLeftWidthByMode] = useState<Record<WorkspaceMode, number>>(() =>
     buildInitialWidthByMode(initialLayoutState?.leftWidth, initialLayoutState?.leftWidthByMode, MIN_LEFT_PX)
@@ -606,7 +638,7 @@ export function WorkspaceShell({
   const [rightWidthByMode, setRightWidthByMode] = useState<Record<WorkspaceMode, number>>(() =>
     buildInitialWidthByMode(initialLayoutState?.rightWidth, initialLayoutState?.rightWidthByMode, MIN_RIGHT_PX)
   );
-  const leftCollapsed = isFlowsMode ? false : leftCollapsedByMode[workspaceMode];
+  const leftCollapsed = isFlowsMode || isKnowledgeMode ? false : leftCollapsedByMode[workspaceMode];
   const rightCollapsed = rightCollapsedByMode[workspaceMode];
   const leftWidth = leftWidthByMode[workspaceMode];
   const rightWidth = rightWidthByMode[workspaceMode];
@@ -688,7 +720,7 @@ export function WorkspaceShell({
       return;
     }
 
-    if (workspaceMode === "flows") return;
+    if (workspaceMode === "flows" || workspaceMode === "knowledge") return;
     setLeftCollapsedForMode(workspaceMode, (prev) => !prev);
   }, [isCompactLayout, setLeftCollapsedForMode, workspaceMode]);
 
@@ -751,7 +783,7 @@ export function WorkspaceShell({
       const prevMode = workspaceMode;
       setWorkspaceMode(resolvedNextMode);
 
-      if (resolvedNextMode === "knowledge") {
+      if (resolvedNextMode === "explore") {
         setPreviewFilePath(null);
       }
 
@@ -785,8 +817,8 @@ export function WorkspaceShell({
       if (typeof window === "undefined") return;
 
       const params = new URLSearchParams(window.location.search);
-      if (resolvedNextMode === "knowledge") {
-        params.set("mode", "knowledge");
+      if (resolvedNextMode === "explore" || resolvedNextMode === "knowledge") {
+        params.set("mode", resolvedNextMode);
       } else if (resolvedNextMode === "flows") {
         params.set("mode", "flows");
       } else {
@@ -1236,7 +1268,7 @@ export function WorkspaceShell({
 
     const fittedLeftByMode: Record<WorkspaceMode, number> = { ...initialLeftByMode };
     const fittedRightByMode: Record<WorkspaceMode, number> = { ...initialRightByMode };
-    const modes: WorkspaceMode[] = ["chat", "flows", "knowledge"];
+    const modes: WorkspaceMode[] = ["chat", "flows", "explore", "knowledge"];
     let activeFitted = fitWidths(containerWidth, initialLeftByMode[workspaceMode], initialRightByMode[workspaceMode]);
     for (const mode of modes) {
       const fitted = fitWidths(containerWidth, initialLeftByMode[mode], initialRightByMode[mode]);
@@ -1385,7 +1417,7 @@ export function WorkspaceShell({
 
   // File handlers
   const handleOpenFile = useCallback(
-    async (path: string, options?: { forceKnowledgeMode?: boolean }) => {
+    async (path: string, options?: { forceExploreMode?: boolean }) => {
       const resolvedPath = resolveFilePath(path);
       const pathToOpen = resolvedPath || path;
       const normalizedPath = normalizeWorkspacePath(pathToOpen);
@@ -1394,12 +1426,12 @@ export function WorkspaceShell({
         return;
       }
 
-      const shouldOpenInKnowledge = options?.forceKnowledgeMode || isKnowledgeMode;
-      if (options?.forceKnowledgeMode && !isKnowledgeMode) {
-        handleWorkspaceModeChange("knowledge");
+      const shouldOpenInExplore = options?.forceExploreMode || isExploreMode;
+      if (options?.forceExploreMode && !isExploreMode) {
+        handleWorkspaceModeChange("explore");
       }
 
-      if (shouldOpenInKnowledge) {
+      if (shouldOpenInExplore) {
         setOpenFilePaths(prev => prev.includes(normalizedPath) ? prev : [...prev, normalizedPath]);
         setActiveFilePath(normalizedPath);
         setRightTab("preview");
@@ -1458,7 +1490,7 @@ export function WorkspaceShell({
     [
       handleWorkspaceModeChange,
       isCompactLayout,
-      isKnowledgeMode,
+      isExploreMode,
       resolveFilePath,
       readWorkspaceFile,
       setRightCollapsedForMode,
@@ -1467,7 +1499,7 @@ export function WorkspaceShell({
   );
 
   const handleCommandPaletteOpenFile = useCallback(
-    (path: string) => handleOpenFile(path, { forceKnowledgeMode: true }),
+    (path: string) => handleOpenFile(path, { forceExploreMode: true }),
     [handleOpenFile]
   );
 
@@ -1505,7 +1537,7 @@ export function WorkspaceShell({
     setRightTab("preview");
     setPreviewExpanded(false);
     setPreviewFilePath(null);
-    handleWorkspaceModeChange("knowledge");
+    handleWorkspaceModeChange("explore");
   }
 
   useEffect(() => () => {
@@ -1562,30 +1594,44 @@ export function WorkspaceShell({
     [workspace]
   );
 
-  const [learningRefreshKey, setLearningRefreshKey] = useState(0);
-
   const handleLearnSession = useCallback(
     async (session: { id: string; title: string }) => {
       try {
-        await fetch(`/api/u/${slug}/learning`, {
+        const response = await fetch(`/api/u/${slug}/learning`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ sourceSessionId: session.id, title: session.title }),
         });
+        if (response.ok) {
+          void refreshKnowledgePendingCount();
+          toast.success("Learning started", {
+            action: {
+              label: "View in Knowledge",
+              onClick: () => handleWorkspaceModeChange("knowledge"),
+            },
+          });
+        } else {
+          toast.error("Could not start learning")
+        }
       } catch {
-        // The curator panel reflects server state on refresh; a failed enqueue
-        // simply shows no new run.
+        toast.error("Could not start learning")
       }
       setLearningRefreshKey((current) => current + 1);
-      setRightCollapsedForMode(workspaceMode, false);
     },
-    [setRightCollapsedForMode, slug, workspaceMode]
+    [handleWorkspaceModeChange, refreshKnowledgePendingCount, slug]
   );
 
   const handleLearningProposalSentToReview = useCallback(() => {
-    refreshKnowledgeReview();
+    refreshKnowledgeWorkspace();
     void refreshOpenFilesCache();
-  }, [refreshKnowledgeReview, refreshOpenFilesCache]);
+  }, [refreshKnowledgeWorkspace, refreshOpenFilesCache]);
+
+  const handleWorkspaceDiffSubmittedForReview = useCallback(() => {
+    // The review list is keyed by learningRefreshKey, so bump it to surface the
+    // new proposal without waiting for the next idle poll.
+    setLearningRefreshKey((current) => current + 1);
+    refreshKnowledgeWorkspace();
+  }, [refreshKnowledgeWorkspace]);
 
   const handleFlowHumanResponseSubmitted = useCallback(async () => {
     await Promise.all([
@@ -1843,9 +1889,9 @@ export function WorkspaceShell({
     );
   };
 
-  const leftPanelModeLabel = isKnowledgeMode ? "knowledge" : isFlowsMode ? "flows" : "sessions";
+  const leftPanelModeLabel = isExploreMode ? "explore" : isFlowsMode ? "flows" : "sessions";
 
-  const collapseLeftButton = !isCompactLayout && !isFlowsMode ? (
+  const collapseLeftButton = !isCompactLayout && !isFlowsMode && !isKnowledgeMode ? (
     <button
       type="button"
       onClick={handleToggleLeft}
@@ -1871,7 +1917,7 @@ export function WorkspaceShell({
 
   const leftPanelHeaderActions = collapseLeftButton ?? flowsSettingsButton;
 
-  const leftPanelCoreElement = isKnowledgeMode ? (
+  const leftPanelCoreElement = isExploreMode ? (
     <KnowledgeNavigationPanel
       activeFilePath={activeFilePath}
       agentSources={knowledgeAgentSources}
@@ -1880,7 +1926,9 @@ export function WorkspaceShell({
       onDownloadFile={handleDownloadFile}
       onExportFileDocx={handleExportFileDocx}
       onExportFilePdf={handleExportFilePdf}
-      onOpenFile={handleOpenFile}
+      onOpenFile={(path) => {
+        void handleOpenFile(path, { forceExploreMode: true })
+      }}
       openFiles={openFiles}
       readFile={workspace.readFile}
       reloadKey={knowledgeGraphReloadKey}
@@ -1918,7 +1966,7 @@ export function WorkspaceShell({
         <ArrowLineRight size={13} weight="bold" />
       </button>
       <div className="my-2 h-px w-6 bg-border/40" />
-      {isKnowledgeMode ? (
+      {isExploreMode ? (
         <>
           <button
             type="button"
@@ -2029,14 +2077,12 @@ export function WorkspaceShell({
   const fileEditorPanelElement = (
     <InspectorPanel
       slug={slug}
-      activeTab="preview"
       panelMode="files"
       workspaceAgentEnabled={workspaceAgentEnabled}
       onTabChange={setRightTab}
       rightCollapsed={false}
       onToggleRight={handleToggleRight}
       hideCollapseButton
-      pendingDiffsForBadge={workspace.diffs.length}
       openFiles={openFiles}
       activeFilePath={activeFilePath}
       onSelectFile={handleSelectFile}
@@ -2045,6 +2091,8 @@ export function WorkspaceShell({
       isLoadingDiffs={workspace.isLoadingDiffs}
       diffsError={workspace.diffsError}
       onOpenFile={handleOpenFile}
+      onKnowledgeReviewApplied={handleLearningProposalSentToReview}
+      knowledgeReviewRefreshKey={learningRefreshKey}
       internalLinkPaths={markdownFilePaths}
       onReloadFile={handleReloadFile}
       onSaveFile={workspaceAgentEnabled ? handleSaveFile : undefined}
@@ -2057,14 +2105,12 @@ export function WorkspaceShell({
   const reviewPanelElement = (
     <InspectorPanel
       slug={slug}
-      activeTab="review"
-      panelMode="review"
+      panelMode="knowledge"
       workspaceAgentEnabled={workspaceAgentEnabled}
       onTabChange={setRightTab}
-      rightCollapsed={isCompactLayout ? false : rightCollapsed}
-      onToggleRight={isCompactLayout ? handleShowChat : handleToggleRight}
-      hideCollapseButton={isCompactLayout}
-      pendingDiffsForBadge={workspace.diffs.length}
+      rightCollapsed={false}
+      onToggleRight={() => undefined}
+      hideCollapseButton
       openFiles={openFiles}
       activeFilePath={activeFilePath}
       onSelectFile={handleSelectFile}
@@ -2072,7 +2118,13 @@ export function WorkspaceShell({
       diffs={workspace.diffs}
       isLoadingDiffs={workspace.isLoadingDiffs}
       diffsError={workspace.diffsError}
-      onOpenFile={handleOpenFile}
+      onOpenFile={(path) => {
+        void handleOpenFile(path, { forceExploreMode: true })
+      }}
+      onKnowledgeReviewApplied={handleLearningProposalSentToReview}
+      onSubmittedForReview={handleWorkspaceDiffSubmittedForReview}
+      onProposalCountChange={setKnowledgeProposalCount}
+      knowledgeReviewRefreshKey={learningRefreshKey}
       internalLinkPaths={markdownFilePaths}
       onReloadFile={handleReloadFile}
       onSaveFile={workspaceAgentEnabled ? handleSaveFile : undefined}
@@ -2084,11 +2136,13 @@ export function WorkspaceShell({
 
   const isViewingFlowSession = isFlowSession(activeSessionRecord);
   const showFlowsEmptyState = isFlowsMode && !isViewingFlowSession;
-  const showKnowledgeEmptyState = isKnowledgeMode && openFilePaths.length === 0;
+  const showExploreEmptyState = isExploreMode && openFilePaths.length === 0;
   const centerPanelElement = isKnowledgeMode
-    ? showKnowledgeEmptyState
-      ? <KnowledgeEmptyState />
-      : fileEditorPanelElement
+    ? reviewPanelElement
+    : isExploreMode
+      ? showExploreEmptyState
+        ? <KnowledgeEmptyState />
+        : fileEditorPanelElement
     : showFlowsEmptyState
       ? <FlowsEmptyState />
       : chatPanelElement;
@@ -2102,31 +2156,16 @@ export function WorkspaceShell({
       onEdit={handleEditFromPreview}
     />
   ) : null;
-  const hasPreviewPanel = !isKnowledgeMode && previewFilePath !== null;
-  const hasRightPanel = isKnowledgeMode || hasPreviewPanel || workspaceMode === "chat";
-  const rightPanelContent = hasPreviewPanel
-    ? previewPanelElement
-    : isKnowledgeMode
-      ? reviewPanelElement
-      : (
-          <KnowledgeCuratorPanel
-            slug={slug}
-            collapsed={isCompactLayout ? false : rightCollapsed}
-            onToggleCollapse={isCompactLayout ? handleShowChat : handleToggleRight}
-            onOpenSession={handleSelectSession}
-            onProposalSentToReview={handleLearningProposalSentToReview}
-            refreshKey={learningRefreshKey}
-          />
-        );
+  const hasPreviewPanel = !isExploreMode && !isKnowledgeMode && previewFilePath !== null;
+  const hasRightPanel = hasPreviewPanel;
+  const rightPanelContent = previewPanelElement;
 
   const isLeftPanelActive = mobileView === "left";
   const isChatActive = mobileView === "chat";
   const isRightPanelActive = mobileView === "right";
-  const rightPanelBadgeLabel = workspace.diffs.length > 99 ? "99+" : String(workspace.diffs.length);
-  const mobileLeftLabel = isKnowledgeMode ? "Tree" : isFlowsMode ? "Flows" : "Sessions";
-  const mobileCenterLabel = isKnowledgeMode ? "Files" : "Chat";
-  const mobileRightLabel = "Review";
-  const mobileCenterAriaLabel = isKnowledgeMode ? "Show files" : "Show chat";
+  const mobileLeftLabel = isExploreMode ? "Tree" : isFlowsMode ? "Flows" : "Sessions";
+  const mobileCenterLabel = isExploreMode ? "Files" : "Chat";
+  const mobileCenterAriaLabel = isExploreMode ? "Show files" : "Show chat";
 
   return (
     <div
@@ -2152,7 +2191,6 @@ export function WorkspaceShell({
         onRefreshSessions={workspace.refreshSessions}
         onSelectSession={handleCommandPaletteSelectSession}
         onToggleLeftPanel={handleToggleLeft}
-        onToggleRightPanel={handleToggleRight}
       />
       <WorkspaceTopNav
         slug={slug}
@@ -2161,7 +2199,7 @@ export function WorkspaceShell({
         status="active"
         sessionsUnreadCount={sessionsUnreadCount}
         flowsUnreadCount={flowsUnreadCount}
-        knowledgePendingCount={workspace.diffs.length}
+        knowledgePendingCount={workspace.diffs.length + knowledgeProposalCount}
         macDesktopWindowInset={macDesktopWindowInset}
         onModeChange={handleWorkspaceModeChange}
         onNavigateConnectors={navigateConnectors}
@@ -2179,7 +2217,11 @@ export function WorkspaceShell({
         />
       ) : null}
       <div className="flex min-h-0 flex-1 flex-col pl-1">
-        {isCompactLayout ? (
+        {isCompactLayout ? isKnowledgeMode ? (
+          <div className="min-h-0 flex-1 overflow-hidden px-3 pb-3 pt-2">
+            {centerPanelElement}
+          </div>
+        ) : (
           <>
             <div className="relative min-h-0 flex-1">
               <div
@@ -2200,7 +2242,7 @@ export function WorkspaceShell({
                 <div
                   className={cn(
                     "h-full min-h-0 overflow-hidden",
-                    isKnowledgeMode && "px-3 pb-3 pt-2"
+                    isExploreMode && "px-3 pb-3 pt-2"
                   )}
                 >
                   {centerPanelElement}
@@ -2258,7 +2300,7 @@ export function WorkspaceShell({
                 aria-label={mobileCenterAriaLabel}
                 aria-pressed={isChatActive}
               >
-                {isKnowledgeMode ? (
+                {isExploreMode ? (
                   <Database size={22} weight={isChatActive ? "fill" : "regular"} />
                 ) : (
                   <ChatCircle size={22} weight={isChatActive ? "fill" : "regular"} />
@@ -2276,46 +2318,45 @@ export function WorkspaceShell({
                       ? "text-foreground"
                       : "text-muted-foreground active:text-foreground"
                   )}
-                  aria-label={isRightPanelActive ? "Close review panel" : "Open review panel"}
+                  aria-label={isRightPanelActive ? "Close file preview" : "Open file preview"}
                   aria-pressed={isRightPanelActive}
                 >
                   <div className="relative">
                     <File size={22} weight={isRightPanelActive ? "fill" : "regular"} />
-                    {workspace.diffs.length > 0 ? (
-                      <span className="absolute -right-1.5 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
-                        {rightPanelBadgeLabel}
-                      </span>
-                    ) : null}
                   </div>
-                  <span>{mobileRightLabel}</span>
+                  <span>Preview</span>
                 </button>
               ) : null}
             </nav>
           </>
         ) : (
           <div ref={containerRef} className="relative z-10 flex min-h-0 flex-1">
-            <div
-              className="shrink-0 overflow-hidden border-r border-border/30"
-              style={{
-                width: leftCollapsed ? COLLAPSED_PANEL_PX : leftWidth,
-                minWidth: leftCollapsed ? COLLAPSED_PANEL_PX : MIN_LEFT_PX,
-                opacity: 1,
-                transition: isDragging ? "none" : PANEL_TRANSITION,
-              }}
-            >
-              {leftPanelElement}
-            </div>
+            {!isKnowledgeMode ? (
+              <>
+                <div
+                  className="shrink-0 overflow-hidden border-r border-border/30"
+                  style={{
+                    width: leftCollapsed ? COLLAPSED_PANEL_PX : leftWidth,
+                    minWidth: leftCollapsed ? COLLAPSED_PANEL_PX : MIN_LEFT_PX,
+                    opacity: 1,
+                    transition: isDragging ? "none" : PANEL_TRANSITION,
+                  }}
+                >
+                  {leftPanelElement}
+                </div>
 
-            {!leftCollapsed && (
-              <div
-                className="absolute bottom-0 top-0 z-20 w-6 cursor-col-resize"
-                style={{ left: leftWidth - 3 }}
-                onPointerDown={handleResizeLeft}
-                role="separator"
-                aria-orientation="vertical"
-                aria-label="Resize left panel"
-              />
-            )}
+                {!leftCollapsed && (
+                  <div
+                    className="absolute bottom-0 top-0 z-20 w-6 cursor-col-resize"
+                    style={{ left: leftWidth - 3 }}
+                    onPointerDown={handleResizeLeft}
+                    role="separator"
+                    aria-orientation="vertical"
+                    aria-label="Resize left panel"
+                  />
+                )}
+              </>
+            ) : null}
 
             <div
               className="flex min-w-0 flex-1 items-stretch justify-center"

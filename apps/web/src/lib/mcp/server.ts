@@ -1,11 +1,12 @@
 import {
-  createKbArticle,
-  deleteKbArticle,
+  captureKbArticleForReview,
   listKbArticles,
+  normalizeKbArticlePath,
   readKbArticle,
   searchKb,
-  updateKbArticle,
 } from '@/lib/mcp/kb-content-store'
+import { createKnowledgeReviewChange } from '@/lib/learning/service'
+import { isValidKbPath } from '@/lib/learning/validation'
 import {
   hasMcpScope,
   MCP_SCOPE_AGENTS_READ,
@@ -209,26 +210,89 @@ function buildToolDefinitions(scopes: readonly string[], user: RuntimeUser): Too
     tools.push(
       defineTool({
         name: 'create_kb_article',
-        description: 'Create a new markdown knowledge-base article. Supports KaTeX math ($...$, $$...$$) and vega-lite fenced charts; follow the Markdown Capabilities section of AGENTS.md for chart quality standards. Requires kb:write.',
+        description: 'Submit a new markdown knowledge-base article for Knowledge Review. It is applied and published only after explicit user approval. Supports KaTeX math ($...$, $$...$$) and vega-lite fenced charts; follow the Markdown Capabilities section of AGENTS.md for chart quality standards. Requires kb:write.',
         args: { path: { type: 'string', required: true }, content: { type: 'string', required: true } },
-        handler: (a) => createKbArticle({ path: str(a, 'path'), content: str(a, 'content') }),
+        handler: (a) => submitMcpKnowledgeReviewChange({
+          content: str(a, 'content'),
+          operation: 'create',
+          path: str(a, 'path'),
+          user,
+        }),
       }),
       defineTool({
         name: 'update_kb_article',
-        description: 'Update an existing markdown knowledge-base article. Supports KaTeX math ($...$, $$...$$) and vega-lite fenced charts; follow the Markdown Capabilities section of AGENTS.md for chart quality standards. Requires kb:write.',
+        description: 'Submit an update to a markdown knowledge-base article for Knowledge Review. It is applied and published only after explicit user approval. Supports KaTeX math ($...$, $$...$$) and vega-lite fenced charts; follow the Markdown Capabilities section of AGENTS.md for chart quality standards. Requires kb:write.',
         args: { path: { type: 'string', required: true }, content: { type: 'string', required: true } },
-        handler: (a) => updateKbArticle({ path: str(a, 'path'), content: str(a, 'content') }),
+        handler: (a) => submitMcpKnowledgeReviewChange({
+          content: str(a, 'content'),
+          operation: 'update',
+          path: str(a, 'path'),
+          user,
+        }),
       }),
       defineTool({
         name: 'delete_kb_article',
-        description: 'Delete a markdown knowledge-base article. Requires kb:write.',
+        description: 'Submit a markdown knowledge-base article deletion for Knowledge Review. It is applied and published only after explicit user approval. Requires kb:write.',
         args: { path: { type: 'string', required: true } },
-        handler: (a) => deleteKbArticle({ path: str(a, 'path') }),
+        handler: (a) => submitMcpKnowledgeReviewChange({
+          content: '',
+          operation: 'delete',
+          path: str(a, 'path'),
+          user,
+        }),
       }),
     )
   }
 
   return tools
+}
+
+async function submitMcpKnowledgeReviewChange(args: {
+  content: string
+  operation: 'create' | 'update' | 'delete'
+  path: string
+  user: RuntimeUser
+}): Promise<unknown> {
+  // Normalize up front so the path persisted for a create on a missing file is
+  // a checked one, rather than depending on captureKbArticleForReview having
+  // rejected everything unnormalizable before it answered `not_found`.
+  const normalizedPath = normalizeKbArticlePath(args.path)
+  if (!normalizedPath) return { ok: false, error: 'invalid_path' }
+  // Publish rejects dot-prefixed segments, so a proposal at such a path could
+  // never be published. Reuse the same path contract at submission time.
+  if (!isValidKbPath(normalizedPath)) return { ok: false, error: 'invalid_path' }
+
+  const snapshot = await captureKbArticleForReview({ path: args.path })
+  if (args.operation === 'create') {
+    if (snapshot.ok) return { ok: false, error: 'article_exists' }
+    if (snapshot.error !== 'not_found') return { ok: false, error: snapshot.error }
+  } else if (!snapshot.ok) {
+    return { ok: false, error: snapshot.error }
+  }
+
+  const result = await createKnowledgeReviewChange(args.user.id, {
+    author: args.user.email,
+    agent: 'mcp',
+    baseContent: snapshot.ok ? snapshot.snapshot.content : null,
+    baseHash: snapshot.ok ? snapshot.snapshot.hash : null,
+    confidence: 1,
+    evidence: { source: 'MCP knowledge-base request' },
+    kbPath: snapshot.ok ? snapshot.snapshot.path : normalizedPath,
+    operation: args.operation,
+    origin: 'mcp',
+    proposedContent: args.content,
+    reason: `Submitted through MCP for ${args.operation}.`,
+    title: `${args.operation.charAt(0).toUpperCase()}${args.operation.slice(1)} ${args.path.trim()}`,
+  })
+  if (!result.ok) {
+    return { ok: false, error: result.error === 'regeneration_source_not_rebaseable' ? 'invalid_request' : result.error }
+  }
+
+  return {
+    ok: true,
+    path: result.change.kbPath,
+    proposal: { id: result.change.id, status: result.change.status },
+  }
 }
 
 function buildProactiveWorkspaceContextPreamble(): string {

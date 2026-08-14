@@ -4,8 +4,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   createLearningRun: vi.fn(),
   dispatchLearningRunExecution: vi.fn(),
+  findIdBySlug: vi.fn(),
   findLearningRunForUser: vi.fn(),
-  listLearningProposals: vi.fn(),
+  listKnowledgeReviewChanges: vi.fn(),
   listLearningRuns: vi.fn(),
 }))
 
@@ -13,9 +14,11 @@ vi.mock('@/lib/learning/service', () => ({
   createLearningRun: mocks.createLearningRun,
   dispatchLearningRunExecution: mocks.dispatchLearningRunExecution,
   findLearningRunForUser: mocks.findLearningRunForUser,
-  listLearningProposals: mocks.listLearningProposals,
+  listKnowledgeReviewChanges: mocks.listKnowledgeReviewChanges,
   listLearningRuns: mocks.listLearningRuns,
 }))
+
+vi.mock('@/lib/services/user', () => ({ findIdBySlug: mocks.findIdBySlug }))
 
 vi.mock('@/lib/runtime/with-auth', () => ({
   withAuth: (_options: unknown, handler: (request: NextRequest, context: { slug: string; user: { id: string } }) => Promise<Response>) => {
@@ -44,8 +47,9 @@ const createdRun = {
 describe('/api/u/[slug]/learning', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.findIdBySlug.mockResolvedValue({ id: 'user-1' })
     mocks.listLearningRuns.mockResolvedValue([{ id: 'run-1' }])
-    mocks.listLearningProposals.mockResolvedValue([{ id: 'proposal-1' }])
+    mocks.listKnowledgeReviewChanges.mockResolvedValue([{ id: 'proposal-1' }])
     mocks.createLearningRun.mockResolvedValue({ ok: true, run: createdRun })
   })
 
@@ -122,5 +126,32 @@ describe('/api/u/[slug]/learning', () => {
 
     expect(response.status).toBe(404)
     expect(mocks.dispatchLearningRunExecution).not.toHaveBeenCalled()
+  })
+
+  it('lists the workspace owner records for admin cross-slug requests', async () => {
+    mocks.findIdBySlug.mockResolvedValue({ id: 'alice-owner' })
+    mocks.listLearningRuns.mockResolvedValue([{ id: 'run-owner' }])
+    mocks.listKnowledgeReviewChanges.mockResolvedValue([{ id: 'proposal-owner' }])
+
+    const response = await GET(new NextRequest('http://localhost/api/u/alice/learning'))
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      runs: [{ id: 'run-owner' }],
+      proposals: [{ id: 'proposal-owner' }],
+    })
+    expect(mocks.listLearningRuns).toHaveBeenCalledWith('alice-owner')
+    expect(mocks.listKnowledgeReviewChanges).toHaveBeenCalledWith('alice-owner')
+  })
+
+  it('rejects the request when the workspace owner cannot be resolved', async () => {
+    mocks.findIdBySlug.mockResolvedValue(null)
+
+    const response = await GET(new NextRequest('http://localhost/api/u/alice/learning'))
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({ error: 'workspace_owner_not_found' })
+    expect(mocks.listLearningRuns).not.toHaveBeenCalled()
+    expect(mocks.listKnowledgeReviewChanges).not.toHaveBeenCalled()
   })
 })

@@ -160,6 +160,14 @@ describe('WorkspaceHostPage', () => {
     await expect(renderHostPage()).rejects.toThrow('REDIRECT:/w/bob')
   })
 
+  it('redirects legacy knowledge file links to Explore', async () => {
+    await expect(renderHostPage({
+      mode: 'knowledge',
+      path: 'Notes/Brief.md',
+      session: 'session-1',
+    })).rejects.toThrow('REDIRECT:/w/alice?mode=explore&path=Notes%2FBrief.md&session=session-1')
+  })
+
   it('redirects when kickstart setup is not ready', async () => {
     getKickstartStatusMock.mockResolvedValue('needs_setup')
 
@@ -198,6 +206,15 @@ describe('WorkspaceHostPage', () => {
     })
     expect(getWorkspacePersistenceScopeMock).toHaveBeenCalledWith('alice')
     expect(parseWorkspaceLayoutStateMock).toHaveBeenCalledWith('layout-cookie')
+  })
+
+  it('passes Explore mode through to the workspace shell', async () => {
+    render(await renderHostPage({ mode: 'explore', path: 'Notes/Brief.md' }))
+
+    expect(workspaceShellProps.current).toMatchObject({
+      initialFilePath: 'Notes/Brief.md',
+      initialWorkspaceMode: 'explore',
+    })
   })
 
   it('renders desktop flow dialog state from the workspace query string', async () => {

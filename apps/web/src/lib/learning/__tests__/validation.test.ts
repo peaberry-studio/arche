@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { parseEvidence } from '@/lib/learning/repository'
 import { isValidKbPath, parseProposalActionRequest, parseProposalRequest } from '@/lib/learning/validation'
+import { LEARNING_TITLE_MAX_LENGTH } from '@/types/learning'
 
 const validPayload = {
   title: 'Remember preference',
@@ -29,8 +30,24 @@ describe('parseProposalRequest', () => {
 
   it('rejects invalid enum values', () => {
     expect(parseProposalRequest({ ...validPayload, type: 'unknown' })).toEqual({ ok: false })
-    expect(parseProposalRequest({ ...validPayload, operation: 'delete' })).toEqual({ ok: false })
+    expect(parseProposalRequest({ ...validPayload, operation: 'unlink' })).toEqual({ ok: false })
     expect(parseProposalRequest({ ...validPayload, trigger: 'timer' })).toEqual({ ok: false })
+  })
+
+  it('accepts a delete operation with empty proposed content', () => {
+    const result = parseProposalRequest({
+      ...validPayload,
+      operation: 'delete',
+      proposedContent: '',
+    })
+
+    expect(result).toMatchObject({ ok: true, value: { operation: 'delete', proposedContent: '' } })
+  })
+
+  it('rejects a delete operation with missing proposed content', () => {
+    const withoutContent = { ...validPayload } as Record<string, unknown>
+    delete withoutContent.proposedContent
+    expect(parseProposalRequest({ ...withoutContent, operation: 'delete' })).toEqual({ ok: false })
   })
 
   it('rejects confidence outside the accepted range', () => {
@@ -47,6 +64,14 @@ describe('parseProposalRequest', () => {
     for (const kbPath of ['../secrets.md', 'notes/../../etc/passwd', '/absolute.md', 'notes//double.md', './relative.md', '.git/config', 'notes\\windows.md', 'trailing/']) {
       expect(parseProposalRequest({ ...validPayload, kbPath })).toEqual({ ok: false })
     }
+  })
+
+  it('accepts an optional reason and rejects an oversized one', () => {
+    expect(parseProposalRequest({ ...validPayload, reason: 'Durable preference' })).toMatchObject({
+      ok: true,
+      value: { reason: 'Durable preference' },
+    })
+    expect(parseProposalRequest({ ...validPayload, reason: 'x'.repeat(LEARNING_TITLE_MAX_LENGTH + 1) })).toEqual({ ok: false })
   })
 })
 
@@ -89,9 +114,41 @@ describe('parseProposalActionRequest', () => {
   })
 
   it('rejects empty or oversized content', () => {
-    expect(parseProposalActionRequest({ proposalId: 'proposal-1', action: 'apply', content: '' })).toEqual({ ok: false })
+    // An empty apply is now valid: applying a delete change carries no content.
     expect(parseProposalActionRequest({ proposalId: 'proposal-1', action: 'apply', content: '   ' })).toEqual({ ok: false })
     expect(parseProposalActionRequest({ proposalId: 'proposal-1', action: 'apply', content: 'x'.repeat(200_001) })).toEqual({ ok: false })
+  })
+
+  it('accepts an empty apply payload for delete changes', () => {
+    expect(parseProposalActionRequest({ proposalId: 'proposal-1', action: 'apply', content: '' })).toEqual({
+      ok: true,
+      value: { action: 'apply', proposalId: 'proposal-1', content: '' },
+    })
+  })
+
+  it('accepts rebase and regenerate actions without content', () => {
+    expect(parseProposalActionRequest({ proposalId: 'change-1', action: 'rebase' })).toEqual({
+      ok: true,
+      value: { action: 'rebase', proposalId: 'change-1', content: undefined },
+    })
+    expect(parseProposalActionRequest({ proposalId: 'change-1', action: 'regenerate' })).toEqual({
+      ok: true,
+      value: { action: 'regenerate', proposalId: 'change-1', content: undefined },
+    })
+  })
+
+  it('requires string content for save_draft and accepts empty drafts', () => {
+    expect(parseProposalActionRequest({ proposalId: 'change-1', action: 'save_draft', content: '# Edited' })).toEqual({
+      ok: true,
+      value: { action: 'save_draft', proposalId: 'change-1', content: '# Edited' },
+    })
+    // An empty draft is allowed — unlike apply, save_draft does not require non-whitespace content.
+    expect(parseProposalActionRequest({ proposalId: 'change-1', action: 'save_draft', content: '' })).toEqual({
+      ok: true,
+      value: { action: 'save_draft', proposalId: 'change-1', content: '' },
+    })
+    expect(parseProposalActionRequest({ proposalId: 'change-1', action: 'save_draft' })).toEqual({ ok: false })
+    expect(parseProposalActionRequest({ proposalId: 'change-1', action: 'save_draft', content: 'x'.repeat(200_001) })).toEqual({ ok: false })
   })
 })
 

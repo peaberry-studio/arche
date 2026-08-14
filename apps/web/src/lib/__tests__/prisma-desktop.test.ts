@@ -196,6 +196,8 @@ describe('desktop prisma context isolation', () => {
       .mockResolvedValueOnce([{ name: 'kind' }])
       .mockResolvedValueOnce([{ name: 'provider_sync_hash' }, { name: 'provider_synced_at' }])
       .mockResolvedValueOnce([{ name: 'provider_sync_hash' }, { name: 'provider_synced_at' }])
+      .mockResolvedValueOnce([{ name: 'regeneration_change_id' }])
+      .mockResolvedValueOnce([{ name: 'regeneration_change_id' }])
 
     mockGeneratedPrismaClient.mockImplementationOnce(({ adapter }: { adapter: { url: string } }) => ({
       adapterUrl: adapter.url,
@@ -210,5 +212,59 @@ describe('desktop prisma context isolation', () => {
 
     const ddl = executeRawUnsafe.mock.calls.map((call) => String(call[0]))
     expect(ddl).toContain('ALTER TABLE "users" ADD COLUMN "mcp_allowed" BOOLEAN NOT NULL DEFAULT false')
+  })
+
+  it('adds regeneration_change_id to existing desktop learning runs tables', async () => {
+    const executeRawUnsafe = vi.fn()
+    const queryRawUnsafe = vi.fn()
+      .mockResolvedValueOnce([{ name: 'kind' }, { name: 'mcp_allowed' }])
+      .mockResolvedValueOnce([{ name: 'kind' }, { name: 'mcp_allowed' }])
+      .mockResolvedValueOnce([{ name: 'provider_sync_hash' }, { name: 'provider_synced_at' }])
+      .mockResolvedValueOnce([{ name: 'provider_sync_hash' }, { name: 'provider_synced_at' }])
+      .mockResolvedValueOnce([{ name: 'id' }])
+
+    mockGeneratedPrismaClient.mockImplementationOnce(({ adapter }: { adapter: { url: string } }) => ({
+      adapterUrl: adapter.url,
+      $executeRaw: vi.fn(),
+      $executeRawUnsafe: executeRawUnsafe,
+      $queryRawUnsafe: queryRawUnsafe,
+      $queryRaw: vi.fn().mockResolvedValue([{ value: '11' }]),
+    }))
+
+    const { initDesktopDatabase } = await import('../prisma-desktop')
+    await initDesktopDatabase()
+
+    const ddl = executeRawUnsafe.mock.calls.map((call) => String(call[0]))
+    expect(ddl).toContain('ALTER TABLE "knowledge_learning_runs" ADD COLUMN "regeneration_change_id" TEXT')
+  })
+
+  it('creates the knowledge review tables in the desktop DDL', async () => {
+    const executeRawUnsafe = vi.fn()
+    const queryRawUnsafe = vi.fn().mockResolvedValue([
+      { name: 'kind' },
+      { name: 'mcp_allowed' },
+      { name: 'provider_sync_hash' },
+      { name: 'provider_synced_at' },
+      { name: 'regeneration_change_id' },
+    ])
+
+    mockGeneratedPrismaClient.mockImplementationOnce(({ adapter }: { adapter: { url: string } }) => ({
+      adapterUrl: adapter.url,
+      $executeRaw: vi.fn(),
+      $executeRawUnsafe: executeRawUnsafe,
+      $queryRawUnsafe: queryRawUnsafe,
+      $queryRaw: vi.fn().mockResolvedValue([{ value: '11' }]),
+    }))
+
+    const { initDesktopDatabase } = await import('../prisma-desktop')
+    await initDesktopDatabase()
+
+    const ddl = executeRawUnsafe.mock.calls.map((call) => String(call[0]))
+    expect(ddl.some((statement) => statement.includes('CREATE TABLE IF NOT EXISTS "knowledge_review_changes"'))).toBe(true)
+    expect(ddl.some((statement) => statement.includes('CREATE TABLE IF NOT EXISTS "knowledge_learning_runs"'))).toBe(true)
+    expect(ddl.some((statement) => statement.includes('"regeneration_change_id" TEXT'))).toBe(true)
+    expect(ddl.some((statement) => statement.includes('CREATE UNIQUE INDEX IF NOT EXISTS "knowledge_review_changes_source_proposal_id_key"'))).toBe(true)
+    expect(ddl.some((statement) => statement.includes('CREATE INDEX IF NOT EXISTS "knowledge_review_changes_user_id_kb_path_status_idx"'))).toBe(true)
+    expect(ddl.some((statement) => statement.includes('CREATE INDEX IF NOT EXISTS "knowledge_learning_runs_regeneration_change_id_idx"'))).toBe(true)
   })
 })

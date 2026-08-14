@@ -5,6 +5,7 @@ import { cancelLearningRun, findLearningRunForUser } from '@/lib/learning/servic
 import { createInstanceClient } from '@/lib/opencode/client'
 import { abortSessionFamilyAndConfirmIdle } from '@/lib/opencode/session-execution'
 import { withAuth } from '@/lib/runtime/with-auth'
+import { findIdBySlug } from '@/lib/services/user'
 import { messageRunService } from '@/lib/services'
 import type { LearningRun } from '@/types/learning'
 
@@ -46,7 +47,15 @@ async function abortInternalSessionBestEffort(slug: string, runId: string, sessi
 export const POST = withAuth<{ run: LearningRun } | { error: string }, CancelRunParams>(
   { csrf: true },
   async (_request, context) => {
-    const run = await findLearningRunForUser({ runId: context.params.runId, userId: context.user.id })
+    // Runs belong to the workspace owner. An ADMIN can act on another user's
+    // workspace, so the owner must be resolved from the slug instead of
+    // assuming the acting user is the owner.
+    const owner = await findIdBySlug(context.slug)
+    if (!owner) {
+      return NextResponse.json({ error: 'workspace_owner_not_found' }, { status: 400 })
+    }
+
+    const run = await findLearningRunForUser({ runId: context.params.runId, userId: owner.id })
     if (!run) {
       return NextResponse.json({ error: 'not_found' }, { status: 404 })
     }
@@ -55,7 +64,7 @@ export const POST = withAuth<{ run: LearningRun } | { error: string }, CancelRun
       return NextResponse.json({ error: 'run_not_cancelable' }, { status: 400 })
     }
 
-    const cancelledRun = await cancelLearningRun({ runId: run.id, userId: context.user.id })
+    const cancelledRun = await cancelLearningRun({ runId: run.id, userId: owner.id })
     if (!cancelledRun) {
       return NextResponse.json({ error: 'run_not_cancelable' }, { status: 400 })
     }

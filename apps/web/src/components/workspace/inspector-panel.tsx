@@ -7,7 +7,6 @@ import {
   CaretLeft,
   CaretRight,
   File,
-  GitDiff,
   X,
 } from "@phosphor-icons/react";
 
@@ -25,7 +24,8 @@ import { cn } from "@/lib/utils";
 import { MarkdownPreview } from "./markdown-preview";
 import { MarkdownEditor } from "./markdown-editor";
 import { PublishKbButton } from "./publish-kb-button";
-import { ReviewPanel } from "./review-panel";
+import { ReviewPanel, type ReviewTab } from "./review-panel";
+import { SegmentedControl, type SegmentedControlOption } from "./segmented-control";
 
 type WorkspaceFile = {
   path: string;
@@ -46,16 +46,18 @@ type ConflictMarkerTextEditorProps = {
   modifiedAt?: string;
 };
 
+const KNOWLEDGE_REVIEW_TAB_OPTIONS: SegmentedControlOption<ReviewTab>[] = [
+  { value: "proposals", label: "Proposals" },
+  { value: "changes", label: "Pending publish" },
+];
+
 type InspectorPanelProps = {
   slug: string;
-  activeTab: "preview" | "review";
-  panelMode?: "combined" | "files" | "review";
+  panelMode?: "combined" | "files" | "knowledge";
   workspaceAgentEnabled?: boolean;
   onTabChange: (tab: "preview" | "review") => void;
   rightCollapsed: boolean;
   onToggleRight: () => void;
-  pendingDiffsForBadge?: number;
-  onOpenReview?: () => void;
   openFiles: WorkspaceFile[];
   activeFilePath: string | null;
   onSelectFile: (path: string) => void;
@@ -74,6 +76,10 @@ type InspectorPanelProps = {
   onDiscardFileChanges?: (path: string) => Promise<{ ok: true } | { ok: false; error: string }>;
   onPublish?: () => void;
   onResolveConflict?: (path: string) => void | Promise<void>;
+  onKnowledgeReviewApplied?: () => void | Promise<void>;
+  onProposalCountChange?: (count: number) => void;
+  onSubmittedForReview?: () => void | Promise<void>;
+  knowledgeReviewRefreshKey?: number;
   hideCollapseButton?: boolean;
 };
 
@@ -82,50 +88,10 @@ type InspectorPanelProps = {
 function MinifiedInspectorPanel({
   onToggleRight,
   onTabChange,
-  panelMode = "combined",
-  pendingDiffsForBadge = 0,
 }: {
   onToggleRight: () => void;
   onTabChange: (tab: "preview" | "review") => void;
-  panelMode?: "combined" | "files" | "review";
-  pendingDiffsForBadge?: number;
 }) {
-  const badgeLabel = pendingDiffsForBadge > 99 ? "99+" : String(pendingDiffsForBadge);
-
-  if (panelMode === "review") {
-    return (
-      <TooltipProvider delayDuration={400}>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={onToggleRight}
-              aria-label="Expand review panel"
-              className="group flex h-full w-full cursor-pointer flex-col items-center gap-3 py-4 text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
-            >
-              {pendingDiffsForBadge > 0 ? (
-                <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-semibold leading-none text-primary-foreground">
-                  {badgeLabel}
-                </span>
-              ) : (
-                <span className="h-5" aria-hidden />
-              )}
-              <span
-                className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted-foreground/80 transition-colors group-hover:text-foreground"
-                style={{ writingMode: "vertical-rl" }}
-              >
-                Review
-              </span>
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="left">
-            Expand review{pendingDiffsForBadge > 0 ? ` (${pendingDiffsForBadge})` : ""}
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-    );
-  }
-
   return (
     <TooltipProvider delayDuration={400}>
       <div className="flex h-full w-full flex-col items-center py-2 text-card-foreground">
@@ -160,26 +126,6 @@ function MinifiedInspectorPanel({
           <TooltipContent side="left">Files</TooltipContent>
         </Tooltip>
 
-        {panelMode === "combined" ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={() => { onToggleRight(); onTabChange("review"); }}
-                className="relative flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
-                aria-label="Review"
-              >
-                <GitDiff size={13} weight="bold" />
-                {pendingDiffsForBadge > 0 && (
-                  <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
-                    {badgeLabel}
-                  </span>
-                )}
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="left">Review{pendingDiffsForBadge > 0 ? ` (${pendingDiffsForBadge})` : ""}</TooltipContent>
-          </Tooltip>
-        ) : null}
       </div>
     </TooltipProvider>
   );
@@ -261,13 +207,11 @@ function ConflictMarkerTextEditor({
 
 export function InspectorPanel({
   slug,
-  activeTab,
   panelMode = "combined",
   workspaceAgentEnabled = true,
   onTabChange,
   rightCollapsed,
   onToggleRight,
-  pendingDiffsForBadge = 0,
   openFiles,
   activeFilePath,
   onSelectFile,
@@ -276,6 +220,10 @@ export function InspectorPanel({
   isLoadingDiffs,
   diffsError,
   onOpenFile,
+  onKnowledgeReviewApplied,
+  onProposalCountChange,
+  onSubmittedForReview,
+  knowledgeReviewRefreshKey,
   internalLinkPaths,
   onReloadFile,
   onSaveFile,
@@ -290,8 +238,6 @@ export function InspectorPanel({
       <MinifiedInspectorPanel
         onToggleRight={onToggleRight}
         onTabChange={onTabChange}
-        panelMode={panelMode}
-        pendingDiffsForBadge={pendingDiffsForBadge}
       />
     );
   }
@@ -300,12 +246,10 @@ export function InspectorPanel({
   return (
     <ExpandedInspectorPanel
       slug={slug}
-      activeTab={activeTab}
       panelMode={panelMode}
       workspaceAgentEnabled={workspaceAgentEnabled}
       onTabChange={onTabChange}
       onToggleRight={onToggleRight}
-      pendingDiffsForBadge={pendingDiffsForBadge}
       openFiles={openFiles}
       activeFilePath={activeFilePath}
       onSelectFile={onSelectFile}
@@ -314,6 +258,10 @@ export function InspectorPanel({
       isLoadingDiffs={isLoadingDiffs}
       diffsError={diffsError}
       onOpenFile={onOpenFile}
+      onKnowledgeReviewApplied={onKnowledgeReviewApplied}
+      onProposalCountChange={onProposalCountChange}
+      onSubmittedForReview={onSubmittedForReview}
+      knowledgeReviewRefreshKey={knowledgeReviewRefreshKey}
       internalLinkPaths={internalLinkPaths}
       onReloadFile={onReloadFile}
       onSaveFile={onSaveFile}
@@ -327,7 +275,6 @@ export function InspectorPanel({
 
 function ExpandedInspectorPanel({
   slug,
-  activeTab,
   panelMode = "combined",
   workspaceAgentEnabled = true,
   onTabChange,
@@ -340,6 +287,10 @@ function ExpandedInspectorPanel({
   isLoadingDiffs,
   diffsError,
   onOpenFile,
+  onKnowledgeReviewApplied,
+  onProposalCountChange,
+  onSubmittedForReview,
+  knowledgeReviewRefreshKey,
   internalLinkPaths = [],
   onReloadFile,
   onSaveFile,
@@ -347,13 +298,23 @@ function ExpandedInspectorPanel({
   onPublish,
   onResolveConflict,
   hideCollapseButton = false,
-}: Omit<InspectorPanelProps, "rightCollapsed" | "onOpenReview">) {
+}: Omit<InspectorPanelProps, "rightCollapsed">) {
   const pendingDiffs = diffs.length;
-  const effectiveActiveTab = panelMode === "files" ? "preview" : panelMode === "review" ? "review" : activeTab;
+  const effectiveActiveTab = panelMode === "files" || panelMode === "combined"
+    ? "preview"
+    : "review";
   const activeFile = openFiles.find((f) => f.path === activeFilePath) ?? null;
   const tabsRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
+  const [reviewTab, setReviewTab] = useState<ReviewTab>("proposals");
+  const [reviewProposalCount, setReviewProposalCount] = useState(0);
+  // The review list already refetches after every action, so it is the source
+  // of the open-proposal count for both the tab badge and the shell.
+  const handleProposalCountChange = useCallback((count: number) => {
+    setReviewProposalCount(count);
+    onProposalCountChange?.(count);
+  }, [onProposalCountChange]);
   const { clearDraft, getDraft, getSaveError, getSaveState, handleChange } = useEditorDrafts({
     onSave: onSaveFile,
   });
@@ -439,12 +400,6 @@ function ExpandedInspectorPanel({
     });
   };
 
-  const isEditable = Boolean(
-    activeFile?.kind === "markdown" && activeDraft != null && canEditMarkdown
-  );
-
-  const isReviewActive = effectiveActiveTab === "review";
-
   const showHeader = panelMode !== "files";
 
   return (
@@ -455,7 +410,7 @@ function ExpandedInspectorPanel({
 
       {/* In-container header (combined: tabs; review: collapse + label + publish) */}
       {showHeader ? (
-        <div className="flex shrink-0 items-center gap-2 pl-2 pr-3 py-2">
+        <div className="flex shrink-0 items-center gap-2 px-4 py-3">
           {/* Collapse panel — placed on the side opposite to where the panel docks */}
           {!hideCollapseButton && (
             <button
@@ -471,67 +426,43 @@ function ExpandedInspectorPanel({
 
           {workspaceAgentEnabled && panelMode === "combined" ? (
             <div className="flex flex-1 justify-start">
-              <div className="inline-flex h-8 items-center rounded-lg bg-foreground/[0.05] p-0.5 text-[11px]">
-                {/* Inspect segment */}
+              <div className="inline-flex items-center gap-0.5 rounded-lg bg-foreground/[0.05] p-1 text-[11px]">
                 <button
                   type="button"
                   onClick={() => onTabChange("preview")}
                   className={cn(
-                    "relative flex h-7 items-center gap-1.5 rounded-md px-2.5 font-medium transition-colors",
-                    !isReviewActive
-                      ? "bg-background text-foreground/85"
-                      : "text-muted-foreground hover:text-foreground/80"
+                    "relative flex h-7 items-center gap-1.5 rounded-md px-3 font-medium transition-colors",
+                    "bg-background text-foreground/85"
                   )}
-                  aria-pressed={!isReviewActive}
+                  aria-pressed
                 >
-                  <File size={12} weight={!isReviewActive ? "fill" : "bold"} />
+                  <File size={12} weight="fill" />
                   Inspect
                 </button>
-
-                {/* Review segment */}
-                <button
-                  type="button"
-                  onClick={() => onTabChange("review")}
-                  className={cn(
-                    "relative flex h-7 items-center gap-1.5 rounded-md px-2.5 font-medium transition-colors",
-                    isReviewActive
-                      ? "bg-background text-foreground/85"
-                      : "text-muted-foreground hover:text-foreground/80"
-                  )}
-                  aria-pressed={isReviewActive}
-                >
-                  <GitDiff size={12} weight={isReviewActive ? "fill" : "bold"} />
-                  Review
-                  {pendingDiffs > 0 ? (
-                    <span
-                      className={cn(
-                        "flex h-[15px] min-w-[15px] items-center justify-center rounded-full px-1 text-[10px] font-semibold leading-none",
-                        isReviewActive
-                          ? "bg-foreground/10 text-foreground/85"
-                          : "bg-primary text-primary-foreground"
-                      )}
-                    >
-                      {pendingDiffs > 99 ? "99+" : pendingDiffs}
-                    </span>
-                  ) : null}
-                </button>
               </div>
+            </div>
+          ) : panelMode === "knowledge" ? (
+            <div className="flex h-8 min-w-0 flex-1 items-center">
+              <SegmentedControl
+                variant="outline"
+                value={reviewTab}
+                onValueChange={setReviewTab}
+                options={KNOWLEDGE_REVIEW_TAB_OPTIONS.map((option) => ({
+                  ...option,
+                  badge: option.value === "proposals" ? reviewProposalCount : pendingDiffs,
+                }))}
+              />
             </div>
           ) : (
             <div className="flex h-8 min-w-0 flex-1 items-center">
               <p className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                <span>{panelMode === "review" ? "Review" : "Inspect"}</span>
-                {panelMode === "review" && pendingDiffs > 0 ? (
-                  <span className="inline-flex h-[15px] min-w-[15px] items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold leading-none text-primary-foreground">
-                    {pendingDiffs > 99 ? "99+" : pendingDiffs}
-                  </span>
-                ) : null}
+                <span>Inspect</span>
               </p>
             </div>
           )}
 
-          {/* Publish action — review mode only */}
-          {panelMode === "review" && workspaceAgentEnabled ? (
+          {/* Publish action — knowledge mode only, shown when there is something to publish */}
+          {panelMode === "knowledge" && workspaceAgentEnabled && diffs.length > 0 ? (
             <PublishKbButton
               slug={slug}
               onComplete={onPublish}
@@ -678,20 +609,26 @@ function ExpandedInspectorPanel({
           ) : null}
         </div>
 
-        {workspaceAgentEnabled && (
+        {(workspaceAgentEnabled || panelMode === "knowledge") && (
           <div
             className={cn(
-              "absolute inset-0 overflow-y-auto scrollbar-custom px-3 pb-3 pt-1",
+              "absolute inset-0 overflow-y-auto scrollbar-custom px-4 pb-8 pt-2",
               effectiveActiveTab !== "review" && "hidden"
             )}
           >
             <ReviewPanel
               slug={slug}
               diffs={diffs}
+              activeTab={reviewTab}
               isLoading={Boolean(isLoadingDiffs)}
               error={diffsError ?? undefined}
               onOpenFile={onOpenFile}
+              internalLinkPaths={internalLinkPaths}
+              onProposalCountChange={handleProposalCountChange}
               onDiscardFileChanges={onDiscardFileChanges}
+              onKnowledgeReviewApplied={onKnowledgeReviewApplied}
+              onSubmittedForReview={onSubmittedForReview}
+              knowledgeReviewRefreshKey={knowledgeReviewRefreshKey}
               onResolveConflict={onResolveConflict}
             />
           </div>

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 
@@ -6,14 +7,12 @@ import {
   cloneRepoToTemp,
   hasBareRepoLayout,
   isGitAvailable,
-  mutateBareRepo,
   resolveRepoRoot,
   runGit,
 } from '@/lib/git/bare-repo'
 import { getKbContentRoot } from '@/lib/runtime/paths'
 
 type KbReadError = 'invalid_path' | 'kb_unavailable' | 'not_found' | 'read_failed'
-type KbWriteError = 'article_exists' | 'conflict' | 'invalid_path' | 'kb_unavailable' | 'not_found' | 'write_failed'
 
 type CloneContext = {
   repoDir: string
@@ -32,6 +31,12 @@ export type KbSearchMatch = {
   path: string
   line: number
   text: string
+}
+
+export type KbArticleSnapshot = {
+  content: string
+  hash: string
+  path: string
 }
 
 export function normalizeKbPath(value: string): string | null {
@@ -73,6 +78,30 @@ export async function readKbArticle(input: { path: string; maxLines?: number }):
   if (!articlePath) return { ok: false, error: 'invalid_path' }
 
   return readContentRepo(({ repoDir }) => readKbArticleInRepo(repoDir, articlePath, input.maxLines))
+}
+
+export async function captureKbArticleForReview(input: { path: string }): Promise<
+  | { ok: true; snapshot: KbArticleSnapshot }
+  | { ok: false; error: KbReadError }
+> {
+  const articlePath = normalizeKbArticlePath(input.path)
+  if (!articlePath) return { ok: false, error: 'invalid_path' }
+
+  return readContentRepo(async ({ repoDir }) => {
+    const resolved = await resolveSafeExistingPath(repoDir, articlePath)
+    if (!resolved.ok) return resolved
+
+    const content = await fs.readFile(resolved.path, 'utf-8').catch(() => null)
+    if (content === null) return { ok: false, error: 'read_failed' as KbReadError }
+    return {
+      ok: true,
+      snapshot: {
+        content,
+        hash: `sha256:${createHash('sha256').update(content).digest('hex')}`,
+        path: articlePath,
+      },
+    }
+  })
 }
 
 export async function searchKb(input: { query: string; path?: string; limit?: number }): Promise<
@@ -176,65 +205,6 @@ async function readKbArticleInRepo(repoDir: string, articlePath: string, maxLine
   }
 }
 
-export async function createKbArticle(input: { path: string; content: string }): Promise<
-  | { ok: true; path: string }
-  | { ok: false; error: KbWriteError }
-> {
-  return writeKbArticle(input, 'create')
-}
-
-export async function updateKbArticle(input: { path: string; content: string }): Promise<
-  | { ok: true; path: string }
-  | { ok: false; error: KbWriteError }
-> {
-  return writeKbArticle(input, 'update')
-}
-
-export async function deleteKbArticle(input: { path: string }): Promise<
-  | { ok: true; path: string }
-  | { ok: false; error: KbWriteError }
-> {
-  const articlePath = normalizeKbArticlePath(input.path)
-  if (!articlePath) return { ok: false, error: 'invalid_path' }
-
-  return mutateContentRepo(`Delete KB article ${articlePath}`, async ({ repoDir }) => {
-    const resolved = await resolveSafeExistingPath(repoDir, articlePath)
-    if (!resolved.ok) return { ok: false, error: mapReadErrorToWriteError(resolved.error) }
-
-    await fs.rm(resolved.path)
-    return { ok: true, changedPaths: [articlePath], data: { ok: true, path: articlePath } }
-  })
-}
-
-async function writeKbArticle(
-  input: { path: string; content: string },
-  mode: 'create' | 'update'
-): Promise<
-  | { ok: true; path: string }
-  | { ok: false; error: KbWriteError }
-> {
-  const articlePath = normalizeKbArticlePath(input.path)
-  if (!articlePath) return { ok: false, error: 'invalid_path' }
-
-  return mutateContentRepo(
-    mode === 'create' ? `Create KB article ${articlePath}` : `Update KB article ${articlePath}`,
-    async ({ repoDir }) => {
-      const existing = await resolveSafeExistingPath(repoDir, articlePath)
-      if (mode === 'create' && existing.ok) return { ok: false, error: 'article_exists' }
-      if (mode === 'update' && !existing.ok) {
-        return { ok: false, error: mapReadErrorToWriteError(existing.error) }
-      }
-
-      const target = await resolveSafeWritePath(repoDir, articlePath)
-      if (!target.ok) return target
-
-      await fs.mkdir(path.dirname(target.path), { recursive: true })
-      await fs.writeFile(target.path, input.content, 'utf-8')
-      return { ok: true, changedPaths: [articlePath], data: { ok: true, path: articlePath } }
-    }
-  )
-}
-
 async function readContentRepo<T extends { ok: boolean }>(reader: (context: CloneContext) => Promise<T>): Promise<T | { ok: false; error: 'kb_unavailable' | 'read_failed' }> {
   const root = await resolveContentRepoRoot()
   if (!root) return { ok: false, error: 'kb_unavailable' }
@@ -248,40 +218,6 @@ async function readContentRepo<T extends { ok: boolean }>(reader: (context: Clon
     return await reader({ repoDir: clone.dir, gitEnv: clone.gitEnv })
   } finally {
     await cleanupClone(clone)
-  }
-}
-
-async function mutateContentRepo<T extends { ok: boolean }>(
-  commitMessage: string,
-  mutate: (context: CloneContext) => Promise<
-    | { ok: true; changedPaths: string[]; data: T }
-    | { ok: false; error: KbWriteError }
-  >
-): Promise<T | { ok: false; error: KbWriteError }> {
-  const root = await resolveContentRepoRoot()
-  if (!root) return { ok: false, error: 'kb_unavailable' }
-
-  const result = await mutateBareRepo<T, KbWriteError>({
-    root,
-    commitMessage,
-    gitAuthorName: 'Arche MCP',
-    gitAuthorEmail: 'mcp@arche.local',
-    mutate,
-  })
-
-  if (result.ok) return result.data
-
-  switch (result.error) {
-    case 'repo_unavailable':
-      return { ok: false, error: 'kb_unavailable' }
-    case 'clone_failed':
-    case 'git_unavailable':
-    case 'write_failed':
-      return { ok: false, error: 'write_failed' }
-    case 'conflict':
-      return { ok: false, error: 'conflict' }
-    default:
-      return { ok: false, error: result.error }
   }
 }
 
@@ -307,18 +243,6 @@ async function resolveSafeExistingPath(repoDir: string, normalizedPath: string):
   const realRoot = await fs.realpath(repoDir).catch(() => repoDir)
   const realTarget = await fs.realpath(resolved.path).catch(() => null)
   if (!realTarget || !isInside(realRoot, realTarget)) return { ok: false, error: 'invalid_path' }
-
-  return { ok: true, path: resolved.path }
-}
-
-async function resolveSafeWritePath(repoDir: string, normalizedPath: string): Promise<
-  | { ok: true; path: string }
-  | { ok: false; error: 'invalid_path' | 'write_failed' }
-> {
-  const resolved = await resolveSafePath(repoDir, normalizedPath, true)
-  if (!resolved.ok) return resolved.error === 'not_found'
-    ? { ok: false, error: 'invalid_path' }
-    : { ok: false, error: resolved.error === 'read_failed' ? 'write_failed' : resolved.error }
 
   return { ok: true, path: resolved.path }
 }
@@ -380,10 +304,6 @@ async function listMarkdownFiles(repoDir: string, rootDir: string, prefix: strin
 function isUnsafeSegment(segment: string): boolean {
   const normalized = segment.toLowerCase()
   return segment === '.' || segment === '..' || GIT_CONTROL_FILES.has(normalized)
-}
-
-function mapReadErrorToWriteError(error: 'invalid_path' | 'not_found' | 'read_failed'): KbWriteError {
-  return error === 'read_failed' ? 'write_failed' : error
 }
 
 function isInside(root: string, target: string): boolean {

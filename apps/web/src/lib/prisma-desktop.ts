@@ -246,6 +246,77 @@ const SCHEMA_DDL = [
     "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" DATETIME NOT NULL
   )`,
+  `CREATE TABLE IF NOT EXISTS "knowledge_learning_runs" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "user_id" TEXT NOT NULL,
+    "source_session_id" TEXT,
+    "internal_session_id" TEXT,
+    "title" TEXT NOT NULL,
+    "trigger" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'pending',
+    "error" TEXT,
+    "message_count" INTEGER NOT NULL DEFAULT 0,
+    "regeneration_change_id" TEXT,
+    "started_at" DATETIME,
+    "finished_at" DATETIME,
+    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" DATETIME NOT NULL,
+    CONSTRAINT "knowledge_learning_runs_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+  )`,
+  `CREATE TABLE IF NOT EXISTS "knowledge_learning_proposals" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "user_id" TEXT NOT NULL,
+    "run_id" TEXT,
+    "status" TEXT NOT NULL DEFAULT 'pending',
+    "title" TEXT NOT NULL,
+    "type" TEXT NOT NULL DEFAULT 'other',
+    "confidence" REAL NOT NULL,
+    "evidence" TEXT NOT NULL,
+    "kb_path" TEXT NOT NULL,
+    "operation" TEXT NOT NULL,
+    "proposed_content" TEXT NOT NULL,
+    "current_file_hash" TEXT,
+    "internal_session_id" TEXT,
+    "trigger" TEXT NOT NULL,
+    "applied_at" DATETIME,
+    "rejected_at" DATETIME,
+    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" DATETIME NOT NULL,
+    CONSTRAINT "knowledge_learning_proposals_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "knowledge_learning_proposals_run_id_fkey" FOREIGN KEY ("run_id") REFERENCES "knowledge_learning_runs" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+  )`,
+  `CREATE TABLE IF NOT EXISTS "knowledge_review_changes" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "user_id" TEXT NOT NULL,
+    "source_proposal_id" TEXT,
+    "regenerated_from_id" TEXT,
+    "run_id" TEXT,
+    "author" TEXT NOT NULL,
+    "agent" TEXT,
+    "origin" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "reason" TEXT NOT NULL,
+    "evidence" TEXT NOT NULL,
+    "confidence" REAL NOT NULL,
+    "kb_path" TEXT NOT NULL,
+    "operation" TEXT NOT NULL,
+    "base_content" TEXT,
+    "base_hash" TEXT,
+    "proposed_content" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'open',
+    "actual_content" TEXT,
+    "actual_hash" TEXT,
+    "applied_hash" TEXT,
+    "publish_commit_sha" TEXT,
+    "audit_trail" TEXT NOT NULL DEFAULT '[]',
+    "applied_at" DATETIME,
+    "rejected_at" DATETIME,
+    "published_at" DATETIME,
+    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" DATETIME NOT NULL,
+    CONSTRAINT "knowledge_review_changes_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "knowledge_review_changes_regenerated_from_id_fkey" FOREIGN KEY ("regenerated_from_id") REFERENCES "knowledge_review_changes" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+  )`,
   `DROP TABLE IF EXISTS "autopilot_runs"`,
   `DROP TABLE IF EXISTS "autopilot_tasks"`,
   `CREATE TABLE IF NOT EXISTS "connectors" (
@@ -373,6 +444,18 @@ const SCHEMA_DDL = [
   `CREATE UNIQUE INDEX IF NOT EXISTS "slack_pending_dm_decisions_source_event_id_key" ON "slack_pending_dm_decisions"("source_event_id")`,
   `CREATE INDEX IF NOT EXISTS "slack_pending_dm_decisions_expires_at_idx" ON "slack_pending_dm_decisions"("expires_at")`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "slack_notification_channels_slack_team_id_channel_id_key" ON "slack_notification_channels"("slack_team_id", "channel_id")`,
+  `CREATE INDEX IF NOT EXISTS "knowledge_learning_runs_user_id_created_at_idx" ON "knowledge_learning_runs"("user_id", "created_at")`,
+  `CREATE INDEX IF NOT EXISTS "knowledge_learning_runs_user_id_source_session_id_idx" ON "knowledge_learning_runs"("user_id", "source_session_id")`,
+  `CREATE INDEX IF NOT EXISTS "knowledge_learning_runs_status_idx" ON "knowledge_learning_runs"("status")`,
+  `CREATE INDEX IF NOT EXISTS "knowledge_learning_runs_regeneration_change_id_idx" ON "knowledge_learning_runs"("regeneration_change_id")`,
+  `CREATE INDEX IF NOT EXISTS "knowledge_learning_proposals_user_id_status_created_at_idx" ON "knowledge_learning_proposals"("user_id", "status", "created_at")`,
+  `CREATE INDEX IF NOT EXISTS "knowledge_learning_proposals_run_id_idx" ON "knowledge_learning_proposals"("run_id")`,
+  `CREATE INDEX IF NOT EXISTS "knowledge_learning_proposals_kb_path_idx" ON "knowledge_learning_proposals"("kb_path")`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "knowledge_review_changes_source_proposal_id_key" ON "knowledge_review_changes"("source_proposal_id")`,
+  `CREATE INDEX IF NOT EXISTS "knowledge_review_changes_user_id_status_created_at_idx" ON "knowledge_review_changes"("user_id", "status", "created_at")`,
+  `CREATE INDEX IF NOT EXISTS "knowledge_review_changes_user_id_kb_path_status_idx" ON "knowledge_review_changes"("user_id", "kb_path", "status")`,
+  `CREATE INDEX IF NOT EXISTS "knowledge_review_changes_run_id_idx" ON "knowledge_review_changes"("run_id")`,
+  `CREATE INDEX IF NOT EXISTS "knowledge_review_changes_regenerated_from_id_idx" ON "knowledge_review_changes"("regenerated_from_id")`,
   `CREATE INDEX IF NOT EXISTS "connectors_user_id_idx" ON "connectors"("user_id")`,
   `CREATE INDEX IF NOT EXISTS "provider_credentials_user_id_idx" ON "provider_credentials"("user_id")`,
   `CREATE INDEX IF NOT EXISTS "provider_credentials_provider_id_idx" ON "provider_credentials"("provider_id")`,
@@ -388,7 +471,7 @@ const SCHEMA_DDL = [
   `CREATE INDEX IF NOT EXISTS "two_factor_recovery_user_id_idx" ON "two_factor_recovery"("user_id")`,
 ]
 
-const SCHEMA_VERSION = '11'
+const SCHEMA_VERSION = '12'
 
 function isCreateIndexStatement(ddl: string): boolean {
   return /^CREATE (UNIQUE )?INDEX\b/.test(ddl.trim())
@@ -416,6 +499,7 @@ async function ensureDesktopSchemaColumns(client: DesktopPrismaClient): Promise<
   await ensureColumn(client, 'users', 'mcp_allowed', 'ALTER TABLE "users" ADD COLUMN "mcp_allowed" BOOLEAN NOT NULL DEFAULT false')
   await ensureColumn(client, 'instances', 'provider_sync_hash', 'ALTER TABLE "instances" ADD COLUMN "provider_sync_hash" TEXT')
   await ensureColumn(client, 'instances', 'provider_synced_at', 'ALTER TABLE "instances" ADD COLUMN "provider_synced_at" DATETIME')
+  await ensureColumn(client, 'knowledge_learning_runs', 'regeneration_change_id', 'ALTER TABLE "knowledge_learning_runs" ADD COLUMN "regeneration_change_id" TEXT')
 }
 
 function getDesktopDatabasePath(): string {

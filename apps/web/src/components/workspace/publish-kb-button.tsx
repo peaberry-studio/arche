@@ -156,16 +156,18 @@ export function PublishKbButton({ slug, disabled, disabledReason, onComplete }: 
 
   return (
     <div className="relative">
-      <Button
-        size="sm"
-        className={cn("h-7 gap-1.5 px-2.5 text-xs", config.buttonClassName)}
-        onClick={handlePublish}
-        disabled={disabled || state === 'publishing'}
-        title={message || disabledReason || 'Publish changes'}
-      >
-        <Icon size={12} weight={config.weight} className={cn(config.className)} />
-        {config.label}
-      </Button>
+      <span className="inline-flex" title={message || disabledReason || 'Publish changes'}>
+        <Button
+          size="sm"
+          className={cn("h-7 gap-1.5 px-2.5 text-xs", config.buttonClassName)}
+          onClick={handlePublish}
+          disabled={disabled || state === 'publishing'}
+          title={message || disabledReason || 'Publish changes'}
+        >
+          <Icon size={12} weight={config.weight} className={cn(config.className)} />
+          {config.label}
+        </Button>
+      </span>
 
       {showPopover && (
         <div className="absolute right-0 top-full z-50 -mt-px w-64 rounded-md border border-border bg-popover p-3 shadow-md">

@@ -2,11 +2,12 @@
 
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useSearchParams } from 'next/navigation'
 import {
   ArrowLineLeft,
   ArrowLineRight,
   ChatCircle,
+  Compass,
   Cpu,
   Database,
   GearSix,
@@ -49,6 +50,7 @@ function getWebNavItems(slug: string): DashboardNavItem[] {
 
   return [
     { label: 'New Chat', href: base, activeHref: base, exact: true, icon: ChatCircle },
+    { label: 'Explore', href: getWorkspaceHref(slug, { mode: 'explore' }), icon: Compass },
     { label: 'Knowledge', href: getWorkspaceHref(slug, { mode: 'knowledge' }), icon: Database },
     { label: 'Agents', href: `${base}/agents`, icon: Robot },
     { label: 'Skills', href: `${base}/skills`, icon: Lightning },
@@ -61,6 +63,7 @@ function getWebNavItems(slug: string): DashboardNavItem[] {
 function getDesktopNavItems(slug: string): DashboardNavItem[] {
   return [
     { label: 'Workspace', href: getWorkspaceHref(slug), activeHref: getWorkspaceHref(slug), exact: true, icon: SquaresFour },
+    { label: 'Explore', href: getWorkspaceHref(slug, { mode: 'explore' }), icon: Compass },
     { label: 'Knowledge', href: getWorkspaceHref(slug, { mode: 'knowledge' }), icon: Database },
     { label: 'Agents', href: `/u/${slug}/agents`, icon: Robot },
     { label: 'Flows', href: getDesktopFlowsHref(slug, 'list'), icon: GitBranch },
@@ -71,12 +74,19 @@ function getDesktopNavItems(slug: string): DashboardNavItem[] {
   ]
 }
 
-function isNavItemActive(pathname: string, item: DashboardNavItem): boolean {
+function isNavItemActive(pathname: string, search: URLSearchParams, item: DashboardNavItem): boolean {
   const activeHref = item.activeHref ?? item.href
+  const [activePath, activeQuery] = activeHref.split('?')
 
-  if (item.exact) return pathname === activeHref
+  if (item.exact ? pathname !== activePath : !pathname.startsWith(activePath)) return false
+  if (!activeQuery) return true
 
-  return pathname.startsWith(activeHref)
+  // The item's query params must all be present; extra params (e.g. a file
+  // path deep link) do not break the active state.
+  for (const [key, value] of new URLSearchParams(activeQuery)) {
+    if (search.get(key) !== value) return false
+  }
+  return true
 }
 
 export function DashboardNav({
@@ -91,6 +101,7 @@ export function DashboardNav({
   hasWindowInset?: boolean
 }) {
   const pathname = usePathname()
+  const search = useSearchParams()
   const workspaceHref = getWorkspaceHref(slug)
   const navItems = desktopMode ? getDesktopNavItems(slug) : getWebNavItems(slug)
   const [isExpanded, setIsExpanded] = useState(false)
@@ -158,7 +169,7 @@ export function DashboardNav({
               <DashboardNavLink
                 key={item.label}
                 item={item}
-                isActive={isNavItemActive(pathname, item)}
+                isActive={isNavItemActive(pathname, search, item)}
                 isExpanded={isExpanded}
               />
             ))}
@@ -196,7 +207,7 @@ export function DashboardNav({
       {mobileMenuOpen && (
         <div className="absolute inset-x-0 top-full z-40 mt-2 rounded-xl border border-border/40 bg-card/95 p-2 shadow-lg backdrop-blur-lg md:hidden">
           {navItems.map((item) => {
-            const isActive = isNavItemActive(pathname, item)
+            const isActive = isNavItemActive(pathname, search, item)
             const Icon = item.icon
 
             return (
