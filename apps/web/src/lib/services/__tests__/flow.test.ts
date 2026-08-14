@@ -99,7 +99,10 @@ describe('flowService', () => {
       },
       where: {
         flow: {
-          leaseExpiresAt: { lt: now },
+          OR: [
+            { leaseExpiresAt: null },
+            { leaseExpiresAt: { lt: now } },
+          ],
         },
         retryScheduledFor: null,
         status: FlowRunStatus.running,
