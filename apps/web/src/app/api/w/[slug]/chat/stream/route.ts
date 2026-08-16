@@ -133,7 +133,7 @@ function normalizePendingPermission(
   }
 }
 
-function getPermissionEventPayload(event: unknown): unknown {
+function getPermissionEventPayload(event: unknown): Record<string, unknown> | null {
   if (!isRecord(event) || !isRecord(event.properties)) return null
 
   const { properties } = event
@@ -1118,13 +1118,7 @@ export const POST = withAuth(
                   case 'permission.replied': {
                     markRelevantEvent()
 
-                    const permission = isRecord(event.properties?.permission)
-                      ? event.properties.permission
-                      : isRecord(event.properties?.info)
-                        ? event.properties.info
-                        : isRecord(event.properties)
-                          ? event.properties
-                          : null
+                    const permission = getPermissionEventPayload(event)
                     const permissionId =
                       getString(event.properties?.requestID) ??
                       getString(permission?.id) ??
