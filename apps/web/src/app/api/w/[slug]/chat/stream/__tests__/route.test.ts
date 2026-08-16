@@ -778,7 +778,50 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     expect(text).toContain('later hidden reasoning')
   })
 
-  it('forwards OpenCode permission approval events', async () => {
+  it('forwards OpenCode 1.18 permission.asked and permission.replied events', async () => {
+    const fetchMock = mockOpenCodeFetch([
+      {
+        type: 'message.updated',
+        properties: { info: { id: 'm1', role: 'assistant', sessionID: 's1' } },
+      },
+      {
+        type: 'permission.asked',
+        properties: {
+          id: 'perm-1',
+          sessionID: 's1',
+          permission: 'Create Linear issue',
+          patterns: ['arche_linear_conn_create_issue', 'arche_linear_conn_update_issue'],
+          metadata: { tool: 'arche_linear_conn_create_issue' },
+          tool: { callID: 'call-1', messageID: 'm1' },
+        },
+      },
+      { type: 'session.idle', properties: { info: { sessionID: 's1' } } },
+      {
+        type: 'permission.replied',
+        properties: { requestID: 'perm-1', reply: 'once', sessionID: 's1' },
+      },
+      { type: 'session.idle', properties: { info: { sessionID: 's1' } } },
+    ])
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { POST } = await import('../route')
+    const res = await POST(makePostRequest({ sessionId: 's1', runId: 'run-1' }), params())
+
+    const text = await res.text()
+
+    expect(text).toContain('event: permission\ndata:')
+    expect(text).toContain('"id":"perm-1"')
+    expect(text).toContain('"title":"Create Linear issue"')
+    expect(text).toContain('"pattern":"arche_linear_conn_create_issue, arche_linear_conn_update_issue"')
+    expect(text).toContain('"messageId":"m1"')
+    expect(text).toContain('"callId":"call-1"')
+    expect(text).toContain('"state":"pending"')
+    expect(text).toContain('event: permission-replied')
+    expect(text).toContain('"response":"once"')
+    expect(text.indexOf('event: permission-replied')).toBeLessThan(text.indexOf('event: done'))
+  })
+
+  it('forwards legacy permission.updated events', async () => {
     const fetchMock = mockOpenCodeFetch([
       {
         type: 'message.updated',
@@ -817,7 +860,7 @@ describe('POST /api/w/[slug]/chat/stream', () => {
 
     const text = await res.text()
 
-    expect(text).toContain('event: permission')
+    expect(text).toContain('event: permission\ndata:')
     expect(text).toContain('"id":"perm-1"')
     expect(text).toContain('"title":"Create Linear issue"')
     expect(text).toContain('event: permission-replied')
@@ -864,11 +907,31 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     expect(text).toContain('"response":"always"')
   })
 
-  it('waits for a permission that existed before a resume subscription', async () => {
+  it('re-emits matching pending permissions before resuming and waits for their reply', async () => {
     const listPermissions = vi.fn().mockResolvedValue({
       data: [
-        { id: 'perm-1', sessionID: 's1' },
-        { id: 'foreign-permission', sessionID: 'other-session' },
+        {
+          id: 'perm-1',
+          metadata: { tool: 'arche_linear_conn_create_issue' },
+          patterns: ['arche_linear_conn_create_issue'],
+          permission: 'Create Linear issue',
+          sessionID: 's1',
+          tool: { callID: 'call-1', messageID: 'assistant-1' },
+        },
+        {
+          id: 'foreign-permission',
+          patterns: ['foreign-tool'],
+          permission: 'Foreign permission',
+          sessionID: 'other-session',
+          tool: { messageID: 'assistant-1' },
+        },
+        {
+          id: 'historical-permission',
+          patterns: ['historical-tool'],
+          permission: 'Historical permission',
+          sessionID: 's1',
+          tool: { messageID: 'terminal-assistant' },
+        },
       ],
     })
     mocks.createConfiguredOpencodeClient.mockResolvedValue({
@@ -915,6 +978,12 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     const text = await res.text()
 
     expect(listPermissions).toHaveBeenCalledOnce()
+    expect(text).toContain('event: permission\ndata:')
+    expect(text).toContain('"id":"perm-1"')
+    expect(text).toContain('"messageId":"assistant-1"')
+    expect(text).not.toContain('foreign-permission')
+    expect(text).not.toContain('historical-permission')
+    expect(text.indexOf('event: permission\ndata:')).toBeLessThan(text.indexOf('event: permission-replied'))
     expect(text).toContain('event: permission-replied')
     expect(text).toContain('event: done')
     expect(text).not.toContain('resume_incomplete')
