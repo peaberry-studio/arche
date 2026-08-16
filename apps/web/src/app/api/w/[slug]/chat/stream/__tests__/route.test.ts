@@ -821,6 +821,37 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     expect(text.indexOf('event: permission-replied')).toBeLessThan(text.indexOf('event: done'))
   })
 
+  it('ignores permission.asked events from other sessions', async () => {
+    const fetchMock = mockOpenCodeFetch([
+      {
+        type: 'message.updated',
+        properties: { info: { id: 'm1', role: 'assistant', sessionID: 's1' } },
+      },
+      {
+        type: 'permission.asked',
+        properties: {
+          id: 'foreign-perm',
+          sessionID: 'other-session',
+          permission: 'Foreign tool approval',
+          patterns: ['foreign_tool'],
+          tool: { callID: 'foreign-call', messageID: 'm-foreign' },
+        },
+      },
+      { type: 'session.idle', properties: { info: { sessionID: 's1' } } },
+    ])
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { POST } = await import('../route')
+    const res = await POST(makePostRequest({ sessionId: 's1', runId: 'run-1' }), params())
+
+    const text = await res.text()
+
+    expect(text).not.toContain('foreign-perm')
+    expect(text).not.toContain('Foreign tool approval')
+    expect(text).not.toContain('event: permission')
+    expect(text).toContain('event: done')
+  })
+
   it('forwards legacy permission.updated events', async () => {
     const fetchMock = mockOpenCodeFetch([
       {
