@@ -414,6 +414,8 @@
       --label arche.role=web \
       --label arche.version={{ web_version }} \
       --restart on-failure:5 \
+      --log-driver k8s-file \
+      --log-opt max-size=10m \
       {{ web_image }}
   changed_when: true
   no_log: true

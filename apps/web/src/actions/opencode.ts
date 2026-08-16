@@ -932,13 +932,6 @@ export async function sendMessageAction(
   message?: WorkspaceMessage;
   error?: string;
 }> {
-  console.log("[sendMessageAction] Called with:", {
-    slug,
-    sessionId,
-    text: text.substring(0, 50),
-    model,
-  });
-
   // Verify user is authorized
   const session = await getSession();
   if (!session) {
@@ -957,11 +950,6 @@ export async function sendMessageAction(
       !instance.serverPassword ||
       instance.status !== "running"
     ) {
-      console.log("[sendMessageAction] Instance unavailable:", {
-        hasInstance: !!instance,
-        hasPassword: !!instance?.serverPassword,
-        status: instance?.status,
-      });
       return { ok: false, error: "instance_unavailable" };
     }
 
@@ -970,11 +958,6 @@ export async function sendMessageAction(
       "base64"
     )}`;
     const baseUrl = getInstanceUrl(slug);
-
-    console.log(
-      "[sendMessageAction] Sending to:",
-      `${baseUrl}/session/${sessionId}/message`
-    );
 
     const body = {
       parts: [{ type: "text", text }],
@@ -1018,14 +1001,8 @@ export async function sendMessageAction(
           }
         }
       }
-
-      console.log(
-        "[sendMessageAction] Extracted text:",
-        textContent.substring(0, 100)
-      );
     } catch {
-      // If not valid JSON, maybe it's streaming format (NDJSON)
-      console.log("[sendMessageAction] JSON parse failed, trying NDJSON");
+      // If not valid JSON, fall back to NDJSON parsing.
       const lines = responseText.split("\n");
 
       for (const line of lines) {

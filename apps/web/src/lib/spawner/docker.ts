@@ -215,6 +215,16 @@ export async function createContainer(
       NetworkMode: getOpencodeNetwork(),
       RestartPolicy: { Name: "on-failure", MaximumRetryCount: 5 },
       Binds: binds,
+      // Cap per-workspace container logs to avoid filling host disk.
+      // Podman aliases json-file to k8s-file; max-size is honored, max-file
+      // is best-effort (some Podman versions truncate instead of rotating).
+      LogConfig: {
+        Type: "json-file",
+        Config: {
+          "max-size": "10m",
+          "max-file": "3",
+        },
+      },
     },
     Labels: {
       "arche.managed": "true",
