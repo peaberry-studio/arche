@@ -943,7 +943,7 @@ export const POST = withAuth(
 
           if (sessionFamilyIds.size > 1) {
             const familyStatus = await readUpstreamSessionStatus()
-            if (familyStatus === 'busy' || familyStatus === 'retry') {
+            if (familyStatus !== 'idle') {
               markWatchdogCheck()
               return
             }
@@ -1026,7 +1026,7 @@ export const POST = withAuth(
 
                 if (watchdogOutcome === 'finalize_idle') {
                   markWatchdogCheck()
-                      await finalizeFromIdle()
+                  await finalizeFromIdle()
                   continue
                 }
 
@@ -1074,7 +1074,7 @@ export const POST = withAuth(
             if (terminalRetryError) {
               failForTerminalRetry(terminalRetryError)
             } else if (!aborted && upstreamStatus === 'idle') {
-                    await finalizeFromIdle()
+              await finalizeFromIdle()
             } else if (!aborted) {
               closeForObservationInterruption('upstream_eof')
             }

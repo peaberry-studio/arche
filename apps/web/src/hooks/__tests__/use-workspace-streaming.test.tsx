@@ -2587,5 +2587,74 @@ describe("useWorkspace streaming", () => {
         sse.close();
       });
     });
+
+    it("does not graft the previous turn onto the new bubble before assistantMessageId is set", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+
+      const previousAssistant = {
+        id: "prev-assistant",
+        sessionId: "s1",
+        role: "assistant" as const,
+        content: "previous turn text",
+        timestamp: "now",
+        timestampRaw: Date.now(),
+        pending: false,
+        parts: [
+          { type: "text" as const, id: "prev-text", text: "previous turn text" },
+          {
+            type: "permission" as const,
+            id: "permission:stale-perm",
+            permissionId: "stale-perm",
+            sessionId: "s1",
+            title: "Delete old campaign",
+            state: "pending" as const,
+          },
+        ],
+      };
+
+      opencodeMocks.listMessagesAction.mockResolvedValue({
+        ok: true,
+        messages: [previousAssistant],
+      });
+
+      const sse = createSSEStream();
+      stubFetchWithStream(() => sse);
+
+      const result = await renderConnectedHook();
+
+      await waitFor(() => {
+        expect(result.current.messages.some((message) => message.id === "prev-assistant")).toBe(true);
+      });
+
+      await act(async () => {
+        await result.current.sendMessage("do something new");
+      });
+
+      const liveAssistant = result.current.messages.find(
+        (message) => message.role === "assistant" && message.id !== "prev-assistant"
+      );
+      expect(liveAssistant?.id).toMatch(/^temp-assistant-/);
+      expect(liveAssistant?.parts).toEqual([]);
+
+      for (let i = 0; i < 10; i++) {
+        await act(async () => {
+          vi.advanceTimersByTime(500);
+          await new Promise((r) => setTimeout(r, 0));
+        });
+      }
+
+      const grafted = result.current.messages.find(
+        (message) => message.role === "assistant" && message.id !== "prev-assistant"
+      );
+      expect(grafted?.id).toMatch(/^temp-assistant-/);
+      expect(grafted?.parts).not.toContainEqual(expect.objectContaining({
+        permissionId: "stale-perm",
+      }));
+      expect(grafted?.content).not.toBe("previous turn text");
+
+      act(() => {
+        sse.close();
+      });
+    });
   });
 });

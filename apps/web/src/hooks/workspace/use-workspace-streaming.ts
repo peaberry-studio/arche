@@ -679,9 +679,8 @@ export function useWorkspaceStreaming({
 
             const observedId =
               assistantMessageId ?? (mode === "resume" ? targetMessageId : null);
-            const polledAssistant = observedId
-              ? poll.messages.find((message) => message.id === observedId)
-              : [...poll.messages].reverse().find((message) => message.role === "assistant");
+            if (!observedId) return;
+            const polledAssistant = poll.messages.find((message) => message.id === observedId);
             if (!polledAssistant) return;
 
             if (mode === "resume" && !polledAssistant.pending) {

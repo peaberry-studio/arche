@@ -238,7 +238,7 @@ export function useWorkspaceMessageActions({
         if (!reply.ok) return false;
 
         const nextState: PermissionState = response === "reject" ? "rejected" : "approved";
-        updateSessionMessages(permissionSessionId, (prev) =>
+        const applyOptimisticReply = (prev: WorkspaceMessage[]): WorkspaceMessage[] =>
           prev.map((message) => {
             const parts = message.parts.map((part) =>
               part.type === "permission" && part.permissionId === permissionId
@@ -258,15 +258,20 @@ export function useWorkspaceMessageActions({
                   ? { status: "thinking" }
                   : message.statusInfo,
             };
-          })
-        );
+          });
+
+        const displaySessionId = activeSessionIdRef.current;
+        updateSessionMessages(permissionSessionId, applyOptimisticReply);
+        if (displaySessionId && displaySessionId !== permissionSessionId) {
+          updateSessionMessages(displaySessionId, applyOptimisticReply);
+        }
 
         return true;
       } catch {
         return false;
       }
     },
-    [slug, updateSessionMessages]
+    [activeSessionIdRef, slug, updateSessionMessages]
   );
 
   const abortSession = useCallback(async () => {

@@ -961,6 +961,78 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     expect(text).not.toContain('event: done')
   })
 
+  it('does not finalize when family status is unknown at parent idle', async () => {
+    mocks.createUpstreamSessionStatusReader.mockReturnValue(vi.fn().mockResolvedValue(null))
+    const fetchMock = mockOpenCodeFetch([
+      {
+        type: 'message.updated',
+        properties: { info: { id: 'm1', role: 'assistant', sessionID: 's1' } },
+      },
+      {
+        type: 'session.created',
+        properties: { info: { id: 'child-1', parentID: 's1' } },
+      },
+      { type: 'session.idle', properties: { info: { sessionID: 's1' } } },
+    ])
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { POST } = await import('../route')
+    const res = await POST(makePostRequest({ sessionId: 's1', runId: 'run-1' }), params())
+
+    const text = await res.text()
+
+    expect(text).not.toContain('event: done')
+    expect(mocks.messageRunService.markRunSucceeded).not.toHaveBeenCalled()
+  })
+
+  it('does not finalize when a child session is still busy at parent idle', async () => {
+    mocks.createUpstreamSessionStatusReader.mockReturnValue(vi.fn().mockResolvedValue('busy'))
+    const fetchMock = mockOpenCodeFetch([
+      {
+        type: 'message.updated',
+        properties: { info: { id: 'm1', role: 'assistant', sessionID: 's1' } },
+      },
+      {
+        type: 'session.created',
+        properties: { info: { id: 'child-1', parentID: 's1' } },
+      },
+      { type: 'session.idle', properties: { info: { sessionID: 's1' } } },
+    ])
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { POST } = await import('../route')
+    const res = await POST(makePostRequest({ sessionId: 's1', runId: 'run-1' }), params())
+
+    const text = await res.text()
+
+    expect(text).not.toContain('event: done')
+    expect(mocks.messageRunService.markRunSucceeded).not.toHaveBeenCalled()
+  })
+
+  it('finalizes after parent idle once the session family is confirmed idle', async () => {
+    mocks.createUpstreamSessionStatusReader.mockReturnValue(vi.fn().mockResolvedValue('idle'))
+    const fetchMock = mockOpenCodeFetch([
+      {
+        type: 'message.updated',
+        properties: { info: { id: 'm1', role: 'assistant', sessionID: 's1' } },
+      },
+      {
+        type: 'session.created',
+        properties: { info: { id: 'child-1', parentID: 's1' } },
+      },
+      { type: 'session.idle', properties: { info: { sessionID: 's1' } } },
+    ])
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { POST } = await import('../route')
+    const res = await POST(makePostRequest({ sessionId: 's1', runId: 'run-1' }), params())
+
+    const text = await res.text()
+
+    expect(text).toContain('event: done')
+    expect(mocks.messageRunService.markRunSucceeded).toHaveBeenCalledWith('run-1')
+  })
+
   it('forwards legacy permission.updated events', async () => {
     const fetchMock = mockOpenCodeFetch([
       {
