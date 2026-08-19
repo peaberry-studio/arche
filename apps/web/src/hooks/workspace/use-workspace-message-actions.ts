@@ -7,6 +7,7 @@ import type {
   AvailableModel,
   MessagePart,
   PermissionResponse,
+  PermissionState,
   WorkspaceMessage,
   WorkspaceSession,
 } from "@/lib/opencode/types";
@@ -236,15 +237,28 @@ export function useWorkspaceMessageActions({
 
         if (!reply.ok) return false;
 
+        const nextState: PermissionState = response === "reject" ? "rejected" : "approved";
         updateSessionMessages(permissionSessionId, (prev) =>
-          prev.map((message) => ({
-            ...message,
-            parts: message.parts.map((part) =>
+          prev.map((message) => {
+            const parts = message.parts.map((part) =>
               part.type === "permission" && part.permissionId === permissionId
-                ? { ...part, state: response === "reject" ? "rejected" : "approved" }
+                ? { ...part, state: nextState }
                 : part
-            ),
-          }))
+            );
+            const stillWaiting = parts.some(
+              (part) => part.type === "permission" && part.state === "pending"
+            );
+
+            return {
+              ...message,
+              parts,
+              statusInfo: stillWaiting
+                ? message.statusInfo
+                : message.statusInfo?.detail === "permission_required"
+                  ? { status: "thinking" }
+                  : message.statusInfo,
+            };
+          })
         );
 
         return true;

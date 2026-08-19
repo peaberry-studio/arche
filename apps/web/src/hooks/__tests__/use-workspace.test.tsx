@@ -2013,6 +2013,7 @@ describe("useWorkspace", () => {
             },
           ],
           pending: true,
+          statusInfo: { status: "tool-calling", detail: "permission_required" },
         },
       ],
     });
@@ -2068,6 +2069,7 @@ describe("useWorkspace", () => {
       type: "permission",
       state: "approved",
     });
+    expect(result.current.messages[0]?.statusInfo?.detail).not.toBe("permission_required");
   });
 
   it("cleans messages and model selection state for deleted session families", async () => {

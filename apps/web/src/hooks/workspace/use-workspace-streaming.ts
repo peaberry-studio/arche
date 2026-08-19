@@ -6,6 +6,7 @@ import { listMessagesAction } from "@/actions/opencode";
 import type {
   MessagePart,
   MessageStatus,
+  PermissionState,
   WorkspaceMessage,
   WorkspaceSession,
 } from "@/lib/opencode/types";
@@ -417,6 +418,22 @@ export function useWorkspaceStreaming({
         return { status: "thinking" as const };
       case "retry":
         return { status: "thinking" as const };
+      case "permission": {
+        if (part.state === "pending") {
+          const metadataTool =
+            typeof part.metadata?.tool === "string" && part.metadata.tool.trim()
+              ? part.metadata.tool
+              : typeof part.metadata?.toolName === "string" && part.metadata.toolName.trim()
+                ? part.metadata.toolName
+                : part.pattern;
+          return {
+            status: "tool-calling" as const,
+            toolName: metadataTool,
+            detail: "permission_required",
+          };
+        }
+        return { status: "thinking" as const };
+      }
       default:
         return null;
     }
@@ -509,7 +526,7 @@ export function useWorkspaceStreaming({
       let receivedStreamData = false;
       let interruptionDetail: string | null = null;
       let terminalErrorDetail: string | null = null;
-      let resumePollInterval: ReturnType<typeof setInterval> | null = null;
+      let livePollInterval: ReturnType<typeof setInterval> | null = null;
 
       // Pre-check: if the message has already completed (e.g. OpenCode
       // finished while the page was reloading), skip the SSE subscription.
@@ -576,18 +593,28 @@ export function useWorkspaceStreaming({
         const permissionId = getString(data.id);
         if (!permissionId) return;
 
-        const state = data.response === "reject" ? "rejected" : "approved";
+        const state: PermissionState = data.response === "reject" ? "rejected" : "approved";
         updateSessionMessages(sessionId, (prev) =>
           prev.map((message) => {
             if (message.id !== targetMessageId) return message;
 
+            const parts = message.parts.map((part) =>
+              part.type === "permission" && part.permissionId === permissionId
+                ? { ...part, state }
+                : part
+            );
+            const stillWaiting = parts.some(
+              (part) => part.type === "permission" && part.state === "pending"
+            );
+
             return {
               ...message,
-              parts: message.parts.map((part) =>
-                part.type === "permission" && part.permissionId === permissionId
-                  ? { ...part, state }
-                  : part
-              ),
+              parts,
+              statusInfo: stillWaiting
+                ? message.statusInfo
+                : message.statusInfo?.detail === "permission_required"
+                  ? { status: "thinking" }
+                  : message.statusInfo,
             };
           })
         );
@@ -642,27 +669,36 @@ export function useWorkspaceStreaming({
           throw new Error("No response body");
         }
 
-        // During resume, periodically poll the message API so we detect
-        // completion even when no SSE events arrive (e.g. subagent work
-        // produces events on the child session, not the parent).
-        if (mode === "resume") {
-          resumePollInterval = setInterval(async () => {
-            try {
-              const poll = await listMessagesAction(slug, sessionId);
-              if (poll.ok && poll.messages) {
-                const target = poll.messages.find((m) => m.id === targetMessageId);
-                if (target && !target.pending) {
-                  streamCompleted = true;
-                  updateSessionMessages(sessionId, poll.messages);
-                  syncRuntimeMetadataForSession(sessionId, poll.messages);
-                  abortController.abort();
-                }
-              }
-            } catch {
-              // Ignore individual poll errors
+        // Poll the message API while the SSE is open so we still surface
+        // later parts and permission cards when events arrive on a child
+        // session, or when the live reader goes quiet after an approval.
+        livePollInterval = setInterval(async () => {
+          try {
+            const poll = await listMessagesAction(slug, sessionId);
+            if (!poll.ok || !poll.messages) return;
+
+            const observedId =
+              assistantMessageId ?? (mode === "resume" ? targetMessageId : null);
+            const polledAssistant = observedId
+              ? poll.messages.find((message) => message.id === observedId)
+              : [...poll.messages].reverse().find((message) => message.role === "assistant");
+            if (!polledAssistant) return;
+
+            if (mode === "resume" && !polledAssistant.pending) {
+              streamCompleted = true;
+              updateSessionMessages(sessionId, poll.messages);
+              syncRuntimeMetadataForSession(sessionId, poll.messages);
+              abortController.abort();
+              return;
             }
-          }, RESUME_POLL_INTERVAL_MS);
-        }
+
+            polledAssistant.parts.forEach((part) => {
+              upsertMessagePart(sessionId, targetMessageId, part);
+            });
+          } catch {
+            // Ignore individual poll errors
+          }
+        }, RESUME_POLL_INTERVAL_MS);
 
         const decoder = new TextDecoder();
         let parseState = INITIAL_SSE_PARSE_STATE;
@@ -809,8 +845,8 @@ export function useWorkspaceStreaming({
           updateStatus("error", undefined, terminalErrorDetail);
         }
       } finally {
-        if (resumePollInterval) {
-          clearInterval(resumePollInterval);
+        if (livePollInterval) {
+          clearInterval(livePollInterval);
         }
 
         const isLatestStream = () => latestStreamTokensRef.current.get(sessionId) === token;

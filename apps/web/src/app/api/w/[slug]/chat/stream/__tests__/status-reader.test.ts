@@ -99,4 +99,26 @@ describe('createUpstreamSessionStatusReader', () => {
       terminalError: 'free_tier_limit',
     })
   })
+
+  it('treats the family as busy when a child session is still running', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          'session-1': { type: 'idle' },
+          'child-1': { type: 'busy' },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const readStatus = createUpstreamSessionStatusReader({
+      baseUrl: 'http://127.0.0.1:4096',
+      authHeader: 'Basic token',
+      sessionId: 'session-1',
+      getSessionIds: () => ['session-1', 'child-1'],
+    })
+
+    await expect(readStatus()).resolves.toBe('busy')
+  })
 })

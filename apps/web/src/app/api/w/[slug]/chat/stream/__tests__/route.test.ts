@@ -852,6 +852,115 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     expect(text).toContain('event: done')
   })
 
+  it('forwards permission.asked events from delegated child sessions', async () => {
+    const fetchMock = mockOpenCodeFetch([
+      {
+        type: 'message.updated',
+        properties: { info: { id: 'm1', role: 'assistant', sessionID: 's1' } },
+      },
+      {
+        type: 'session.created',
+        properties: { info: { id: 'child-1', parentID: 's1' } },
+      },
+      {
+        type: 'permission.asked',
+        properties: {
+          id: 'child-perm',
+          sessionID: 'child-1',
+          permission: 'Delete Mailerlite campaign',
+          patterns: ['arche_custom_mailerlite_delete_campaign'],
+          metadata: { tool: 'arche_custom_mailerlite_delete_campaign' },
+          tool: { callID: 'call-child', messageID: 'child-msg' },
+        },
+      },
+      { type: 'session.idle', properties: { info: { sessionID: 's1' } } },
+    ])
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { POST } = await import('../route')
+    const res = await POST(makePostRequest({ sessionId: 's1', runId: 'run-1' }), params())
+
+    const text = await res.text()
+
+    expect(text).toContain('event: permission\ndata:')
+    expect(text).toContain('"id":"child-perm"')
+    expect(text).toContain('Delete Mailerlite campaign')
+  })
+
+  it('forwards OpenCode permission.v2.asked and permission.v2.replied events', async () => {
+    const fetchMock = mockOpenCodeFetch([
+      {
+        type: 'message.updated',
+        properties: { info: { id: 'm1', role: 'assistant', sessionID: 's1' } },
+      },
+      {
+        type: 'permission.v2.asked',
+        properties: {
+          id: 'perm-v2',
+          sessionID: 's1',
+          action: 'external_directory_write',
+          resources: ['/tmp/out.md'],
+          metadata: { tool: 'write' },
+          source: { type: 'tool', messageID: 'm1', callID: 'call-v2' },
+        },
+      },
+      {
+        type: 'permission.v2.replied',
+        properties: { sessionID: 's1', requestID: 'perm-v2', reply: 'once' },
+      },
+      { type: 'session.idle', properties: { info: { sessionID: 's1' } } },
+    ])
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { POST } = await import('../route')
+    const res = await POST(makePostRequest({ sessionId: 's1', runId: 'run-1' }), params())
+
+    const text = await res.text()
+
+    expect(text).toContain('event: permission\ndata:')
+    expect(text).toContain('"id":"perm-v2"')
+    expect(text).toContain('"title":"external_directory_write"')
+    expect(text).toContain('event: permission-replied')
+    expect(text).toContain('"response":"once"')
+    expect(text.indexOf('"detail":"permission_required"')).toBeLessThan(text.lastIndexOf('"status":"thinking"'))
+  })
+
+  it('does not finalize while a delegated task tool is still running', async () => {
+    const fetchMock = mockOpenCodeFetch([
+      {
+        type: 'message.updated',
+        properties: { info: { id: 'm1', role: 'assistant', sessionID: 's1' } },
+      },
+      {
+        type: 'message.part.updated',
+        properties: {
+          part: {
+            id: 'task-1',
+            messageID: 'm1',
+            sessionID: 's1',
+            type: 'tool',
+            tool: 'task',
+            state: {
+              status: 'running',
+              input: { subagent_type: 'copywriter' },
+              metadata: { sessionId: 'child-1' },
+            },
+          },
+        },
+      },
+      { type: 'session.idle', properties: { info: { sessionID: 's1' } } },
+    ])
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { POST } = await import('../route')
+    const res = await POST(makePostRequest({ sessionId: 's1', runId: 'run-1' }), params())
+
+    const text = await res.text()
+
+    expect(text).toContain('"tool":"task"')
+    expect(text).not.toContain('event: done')
+  })
+
   it('forwards legacy permission.updated events', async () => {
     const fetchMock = mockOpenCodeFetch([
       {

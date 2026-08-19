@@ -93,7 +93,24 @@ function getPermissionPattern(permission: Record<string, unknown>): string | und
     if (patterns.length > 0) return patterns.join(', ')
   }
 
+  if (Array.isArray(permission.resources)) {
+    const resources = permission.resources
+      .map(getString)
+      .filter((resource): resource is string => Boolean(resource))
+    if (resources.length > 0) return resources.join(', ')
+  }
+
   return getString(permission.pattern)
+}
+
+function isPermissionEventType(eventType: string): boolean {
+  return (
+    eventType === 'permission.asked' ||
+    eventType === 'permission.updated' ||
+    eventType === 'permission.replied' ||
+    eventType === 'permission.v2.asked' ||
+    eventType === 'permission.v2.replied'
+  )
 }
 
 function normalizePendingPermission(
@@ -103,6 +120,7 @@ function normalizePendingPermission(
   if (!isRecord(value)) return null
 
   const tool = isRecord(value.tool) ? value.tool : null
+  const source = isRecord(value.source) ? value.source : null
   const id = getString(value.id)
   const sessionId = getString(value.sessionID) ?? getString(value.sessionId) ?? fallback.sessionId
   if (!id || !sessionId) return null
@@ -112,12 +130,16 @@ function normalizePendingPermission(
   const messageId =
     getString(tool?.messageID) ??
     getString(tool?.messageId) ??
+    getString(source?.messageID) ??
+    getString(source?.messageId) ??
     getString(value.messageID) ??
     getString(value.messageId) ??
     fallback.messageId
   const callId =
     getString(tool?.callID) ??
     getString(tool?.callId) ??
+    getString(source?.callID) ??
+    getString(source?.callId) ??
     getString(value.callID) ??
     getString(value.callId)
 
@@ -126,7 +148,12 @@ function normalizePendingPermission(
     sessionId,
     ...(messageId && { messageId }),
     ...(callId && { callId }),
-    title: getString(value.permission) ?? getString(value.title) ?? pattern ?? 'Tool approval required',
+    title:
+      getString(value.permission) ??
+      getString(value.title) ??
+      getString(value.action) ??
+      pattern ??
+      'Tool approval required',
     ...(pattern && { pattern }),
     ...(metadata && { metadata }),
     state: 'pending',
@@ -608,10 +635,13 @@ export const POST = withAuth(
         try {
           sendEvent('status', { status: 'connecting' })
           let terminalRetryError: string | null = null
+          const sessionFamilyIds = new Set<string>([sessionId])
+          const runningTaskPartIds = new Set<string>()
           const readUpstreamSessionStatus = createUpstreamSessionStatusReader({
             baseUrl,
             authHeader,
             sessionId,
+            getSessionIds: () => sessionFamilyIds,
             onRead: ({ durationMs, outcome, responseStatus, status, terminalError }) => {
               if (terminalError) {
                 terminalRetryError = terminalError
@@ -760,6 +790,36 @@ export const POST = withAuth(
           ? RESUME_STREAM_RELEVANT_EVENT_TIMEOUT_MS
           : SEND_STREAM_RELEVANT_EVENT_TIMEOUT_MS
 
+        const rememberFamilySession = (id?: string) => {
+          if (id) sessionFamilyIds.add(id)
+        }
+
+        const rememberSessionFamilyFromInfo = (value: unknown) => {
+          if (!isRecord(value)) return
+          const createdId = getString(value.id)
+          const parentId = getString(value.parentID) ?? getString(value.parentId)
+          if (createdId && parentId && sessionFamilyIds.has(parentId)) {
+            sessionFamilyIds.add(createdId)
+          }
+        }
+
+        const rememberTaskPart = (part: Record<string, unknown>) => {
+          const toolName = getString(part.tool) ?? getString(part.name)
+          const partId = getString(part.id) ?? getString(part.callID)
+          if (toolName !== 'task' || !partId) return
+
+          const state = isRecord(part.state) ? part.state : null
+          const status = getString(state?.status)
+          if (status === 'running' || status === 'pending') {
+            runningTaskPartIds.add(partId)
+          } else {
+            runningTaskPartIds.delete(partId)
+          }
+
+          const metadata = isRecord(state?.metadata) ? state.metadata : null
+          rememberFamilySession(getString(metadata?.sessionId) ?? getString(metadata?.sessionID))
+        }
+
         const markRelevantEvent = () => {
           const now = Date.now()
           lastRelevantEventAt = now
@@ -788,16 +848,28 @@ export const POST = withAuth(
           sendEvent('permission', permission)
         }
 
-        if (resume) {
+        try {
+          const client = await createConfiguredOpencodeClient({ authHeader, baseUrl })
           try {
-            const client = await createConfiguredOpencodeClient({ authHeader, baseUrl })
+            const childrenResult = await client.session?.children?.({ sessionID: sessionId })
+            for (const child of childrenResult?.data ?? []) {
+              rememberFamilySession(getString(child.id))
+            }
+          } catch (error) {
+            console.warn('[chat/stream] Failed to list session children', { error, sessionId })
+          }
+
+          if (resume) {
             const result = await client.permission.list()
             const permissions = Array.isArray(result.data) ? result.data : []
             for (const permission of permissions) {
               const normalizedPermission = normalizePendingPermission(permission)
+              if (!normalizedPermission || !sessionFamilyIds.has(normalizedPermission.sessionId)) {
+                continue
+              }
               if (
-                !normalizedPermission ||
-                normalizedPermission.sessionId !== sessionId ||
+                normalizedPermission.sessionId === sessionId &&
+                normalizedPermission.messageId &&
                 normalizedPermission.messageId !== assistantMessageId
               ) {
                 continue
@@ -805,9 +877,9 @@ export const POST = withAuth(
 
               emitPendingPermission(normalizedPermission)
             }
-          } catch (error) {
-            console.warn('[chat/stream] Failed to list pending resume permissions', { error, sessionId })
           }
+        } catch (error) {
+          console.warn('[chat/stream] Failed to hydrate session family permissions', { error, sessionId })
         }
 
         const failForTerminalRetry = (detail: string) => {
@@ -861,12 +933,20 @@ export const POST = withAuth(
           }
         }
 
-        const finalizeFromIdle = () => {
+        const finalizeFromIdle = async () => {
           if (aborted) return
 
-          if (pendingPermissionIds.size > 0) {
+          if (pendingPermissionIds.size > 0 || runningTaskPartIds.size > 0) {
             markWatchdogCheck()
             return
+          }
+
+          if (sessionFamilyIds.size > 1) {
+            const familyStatus = await readUpstreamSessionStatus()
+            if (familyStatus === 'busy' || familyStatus === 'retry') {
+              markWatchdogCheck()
+              return
+            }
           }
 
           const outcome = getIdleFinalizationOutcome({
@@ -908,7 +988,7 @@ export const POST = withAuth(
 
             if (readResult.type === 'tick') {
               if (Date.now() - lastRelevantEventAt > relevantEventTimeoutMs) {
-                if (pendingPermissionIds.size > 0) {
+                if (pendingPermissionIds.size > 0 || runningTaskPartIds.size > 0) {
                   markWatchdogCheck()
                   continue
                 }
@@ -946,7 +1026,7 @@ export const POST = withAuth(
 
                 if (watchdogOutcome === 'finalize_idle') {
                   markWatchdogCheck()
-                  finalizeFromIdle()
+                      await finalizeFromIdle()
                   continue
                 }
 
@@ -994,7 +1074,7 @@ export const POST = withAuth(
             if (terminalRetryError) {
               failForTerminalRetry(terminalRetryError)
             } else if (!aborted && upstreamStatus === 'idle') {
-              finalizeFromIdle()
+                    await finalizeFromIdle()
             } else if (!aborted) {
               closeForObservationInterruption('upstream_eof')
             }
@@ -1028,27 +1108,27 @@ export const POST = withAuth(
                   firstUpstreamEventSeen = true
                   logObservation('first_upstream_event', { eventType })
                 }
+
+                if (eventType === 'session.created' || eventType === 'session.updated') {
+                  rememberSessionFamilyFromInfo(event.properties?.info)
+                }
+
                 const isWorkspaceEvent =
                   eventType === 'file.edited' ||
                   eventType === 'file.created' ||
                   eventType === 'file.deleted' ||
                   eventType === 'todo.updated'
 
-                const isSessionScopedEvent =
-                  eventType === 'session.status' ||
-                  eventType === 'session.idle' ||
-                  eventType === 'session.error' ||
-                  eventType === 'permission.asked' ||
-                  eventType === 'permission.updated' ||
-                  eventType === 'permission.replied'
+                const isPermissionEvent = isPermissionEventType(eventType)
 
-                // Filter events for our session only
+                // Filter events for our session only. Permission events from
+                // delegated child sessions must still reach the parent transcript.
                 if (!isWorkspaceEvent) {
-                  if (isSessionScopedEvent && eventSessionId !== sessionId) {
-                    continue
-                  }
-
-                  if (!isSessionScopedEvent && eventSessionId && eventSessionId !== sessionId) {
+                  if (isPermissionEvent) {
+                    if (eventSessionId && !sessionFamilyIds.has(eventSessionId)) {
+                      continue
+                    }
+                  } else if (eventSessionId && eventSessionId !== sessionId) {
                     continue
                   }
                 }
@@ -1067,20 +1147,20 @@ export const POST = withAuth(
                     } else if (status?.type === 'retry') {
                       emitStatus('thinking', undefined, status?.message)
                     } else if (status?.type === 'idle') {
-                      if (pendingPermissionIds.size > 0) {
+                      if (pendingPermissionIds.size > 0 || runningTaskPartIds.size > 0) {
                         break
                       }
-                      finalizeFromIdle()
+                      await finalizeFromIdle()
                     }
                     break
                   }
 
                   case 'session.idle': {
                     markRelevantEvent()
-                    if (pendingPermissionIds.size > 0) {
+                    if (pendingPermissionIds.size > 0 || runningTaskPartIds.size > 0) {
                       break
                     }
-                    finalizeFromIdle()
+                    await finalizeFromIdle()
                     break
                   }
 
@@ -1098,6 +1178,7 @@ export const POST = withAuth(
                     break
                   }
 
+                  case 'permission.v2.asked':
                   case 'permission.asked':
                   case 'permission.updated': {
                     markRelevantEvent()
@@ -1111,10 +1192,12 @@ export const POST = withAuth(
                     )
                     if (!permission) break
 
+                    rememberFamilySession(permission.sessionId)
                     emitPendingPermission(permission)
                     break
                   }
 
+                  case 'permission.v2.replied':
                   case 'permission.replied': {
                     markRelevantEvent()
 
@@ -1137,6 +1220,9 @@ export const POST = withAuth(
                         getString(permission?.reply) ??
                         getString(permission?.response),
                     })
+                    if (pendingPermissionIds.size === 0) {
+                      emitStatus('thinking')
+                    }
                     break
                   }
 
@@ -1198,6 +1284,10 @@ export const POST = withAuth(
                     const isAssistantPart = assistantMessageId
                       ? partMessageId === assistantMessageId
                       : knownRole === 'assistant'
+
+                    if (isRecord(part)) {
+                      rememberTaskPart(part)
+                    }
 
                     sendEvent('part', { messageId: partMessageId, part, delta })
 

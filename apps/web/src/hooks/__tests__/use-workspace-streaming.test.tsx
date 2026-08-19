@@ -597,6 +597,23 @@ describe("useWorkspace streaming", () => {
       });
 
       act(() => {
+        sse.push(sseEvent("permission-replied", {
+          id: "perm-1",
+          response: "once",
+          sessionId: "s1",
+        }));
+      });
+
+      await waitFor(() => {
+        const assistant = result.current.messages.find((message) => message.role === "assistant");
+        expect(assistant?.parts).toContainEqual(expect.objectContaining({
+          permissionId: "perm-1",
+          state: "approved",
+        }));
+        expect(assistant?.statusInfo?.detail).not.toBe("permission_required");
+      });
+
+      act(() => {
         sse.close();
       });
     });
@@ -2505,6 +2522,69 @@ describe("useWorkspace streaming", () => {
         const msg = result.current.messages.find((m) => m.id === "msg-1");
         expect(msg?.pending).toBe(false);
         expect(msg?.content).toBe("finished response");
+      });
+    });
+
+    it("hydrates a missed permission card from polling during send", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+
+      const sse = createSSEStream();
+      stubFetchWithStream(() => sse);
+
+      const result = await renderConnectedHook();
+
+      await act(async () => {
+        await result.current.sendMessage("delete the campaign");
+      });
+
+      act(() => {
+        sse.push(sseEvent("message", { id: "assistant-1", role: "assistant" }));
+      });
+
+      opencodeMocks.listMessagesAction.mockResolvedValue({
+        ok: true,
+        messages: [
+          {
+            id: "assistant-1",
+            sessionId: "s1",
+            role: "assistant",
+            content: "",
+            timestamp: "now",
+            timestampRaw: Date.now(),
+            pending: true,
+            parts: [
+              {
+                type: "permission",
+                id: "permission:perm-missed",
+                permissionId: "perm-missed",
+                sessionId: "s1",
+                title: "Delete campaign",
+                state: "pending",
+              },
+            ],
+            statusInfo: { status: "tool-calling", detail: "permission_required" },
+          },
+        ],
+      });
+
+      for (let i = 0; i < 10; i++) {
+        await act(async () => {
+          vi.advanceTimersByTime(500);
+          await new Promise((r) => setTimeout(r, 0));
+        });
+      }
+
+      await waitFor(() => {
+        const assistant = result.current.messages.find((message) => message.role === "assistant");
+        expect(assistant?.parts).toContainEqual(expect.objectContaining({
+          permissionId: "perm-missed",
+          state: "pending",
+          type: "permission",
+        }));
+      });
+
+      act(() => {
+        sse.close();
       });
     });
   });
