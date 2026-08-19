@@ -68,6 +68,14 @@ scripts/dev-local.sh
 
 The launcher runs `deploy.sh --local-dev` and then waits for shortcuts: `r` reloads only Next.js, `q` exits the launcher, and `Q` stops the local-dev stack.
 
+To stop everything locally (compose stack plus spawned workspace containers) without deleting volumes, images or networks:
+
+```bash
+scripts/stop-local-dev.sh
+```
+
+Use `--stop-podman-machine` to also stop the idle Podman machine. For a full teardown (removes volumes, networks and the `arche-workspace` image), use `./infra/deploy/deploy.sh --local-dev-down` instead.
+
 To run the deployer directly instead:
 
 ```bash

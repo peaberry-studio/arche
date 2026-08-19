@@ -114,6 +114,13 @@ scripts/reload-web-dev.sh
 podman compose -f infra/compose/compose.yaml down
 ```
 
+- Stop everything (compose stack + spawned workspace containers, without
+  deleting volumes, images or networks):
+
+```bash
+scripts/stop-local-dev.sh
+```
+
 - Full reset (deletes volumes):
 
 ```bash
