@@ -849,6 +849,58 @@ describe('listMessagesAction', () => {
     })
   })
 
+  it('hydrates child-session pending permissions onto the parent assistant', async () => {
+    mockSessionMessages.mockResolvedValue({
+      data: [
+        {
+          info: { id: 'msg-1', role: 'assistant', time: { created: Date.now() } },
+          parts: [{ type: 'tool', id: 'task-1', tool: 'task', state: { status: 'running', input: {} } }],
+        },
+      ],
+    })
+    const mockSessionChildren = vi.fn().mockResolvedValue({
+      data: [{ id: 'child-1' }],
+    })
+    mockCreateInstanceClient.mockResolvedValue({
+      ...makeClient(),
+      session: {
+        ...makeClient().session,
+        children: mockSessionChildren,
+      },
+    } as never)
+    mockPermissionList.mockResolvedValue({
+      data: [
+        {
+          id: 'child-perm',
+          metadata: { tool: 'arche_custom_mailerlite_delete_campaign' },
+          patterns: ['arche_custom_mailerlite_delete_campaign'],
+          permission: 'Delete campaign',
+          sessionID: 'child-1',
+          tool: { callID: 'call-child', messageID: 'child-msg' },
+        },
+      ],
+    })
+
+    const result = await listMessagesAction('alice', 'sess-1')
+
+    expect(result.messages![0]).toMatchObject({
+      pending: true,
+      statusInfo: {
+        status: 'tool-calling',
+        detail: 'permission_required',
+      },
+      parts: [
+        { type: 'tool', id: 'task-1' },
+        {
+          type: 'permission',
+          permissionId: 'child-perm',
+          sessionId: 'child-1',
+          state: 'pending',
+        },
+      ],
+    })
+  })
+
   it.each([
     ['a non-array result', { id: 'permission-1' }],
     ['a permission with non-array patterns', [
