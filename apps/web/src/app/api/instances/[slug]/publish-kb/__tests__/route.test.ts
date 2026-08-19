@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   markKnowledgeReviewChangesPublished: vi.fn(),
   findIdBySlug: vi.fn(),
   updateSyncState: vi.fn(),
+  auditEvent: vi.fn(),
 }))
 
 vi.mock('@/lib/runtime/capabilities', () => ({ getRuntimeCapabilities: mocks.getRuntimeCapabilities }))
@@ -41,7 +42,7 @@ vi.mock('@/lib/learning/service', () => ({
   listAppliedKnowledgeReviewChanges: mocks.listAppliedKnowledgeReviewChanges,
   markKnowledgeReviewChangesPublished: mocks.markKnowledgeReviewChangesPublished,
 }))
-vi.mock('@/lib/auth', () => ({ auditEvent: vi.fn() }))
+vi.mock('@/lib/auth', () => ({ auditEvent: mocks.auditEvent }))
 
 import { POST } from '../route'
 
@@ -61,12 +62,34 @@ function params(slug: string) {
   return { params: Promise.resolve({ slug }) }
 }
 
-function mockFetch(body: object, status = 200) {
-  return vi.spyOn(globalThis, 'fetch')
-    .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, diffs: [{ path: 'Notes/Reviewed.md' }] }), {
+function mockFetch(
+  body: object,
+  status = 200,
+  options: {
+    diffs?: Array<{ conflicted?: boolean; path: string }>
+    fileRead?: { body: object; status?: number }
+    includeFileRead?: boolean
+  } = {},
+) {
+  const spy = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({
+      ok: true,
+      diffs: options.diffs ?? [{ path: 'Notes/Reviewed.md' }],
+    }), {
       headers: { 'Content-Type': 'application/json' },
     }))
-    .mockResolvedValue(new Response(JSON.stringify(body), {
+
+  if (options.includeFileRead !== false) {
+    spy.mockResolvedValueOnce(new Response(JSON.stringify(options.fileRead?.body ?? {
+      ok: true,
+      hash: 'sha256:reviewed',
+    }), {
+      status: options.fileRead?.status,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+  }
+
+  return spy.mockResolvedValue(new Response(JSON.stringify(body), {
       status,
       headers: { 'Content-Type': 'application/json' },
     }))
@@ -117,19 +140,102 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     spy.mockRestore()
   })
 
-  it('rejects unreviewed workspace diffs with a readable message', async () => {
+  it('publishes user-only workspace diffs without path hashes', async () => {
     mocks.listAppliedKnowledgeReviewChanges.mockResolvedValue([])
-    const spy = mockFetch({ ok: true, status: 'published' })
+    const spy = mockFetch(
+      { ok: true, status: 'published', commitHash: 'abc123', files: ['Notes/Reviewed.md'] },
+      200,
+      { includeFileRead: false },
+    )
 
     const res = await POST(makeRequest(), params('alice'))
     const body = await res.json()
 
-    expect(body).toEqual({
-      ok: false,
-      status: 'error',
-      message: 'No reviewed changes to publish. Apply changes from Knowledge Review first, or discard unreviewed edits.',
+    expect(body).toEqual({ ok: true, status: 'published', commitHash: 'abc123', files: ['Notes/Reviewed.md'] })
+    expect(spy).toHaveBeenLastCalledWith('http://agent:8080/kb/publish', expect.objectContaining({
+      body: JSON.stringify({
+        paths: ['Notes/Reviewed.md'],
+        pathHashes: {},
+      }),
+    }))
+    expect(mocks.auditEvent).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'knowledge.user_published',
+      metadata: expect.objectContaining({ paths: ['Notes/Reviewed.md'] }),
+    }))
+    expect(mocks.markKnowledgeReviewChangesPublished).not.toHaveBeenCalled()
+    spy.mockRestore()
+  })
+
+  it('publishes matching applied changes and user edits together', async () => {
+    const spy = mockFetch(
+      {
+        ok: true,
+        status: 'published',
+        commitHash: 'abc123',
+        files: ['Notes/Reviewed.md', 'Notes/User.md'],
+      },
+      200,
+      { diffs: [{ path: 'Notes/Reviewed.md' }, { path: 'Notes/User.md' }] },
+    )
+
+    const res = await POST(makeRequest(), params('alice'))
+
+    expect((await res.json()).ok).toBe(true)
+    expect(spy).toHaveBeenCalledWith('http://agent:8080/files/read', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ path: 'Notes/Reviewed.md' }),
+    }))
+    expect(spy).not.toHaveBeenCalledWith('http://agent:8080/files/read', expect.objectContaining({
+      body: JSON.stringify({ path: 'Notes/User.md' }),
+    }))
+    expect(spy).toHaveBeenLastCalledWith('http://agent:8080/kb/publish', expect.objectContaining({
+      body: JSON.stringify({
+        paths: ['Notes/Reviewed.md', 'Notes/User.md'],
+        pathHashes: { 'Notes/Reviewed.md': 'sha256:reviewed' },
+      }),
+    }))
+    expect(mocks.markKnowledgeReviewChangesPublished).toHaveBeenCalledWith(expect.objectContaining({
+      paths: ['Notes/Reviewed.md'],
+    }))
+    spy.mockRestore()
+  })
+
+  it('publishes drifted applied changes as user overrides and marks them published', async () => {
+    const spy = mockFetch({
+      ok: true,
+      status: 'published',
+      commitHash: 'abc123',
+      files: ['Notes/Reviewed.md'],
+    }, 200, {
+      fileRead: { body: { ok: true, hash: 'sha256:user-edit' } },
     })
+
+    const res = await POST(makeRequest(), params('alice'))
+
+    expect((await res.json()).ok).toBe(true)
+    expect(spy).toHaveBeenLastCalledWith('http://agent:8080/kb/publish', expect.objectContaining({
+      body: JSON.stringify({
+        paths: ['Notes/Reviewed.md'],
+        pathHashes: {},
+      }),
+    }))
+    expect(mocks.markKnowledgeReviewChangesPublished).toHaveBeenCalledWith(expect.objectContaining({
+      paths: ['Notes/Reviewed.md'],
+    }))
+    spy.mockRestore()
+  })
+
+  it('returns conflicts without calling the publish endpoint', async () => {
+    const spy = mockFetch({ ok: true, status: 'published' }, 200, {
+      diffs: [{ conflicted: true, path: 'Notes/Conflict.md' }],
+      includeFileRead: false,
+    })
+
+    const res = await POST(makeRequest(), params('alice'))
+
+    expect(await res.json()).toEqual({ ok: true, status: 'conflicts' })
     expect(spy).toHaveBeenCalledTimes(1)
+    expect(mocks.listAppliedKnowledgeReviewChanges).not.toHaveBeenCalled()
     spy.mockRestore()
   })
 
@@ -165,18 +271,21 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     spy.mockRestore()
   })
 
-  it('returns GitHub remote configuration errors before contacting the agent endpoint', async () => {
+  it('returns GitHub remote configuration errors without publishing', async () => {
     mocks.createWorkspaceRemoteConfig.mockResolvedValue({ ok: false, error: 'token failed' })
-    const spy = vi.spyOn(globalThis, 'fetch')
+    const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      ok: true,
+      diffs: [{ path: 'Notes/Reviewed.md' }],
+    }), {
+      headers: { 'Content-Type': 'application/json' },
+    }))
 
     const res = await POST(makeRequest(), params('alice'))
     const body = await res.json()
 
     expect(body).toEqual({ ok: false, status: 'error', message: 'token failed' })
-    expect(mocks.createWorkspaceAgentClient.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.createWorkspaceRemoteConfig.mock.invocationCallOrder[0],
-    )
-    expect(spy).not.toHaveBeenCalled()
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect(spy).not.toHaveBeenCalledWith('http://agent:8080/kb/publish', expect.anything())
     spy.mockRestore()
   })
 
@@ -310,13 +419,9 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     mocks.listAppliedKnowledgeReviewChanges.mockResolvedValue([
       { kbPath: 'Notes/Reviewed.md', operation: 'delete', appliedHash: 'sha256:gone' },
     ])
-    const spy = vi.spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, diffs: [{ path: 'Notes/Reviewed.md' }] }), {
-        headers: { 'Content-Type': 'application/json' },
-      }))
-      .mockResolvedValue(new Response(JSON.stringify({ ok: true, status: 'published', commitHash: 'abc' }), {
-        headers: { 'Content-Type': 'application/json' },
-      }))
+    const spy = mockFetch({ ok: true, status: 'published', commitHash: 'abc' }, 200, {
+      fileRead: { body: { ok: false, error: 'not_found' }, status: 404 },
+    })
 
     const res = await POST(makeRequest(), params('alice'))
     const body = await res.json()
@@ -331,6 +436,34 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     spy.mockRestore()
   })
 
+  it('omits the deleted sentinel when an applied delete was overridden by a recreated file', async () => {
+    mocks.listAppliedKnowledgeReviewChanges.mockResolvedValue([
+      { kbPath: 'Notes/Reviewed.md', operation: 'delete', appliedHash: 'sha256:gone' },
+    ])
+    const spy = mockFetch({
+      ok: true,
+      status: 'published',
+      commitHash: 'abc123',
+      files: ['Notes/Reviewed.md'],
+    }, 200, {
+      fileRead: { body: { ok: true, hash: 'sha256:recreated' } },
+    })
+
+    const res = await POST(makeRequest(), params('alice'))
+
+    expect((await res.json()).ok).toBe(true)
+    expect(spy).toHaveBeenLastCalledWith('http://agent:8080/kb/publish', expect.objectContaining({
+      body: JSON.stringify({
+        paths: ['Notes/Reviewed.md'],
+        pathHashes: {},
+      }),
+    }))
+    expect(mocks.markKnowledgeReviewChangesPublished).toHaveBeenCalledWith(expect.objectContaining({
+      paths: ['Notes/Reviewed.md'],
+    }))
+    spy.mockRestore()
+  })
+
   it('translates a reviewed-content mismatch into a readable message', async () => {
     const spy = mockFetch({ ok: false, status: 'error', message: 'reviewed_content_changed' })
 
@@ -341,27 +474,22 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     spy.mockRestore()
   })
 
-  it('fails closed when an applied change has no recorded hash instead of skipping verification', async () => {
+  it('publishes an applied change without a recorded hash as an override', async () => {
     mocks.listAppliedKnowledgeReviewChanges.mockResolvedValue([
       { kbPath: 'Notes/Reviewed.md', operation: 'update', appliedHash: null },
     ])
-    const spy = vi.spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, diffs: [{ path: 'Notes/Reviewed.md' }] }), {
-        headers: { 'Content-Type': 'application/json' },
-      }))
+    const spy = mockFetch({ ok: true, status: 'published' })
 
     const res = await POST(makeRequest(), params('alice'))
     const body = await res.json()
 
-    expect(body).toEqual({
-      ok: false,
-      status: 'error',
-      message: 'A reviewed change has no recorded content hash. Re-apply it before publishing.',
-    })
-    // The agent /kb/publish endpoint must never be reached without a
-    // verifiable hash; only the /git/diffs read happened.
-    expect(spy).toHaveBeenCalledTimes(1)
-    expect(spy).not.toHaveBeenCalledWith('http://agent:8080/kb/publish', expect.anything())
+    expect(body).toEqual({ ok: true, status: 'published' })
+    expect(spy).toHaveBeenLastCalledWith('http://agent:8080/kb/publish', expect.objectContaining({
+      body: JSON.stringify({
+        paths: ['Notes/Reviewed.md'],
+        pathHashes: {},
+      }),
+    }))
     spy.mockRestore()
   })
 
@@ -377,6 +505,9 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     mocks.markKnowledgeReviewChangesPublished.mockResolvedValue([])
     const spy = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, diffs: [{ path: 'Notes/Reviewed.md' }] }), {
+        headers: { 'Content-Type': 'application/json' },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, hash: 'sha256:reviewed' }), {
         headers: { 'Content-Type': 'application/json' },
       }))
       .mockResolvedValue(new Response(JSON.stringify({

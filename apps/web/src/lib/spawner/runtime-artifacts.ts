@@ -21,6 +21,7 @@ import { connectorService, userService } from '@/lib/services'
 import {
   applyAgentExecutionGuards,
   applyDefaultAgentModel,
+  denyAgentKnowledgeWrites,
   injectAlwaysOnAgentTools,
   injectCustomConnectorHints,
   injectSelfDelegationGuards,
@@ -31,6 +32,7 @@ import { buildMcpConfigForSlug } from '@/lib/spawner/mcp-config'
 import {
   withWorkspaceIdentity,
   withLinkedRepositories,
+  withWorkspaceKnowledgePolicy,
   withWorkspacePermissionGuards,
 } from '@/lib/spawner/runtime-config-utils'
 import {
@@ -221,7 +223,8 @@ async function buildBaseWorkspaceConfig(
   baseConfig = injectSystemSkillAccess(baseConfig, [SYSTEM_FLOW_AUTHORING_SKILL_NAME])
   baseConfig = applyDefaultAgentModel(baseConfig)
   baseConfig = applyAgentExecutionGuards(baseConfig)
-  return injectSelfDelegationGuards(baseConfig)
+  baseConfig = injectSelfDelegationGuards(baseConfig)
+  return denyAgentKnowledgeWrites(baseConfig)
 }
 
 function cloneProviderGatewayConfig(providerGatewayConfig: Record<string, unknown>): Record<string, unknown> {
@@ -345,7 +348,9 @@ export async function buildWorkspaceAgentsMd(
     slug: resolvedOwner?.slug ?? slug,
     email: resolvedOwner?.email,
   })
-  return withLinkedRepositories(agentsMd, await getLinkedRepositoriesForOwner(resolvedOwner))
+  return withWorkspaceKnowledgePolicy(
+    withLinkedRepositories(agentsMd, await getLinkedRepositoriesForOwner(resolvedOwner))
+  )
 }
 
 export async function buildWorkspaceRuntimeArtifacts(

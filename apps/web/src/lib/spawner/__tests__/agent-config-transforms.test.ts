@@ -4,6 +4,7 @@ import { describe, it, expect } from 'vitest'
 import {
   applyAgentExecutionGuards,
   applyDefaultAgentModel,
+  denyAgentKnowledgeWrites,
   injectAlwaysOnAgentTools,
   injectCustomConnectorHints,
   injectSelfDelegationGuards,
@@ -233,6 +234,62 @@ describe('injectAlwaysOnAgentTools', () => {
 
     const result = injectAlwaysOnAgentTools(config)
     expect(result).toBe(config)
+  })
+})
+
+describe('denyAgentKnowledgeWrites', () => {
+  it('disables write and edit while preserving explicit tool maps', () => {
+    const result = denyAgentKnowledgeWrites({
+      agent: {
+        assistant: {
+          tools: {
+            bash: true,
+            edit: true,
+            learning_propose: true,
+            read: true,
+            write: true,
+          },
+        },
+      },
+    })
+    const tools = (result.agent as Record<string, Record<string, Record<string, boolean>>>).assistant.tools
+
+    expect(tools).toEqual({
+      bash: true,
+      edit: false,
+      learning_propose: true,
+      read: true,
+      write: false,
+    })
+  })
+
+  it('materializes all tools for all-mode and missing tool configs', () => {
+    const result = denyAgentKnowledgeWrites({
+      agent: {
+        allMode: { tools: 'all' },
+        implicit: {},
+      },
+    })
+    const agents = result.agent as Record<string, Record<string, Record<string, boolean>>>
+
+    expect(agents.allMode.tools).toEqual(agents.implicit.tools)
+    expect(agents.allMode.tools).toMatchObject({
+      bash: true,
+      edit: false,
+      read: true,
+      write: false,
+    })
+    expect(Object.keys(agents.allMode.tools)).toHaveLength(21)
+  })
+
+  it('leaves non-record agents alone', () => {
+    const result = denyAgentKnowledgeWrites({
+      agent: {
+        unavailable: null,
+      },
+    })
+
+    expect(result.agent).toEqual({ unavailable: null })
   })
 })
 

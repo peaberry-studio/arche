@@ -1,9 +1,7 @@
 'use server'
 
-import { submitWorkspaceDiffForReview } from '@/lib/learning/service'
 import type { WorkspaceFileContent } from '@/lib/opencode/types'
 import { getSession } from '@/lib/runtime/session'
-import { findIdBySlug } from '@/lib/services/user'
 import { isProtectedWorkspacePath, normalizeWorkspacePath } from '@/lib/workspace-paths'
 import { createWorkspaceAgentClient } from '@/lib/workspace-agent/client'
 
@@ -351,33 +349,4 @@ export async function discardWorkspaceFileChangesAction(
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : 'workspace_agent_unreachable' }
   }
-}
-
-export async function submitWorkspaceDiffForReviewAction(
-  slug: string,
-  payload: { path: string; operation: 'create' | 'update' | 'delete' }
-): Promise<{ ok: boolean; error?: string }> {
-  const session = await getSession()
-  if (!session) return { ok: false, error: 'unauthorized' }
-  if (session.user.slug !== slug && session.user.role !== 'ADMIN') {
-    return { ok: false, error: 'forbidden' }
-  }
-  const safePath = sanitizeWorkspacePath(payload.path)
-  if (!safePath) return { ok: false, error: 'protected_path' }
-
-  // Review records belong to the workspace owner, not the acting admin.
-  const owner = await findIdBySlug(slug)
-  if (!owner) return { ok: false, error: 'workspace_owner_not_found' }
-
-  const result = await submitWorkspaceDiffForReview({
-    actor: session.user.id,
-    author: session.user.email,
-    operation: payload.operation,
-    path: safePath,
-    slug,
-    userId: owner.id,
-  })
-  if (!result.ok) return { ok: false, error: result.error }
-
-  return { ok: true }
 }

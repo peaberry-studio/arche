@@ -7,13 +7,11 @@ import {
   regenerateKnowledgeReviewChangeForUser,
   rejectKnowledgeReviewChangeForUser,
   saveKnowledgeReviewChangeDraft,
-  submitWorkspaceDiffForReview,
 } from '@/lib/learning/proposal-application'
 import type { KnowledgeReviewChange } from '@/types/learning'
 
 const mocks = vi.hoisted(() => ({
   auditEvent: vi.fn(),
-  createKnowledgeReviewChange: vi.fn(),
   createWorkspaceAgentClient: vi.fn(),
   dispatchLearningRunExecution: vi.fn(),
   findKnowledgeReviewChange: vi.fn(),
@@ -31,7 +29,6 @@ vi.mock('@/lib/auth', () => ({ auditEvent: mocks.auditEvent }))
 vi.mock('@/lib/workspace-agent/client', () => ({ createWorkspaceAgentClient: mocks.createWorkspaceAgentClient }))
 vi.mock('@/lib/workspace-agent-client', () => ({ workspaceAgentFetch: mocks.workspaceAgentFetch }))
 vi.mock('@/lib/learning/repository', () => ({
-  createKnowledgeReviewChange: mocks.createKnowledgeReviewChange,
   findKnowledgeReviewChange: mocks.findKnowledgeReviewChange,
   markKnowledgeReviewChangeApplied: mocks.markKnowledgeReviewChangeApplied,
   markKnowledgeReviewChangeApplying: mocks.markKnowledgeReviewChangeApplying,
@@ -41,7 +38,6 @@ vi.mock('@/lib/learning/repository', () => ({
   saveKnowledgeReviewDraft: mocks.saveKnowledgeReviewDraft,
   startLearningRunForKnowledgeReviewRegeneration: mocks.startLearningRunForKnowledgeReviewRegeneration,
 }))
-vi.mock('@/lib/learning/validation', () => ({ isValidKbPath: vi.fn(() => true) }))
 vi.mock('@/lib/learning/run-executor', () => ({ dispatchLearningRunExecution: mocks.dispatchLearningRunExecution }))
 
 const change: KnowledgeReviewChange = {
@@ -125,127 +121,6 @@ describe('captureKnowledgeReviewBase', () => {
     const result = await captureKnowledgeReviewBase({ kbPath: 'Notes/A.md', operation: 'update', slug: 'alice' })
 
     expect(result).toEqual({ ok: false, error: 'read_failed' })
-  })
-})
-
-describe('submitWorkspaceDiffForReview', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    mocks.createWorkspaceAgentClient.mockResolvedValue(agent)
-    mocks.createKnowledgeReviewChange.mockResolvedValue({
-      ok: true,
-      change: { ...change, id: 'change-submitted' },
-    })
-  })
-
-  it('rejects paths the publish gate would reject', async () => {
-    const { isValidKbPath } = await import('@/lib/learning/validation')
-    vi.mocked(isValidKbPath).mockImplementationOnce(() => false)
-
-    const result = await submitWorkspaceDiffForReview({
-      actor: 'user-1',
-      author: 'alice@example.com',
-      operation: 'update',
-      path: '.hidden.md',
-      slug: 'alice',
-      userId: 'user-1',
-    })
-
-    expect(result).toEqual({ ok: false, error: 'invalid_path' })
-    expect(mocks.workspaceAgentFetch).not.toHaveBeenCalled()
-  })
-
-  it('creates an open change from the working tree content against the committed base', async () => {
-    mocks.workspaceAgentFetch
-      .mockResolvedValueOnce({ ok: true, data: { content: 'New content', hash: 'sha256:new', path: 'Notes/A.md', encoding: 'utf-8' }, status: 200 })
-      .mockResolvedValueOnce({ ok: true, data: { content: 'Old content', hash: 'sha256:old', path: 'Notes/A.md', encoding: 'utf-8' }, status: 200 })
-
-    const result = await submitWorkspaceDiffForReview({
-      actor: 'user-1',
-      author: 'alice@example.com',
-      operation: 'update',
-      path: 'Notes/A.md',
-      slug: 'alice',
-      userId: 'user-1',
-    })
-
-    expect(result).toMatchObject({ ok: true })
-    expect(mocks.createKnowledgeReviewChange).toHaveBeenCalledWith('user-1', expect.objectContaining({
-      operation: 'update',
-      baseContent: 'Old content',
-      baseHash: 'sha256:old',
-      proposedContent: 'New content',
-      initialStatus: 'open',
-      origin: 'workspace',
-      agent: 'workspace',
-      author: 'alice@example.com',
-    }))
-    expect(mocks.auditEvent).toHaveBeenCalledWith(expect.objectContaining({
-      action: 'knowledge.review_submitted',
-      metadata: expect.objectContaining({ origin: 'workspace' }),
-    }))
-  })
-
-  it('submits an added file as a create with no committed base', async () => {
-    mocks.workspaceAgentFetch
-      .mockResolvedValueOnce({ ok: true, data: { content: 'New file', hash: 'sha256:new', path: 'Notes/New.md', encoding: 'utf-8' }, status: 200 })
-      .mockResolvedValueOnce({ ok: false, error: 'not_found', status: 404 })
-
-    const result = await submitWorkspaceDiffForReview({
-      actor: 'user-1',
-      author: 'alice@example.com',
-      operation: 'create',
-      path: 'Notes/New.md',
-      slug: 'alice',
-      userId: 'user-1',
-    })
-
-    expect(result).toMatchObject({ ok: true })
-    expect(mocks.createKnowledgeReviewChange).toHaveBeenCalledWith('user-1', expect.objectContaining({
-      operation: 'create',
-      baseContent: null,
-      baseHash: null,
-      proposedContent: 'New file',
-    }))
-  })
-
-  it('submits a deleted file as a delete with the committed base preserved', async () => {
-    mocks.workspaceAgentFetch
-      .mockResolvedValueOnce({ ok: false, error: 'not_found', status: 404 })
-      .mockResolvedValueOnce({ ok: true, data: { content: 'Old content', hash: 'sha256:old', path: 'Notes/Gone.md', encoding: 'utf-8' }, status: 200 })
-
-    const result = await submitWorkspaceDiffForReview({
-      actor: 'user-1',
-      author: 'alice@example.com',
-      operation: 'delete',
-      path: 'Notes/Gone.md',
-      slug: 'alice',
-      userId: 'user-1',
-    })
-
-    expect(result).toMatchObject({ ok: true })
-    expect(mocks.createKnowledgeReviewChange).toHaveBeenCalledWith('user-1', expect.objectContaining({
-      operation: 'delete',
-      baseContent: 'Old content',
-      baseHash: 'sha256:old',
-      proposedContent: '',
-    }))
-  })
-
-  it('returns the agent error when the current read fails for an update', async () => {
-    mocks.workspaceAgentFetch.mockResolvedValueOnce({ ok: false, error: 'read_failed', status: 500 })
-
-    const result = await submitWorkspaceDiffForReview({
-      actor: 'user-1',
-      author: 'alice@example.com',
-      operation: 'update',
-      path: 'Notes/A.md',
-      slug: 'alice',
-      userId: 'user-1',
-    })
-
-    expect(result).toEqual({ ok: false, error: 'read_failed' })
-    expect(mocks.createKnowledgeReviewChange).not.toHaveBeenCalled()
   })
 })
 

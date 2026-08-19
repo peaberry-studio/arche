@@ -166,6 +166,7 @@ describe('runtime artifacts', () => {
     expect(config.provider?.['opencode-go']).toBeUndefined()
     expect(artifacts.agentsMd).toContain('Slug: alice')
     expect(artifacts.agentsMd).toContain('Email: alice@example.com')
+    expect(artifacts.agentsMd).toContain('## Knowledge Base write policy')
     expect(artifacts.skills.map((skill) => skill.skill.frontmatter.name)).toEqual([
       'pdf-processing',
       'arche-flow-authoring',
@@ -177,7 +178,7 @@ describe('runtime artifacts', () => {
       'CommonWorkspaceConfig.json': JSON.stringify({
         default_agent: 'assistant',
         agent: {
-          assistant: { mode: 'all', tools: { task: true } },
+          assistant: { mode: 'all', tools: { edit: true, task: true, write: true } },
           utility: { mode: 'all', tools: { task: true } },
         },
       }),
@@ -201,7 +202,7 @@ describe('runtime artifacts', () => {
     expect(config.agent?.assistant).toMatchObject({
       mode: 'primary',
       steps: 120,
-      tools: { task: true },
+      tools: { edit: false, task: true, write: false },
     })
     expect(config.agent?.utility).toMatchObject({
       mode: 'all',

@@ -700,8 +700,7 @@ func (s *server) handleFileRead(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleFileReadRef reads a file at a fixed git revision (e.g. HEAD) without
-// touching the working tree. It backs "submit workspace diff for review",
-// which needs the committed bytes as the proposal's base.
+// touching the working tree.
 func (s *server) handleFileReadRef(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed")
@@ -1759,9 +1758,8 @@ func (s *server) commitWorkspacePathsIfNeeded(ctx context.Context, paths []strin
 		return false, nil, "reviewed_path_manifest_required"
 	}
 
-	// The BFF authorizes the applied content by hash, not just the path. Verify
-	// the working tree still carries exactly the reviewed bytes before staging
-	// so later unreviewed edits at an approved path cannot be published.
+	// Hashes authorize matching applied content when the BFF sends them. Paths
+	// without a hash are user edits or overrides authorized by the manifest.
 	if msg := verifyReviewManifestHashes(s.workspace, manifest, expectedHashes); msg != "" {
 		return false, nil, msg
 	}
@@ -1821,10 +1819,10 @@ func (s *server) commitWorkspacePathsIfNeeded(ctx context.Context, paths []strin
 }
 
 // verifyReviewManifestHashes fails closed when the working tree no longer
-// matches the reviewed hashes for any manifest path. A path expected to be
-// deleted ("deleted" sentinel) must be absent; every other path must still
-// carry exactly the reviewed bytes. Paths without a recorded expectation are
-// legacy publishes and are left to the manifest path check alone.
+// matches a hash supplied for a manifest path. A path expected to be deleted
+// ("deleted" sentinel) must be absent; every other hashed path must still
+// carry exactly the applied bytes. Paths without a recorded expectation are
+// user edits or overrides and are left to the manifest path check alone.
 func verifyReviewManifestHashes(workspace string, manifest []string, expectedHashes map[string]string) string {
 	for _, path := range manifest {
 		expected, ok := expectedHashes[path]

@@ -1626,13 +1626,6 @@ export function WorkspaceShell({
     void refreshOpenFilesCache();
   }, [refreshKnowledgeWorkspace, refreshOpenFilesCache]);
 
-  const handleWorkspaceDiffSubmittedForReview = useCallback(() => {
-    // The review list is keyed by learningRefreshKey, so bump it to surface the
-    // new proposal without waiting for the next idle poll.
-    setLearningRefreshKey((current) => current + 1);
-    refreshKnowledgeWorkspace();
-  }, [refreshKnowledgeWorkspace]);
-
   const handleFlowHumanResponseSubmitted = useCallback(async () => {
     await Promise.all([
       workspace.refreshMessages(),
@@ -2122,7 +2115,6 @@ export function WorkspaceShell({
         void handleOpenFile(path, { forceExploreMode: true })
       }}
       onKnowledgeReviewApplied={handleLearningProposalSentToReview}
-      onSubmittedForReview={handleWorkspaceDiffSubmittedForReview}
       onProposalCountChange={setKnowledgeProposalCount}
       knowledgeReviewRefreshKey={learningRefreshKey}
       internalLinkPaths={markdownFilePaths}

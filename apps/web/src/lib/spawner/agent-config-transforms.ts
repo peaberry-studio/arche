@@ -1,4 +1,4 @@
-import { MCP_TOOL_PATTERN } from '@/lib/agent-capabilities'
+import { MCP_TOOL_PATTERN, OPENCODE_AGENT_TOOLS } from '@/lib/agent-capabilities'
 import type { ConnectorToolPermissionMap } from '@/lib/connectors/tool-permissions'
 import { CONNECTOR_TYPES, isSingleInstanceConnectorType, type ConnectorType } from '@/lib/connectors/types'
 import { isRecord } from '@/lib/records'
@@ -171,6 +171,32 @@ export function injectAlwaysOnAgentTools(
   }
 
   if (!changed) return config
+  return { ...config, agent: nextAgents }
+}
+
+export function denyAgentKnowledgeWrites(
+  config: Record<string, unknown>,
+): Record<string, unknown> {
+  const agents = isRecord(config.agent) ? config.agent : null
+  if (!agents) return config
+
+  const nextAgents: Record<string, unknown> = {}
+
+  for (const [agentId, agent] of Object.entries(agents)) {
+    if (!isRecord(agent)) {
+      nextAgents[agentId] = agent
+      continue
+    }
+
+    const tools = isToolMap(agent.tools)
+      ? { ...agent.tools }
+      : Object.fromEntries(OPENCODE_AGENT_TOOLS.map((toolId) => [toolId, true]))
+    tools.write = false
+    tools.edit = false
+
+    nextAgents[agentId] = { ...agent, tools }
+  }
+
   return { ...config, agent: nextAgents }
 }
 

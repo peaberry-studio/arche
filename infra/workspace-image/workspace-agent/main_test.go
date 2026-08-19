@@ -557,7 +557,7 @@ func TestHandleKbSyncPreservesUncommittedChanges(t *testing.T) {
 	}
 }
 
-func TestHandleKbPublishCommitsOnlyReviewedPaths(t *testing.T) {
+func TestHandleKbPublishAllowsPathWithoutHash(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "workspace")
 	remote := filepath.Join(root, "kb.git")
@@ -577,8 +577,59 @@ func TestHandleKbPublishCommitsOnlyReviewedPaths(t *testing.T) {
 	runGit(t, ctx, workspace, "remote", "add", "kb", remote)
 	runGit(t, ctx, workspace, "push", "-u", "kb", "main")
 
-	writeWorkspaceTestFile(t, workspace, "Knowledge/Reviewed.md", "reviewed\n")
+	writeWorkspaceTestFile(t, workspace, "Knowledge/User.md", "user edit\n")
 	writeWorkspaceTestFile(t, workspace, ".arche/attachments/hidden.txt", "attachment\n")
+
+	s := &server{workspace: workspace}
+	req := httptest.NewRequest(http.MethodPost, "/kb/publish", strings.NewReader(`{"paths":["Knowledge/User.md"]}`))
+	recorder := httptest.NewRecorder()
+	s.handleKbPublish(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("publish status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	var response publishKbResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode publish response: %v", err)
+	}
+	if response.Status != "published" || len(response.Files) != 1 || response.Files[0] != "Knowledge/User.md" {
+		t.Fatalf("unexpected publish response: %+v", response)
+	}
+
+	runGit(t, ctx, root, "clone", remote, remoteWork)
+	userEdit, err := os.ReadFile(filepath.Join(remoteWork, "Knowledge", "User.md"))
+	if err != nil || string(userEdit) != "user edit\n" {
+		t.Fatalf("user edit content = %q, err = %v", string(userEdit), err)
+	}
+	if _, err := os.Stat(filepath.Join(remoteWork, ".arche", "attachments", "hidden.txt")); !os.IsNotExist(err) {
+		t.Fatalf("unreviewed attachment was published: %v", err)
+	}
+}
+
+func TestHandleKbPublishOverrideOmitsStaleHash(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	remote := filepath.Join(root, "kb.git")
+	remoteWork := filepath.Join(root, "remote-work")
+	ctx := context.Background()
+
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+	runGit(t, ctx, workspace, "init", "-b", "main")
+	runGit(t, ctx, workspace, "config", "user.email", "tests@example.com")
+	runGit(t, ctx, workspace, "config", "user.name", "Workspace Agent Tests")
+	writeWorkspaceTestFile(t, workspace, "README.md", "base\n")
+	writeWorkspaceTestFile(t, workspace, "Knowledge/Reviewed.md", "applied bytes\n")
+	runGit(t, ctx, workspace, "add", "README.md", "Knowledge/Reviewed.md")
+	runGit(t, ctx, workspace, "commit", "-m", "initial")
+	runGit(t, ctx, root, "init", "--bare", remote)
+	runGit(t, ctx, workspace, "remote", "add", "kb", remote)
+	runGit(t, ctx, workspace, "push", "-u", "kb", "main")
+
+	// The user edited the applied bytes after Apply; the BFF lists the path
+	// but omits the stale applied hash.
+	writeWorkspaceTestFile(t, workspace, "Knowledge/Reviewed.md", "user override\n")
 
 	s := &server{workspace: workspace}
 	req := httptest.NewRequest(http.MethodPost, "/kb/publish", strings.NewReader(`{"paths":["Knowledge/Reviewed.md"]}`))
@@ -592,17 +643,14 @@ func TestHandleKbPublishCommitsOnlyReviewedPaths(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode publish response: %v", err)
 	}
-	if response.Status != "published" || len(response.Files) != 1 || response.Files[0] != "Knowledge/Reviewed.md" {
+	if !response.Ok || response.Status != "published" {
 		t.Fatalf("unexpected publish response: %+v", response)
 	}
 
 	runGit(t, ctx, root, "clone", remote, remoteWork)
-	reviewed, err := os.ReadFile(filepath.Join(remoteWork, "Knowledge", "Reviewed.md"))
-	if err != nil || string(reviewed) != "reviewed\n" {
-		t.Fatalf("reviewed content = %q, err = %v", string(reviewed), err)
-	}
-	if _, err := os.Stat(filepath.Join(remoteWork, ".arche", "attachments", "hidden.txt")); !os.IsNotExist(err) {
-		t.Fatalf("unreviewed attachment was published: %v", err)
+	content, err := os.ReadFile(filepath.Join(remoteWork, "Knowledge", "Reviewed.md"))
+	if err != nil || string(content) != "user override\n" {
+		t.Fatalf("published override = %q, err = %v", string(content), err)
 	}
 }
 

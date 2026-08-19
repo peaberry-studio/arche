@@ -414,6 +414,11 @@ export function KnowledgeReviewList({
         <div className="flex flex-col items-center justify-center gap-2 py-10 text-center">
           <GitPullRequest size={28} className="text-muted-foreground/30" />
           <p className="text-xs text-muted-foreground">{isLoading ? 'Loading Knowledge proposals…' : 'No knowledge proposals awaiting review.'}</p>
+          {isLoading ? null : (
+            <p className="max-w-[320px] text-[11px] leading-relaxed text-muted-foreground/70">
+              Agent and curator suggestions appear here. They are not on disk until you Apply.
+            </p>
+          )}
         </div>
       ) : null}
     </div>
