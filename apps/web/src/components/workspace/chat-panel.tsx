@@ -1111,7 +1111,10 @@ export function ChatPanel({
       {/* Input area */}
       <div className="mx-auto w-full max-w-[800px] px-5 pb-4 pt-2">
         {currentStatus ? (
-          <div className="mb-3 flex items-center gap-3">
+          <div className={cn(
+            "flex items-center gap-3",
+            currentStatus.detail === "permission_required" ? "mb-2" : "mb-3",
+          )}>
             <StatusIndicator currentStatus={currentStatus} connectorNamesById={connectorNamesById} />
           </div>
         ) : null}

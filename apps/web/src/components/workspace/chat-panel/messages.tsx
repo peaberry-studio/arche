@@ -382,6 +382,9 @@ export function ChatPanelMessages({
   const isLoadingSession = !isInitialSessionsReady && !sessionsError && messages.length === 0;
   const hasSessionsError = Boolean(sessionsError) && messages.length === 0;
   const showsCenteredState = isStartingNewSession || isLoadingConversation || isLoadingSession || hasSessionsError || messages.length === 0;
+  const hasPendingPermission = messages.some((message) =>
+    message.parts?.some((part) => part.type === "permission" && part.state === "pending"),
+  );
 
   return (
     <div className="relative min-h-0 flex-1">
@@ -394,7 +397,11 @@ export function ChatPanelMessages({
         <div
           className={cn(
             "mx-auto flex w-full max-w-[800px] flex-col px-5",
-            showsCenteredState ? "h-full py-0" : "min-h-full py-6"
+            showsCenteredState
+              ? "h-full py-0"
+              : hasPendingPermission
+                ? "min-h-full justify-end pb-2 pt-6"
+                : "min-h-full py-6",
           )}
         >
           {isStartingNewSession ? (
@@ -571,10 +578,12 @@ export function ChatPanelMessages({
           )}
         </div>
       </div>
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-background via-background/90 to-transparent"
-      />
+      {hasPendingPermission ? null : (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-background via-background/90 to-transparent"
+        />
+      )}
     </div>
   );
 }
