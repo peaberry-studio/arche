@@ -59,8 +59,29 @@ describe("StatusIndicator", () => {
     expect(screen.queryByText("Reconnecting...")).toBeNull();
   });
 
-  it("returns null when no status is provided", () => {
-    const { container } = render(<StatusIndicator currentStatus={null} />);
-    expect(container.firstChild).toBeNull();
+  it("shows Waiting for approval instead of Using when a permission is required", () => {
+    render(
+      <StatusIndicator
+        currentStatus={{
+          status: "tool-calling",
+          toolName: "chmod +x /workspace/test_bash.sh",
+          detail: "permission_required",
+        } as MessageStatusInfo}
+      />,
+    );
+
+    expect(screen.getByText("Waiting for approval")).toBeTruthy();
+    expect(screen.queryByText(/Using /)).toBeNull();
+  });
+
+  it("shows Using while a tool is actually running", () => {
+    render(
+      <StatusIndicator
+        currentStatus={{ status: "tool-calling", toolName: "bash" } as MessageStatusInfo}
+      />,
+    );
+
+    expect(screen.getByText("Using bash...")).toBeTruthy();
+    expect(screen.queryByText("Waiting for approval")).toBeNull();
   });
 });

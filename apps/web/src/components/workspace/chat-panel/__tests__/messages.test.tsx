@@ -265,7 +265,7 @@ describe("ChatPanelMessages", () => {
 
   it("renders permission approval controls and submits responses", async () => {
     const onAnswerPermission = vi.fn().mockResolvedValue(true);
-    renderMessages({
+    const { container } = renderMessages({
       onAnswerPermission,
       messages: [
         assistantMessage([
@@ -285,6 +285,10 @@ describe("ChatPanelMessages", () => {
 
     expect(screen.getByText("Approval required")).toBeTruthy();
     expect(screen.getByText("Create Linear issue")).toBeTruthy();
+
+    const messagesColumn = container.querySelector(".max-w-\\[800px\\]");
+    expect(messagesColumn?.className).toContain("justify-end");
+    expect(messagesColumn?.className).toContain("pb-2");
 
     expect(screen.getByRole("button", { name: "Reject" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Allow for this session" })).toBeTruthy();

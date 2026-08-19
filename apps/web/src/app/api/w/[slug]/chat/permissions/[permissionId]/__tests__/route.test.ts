@@ -74,10 +74,10 @@ describe('POST /api/w/[slug]/chat/permissions/[permissionId]', () => {
     expect(res.status).toBe(200)
     expect(body).toEqual({ ok: true })
     expect(fetchMock).toHaveBeenCalledWith(
-      'http://test-slug:3000/session/s1/permissions/perm-1',
+      'http://test-slug:3000/permission/perm-1/reply',
       expect.objectContaining({
         method: 'POST',
-        body: JSON.stringify({ response: 'always' }),
+        body: JSON.stringify({ reply: 'always' }),
       }),
     )
   })

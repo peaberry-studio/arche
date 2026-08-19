@@ -40,7 +40,7 @@
     "db:seed": "prisma db seed"
   },
   "dependencies": {
-    "@opencode-ai/sdk": "1.17.9",
+    "@opencode-ai/sdk": "1.18.18",
     "@phosphor-icons/react": "2.1.10",
     "@prisma/adapter-better-sqlite3": "7.5.0",
     "@prisma/adapter-pg": "7.3.0",

@@ -49,14 +49,14 @@ export const POST = withAuth<
   const authHeader = `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}`
   const baseUrl = getInstanceUrl(slug)
   const response = await fetch(
-    `${baseUrl}/session/${encodeURIComponent(sessionId)}/permissions/${encodeURIComponent(permissionId)}`,
+    `${baseUrl}/permission/${encodeURIComponent(permissionId)}/reply`,
     {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: authHeader,
       },
-      body: JSON.stringify({ response: body.response }),
+      body: JSON.stringify({ reply: body.response }),
       signal: request.signal,
     },
   )

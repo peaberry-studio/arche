@@ -25,42 +25,39 @@ describe('PermissionCard', () => {
     cleanup()
   })
 
-  it('renders the pending state with a warning surface', () => {
+  it('renders the pending state with the shared tool-card surface', () => {
     const { container } = render(<PermissionCard part={createPart('pending')} />)
 
     const card = container.firstElementChild
-    expect(card?.className).toContain('border-warning/25')
-    expect(card?.className).toContain('bg-warning/5')
+    expect(card?.className).toContain('border-border/40')
+    expect(card?.className).toContain('bg-muted/20')
+    expect(card?.className).toContain('rounded-lg')
+    expect(card?.className).not.toContain('warning')
     expect(screen.getByText('Approval required')).toBeTruthy()
 
-    const actionLine = screen.getByText(/Run command: pnpm test/)
-    expect(actionLine.className).toContain('truncate')
-    expect(actionLine.textContent).toContain('bash:')
-    expect(actionLine.textContent).toContain('Run command: pnpm test')
-
-    const metadata = screen.getByText('bash:')
-    expect(metadata.className).toContain('font-mono')
-    expect(metadata.className).toContain('chat-text-micro')
-    expect(metadata.className).toContain('text-muted-foreground')
+    const subtitle = screen.getByText('Run command: pnpm test')
+    expect(subtitle.className).toContain('truncate')
+    expect(subtitle.className).toContain('pl-5')
+    expect(subtitle.className).toContain('text-muted-foreground')
+    expect(subtitle.textContent).toBe('Run command: pnpm test')
   })
 
-  it('renders the approved state with a primary surface and no actions', () => {
+  it('renders the approved state with the shared tool-card surface and no actions', () => {
     const { container } = render(<PermissionCard part={createPart('approved')} />)
 
     const card = container.firstElementChild
-    expect(card?.className).toContain('border-primary/25')
-    expect(card?.className).toContain('bg-primary/5')
-    expect(card?.className).not.toContain('warning')
+    expect(card?.className).toContain('border-border/40')
+    expect(card?.className).toContain('bg-muted/20')
     expect(screen.getByText('Permission granted')).toBeTruthy()
     expect(screen.queryByRole('button')).toBeNull()
   })
 
-  it('renders the rejected state with a destructive surface and no actions', () => {
+  it('renders the rejected state with the shared tool-card surface and no actions', () => {
     const { container } = render(<PermissionCard part={createPart('rejected')} />)
 
     const card = container.firstElementChild
-    expect(card?.className).toContain('border-destructive/25')
-    expect(card?.className).toContain('bg-destructive/5')
+    expect(card?.className).toContain('border-border/40')
+    expect(card?.className).toContain('bg-muted/20')
     expect(screen.getByText('Permission rejected')).toBeTruthy()
     expect(screen.queryByRole('button')).toBeNull()
   })
@@ -77,9 +74,11 @@ describe('PermissionCard', () => {
     expect(session.className).toContain('dark:bg-foreground/5')
 
     const reject = screen.getByRole('button', { name: 'Reject' })
-    expect(reject.className).toContain('bg-destructive')
-    expect(reject.className).toContain('dark:bg-destructive/15')
-    expect(reject.className).toContain('dark:text-destructive')
+    expect(reject.className).toContain('bg-primary-foreground/60')
+    expect(reject.className).toContain('dark:bg-foreground/5')
+    expect(reject.className).not.toContain('ml-auto')
+    expect(reject.className).not.toContain('bg-destructive')
+    expect(reject.className).not.toContain('dark:text-destructive')
   })
 
   it.each([

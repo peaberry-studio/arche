@@ -74,6 +74,74 @@ function getString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
 }
 
+type NormalizedPermission = {
+  id: string
+  sessionId: string
+  messageId?: string
+  callId?: string
+  title: string
+  pattern?: string
+  metadata?: Record<string, unknown>
+  state: 'pending'
+}
+
+function getPermissionPattern(permission: Record<string, unknown>): string | undefined {
+  if (Array.isArray(permission.patterns)) {
+    const patterns = permission.patterns
+      .map(getString)
+      .filter((pattern): pattern is string => Boolean(pattern))
+    if (patterns.length > 0) return patterns.join(', ')
+  }
+
+  return getString(permission.pattern)
+}
+
+function normalizePendingPermission(
+  value: unknown,
+  fallback: { sessionId?: string; messageId?: string } = {},
+): NormalizedPermission | null {
+  if (!isRecord(value)) return null
+
+  const tool = isRecord(value.tool) ? value.tool : null
+  const id = getString(value.id)
+  const sessionId = getString(value.sessionID) ?? getString(value.sessionId) ?? fallback.sessionId
+  if (!id || !sessionId) return null
+
+  const pattern = getPermissionPattern(value)
+  const metadata = isRecord(value.metadata) ? value.metadata : undefined
+  const messageId =
+    getString(tool?.messageID) ??
+    getString(tool?.messageId) ??
+    getString(value.messageID) ??
+    getString(value.messageId) ??
+    fallback.messageId
+  const callId =
+    getString(tool?.callID) ??
+    getString(tool?.callId) ??
+    getString(value.callID) ??
+    getString(value.callId)
+
+  return {
+    id,
+    sessionId,
+    ...(messageId && { messageId }),
+    ...(callId && { callId }),
+    title: getString(value.permission) ?? getString(value.title) ?? pattern ?? 'Tool approval required',
+    ...(pattern && { pattern }),
+    ...(metadata && { metadata }),
+    state: 'pending',
+  }
+}
+
+function getPermissionEventPayload(event: unknown): Record<string, unknown> | null {
+  if (!isRecord(event) || !isRecord(event.properties)) return null
+
+  const { properties } = event
+  if (isRecord(properties.permission)) return properties.permission
+  if (isRecord(properties.info)) return properties.info
+  return properties
+}
+
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === 'AbortError'
 }
@@ -692,22 +760,6 @@ export const POST = withAuth(
           ? RESUME_STREAM_RELEVANT_EVENT_TIMEOUT_MS
           : SEND_STREAM_RELEVANT_EVENT_TIMEOUT_MS
 
-        if (resume) {
-          try {
-            const client = await createConfiguredOpencodeClient({ authHeader, baseUrl })
-            const result = await client.permission.list()
-            const permissions = Array.isArray(result.data) ? result.data : []
-            for (const permission of permissions) {
-              if (!isRecord(permission) || getString(permission.sessionID) !== sessionId) continue
-
-              const permissionId = getString(permission.id)
-              if (permissionId) pendingPermissionIds.add(permissionId)
-            }
-          } catch (error) {
-            console.warn('[chat/stream] Failed to list pending resume permissions', { error, sessionId })
-          }
-        }
-
         const markRelevantEvent = () => {
           const now = Date.now()
           lastRelevantEventAt = now
@@ -724,6 +776,38 @@ export const POST = withAuth(
           currentToolName = toolName
           currentDetail = detail
           sendEvent('status', { status, toolName, detail })
+        }
+
+        const emitPendingPermission = (permission: NormalizedPermission) => {
+          pendingPermissionIds.add(permission.id)
+          const toolName =
+            getString(permission.metadata?.tool) ??
+            getString(permission.metadata?.toolName) ??
+            permission.pattern
+          emitStatus('tool-calling', toolName, 'permission_required')
+          sendEvent('permission', permission)
+        }
+
+        if (resume) {
+          try {
+            const client = await createConfiguredOpencodeClient({ authHeader, baseUrl })
+            const result = await client.permission.list()
+            const permissions = Array.isArray(result.data) ? result.data : []
+            for (const permission of permissions) {
+              const normalizedPermission = normalizePendingPermission(permission)
+              if (
+                !normalizedPermission ||
+                normalizedPermission.sessionId !== sessionId ||
+                normalizedPermission.messageId !== assistantMessageId
+              ) {
+                continue
+              }
+
+              emitPendingPermission(normalizedPermission)
+            }
+          } catch (error) {
+            console.warn('[chat/stream] Failed to list pending resume permissions', { error, sessionId })
+          }
         }
 
         const failForTerminalRetry = (detail: string) => {
@@ -954,6 +1038,7 @@ export const POST = withAuth(
                   eventType === 'session.status' ||
                   eventType === 'session.idle' ||
                   eventType === 'session.error' ||
+                  eventType === 'permission.asked' ||
                   eventType === 'permission.updated' ||
                   eventType === 'permission.replied'
 
@@ -1013,64 +1098,29 @@ export const POST = withAuth(
                     break
                   }
 
+                  case 'permission.asked':
                   case 'permission.updated': {
                     markRelevantEvent()
 
-                    const permission = isRecord(event.properties?.permission)
-                      ? event.properties.permission
-                      : isRecord(event.properties?.info)
-                        ? event.properties.info
-                        : isRecord(event.properties)
-                          ? event.properties
-                          : null
-                    const permissionId =
-                      getString(permission?.id) ??
-                      getString(event.properties?.permissionID) ??
-                      getString(event.properties?.permissionId)
+                    const permission = normalizePendingPermission(
+                      getPermissionEventPayload(event),
+                      {
+                        sessionId: getString(eventSessionId),
+                        messageId: assistantMessageId ?? undefined,
+                      },
+                    )
+                    if (!permission) break
 
-                    if (!permissionId) break
-
-                    pendingPermissionIds.add(permissionId)
-
-                    const metadata = isRecord(permission?.metadata)
-                      ? permission.metadata
-                      : undefined
-                    const permissionMessageId =
-                      getString(permission?.messageID) ??
-                      getString(permission?.messageId) ??
-                      assistantMessageId ??
-                      undefined
-                    const toolName =
-                      getString(metadata?.tool) ??
-                      getString(metadata?.toolName) ??
-                      getString(permission?.pattern)
-
-                    emitStatus('tool-calling', toolName, 'permission_required')
-                    sendEvent('permission', {
-                      id: permissionId,
-                      sessionId: getString(permission?.sessionID) ?? eventSessionId ?? sessionId,
-                      messageId: permissionMessageId,
-                      callId: getString(permission?.callID) ?? getString(permission?.callId),
-                      type: getString(permission?.type),
-                      pattern: getString(permission?.pattern),
-                      title: getString(permission?.title) ?? getString(permission?.pattern) ?? 'Tool approval required',
-                      metadata,
-                      state: 'pending',
-                    })
+                    emitPendingPermission(permission)
                     break
                   }
 
                   case 'permission.replied': {
                     markRelevantEvent()
 
-                    const permission = isRecord(event.properties?.permission)
-                      ? event.properties.permission
-                      : isRecord(event.properties?.info)
-                        ? event.properties.info
-                        : isRecord(event.properties)
-                          ? event.properties
-                          : null
+                    const permission = getPermissionEventPayload(event)
                     const permissionId =
+                      getString(event.properties?.requestID) ??
                       getString(permission?.id) ??
                       getString(event.properties?.permissionID) ??
                       getString(event.properties?.permissionId)
@@ -1081,7 +1131,11 @@ export const POST = withAuth(
                     sendEvent('permission-replied', {
                       id: permissionId,
                       sessionId: getString(permission?.sessionID) ?? eventSessionId ?? sessionId,
-                      response: getString(event.properties?.response) ?? getString(permission?.response),
+                      response:
+                        getString(event.properties?.reply) ??
+                        getString(event.properties?.response) ??
+                        getString(permission?.reply) ??
+                        getString(permission?.response),
                     })
                     break
                   }

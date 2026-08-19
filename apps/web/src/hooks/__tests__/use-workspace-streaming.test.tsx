@@ -562,6 +562,45 @@ describe("useWorkspace streaming", () => {
       });
     });
 
+    it("renders a permission card from SSE before message hydration", async () => {
+      const sse = createSSEStream();
+      stubFetchWithStream(() => sse);
+
+      const result = await renderConnectedHook();
+
+      await act(async () => {
+        await result.current.sendMessage("create an issue");
+      });
+
+      act(() => {
+        sse.push(sseEvent("permission", {
+          callId: "call-1",
+          id: "perm-1",
+          messageId: "assistant-1",
+          metadata: { tool: "arche_linear_conn_create_issue" },
+          pattern: "arche_linear_conn_create_issue",
+          sessionId: "s1",
+          state: "pending",
+          title: "Create Linear issue",
+        }));
+      });
+
+      await waitFor(() => {
+        const assistant = result.current.messages.find((message) => message.role === "assistant");
+        expect(assistant?.parts).toContainEqual(expect.objectContaining({
+          callId: "call-1",
+          permissionId: "perm-1",
+          state: "pending",
+          title: "Create Linear issue",
+          type: "permission",
+        }));
+      });
+
+      act(() => {
+        sse.close();
+      });
+    });
+
     it("handles error SSE events", async () => {
       const sse = createSSEStream();
       stubFetchWithStream(() => sse);
