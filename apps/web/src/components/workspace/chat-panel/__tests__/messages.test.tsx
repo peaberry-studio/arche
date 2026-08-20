@@ -267,19 +267,16 @@ describe("ChatPanelMessages", () => {
     const onAnswerPermission = vi.fn().mockResolvedValue(true);
     const { container } = renderMessages({
       onAnswerPermission,
-      messages: [
-        assistantMessage([
-          {
-            type: "permission",
-            id: "permission:perm-1",
-            permissionId: "perm-1",
-            sessionId: "s1",
-            title: "Create Linear issue",
-            state: "pending",
-            pattern: "arche_linear_conn_create_issue",
-            metadata: { tool: "arche_linear_conn_create_issue" },
-          },
-        ]),
+      messages: [assistantMessage([])],
+      permissions: [
+        {
+          id: "perm-1",
+          sessionId: "s1",
+          title: "Create Linear issue",
+          pattern: "arche_linear_conn_create_issue",
+          metadata: { tool: "arche_linear_conn_create_issue" },
+          state: "pending",
+        },
       ],
     });
 

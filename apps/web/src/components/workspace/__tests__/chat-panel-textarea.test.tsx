@@ -209,6 +209,10 @@ describe("ChatPanel textarea", () => {
       json: async () => ({ attachments: [] }),
     });
     vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn().mockReturnValue({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }),
+    );
 
     const onSendMessage = vi.fn().mockResolvedValue(true);
     const onAbortMessage = vi.fn();

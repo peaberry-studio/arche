@@ -1,29 +1,28 @@
 "use client";
 
-import { useCallback } from "react";
+import { useMemo, useState } from "react";
 
-import type { WorkspaceMessage } from "@/lib/opencode/types";
+import { isSending as isSessionSending } from "@/lib/opencode/event-reducer";
 import { useInstanceHeartbeat } from "@/hooks/use-instance-heartbeat";
 import { useWorkspaceConnection } from "@/hooks/use-workspace-connection";
 import { useWorkspaceDiffs } from "@/hooks/use-workspace-diffs";
 import { useWorkspaceFiles } from "@/hooks/use-workspace-files";
-import { useWorkspaceDerivedState } from "@/hooks/workspace/use-workspace-derived-state";
 import {
   useWorkspaceActiveSessionEffects,
-  useWorkspaceCleanupEffect,
   useWorkspaceConfigRefreshEffect,
   useWorkspaceFlowSeenEffect,
   useWorkspaceInitialRefreshEffect,
   useWorkspacePollingEffect,
-  useWorkspaceResumeEffect,
 } from "@/hooks/workspace/use-workspace-effects";
+import { useWorkspaceDerivedState } from "@/hooks/workspace/use-workspace-derived-state";
+import { useWorkspaceEventBus } from "@/hooks/workspace/use-workspace-event-bus";
 import { useWorkspaceMessageActions } from "@/hooks/workspace/use-workspace-message-actions";
-import { useWorkspaceMessages } from "@/hooks/workspace/use-workspace-messages";
 import { useWorkspaceModelSelection } from "@/hooks/workspace/use-workspace-model-selection";
 import { useWorkspaceSessionActions } from "@/hooks/workspace/use-workspace-session-actions";
 import { useWorkspaceSessions } from "@/hooks/workspace/use-workspace-sessions";
-import { useWorkspaceStreaming } from "@/hooks/workspace/use-workspace-streaming";
 import {
+  EMPTY_WORKSPACE_MESSAGES,
+  selectVisiblePermissions,
   type UseWorkspaceOptions,
   type UseWorkspaceReturn,
 } from "@/hooks/workspace/workspace-types";
@@ -54,6 +53,7 @@ export function useWorkspace({
     enabled && workspaceAgentEnabled,
     isConnected
   );
+  const { refreshDiffs, triggerDiffsRefresh } = diffsHook;
   useInstanceHeartbeat(slug, enabled && reaperEnabled);
 
   // Sessions
@@ -63,15 +63,21 @@ export function useWorkspace({
     initialSessionId,
     isConnected: enabled && isConnected,
   });
+  const {
+    activeSessionId,
+    activeSessionIdRef,
+    createSession: createWorkspaceSession,
+    deleteSession: deleteWorkspaceSession,
+    ensureSessionFamilyLoaded,
+    loadSessions,
+    sessions,
+    sessionsRef,
+    markFlowRunSeen,
+    markSessionCompleted,
+  } = sessionsHook;
 
-  const getActiveSessionId = useCallback(
-    () => sessionsHook.activeSessionIdRef.current,
-    [sessionsHook.activeSessionIdRef]
-  );
-  const getSessions = useCallback(
-    () => sessionsHook.sessionsRef.current,
-    [sessionsHook.sessionsRef]
-  );
+  const getActiveSessionId = () => activeSessionIdRef.current;
+  const getSessions = () => sessionsRef.current;
 
   // Model selection
   const modelSelectionHook = useWorkspaceModelSelection({
@@ -88,116 +94,73 @@ export function useWorkspace({
     primaryAgentId,
     sessionSelectionState,
     sessionSelectionStateRef,
-    syncActiveAgentFromRuntime,
     syncRuntimeMetadataForSession,
-    syncRuntimeSelectedModel,
   } = modelSelectionHook;
 
-  const handleMessagesHydrated = useCallback(
-    (sessionId: string, hydratedMessages: WorkspaceMessage[]) => {
-      syncRuntimeMetadataForSession(sessionId, hydratedMessages);
-    },
-    [syncRuntimeMetadataForSession]
-  );
-
-  // Messages
-  const messagesHook = useWorkspaceMessages({
+  // --- Single source of truth: the event-bus ChatStore ---
+  const eventBus = useWorkspaceEventBus({
     slug,
-    getActiveSessionId,
-    onHydrated: handleMessagesHydrated,
-  });
-
-  // Streaming
-  const streamingHook = useWorkspaceStreaming({
-    slug,
-    updateSessionMessages: messagesHook.updateSessionMessages,
-    syncRuntimeSelectedModel,
-    syncActiveAgentFromRuntime,
-    syncRuntimeMetadataForSession,
-    refreshDiffs: diffsHook.triggerDiffsRefresh,
-    refreshFiles: files.refreshFiles,
     getActiveSessionId,
     getSessions,
-    onBackgroundStreamCompleted: sessionsHook.markSessionCompleted,
-    resumeFailureStateRef: messagesHook.resumeFailureStateRef,
+    refreshDiffs: triggerDiffsRefresh,
+    refreshFiles: files.refreshFiles,
+    syncRuntimeMetadataForSession,
+    onBackgroundSessionIdle: markSessionCompleted,
   });
+  const {
+    store,
+    isLoadingMessages,
+    refreshMessages,
+    updateMessages,
+    removeSessionEntries,
+    getStore,
+    commitStore,
+  } = eventBus;
 
-  const {
-    activeSessionId,
-    activeSessionIdRef,
-    createSession: createWorkspaceSession,
-    deleteSession: deleteWorkspaceSession,
-    ensureSessionFamilyLoaded,
-    loadSessions,
-    markFlowRunSeen,
-    sessions,
-    sessionsRef,
-  } = sessionsHook;
-  const {
-    messages,
-    refreshMessages: refreshWorkspaceMessages,
-    removeSessions,
-    resumeFailureStateRef,
-    updateSessionMessages,
-  } = messagesHook;
-  const {
-    abortAllStreams,
-    abortSessionStream,
-    activeStreamsRef,
-    isMountedRef,
-    resetSessions,
-    sessionStreamStatus,
-    sessionStreamStatusRef,
-    setIsStartingNewSession,
-    streamChat,
-    workspaceRefreshTimeoutRef,
-  } = streamingHook;
-  const { refreshDiffs } = diffsHook;
+  const messages = store.messages[activeSessionId ?? ""] ?? EMPTY_WORKSPACE_MESSAGES;
+
+  // Visible pending permissions: the active session plus its known children
+  // (session.parentId → active). The bus store is the single source; no
+  // permission cards are grafted into message parts.
+  const permissions = useMemo(
+    () => selectVisiblePermissions(store.permissions, sessions, activeSessionId),
+    [activeSessionId, sessions, store.permissions],
+  );
 
   const { createSession, deleteSession } = useWorkspaceSessionActions({
     createWorkspaceSession,
     deleteWorkspaceSession,
-    resetSessions,
     clearSessionSelectionState,
     initializeSessionSelectionState,
-    removeSessions,
     sessionSelectionStateRef,
-    updateSessionMessages,
+    updateSessionMessages: updateMessages,
+    removeSessionEntries,
   });
 
-  const {
-    activeSession,
-    enrichedSessions,
-    hasManualModelSelection,
-    isSending,
-    selectedModel,
-  } = useWorkspaceDerivedState({
+  const [isStartingNewSession, setIsStartingNewSession] = useState(false);
+
+  const { sendMessage, answerPermission, abortSession } =
+    useWorkspaceMessageActions({
+      slug,
+      activeSessionIdRef,
+      agentDefaultModel,
+      createSession,
+      models,
+      primaryAgentId,
+      sessionSelectionStateRef,
+      getStore,
+      commitStore,
+      onStartingNewSessionChange: setIsStartingNewSession,
+    });
+
+  const derived = useWorkspaceDerivedState({
     sessions,
     activeSessionId,
-    sessionStreamStatus,
     sessionSelectionState,
     primaryAgentId,
     agentDefaultModel,
     models,
   });
-
-  const { abortSession, answerPermission, refreshMessages, sendMessage } =
-    useWorkspaceMessageActions({
-      slug,
-      activeSessionIdRef,
-      activeStreamsRef,
-      agentDefaultModel,
-      createSession,
-      models,
-      primaryAgentId,
-      refreshWorkspaceMessages,
-      sessionSelectionStateRef,
-      sessionStreamStatusRef,
-      setIsStartingNewSession,
-      streamChat,
-      abortSessionStream,
-      updateSessionMessages,
-    });
 
   useWorkspaceInitialRefreshEffect({
     enabled,
@@ -221,19 +184,6 @@ export function useWorkspace({
     loadAgentCatalog,
     loadModels,
   });
-  useWorkspaceResumeEffect({
-    activeSession,
-    activeSessionId,
-    activeStreamsRef,
-    enabled,
-    isConnected,
-    messages,
-    resumeFailureStateRef,
-    sessionStreamStatusRef,
-    slug,
-    streamChat,
-    updateSessionMessages,
-  });
   useWorkspacePollingEffect({
     activeSessionIdRef,
     enabled,
@@ -241,16 +191,10 @@ export function useWorkspace({
     loadSessions,
     pollInterval,
     refreshDiffs,
-    refreshMessages,
-    sessionsRef,
-  });
-  useWorkspaceCleanupEffect({
-    abortAllStreams,
-    isMountedRef,
-    workspaceRefreshTimeoutRef,
+    sessionsRef: sessionsHook.sessionsRef,
   });
   useWorkspaceFlowSeenEffect({
-    activeSession,
+    activeSession: derived.activeSession,
     markFlowRunSeen,
   });
 
@@ -265,9 +209,9 @@ export function useWorkspace({
     deleteFile: files.deleteFile,
     applyPatch: files.applyPatch,
     discardFileChanges: files.discardFileChanges,
-    sessions: enrichedSessions,
+    sessions,
     activeSessionId: sessionsHook.activeSessionId,
-    activeSession,
+    activeSession: derived.activeSession,
     isLoadingSessions: sessionsHook.isLoadingSessions,
     isInitialSessionsReady: sessionsHook.isInitialSessionsReady,
     sessionsError: sessionsHook.sessionsError,
@@ -281,22 +225,23 @@ export function useWorkspace({
     createSession,
     deleteSession,
     renameSession: sessionsHook.renameSession,
-    messages: messagesHook.messages,
-    isLoadingMessages: messagesHook.isLoadingMessages,
-    isSending,
-    isStartingNewSession: streamingHook.isStartingNewSession,
+    messages,
+    isLoadingMessages,
+    isSending: isSessionSending(store, activeSessionId ?? ""),
+    isStartingNewSession,
     sendMessage,
     answerPermission,
     abortSession,
     refreshMessages,
+    permissions,
     diffs: diffsHook.diffs,
     isLoadingDiffs: diffsHook.isLoadingDiffs,
     diffsError: diffsHook.diffsError,
-    refreshDiffs: diffsHook.refreshDiffs,
+    refreshDiffs,
     models: modelSelectionHook.models,
     agentDefaultModel: modelSelectionHook.agentDefaultModel,
-    selectedModel,
-    hasManualModelSelection,
+    selectedModel: derived.selectedModel,
+    hasManualModelSelection: derived.hasManualModelSelection,
     setSelectedModel: modelSelectionHook.setSelectedModel,
     agentCatalog: modelSelectionHook.agentCatalog,
   };

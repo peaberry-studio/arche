@@ -762,7 +762,7 @@ describe('listMessagesAction', () => {
     ])
   })
 
-  it('hydrates pending permissions onto their assistant message and keeps it pending', async () => {
+  it('does not graft pending permissions onto the assistant transcript', async () => {
     mockSessionMessages.mockResolvedValue({
       data: [
         {
@@ -787,23 +787,11 @@ describe('listMessagesAction', () => {
 
     const result = await listMessagesAction('alice', 'sess-1')
 
+    // Permissions are a separate entity now; the message keeps only its real parts.
     expect(result.messages![0]).toMatchObject({
-      pending: true,
-      statusInfo: {
-        status: 'tool-calling',
-        detail: 'permission_required',
-      },
-      parts: [
-        { type: 'tool', id: 'tool-1' },
-        {
-          type: 'permission',
-          id: 'permission:permission-1',
-          permissionId: 'permission-1',
-          sessionId: 'sess-1',
-          state: 'pending',
-        },
-      ],
+      parts: [{ type: 'tool', id: 'tool-1' }],
     })
+    expect(result.messages![0].parts.some((part) => part.type === 'permission')).toBe(false)
   })
 
   it('does not hydrate foreign-session or unlinked permissions', async () => {
@@ -883,22 +871,12 @@ describe('listMessagesAction', () => {
 
     const result = await listMessagesAction('alice', 'sess-1')
 
+    // Permissions stay off the transcript; child-session permissions are not
+    // grafted onto the parent assistant.
     expect(result.messages![0]).toMatchObject({
-      pending: true,
-      statusInfo: {
-        status: 'tool-calling',
-        detail: 'permission_required',
-      },
-      parts: [
-        { type: 'tool', id: 'task-1' },
-        {
-          type: 'permission',
-          permissionId: 'child-perm',
-          sessionId: 'child-1',
-          state: 'pending',
-        },
-      ],
+      parts: [{ type: 'tool', id: 'task-1' }],
     })
+    expect(result.messages![0].parts.some((part) => part.type === 'permission')).toBe(false)
   })
 
   it.each([

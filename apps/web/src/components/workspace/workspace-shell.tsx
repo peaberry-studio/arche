@@ -2025,6 +2025,7 @@ export function WorkspaceShell({
       sessions={uiSessions}
       skills={skillsCatalog.skills}
       messages={uiMessages}
+      permissions={workspace.permissions}
       activeSessionId={workspace.activeSessionId}
       isInitialSessionsReady={workspace.isInitialSessionsReady}
       isLoadingMessages={workspace.isLoadingMessages}

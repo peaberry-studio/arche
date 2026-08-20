@@ -19,6 +19,7 @@ import {
   type FilePart,
   type ToolPart,
 } from "@/components/workspace/chat-panel/message-part-renderer";
+import { PermissionCard } from "@/components/workspace/chat-panel/permission-card";
 import type { SessionTabInfo } from "@/components/workspace/chat-panel/types";
 import { workspaceMarkdownComponents } from "@/components/workspace/markdown-components";
 import {
@@ -27,6 +28,7 @@ import {
 } from "@/components/workspace/markdown-plugins";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import type { MessagePart, PermissionResponse } from "@/lib/opencode/types";
+import type { WorkspacePermission } from "@/lib/opencode/permission";
 import { cn } from "@/lib/utils";
 import type { ChatMessage } from "@/types/workspace";
 
@@ -37,6 +39,7 @@ type ChatPanelMessagesProps = {
   isLoadingMessages: boolean;
   isStartingNewSession: boolean;
   messages: ChatMessage[];
+  permissions?: WorkspacePermission[];
   messagesEndRef: RefObject<HTMLDivElement | null>;
   onAnswerPermission?: (
     sessionId: string,
@@ -360,6 +363,23 @@ function groupMessageParts(parts: MessagePart[]): PartGroup[] {
   return groups;
 }
 
+function permissionToPart(
+  permission: WorkspacePermission,
+): Extract<MessagePart, { type: "permission" }> {
+  return {
+    type: "permission",
+    id: `permission:${permission.id}`,
+    permissionId: permission.id,
+    sessionId: permission.sessionId,
+    title: permission.title,
+    state: "pending",
+    ...(permission.callId ? { callId: permission.callId } : {}),
+    ...(permission.pattern ? { pattern: permission.pattern } : {}),
+    permissionType: "tool",
+    ...(permission.metadata ? { metadata: permission.metadata } : {}),
+  };
+}
+
 export function ChatPanelMessages({
   chatContentStyle,
   connectorNamesById,
@@ -367,6 +387,7 @@ export function ChatPanelMessages({
   isLoadingMessages,
   isStartingNewSession,
   messages,
+  permissions = [],
   messagesEndRef,
   onAnswerPermission,
   onOpenFile,
@@ -382,9 +403,7 @@ export function ChatPanelMessages({
   const isLoadingSession = !isInitialSessionsReady && !sessionsError && messages.length === 0;
   const hasSessionsError = Boolean(sessionsError) && messages.length === 0;
   const showsCenteredState = isStartingNewSession || isLoadingConversation || isLoadingSession || hasSessionsError || messages.length === 0;
-  const hasPendingPermission = messages.some((message) =>
-    message.parts?.some((part) => part.type === "permission" && part.state === "pending"),
-  );
+  const hasPendingPermission = permissions.length > 0;
 
   return (
     <div className="relative min-h-0 flex-1">
@@ -572,6 +591,14 @@ export function ChatPanelMessages({
                   </div>
                 );
               })}
+
+              {permissions.map((permission) => (
+                <PermissionCard
+                  key={permission.id}
+                  onAnswerPermission={onAnswerPermission}
+                  part={permissionToPart(permission)}
+                />
+              ))}
 
               <div ref={messagesEndRef} />
             </div>

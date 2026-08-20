@@ -55,6 +55,7 @@ import { useAgentMentionAutocomplete } from "@/hooks/use-agent-mention-autocompl
 import type { SkillListItem } from "@/hooks/use-skills-catalog";
 import type { AgentCatalogItem } from "@/hooks/use-workspace";
 import type { AvailableModel, PermissionResponse } from "@/lib/opencode/types";
+import type { WorkspacePermission } from "@/lib/opencode/permission";
 import { getDesktopPlatform, getOptionalDesktopBridge } from "@/lib/runtime/desktop/client";
 import {
   buildWorkspaceSessionMarkdown,
@@ -82,6 +83,7 @@ type ChatPanelProps = {
   sessions: ChatSession[];
   skills?: SkillListItem[];
   messages: ChatMessage[];
+  permissions?: WorkspacePermission[];
   activeSessionId: string | null;
   sessionTabs?: SessionTabInfo[];
   openFilePaths: string[];
@@ -133,6 +135,7 @@ const MAX_CONTEXT_PATHS_PER_MESSAGE = 20;
 const EMPTY_AGENTS: AgentCatalogItem[] = [];
 const EMPTY_CONTEXT_FILE_PATHS: string[] = [];
 const EMPTY_MODELS: AvailableModel[] = [];
+const EMPTY_PERMISSIONS: WorkspacePermission[] = [];
 const EMPTY_SESSION_TABS: SessionTabInfo[] = [];
 const EMPTY_SKILLS: SkillListItem[] = [];
 
@@ -209,6 +212,7 @@ export function ChatPanel({
   sessions,
   skills = EMPTY_SKILLS,
   messages,
+  permissions = EMPTY_PERMISSIONS,
   activeSessionId,
   sessionTabs = EMPTY_SESSION_TABS,
   openFilePaths,
@@ -1044,10 +1048,23 @@ export function ChatPanel({
   // Error statuses from stale pending messages are hidden when no stream is active.
   const currentStatus = useMemo(() => {
     const lastMessage = messages[messages.length - 1];
-    if (!lastMessage?.pending || !lastMessage?.statusInfo) return null;
-    if (lastMessage.statusInfo.status === "complete" || lastMessage.statusInfo.status === "idle") return null;
-    if (lastMessage.statusInfo.status === "error" && !isSending) return null;
-    return lastMessage.statusInfo;
+    if (lastMessage?.pending && lastMessage?.statusInfo) {
+      if (lastMessage.statusInfo.status === "complete" || lastMessage.statusInfo.status === "idle") return null;
+      if (lastMessage.statusInfo.status === "error" && !isSending) return null;
+      return lastMessage.statusInfo;
+    }
+    // Session-status driven thinking chip: busy and the current turn's
+    // assistant message has not started writing visible parts yet. Messages
+    // are sorted by creation time, so the last message belongs to the in-flight
+    // turn. OpenCode is the source of truth.
+    if (isSending) {
+      const assistantWriting =
+        lastMessage?.role === "assistant" && (lastMessage.parts?.length ?? 0) > 0;
+      if (!assistantWriting) {
+        return { status: "thinking" as const };
+      }
+    }
+    return null;
   }, [messages, isSending]);
 
   const titleInputClassName = cn(
@@ -1096,6 +1113,7 @@ export function ChatPanel({
         isLoadingMessages={isLoadingMessages}
         isStartingNewSession={isStartingNewSession}
         messages={messages}
+        permissions={permissions}
         messagesEndRef={messagesEndRef}
         onOpenFile={onOpenFile}
         onAnswerPermission={isReadOnly ? undefined : onAnswerPermission}

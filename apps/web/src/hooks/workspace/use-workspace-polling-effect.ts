@@ -11,7 +11,6 @@ export function useWorkspacePollingEffect({
   loadSessions,
   pollInterval,
   refreshDiffs,
-  refreshMessages,
   sessionsRef,
 }: {
   activeSessionIdRef: MutableRefObject<string | null>;
@@ -19,8 +18,7 @@ export function useWorkspacePollingEffect({
   isConnected: boolean;
   loadSessions: () => Promise<void>;
   pollInterval: number;
-  refreshDiffs: () => Promise<void>;
-  refreshMessages: (sessionIdOverride?: string) => Promise<void>;
+  refreshDiffs: (options?: { force?: boolean }) => Promise<void>;
   sessionsRef: MutableRefObject<WorkspaceSession[]>;
 }) {
   useEffect(() => {
@@ -29,34 +27,12 @@ export function useWorkspacePollingEffect({
     const interval = setInterval(() => {
       loadSessions();
 
+      // Diff refresh while busy keeps the git panel live. Message polling is
+      // gone: the event bus is the only message source.
       const currentSessions = sessionsRef.current;
-      const currentActiveSessionId = activeSessionIdRef.current;
-      const hasBusySessions = currentSessions.some(
-        (session) => session.status === "busy"
-      );
-
-      if (hasBusySessions) {
+      if (currentSessions.some((session) => session.status === "busy")) {
         refreshDiffs();
       }
-
-      const sessionIdsToRefresh = new Set<string>();
-      currentSessions.forEach((session) => {
-        if (session.status === "busy") {
-          sessionIdsToRefresh.add(session.id);
-        }
-      });
-      if (
-        currentActiveSessionId &&
-        currentSessions.some(
-          (session) => session.id === currentActiveSessionId && session.status === "busy"
-        )
-      ) {
-        sessionIdsToRefresh.add(currentActiveSessionId);
-      }
-
-      sessionIdsToRefresh.forEach((sessionId) => {
-        void refreshMessages(sessionId);
-      });
     }, pollInterval);
 
     return () => clearInterval(interval);
@@ -67,7 +43,6 @@ export function useWorkspacePollingEffect({
     loadSessions,
     pollInterval,
     refreshDiffs,
-    refreshMessages,
     sessionsRef,
   ]);
 }
