@@ -1,11 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  areMessageListsEqual,
-  areMessagesEqual,
-  areModelsEqual,
-  arePartsEqual,
-  areStatusInfoEqual,
   areWorkspaceSessionListsEqual,
   collectSessionFamilyIds,
   createDefaultSessionSelectionState,
@@ -21,8 +16,8 @@ import {
   resolveModelEntry,
   selectVisiblePermissions,
 } from "@/hooks/workspace/workspace-types";
-import type { AvailableModel, WorkspaceMessage, WorkspaceSession } from "@/lib/opencode/types";
 import type { WorkspacePermission } from "@/lib/opencode/permission";
+import type { AvailableModel, WorkspaceSession } from "@/lib/opencode/types";
 
 function session(
   id: string,
@@ -33,19 +28,6 @@ function session(
     title: id,
     status: "idle",
     updatedAt: "now",
-    ...options,
-  };
-}
-
-function message(options: Partial<WorkspaceMessage> = {}): WorkspaceMessage {
-  return {
-    id: "message-1",
-    sessionId: "session-1",
-    role: "assistant",
-    content: "Hello",
-    timestamp: "now",
-    timestampRaw: 1,
-    parts: [{ type: "text", text: "Hello" }],
     ...options,
   };
 }
@@ -137,26 +119,6 @@ describe("workspace-types session helpers", () => {
     ]);
 
     expect(selectVisiblePermissions(permissionsBySession, sessions, null)).toEqual([]);
-  });
-
-  it("compares message fields, models, statuses, and parts", () => {
-    const base = message({
-      agentId: "agent-1",
-      model: { providerId: "openai", modelId: "gpt-4.1" },
-      pending: true,
-      statusInfo: { status: "tool-calling", toolName: "Read", detail: "file.ts" },
-    });
-
-    expect(areModelsEqual(base.model, { providerId: "openai", modelId: "gpt-4.1" })).toBe(true);
-    expect(areModelsEqual(base.model, { providerId: "openai", modelId: "gpt-4o" })).toBe(false);
-    expect(areStatusInfoEqual(base.statusInfo, { status: "tool-calling", toolName: "Read", detail: "file.ts" })).toBe(true);
-    expect(areStatusInfoEqual(base.statusInfo, { status: "error", detail: "file.ts" })).toBe(false);
-    expect(arePartsEqual(base.parts, [{ type: "text", text: "Hello" }])).toBe(true);
-    expect(arePartsEqual(base.parts, [{ type: "text", text: "Different" }])).toBe(false);
-    expect(areMessagesEqual(base, { ...base })).toBe(true);
-    expect(areMessagesEqual(base, { ...base, content: "Different" })).toBe(false);
-    expect(areMessageListsEqual([base], [{ ...base }])).toBe(true);
-    expect(areMessageListsEqual([base], [])).toBe(false);
   });
 
   it("filters models and resolves catalog selections", () => {

@@ -759,6 +759,7 @@ export async function listMessagesAction(
 ): Promise<{
   ok: boolean;
   messages?: WorkspaceMessage[];
+  sessionRuntimeStatus?: "busy" | "idle" | "unknown";
   error?: string;
 }> {
   const { error, client } = await getAuthorizedClient(slug);
@@ -845,7 +846,7 @@ export async function listMessagesAction(
       });
     }
 
-    return { ok: true, messages: transformed };
+    return { ok: true, messages: transformed, sessionRuntimeStatus };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "unknown" };
   }
@@ -1152,7 +1153,7 @@ export async function listPermissionsAction(
   if (error) return { ok: false, error };
 
   try {
-    const result = await client!.permission.list().catch(() => ({ data: [] }));
+    const result = await client!.permission.list();
     const grouped: Record<string, WorkspacePermission[]> = {};
     for (const permission of result.data ?? []) {
       const normalized = normalizePendingPermission(permission);

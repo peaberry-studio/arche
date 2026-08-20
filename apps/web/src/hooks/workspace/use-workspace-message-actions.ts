@@ -3,6 +3,11 @@
 import { useCallback, type MutableRefObject, type SetStateAction } from "react";
 
 import { abortSessionAction, listPermissionsAction } from "@/actions/opencode";
+import {
+  PRE_SESSION_SELECTION_KEY,
+  type SessionSelectionState,
+} from "@/hooks/workspace/workspace-types";
+import { isSending, type ChatStore } from "@/lib/opencode/event-reducer";
 import type {
   AvailableModel,
   MessagePart,
@@ -10,11 +15,6 @@ import type {
   WorkspaceMessage,
   WorkspaceSession,
 } from "@/lib/opencode/types";
-import {
-  PRE_SESSION_SELECTION_KEY,
-  type SessionSelectionState,
-} from "@/hooks/workspace/workspace-types";
-import { isSending, type ChatStore } from "@/lib/opencode/event-reducer";
 import type { MessageAttachmentInput } from "@/types/workspace";
 
 type UseWorkspaceMessageActionsOptions = {
@@ -138,7 +138,9 @@ export function useWorkspaceMessageActions({
         pending: false,
       };
 
-      const revertOptimistic = () => {
+      const previousStatus = getStore().sessionStatus[sessionId] ?? "idle";
+
+      const revertOptimistic = (status: "idle" | "busy" = previousStatus) => {
         commitStore((current) => {
           const messages = (current.messages[sessionId] ?? []).filter((m) => m.id !== messageId);
           const optimisticIds = (current.optimisticUserIds[sessionId] ?? []).filter(
@@ -160,7 +162,7 @@ export function useWorkspaceMessageActions({
             ...current,
             messages: nextMessages,
             optimisticUserIds: nextOptimistic,
-            sessionStatus: { ...current.sessionStatus, [sessionId]: "idle" },
+            sessionStatus: { ...current.sessionStatus, [sessionId]: status },
           };
         });
       };
@@ -198,7 +200,7 @@ export function useWorkspaceMessageActions({
       }
 
       if (!result.ok) {
-        revertOptimistic();
+        revertOptimistic(result.status === 409 ? "busy" : previousStatus);
         return false;
       }
 
@@ -238,17 +240,25 @@ export function useWorkspaceMessageActions({
         // Safety net: if no permission.replied arrives via the bus, re-read the
         // permission list to clear any ghost. OpenCode remains the truth.
         setTimeout(async () => {
-          const result = await listPermissionsAction(slug);
-          if (result.ok && result.permissions) {
-            commitStore({ ...getStore(), permissions: result.permissions });
-          }
+          const listed = await listPermissionsAction(slug);
+          if (!listed.ok || !listed.permissions) return;
+          const fresh = listed.permissions[permissionSessionId];
+          commitStore((current) => {
+            const nextPermissions = { ...current.permissions };
+            if (!fresh || fresh.length === 0) {
+              delete nextPermissions[permissionSessionId];
+            } else {
+              nextPermissions[permissionSessionId] = fresh;
+            }
+            return { ...current, permissions: nextPermissions };
+          });
         }, 10_000);
         return true;
       } catch {
         return false;
       }
     },
-    [commitStore, getStore, slug],
+    [commitStore, slug],
   );
 
   const abortSession = useCallback(async () => {

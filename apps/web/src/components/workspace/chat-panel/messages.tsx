@@ -27,8 +27,8 @@ import {
   workspaceRemarkPlugins,
 } from "@/components/workspace/markdown-plugins";
 import { copyTextToClipboard } from "@/lib/clipboard";
-import type { MessagePart, PermissionResponse } from "@/lib/opencode/types";
 import type { WorkspacePermission } from "@/lib/opencode/permission";
+import type { MessagePart, PermissionResponse } from "@/lib/opencode/types";
 import { cn } from "@/lib/utils";
 import type { ChatMessage } from "@/types/workspace";
 

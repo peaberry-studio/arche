@@ -12,7 +12,8 @@ import {
   type SetStateAction,
 } from "react";
 
-import { listMessagesAction } from "@/actions/opencode";
+import { listMessagesAction, listPermissionsAction } from "@/actions/opencode";
+import { EMPTY_WORKSPACE_MESSAGES } from "@/hooks/workspace/workspace-types";
 import {
   createEmptyChatStore,
   reduceOpenCodeEvent,
@@ -20,8 +21,8 @@ import {
   type SessionRuntimeStatus,
 } from "@/lib/opencode/event-reducer";
 import type { WorkspaceMessage, WorkspaceSession } from "@/lib/opencode/types";
+import { isRecord } from "@/lib/records";
 import { INITIAL_SSE_PARSE_STATE, parseSseChunk } from "@/lib/sse-parser";
-import { EMPTY_WORKSPACE_MESSAGES } from "@/hooks/workspace/workspace-types";
 
 const BUS_RECONNECT_BASE_DELAY_MS = 1_000;
 const BUS_RECONNECT_MAX_DELAY_MS = 30_000;
@@ -36,10 +37,6 @@ type UseWorkspaceEventBusOptions = {
   syncRuntimeMetadataForSession?: (sessionId: string, items: WorkspaceMessage[]) => void;
   onBackgroundSessionIdle?: (sessionId: string) => void;
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
 
 function parseSseEvent(data: string): { type: string; properties?: Record<string, unknown> } | null {
   if (!data) return null;
@@ -81,11 +78,10 @@ export function useWorkspaceEventBus({
   const storeRef = useRef<ChatStore>(createEmptyChatStore());
   const getStore = useCallback((): ChatStore => storeRef.current, []);
   const commitStore = useCallback((updater: SetStateAction<ChatStore>) => {
-    setStore((prev) => {
-      const next = typeof updater === "function" ? updater(prev) : updater;
-      storeRef.current = next;
-      return next;
-    });
+    const prev = storeRef.current;
+    const next = typeof updater === "function" ? updater(prev) : updater;
+    storeRef.current = next;
+    setStore(next);
   }, []);
 
   const activeSessionIdGetterRef = useRef(getActiveSessionId);
@@ -106,34 +102,34 @@ export function useWorkspaceEventBus({
 
   const mergeHydratedMessages = useCallback(
     (sessionId: string, hydrated: WorkspaceMessage[]) => {
-      const current = getStore().messages[sessionId] ?? EMPTY_WORKSPACE_MESSAGES;
-      const byId = new Map(current.map((message) => [message.id, message]));
-      for (const message of hydrated) {
-        byId.set(message.id, message);
-      }
-
-      // Drop an optimistic user message only once a confirmed server message
-      // carries the same text under a different id. A hydrate that races a
-      // send (server still processing) must keep the in-flight optimistic.
-      const optimisticIds = getStore().optimisticUserIds[sessionId] ?? [];
-      const confirmedText = new Set(
-        hydrated.filter((message) => message.role === "user").map((message) => message.content),
-      );
-      const droppedOptimisticIds = new Set<string>();
-      for (const id of optimisticIds) {
-        const optimistic = byId.get(id);
-        if (!optimistic) continue;
-        if (
-          hydrated.some((message) => message.id === id) ||
-          confirmedText.has(optimistic.content)
-        ) {
-          byId.delete(id);
-          droppedOptimisticIds.add(id);
+      commitStore((prev) => {
+        const current = prev.messages[sessionId] ?? EMPTY_WORKSPACE_MESSAGES;
+        const byId = new Map(current.map((message) => [message.id, message]));
+        for (const message of hydrated) {
+          byId.set(message.id, message);
         }
-      }
 
-      const merged = Array.from(byId.values());
-      setStore((prev) => {
+        // Drop an optimistic user message only once a confirmed server message
+        // carries the same text under a different id. A hydrate that races a
+        // send (server still processing) must keep the in-flight optimistic.
+        const optimisticIds = prev.optimisticUserIds[sessionId] ?? [];
+        const confirmedText = new Set(
+          hydrated.filter((message) => message.role === "user").map((message) => message.content),
+        );
+        const droppedOptimisticIds = new Set<string>();
+        for (const id of optimisticIds) {
+          const optimistic = byId.get(id);
+          if (!optimistic) continue;
+          if (
+            hydrated.some((message) => message.id === id) ||
+            confirmedText.has(optimistic.content)
+          ) {
+            byId.delete(id);
+            droppedOptimisticIds.add(id);
+          }
+        }
+
+        const merged = Array.from(byId.values());
         const remainingOptimisticIds = (prev.optimisticUserIds[sessionId] ?? []).filter(
           (id) => !droppedOptimisticIds.has(id),
         );
@@ -143,17 +139,25 @@ export function useWorkspaceEventBus({
         } else {
           nextOptimisticUserIds[sessionId] = remainingOptimisticIds;
         }
-        const migrated = {
+        return {
           ...prev,
           messages: { ...prev.messages, [sessionId]: merged },
           optimisticUserIds: nextOptimisticUserIds,
         };
-        storeRef.current = migrated;
-        return migrated;
       });
       syncRuntimeMetadataForSession?.(sessionId, hydrated);
     },
-    [getStore, syncRuntimeMetadataForSession],
+    [commitStore, syncRuntimeMetadataForSession],
+  );
+
+  const setSessionStatus = useCallback(
+    (sessionId: string, status: SessionRuntimeStatus) => {
+      commitStore((prev) => ({
+        ...prev,
+        sessionStatus: { ...prev.sessionStatus, [sessionId]: status },
+      }));
+    },
+    [commitStore],
   );
 
   const hydrateSessionMessages = useCallback(
@@ -164,12 +168,33 @@ export function useWorkspaceEventBus({
         if (result.ok && result.messages) {
           mergeHydratedMessages(sessionId, result.messages);
         }
+        if (
+          result.ok &&
+          (result.sessionRuntimeStatus === "idle" || result.sessionRuntimeStatus === "busy")
+        ) {
+          setSessionStatus(sessionId, result.sessionRuntimeStatus);
+        }
       } finally {
         setIsLoadingMessages(false);
       }
     },
-    [slug, mergeHydratedMessages],
+    [slug, mergeHydratedMessages, setSessionStatus],
   );
+
+  const hydrateWorkspacePermissions = useCallback(async () => {
+    const result = await listPermissionsAction(slug);
+    if (!result.ok || !result.permissions) return;
+    const permissions = result.permissions;
+    commitStore((current) => ({ ...current, permissions }));
+  }, [commitStore, slug]);
+
+  const hydrateOnConnect = useCallback(async () => {
+    const sessionId = activeSessionIdGetterRef.current();
+    await Promise.all([
+      sessionId ? hydrateSessionMessages(sessionId) : Promise.resolve(),
+      hydrateWorkspacePermissions(),
+    ]);
+  }, [hydrateSessionMessages, hydrateWorkspacePermissions]);
 
   const refreshMessages = useCallback(
     async (sessionIdOverride?: string) => {
@@ -177,48 +202,32 @@ export function useWorkspaceEventBus({
       if (!sessionId) return;
       await hydrateSessionMessages(sessionId);
     },
-    [activeSessionIdGetterRef, hydrateSessionMessages],
+    [hydrateSessionMessages],
   );
 
   // Held in a ref so the reconnect loop does not restart when hydration is
   // re-created; the loop calls it on connect and on every reconnect.
-  const refreshMessagesRef = useRef(refreshMessages);
+  const hydrateOnConnectRef = useRef(hydrateOnConnect);
   useEffect(() => {
-    refreshMessagesRef.current = refreshMessages;
-  }, [refreshMessages]);
+    hydrateOnConnectRef.current = hydrateOnConnect;
+  }, [hydrateOnConnect]);
 
   const updateMessages = useCallback(
     (sessionId: string, updater: SetStateAction<WorkspaceMessage[]>) => {
-      const current = getStore().messages[sessionId] ?? EMPTY_WORKSPACE_MESSAGES;
-      const nextMessages = typeof updater === "function" ? updater(current) : updater;
-      setStore((prev) => {
-        const next = {
+      commitStore((prev) => {
+        const current = prev.messages[sessionId] ?? EMPTY_WORKSPACE_MESSAGES;
+        const nextMessages = typeof updater === "function" ? updater(current) : updater;
+        return {
           ...prev,
           messages: { ...prev.messages, [sessionId]: nextMessages },
         };
-        storeRef.current = next;
-        return next;
       });
     },
-    [getStore],
-  );
-
-  const setSessionStatus = useCallback(
-    (sessionId: string, status: SessionRuntimeStatus) => {
-      setStore((prev) => {
-        const next = {
-          ...prev,
-          sessionStatus: { ...prev.sessionStatus, [sessionId]: status },
-        };
-        storeRef.current = next;
-        return next;
-      });
-    },
-    [],
+    [commitStore],
   );
 
   const removeSessionEntries = useCallback((sessionIds: Set<string>) => {
-    setStore((prev) => {
+    commitStore((prev) => {
       const messages = { ...prev.messages };
       const sessionStatus = { ...prev.sessionStatus };
       const permissions = { ...prev.permissions };
@@ -229,11 +238,9 @@ export function useWorkspaceEventBus({
         delete permissions[sessionId];
         delete optimisticUserIds[sessionId];
       }
-      const next = { ...prev, messages, sessionStatus, permissions, optimisticUserIds };
-      storeRef.current = next;
-      return next;
+      return { ...prev, messages, sessionStatus, permissions, optimisticUserIds };
     });
-  }, []);
+  }, [commitStore]);
 
   const dispatchReducerEvent = useCallback(
     (event: { type: string; properties?: Record<string, unknown> }) => {
@@ -268,10 +275,11 @@ export function useWorkspaceEventBus({
         setIsBusConnected(true);
         delay = BUS_RECONNECT_BASE_DELAY_MS;
 
-        // Hydrate the active session on every successful connect (initial and
-        // reconnects). OpenCode keeps running while the pipe is down; the
-        // hydrate merges the server state into what the bus already applied.
-        void refreshMessagesRef.current();
+        // Hydrate messages, permissions, and session status on every successful
+        // connect (initial and reconnects). OpenCode keeps running while the
+        // pipe is down; the hydrate merges the server state into what the bus
+        // already applied.
+        void hydrateOnConnectRef.current();
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();

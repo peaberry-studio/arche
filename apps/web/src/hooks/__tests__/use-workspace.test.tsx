@@ -16,6 +16,7 @@ const opencodeMocks = vi.hoisted(() => ({
   markFlowRunSeenAction: vi.fn(),
   updateSessionAction: vi.fn(),
   listMessagesAction: vi.fn(),
+  listPermissionsAction: vi.fn(),
   abortSessionAction: vi.fn(),
   loadFileTreeAction: vi.fn(),
   readFileAction: vi.fn(),
@@ -86,6 +87,7 @@ describe("useWorkspace", () => {
     opencodeMocks.deleteSessionAction.mockResolvedValue({ ok: true });
     opencodeMocks.markFlowRunSeenAction.mockResolvedValue({ ok: true });
     opencodeMocks.updateSessionAction.mockResolvedValue({ ok: true });
+    opencodeMocks.listPermissionsAction.mockResolvedValue({ ok: true, permissions: {} });
     opencodeMocks.listMessagesAction.mockImplementation(async (_slug: string, sessionId: string) => {
       if (sessionId === "s1") {
         return {

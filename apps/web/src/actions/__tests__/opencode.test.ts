@@ -84,6 +84,7 @@ import {
   deleteSessionAction,
   updateSessionAction,
   listMessagesAction,
+  listPermissionsAction,
   sendMessageAction,
   abortSessionAction,
   getWorkspaceDiffsAction,
@@ -731,6 +732,16 @@ describe('listMessagesAction', () => {
     mockSessionStatus.mockRejectedValue(new Error('status fail'))
     const result = await listMessagesAction('alice', 'sess-1')
     expect(result.ok).toBe(true)
+    expect(result.sessionRuntimeStatus).toBe('unknown')
+  })
+
+  it('returns sessionRuntimeStatus from the status endpoint', async () => {
+    mockSessionMessages.mockResolvedValue({ data: [] })
+    mockSessionStatus.mockResolvedValue({
+      data: { 'sess-1': { type: 'busy' } },
+    })
+    const result = await listMessagesAction('alice', 'sess-1')
+    expect(result.sessionRuntimeStatus).toBe('busy')
   })
 
   it('stops the latest incomplete assistant for terminal provider retries', async () => {
@@ -1021,6 +1032,30 @@ describe('listMessagesAction', () => {
 
     const result = await listMessagesAction('alice', 'sess-1')
     expect(result.messages![0].agentId).toBe('researcher')
+  })
+})
+
+describe('listPermissionsAction', () => {
+  it('groups pending permissions by session', async () => {
+    mockPermissionList.mockResolvedValue({
+      data: [
+        { id: 'p1', sessionID: 's1', permission: 'Edit' },
+        { id: 'p2', sessionID: 's2', permission: 'Read' },
+      ],
+    })
+
+    const result = await listPermissionsAction('alice')
+
+    expect(result.ok).toBe(true)
+    expect(result.permissions?.s1).toMatchObject([{ id: 'p1', sessionId: 's1' }])
+    expect(result.permissions?.s2).toMatchObject([{ id: 'p2', sessionId: 's2' }])
+  })
+
+  it('returns ok false when permission.list fails', async () => {
+    mockPermissionList.mockRejectedValue(new Error('nope'))
+    const result = await listPermissionsAction('alice')
+    expect(result.ok).toBe(false)
+    expect(result.permissions).toBeUndefined()
   })
 })
 

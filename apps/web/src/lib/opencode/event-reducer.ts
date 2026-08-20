@@ -6,7 +6,7 @@ import {
 } from '@/lib/opencode/permission'
 import { extractTextContent, transformParts } from '@/lib/opencode/transform'
 import type { MessagePart, MessageRole, WorkspaceMessage, WorkspaceSession } from '@/lib/opencode/types'
-import { isRecord } from '@/lib/records'
+import { getString, isRecord } from '@/lib/records'
 
 export type SessionRuntimeStatus = 'idle' | 'busy'
 
@@ -42,12 +42,41 @@ export function isSending(store: ChatStore, sessionId: string): boolean {
   return (store.sessionStatus[sessionId] ?? 'idle') === 'busy'
 }
 
-function getString(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined
-}
-
 function getNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function nestedRecord(value: unknown): Record<string, unknown> | undefined {
+  return isRecord(value) ? value : undefined
+}
+
+function getEventSessionId(properties: Record<string, unknown>): string | undefined {
+  const info = nestedRecord(properties.info)
+  const permission = nestedRecord(properties.permission)
+  const part = nestedRecord(properties.part)
+  return (
+    getString(properties.sessionID) ??
+    getString(properties.sessionId) ??
+    (info ? getString(info.sessionID) ?? getString(info.sessionId) : undefined) ??
+    (permission ? getString(permission.sessionID) ?? getString(permission.sessionId) : undefined) ??
+    (part ? getString(part.sessionID) ?? getString(part.sessionId) : undefined)
+  )
+}
+
+function getSessionEventSessionId(properties: Record<string, unknown>): string | undefined {
+  const info = nestedRecord(properties.info)
+  return getEventSessionId(properties) ?? (info ? getString(info.id) : undefined)
+}
+
+function readDeltaText(properties: Record<string, unknown>): string | undefined {
+  const rawPart = nestedRecord(properties.part)
+  if (typeof properties.delta === 'string') return properties.delta
+  if (rawPart && typeof rawPart.delta === 'string') return rawPart.delta
+  if (typeof properties.text === 'string') return properties.text
+  if (typeof properties.value === 'string') return properties.value
+  if (rawPart && typeof rawPart.text === 'string') return rawPart.text
+  if (rawPart && typeof rawPart.value === 'string') return rawPart.value
+  return undefined
 }
 
 function normalizeMessageRole(role: unknown): MessageRole | null {
@@ -388,11 +417,11 @@ function transformMessagePart(part: Record<string, unknown>): MessagePart | null
 function applyMessagePartDelta(store: ChatStore, properties: Record<string, unknown>): ChatStore {
   const messageId = getString(properties.messageID)
   const partId = getString(properties.partID) ?? getString(properties.id)
-  const field = getString(properties.field)
+  const field = getString(properties.field) ?? getString(properties.partType) ?? 'text'
   // Deltas are raw content: a whitespace-only chunk (e.g. the space between
   // two words) is valid and must not be trimmed away.
-  const delta = typeof properties.delta === 'string' ? properties.delta : undefined
-  if (!messageId || !partId || !field || delta === undefined) return store
+  const delta = readDeltaText(properties)
+  if (!messageId || !partId || delta === undefined) return store
 
   const { sessionId, message } = locateMessageGlobal(store, messageId)
   if (!message) return store
@@ -432,8 +461,11 @@ function applyPermissionAsked(store: ChatStore, properties: Record<string, unkno
 }
 
 function applyPermissionReplied(store: ChatStore, properties: Record<string, unknown>): ChatStore {
-  const sessionId = getString(properties.sessionID) ?? getString(properties.sessionId)
   const permissionPayload = getPermissionEventPayload({ type: '', properties })
+  const sessionId =
+    getEventSessionId(properties) ??
+    getString(permissionPayload?.sessionID) ??
+    getString(permissionPayload?.sessionId)
   const permissionId =
     getString(properties.requestID) ??
     getString(permissionPayload?.id) ??
@@ -455,7 +487,7 @@ export function reduceOpenCodeEvent(
 
   switch (eventType) {
     case 'session.status': {
-      const sessionId = getString(properties.sessionID)
+      const sessionId = getSessionEventSessionId(properties)
       const status = isRecord(properties.status) ? properties.status : {}
       if (!sessionId) return { store, workspaceTouched: false }
       const next = status.type === 'idle' ? 'idle' : 'busy'
@@ -463,13 +495,13 @@ export function reduceOpenCodeEvent(
     }
 
     case 'session.idle': {
-      const sessionId = getString(properties.sessionID)
+      const sessionId = getSessionEventSessionId(properties)
       if (!sessionId) return { store, workspaceTouched: false }
       return { store: setStatus(store, sessionId, 'idle'), workspaceTouched: false }
     }
 
     case 'session.error': {
-      const sessionId = getString(properties.sessionID)
+      const sessionId = getSessionEventSessionId(properties)
       const error = isRecord(properties.error) ? properties.error : {}
       const errorData = isRecord(error.data) ? error.data : {}
       const message =
@@ -485,7 +517,11 @@ export function reduceOpenCodeEvent(
       return { store: applyMessageUpdated(store, properties), workspaceTouched: false }
 
     case 'message.removed': {
-      const messageId = getString(properties.messageID) ?? getString(properties.id)
+      const info = nestedRecord(properties.info)
+      const messageId =
+        getString(properties.messageID) ??
+        getString(properties.id) ??
+        (info ? getString(info.id) : undefined)
       return {
         store: messageId ? removeMessageById(store, messageId) : store,
         workspaceTouched: false,

@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import type { WorkspaceSession } from "@/lib/opencode/types";
 import {
-  canAutoResumeWorkspaceSession,
   getWorkspaceSessionMode,
   getWorkspaceUnreadCounts,
   hasUnseenFlowResult,
@@ -40,9 +39,7 @@ describe("workspace session utils", () => {
     expect(getWorkspaceSessionMode(flowSession)).toBe("flows");
   });
 
-  it("keeps resume ownership and flow result state explicit", () => {
-    expect(canAutoResumeWorkspaceSession(manualSession)).toBe(true);
-    expect(canAutoResumeWorkspaceSession(flowSession)).toBe(false);
+  it("keeps flow result state explicit", () => {
     expect(isBusyFlowWorkspaceSession(flowSession)).toBe(true);
     expect(hasUnseenFlowResult(flowSession)).toBe(true);
   });

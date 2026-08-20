@@ -3,7 +3,6 @@
 import type { WorkspacePermission } from "@/lib/opencode/permission";
 import type {
   AvailableModel,
-  MessagePart,
   PermissionResponse,
   WorkspaceFileNode,
   WorkspaceMessage,
@@ -30,54 +29,6 @@ export type ProviderStatusEntry = {
 export const ROOT_SESSION_LIMIT_STEP = 500;
 export const EMPTY_WORKSPACE_MESSAGES: WorkspaceMessage[] = [];
 export const PRE_SESSION_SELECTION_KEY = "__pre_session__";
-
-export function areStatusInfoEqual(
-  left: WorkspaceMessage["statusInfo"],
-  right: WorkspaceMessage["statusInfo"]
-): boolean {
-  return (
-    left?.status === right?.status &&
-    left?.toolName === right?.toolName &&
-    left?.detail === right?.detail
-  );
-}
-
-export function areModelsEqual(
-  left: WorkspaceMessage["model"],
-  right: WorkspaceMessage["model"]
-): boolean {
-  return (
-    left?.providerId === right?.providerId &&
-    left?.modelId === right?.modelId
-  );
-}
-
-export function arePartsEqual(left: MessagePart[], right: MessagePart[]): boolean {
-  if (left.length !== right.length) return false;
-
-  return left.every((part, index) => JSON.stringify(part) === JSON.stringify(right[index]));
-}
-
-export function areMessagesEqual(left: WorkspaceMessage, right: WorkspaceMessage): boolean {
-  return (
-    left.id === right.id &&
-    left.sessionId === right.sessionId &&
-    left.role === right.role &&
-    left.content === right.content &&
-    left.timestamp === right.timestamp &&
-    left.timestampRaw === right.timestampRaw &&
-    left.pending === right.pending &&
-    left.agentId === right.agentId &&
-    areModelsEqual(left.model, right.model) &&
-    areStatusInfoEqual(left.statusInfo, right.statusInfo) &&
-    arePartsEqual(left.parts, right.parts)
-  );
-}
-
-export function areMessageListsEqual(left: WorkspaceMessage[], right: WorkspaceMessage[]): boolean {
-  if (left.length !== right.length) return false;
-  return left.every((message, index) => areMessagesEqual(message, right[index]));
-}
 
 export function filterModelsByProviderStatus(
   models: AvailableModel[],

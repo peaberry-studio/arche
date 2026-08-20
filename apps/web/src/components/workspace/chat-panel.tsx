@@ -54,8 +54,8 @@ import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
 import { useAgentMentionAutocomplete } from "@/hooks/use-agent-mention-autocomplete";
 import type { SkillListItem } from "@/hooks/use-skills-catalog";
 import type { AgentCatalogItem } from "@/hooks/use-workspace";
-import type { AvailableModel, PermissionResponse } from "@/lib/opencode/types";
 import type { WorkspacePermission } from "@/lib/opencode/permission";
+import type { AvailableModel, PermissionResponse } from "@/lib/opencode/types";
 import { getDesktopPlatform, getOptionalDesktopBridge } from "@/lib/runtime/desktop/client";
 import {
   buildWorkspaceSessionMarkdown,

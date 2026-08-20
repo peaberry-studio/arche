@@ -293,4 +293,73 @@ describe('reduceOpenCodeEvent', () => {
     expect(isSending(store, 's1')).toBe(true)
     expect(isSending(store, 'missing')).toBe(false)
   })
+
+  describe('legacy event shapes', () => {
+    it.each([
+      {
+        name: 'info.sessionID',
+        properties: { info: { sessionID: 's1' }, status: { type: 'busy' } },
+      },
+      {
+        name: 'info.id',
+        properties: { info: { id: 's1' }, status: { type: 'busy' } },
+      },
+    ])('session.status reads $name', ({ properties }) => {
+      const store = apply(createEmptyChatStore(), 'session.status', properties)
+      expect(store.sessionStatus.s1).toBe('busy')
+    })
+
+    it('session.idle reads info.sessionID', () => {
+      const busy = apply(createEmptyChatStore(), 'session.status', {
+        info: { sessionID: 's1' },
+        status: { type: 'busy' },
+      })
+      const store = apply(busy, 'session.idle', { info: { sessionID: 's1' } })
+      expect(store.sessionStatus.s1).toBe('idle')
+    })
+
+    it('session.error reads info.sessionID', () => {
+      let store = apply(createEmptyChatStore(), 'message.updated', {
+        info: { id: 'm1', role: 'assistant', sessionID: 's1', time: { created: 1 }, parts: [] },
+      })
+      store = apply(store, 'session.error', {
+        info: { sessionID: 's1' },
+        error: { data: { message: 'boom' } },
+      })
+      expect(store.messages.s1[0].statusInfo).toEqual({ status: 'error', detail: 'boom' })
+    })
+
+    it('message.part.delta accepts partType + value', () => {
+      let store = apply(createEmptyChatStore(), 'message.updated', {
+        info: { id: 'm1', role: 'assistant', sessionID: 's1', parts: [{ id: 'p1', type: 'text', text: 'He' }] },
+      })
+      store = apply(store, 'message.part.delta', {
+        messageID: 'm1',
+        partID: 'p1',
+        partType: 'text',
+        value: 'llo',
+      })
+      const textPart = store.messages.s1[0].parts.find((p) => p.type === 'text')
+      expect(textPart?.text).toBe('Hello')
+    })
+
+    it('permission.replied reads sessionID nested in permission', () => {
+      let store = apply(createEmptyChatStore(), 'permission.asked', {
+        permission: { id: 'perm-1', sessionID: 's1', permission: 'Edit file' },
+      })
+      store = apply(store, 'permission.replied', {
+        permission: { id: 'perm-1', sessionID: 's1' },
+        response: 'once',
+      })
+      expect(store.permissions.s1 ?? []).toHaveLength(0)
+    })
+
+    it('message.removed reads info.id', () => {
+      let store = apply(createEmptyChatStore(), 'message.updated', {
+        info: { id: 'm1', role: 'user', sessionID: 's1', parts: [] },
+      })
+      store = apply(store, 'message.removed', { info: { id: 'm1' } })
+      expect(store.messages.s1 ?? []).toHaveLength(0)
+    })
+  })
 })

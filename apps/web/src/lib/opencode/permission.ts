@@ -1,4 +1,4 @@
-import { isRecord } from '@/lib/records'
+import { getString, isRecord } from '@/lib/records'
 
 export type WorkspacePermission = {
   id: string
@@ -9,10 +9,6 @@ export type WorkspacePermission = {
   pattern?: string
   metadata?: Record<string, unknown>
   state: 'pending'
-}
-
-function getString(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined
 }
 
 function getPermissionPattern(permission: Record<string, unknown>): string | undefined {

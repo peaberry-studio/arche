@@ -8,10 +8,12 @@ import { isSending } from "@/lib/opencode/event-reducer";
 
 const opencodeMocks = vi.hoisted(() => ({
   listMessagesAction: vi.fn(),
+  listPermissionsAction: vi.fn(),
 }));
 
 vi.mock("@/actions/opencode", () => ({
   listMessagesAction: opencodeMocks.listMessagesAction,
+  listPermissionsAction: opencodeMocks.listPermissionsAction,
 }));
 
 const encoder = new TextEncoder();
@@ -66,6 +68,7 @@ describe("useWorkspaceEventBus", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     opencodeMocks.listMessagesAction.mockResolvedValue({ ok: true, messages: [] });
+    opencodeMocks.listPermissionsAction.mockResolvedValue({ ok: true, permissions: {} });
   });
 
   afterEach(() => {
@@ -215,6 +218,109 @@ describe("useWorkspaceEventBus", () => {
     expect(fetchCalls).toBe(2);
     expect(hook.result.current.isBusConnected).toBe(true);
     expect(opencodeMocks.listMessagesAction).toHaveBeenCalledTimes(2);
+    expect(opencodeMocks.listPermissionsAction).toHaveBeenCalledTimes(2);
+    expect(opencodeMocks.listPermissionsAction).toHaveBeenCalledWith("alice");
+  });
+
+  it("applies every store mutation when multiple SSE events arrive in one chunk", async () => {
+    const stream = createEventStream();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => sseResponse(stream)),
+    );
+
+    const { hook } = renderBus();
+    await flush();
+
+    const messageUpdated = {
+      type: "message.updated",
+      properties: {
+        info: {
+          id: "m1",
+          role: "assistant",
+          sessionID: "s1",
+          time: { created: 1 },
+          parts: [],
+        },
+      },
+    };
+    const partUpdated = {
+      type: "message.part.updated",
+      properties: {
+        part: { id: "p1", type: "text", text: "Hola", messageID: "m1", sessionID: "s1" },
+      },
+    };
+
+    await act(async () => {
+      stream.sendRaw(
+        `data: ${JSON.stringify(messageUpdated)}\n\n` +
+          `data: ${JSON.stringify(partUpdated)}\n\n` +
+          `data: ${JSON.stringify(busyEvent("s1"))}\n\n`,
+      );
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(hook.result.current.store.messages.s1?.[0]?.id).toBe("m1");
+    expect(hook.result.current.store.messages.s1?.[0]?.parts).toMatchObject([
+      { type: "text", text: "Hola" },
+    ]);
+    expect(isSending(hook.result.current.store, "s1")).toBe(true);
+  });
+
+  it("hydrates permissions and session status on connect and reconnect", async () => {
+    const first = createEventStream();
+    const second = createEventStream();
+    let fetchCalls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        fetchCalls += 1;
+        return sseResponse(fetchCalls === 1 ? first : second);
+      }),
+    );
+
+    opencodeMocks.listMessagesAction.mockResolvedValue({
+      ok: true,
+      messages: [],
+      sessionRuntimeStatus: "busy",
+    });
+    opencodeMocks.listPermissionsAction.mockResolvedValue({
+      ok: true,
+      permissions: {
+        s1: [{ id: "perm-1", sessionId: "s1", title: "Edit file", state: "pending" }],
+      },
+    });
+
+    const { hook } = renderBus();
+    await flush();
+
+    expect(hook.result.current.store.permissions.s1?.[0]).toMatchObject({
+      id: "perm-1",
+      sessionId: "s1",
+    });
+    expect(isSending(hook.result.current.store, "s1")).toBe(true);
+
+    opencodeMocks.listMessagesAction.mockResolvedValue({
+      ok: true,
+      messages: [],
+      sessionRuntimeStatus: "idle",
+    });
+    opencodeMocks.listPermissionsAction.mockResolvedValue({
+      ok: true,
+      permissions: {},
+    });
+
+    await act(async () => {
+      first.end();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+
+    expect(opencodeMocks.listPermissionsAction).toHaveBeenCalledTimes(2);
+    expect(hook.result.current.store.permissions.s1 ?? []).toHaveLength(0);
+    expect(isSending(hook.result.current.store, "s1")).toBe(false);
   });
 
   it("keeps isSending busy while the bus is down when the last known status was busy", async () => {

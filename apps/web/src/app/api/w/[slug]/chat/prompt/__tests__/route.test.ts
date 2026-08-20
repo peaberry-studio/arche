@@ -184,6 +184,48 @@ describe('POST /api/w/[slug]/chat/prompt', () => {
     expect(res.status).toBe(403)
   })
 
+  it('returns 403 for another workspace without ADMIN', async () => {
+    mocks.getSession.mockResolvedValue({
+      user: { id: 'u2', email: 'bob@test.com', slug: 'bob', role: 'USER' },
+      sessionId: 's2',
+    })
+    const res = await POST(makeRequest({ sessionId: 's1', messageId: 'user-1', text: 'Hola' }), params())
+    expect(res.status).toBe(403)
+  })
+
+  it('returns 409 when runtime status is unknown and a MessageRun is running', async () => {
+    mocks.messageRunService.findActiveRun.mockResolvedValue({ id: 'run-1', status: 'running' })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(new Response('nope', { status: 500 })))
+    const res = await POST(makeRequest({ sessionId: 's1', messageId: 'user-1', text: 'Hola' }), params())
+    expect(res.status).toBe(409)
+    expect((await res.json()).error).toBe('session_busy')
+    expect(mocks.messageRunService.markActiveRunSucceeded).not.toHaveBeenCalled()
+  })
+
+  it('prompts when runtime status is unknown and no MessageRun is running', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response('nope', { status: 500 }))
+      .mockResolvedValueOnce(new Response('', { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const res = await POST(makeRequest({ sessionId: 's1', messageId: 'user-1', text: 'Hola' }), params())
+    expect(res.status).toBe(202)
+    expect(mocks.messageRunService.findActiveRun).toHaveBeenCalledWith('alice', 's1')
+    expect(mocks.messageRunService.markActiveRunSucceeded).not.toHaveBeenCalled()
+  })
+
+  it('passes an 8s timeout to the session status probe', async () => {
+    const timeoutSpy = vi.spyOn(AbortSignal, 'timeout')
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(statusResponse({ s1: { type: 'idle' } }))
+      .mockResolvedValueOnce(new Response('', { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await POST(makeRequest({ sessionId: 's1', messageId: 'user-1', text: 'Hola' }), params())
+
+    expect(timeoutSpy).toHaveBeenCalledWith(8_000)
+    timeoutSpy.mockRestore()
+  })
+
   it('returns 400 when the body is invalid JSON', async () => {
     const request = new NextRequest('http://localhost/api/w/alice/chat/prompt', {
       method: 'POST',

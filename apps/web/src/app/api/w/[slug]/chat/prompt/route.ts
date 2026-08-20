@@ -8,6 +8,7 @@ import {
   normalizeMessageAttachments,
 } from '@/lib/opencode/workspace-prompt'
 import { resolveRuntimeProviderId } from '@/lib/providers/catalog'
+import { getString, isRecord } from '@/lib/records'
 import { withAuth } from '@/lib/runtime/with-auth'
 import { instanceService, messageRunService } from '@/lib/services'
 import { decryptPassword } from '@/lib/spawner/crypto'
@@ -17,11 +18,11 @@ import { MAX_ATTACHMENTS_PER_MESSAGE } from '@/lib/workspace-attachments'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-type PromptRequest = {
-  sessionId?: unknown
-  messageId?: unknown
-  text?: unknown
-  model?: unknown
+type ParsedPromptRequest = {
+  sessionId: string
+  messageId: string
+  text?: string
+  model?: Record<string, unknown>
   attachments?: unknown
   contextPaths?: unknown
 }
@@ -36,14 +37,6 @@ function jsonErrorResponse(status: number, error: string) {
   return NextResponse.json({ error }, { status })
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
-}
-
-function getString(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined
-}
-
 type SessionRuntimeState = 'busy' | 'idle' | 'unknown'
 
 async function readSessionRuntimeState(baseUrl: string, authHeader: string, sessionId: string): Promise<SessionRuntimeState> {
@@ -51,6 +44,7 @@ async function readSessionRuntimeState(baseUrl: string, authHeader: string, sess
     const response = await fetch(`${baseUrl}/session/status`, {
       headers: { Authorization: authHeader, Accept: 'application/json' },
       cache: 'no-store',
+      signal: AbortSignal.timeout(8_000),
     })
     if (!response.ok) return 'unknown'
     const data: unknown = await response.json()
@@ -65,7 +59,7 @@ async function readSessionRuntimeState(baseUrl: string, authHeader: string, sess
   }
 }
 
-function parsePromptBody(body: unknown): PromptRequest | null {
+function parsePromptBody(body: unknown): ParsedPromptRequest | null {
   if (!isRecord(body)) return null
   const sessionId = getString(body.sessionId)
   const messageId = getString(body.messageId)
@@ -107,12 +101,12 @@ export const POST = withAuth<
     return jsonErrorResponse(400, 'missing_fields')
   }
 
-  const sessionId = requestBody.sessionId as string
-  const messageId = requestBody.messageId as string
+  const sessionId = requestBody.sessionId
+  const messageId = requestBody.messageId
   const attachments = normalizeMessageAttachments(requestBody.attachments)
   const contextPaths = normalizeContextPaths(requestBody.contextPaths)
-  const text = typeof requestBody.text === 'string' ? requestBody.text : undefined
-  const model = isRecord(requestBody.model)
+  const text = requestBody.text
+  const model = requestBody.model
     ? {
         providerId: getString(requestBody.model.providerId) ?? '',
         modelId: getString(requestBody.model.modelId) ?? '',
@@ -138,12 +132,14 @@ export const POST = withAuth<
   }
 
   // Respect the slack/flow lock. If OpenCode is idle and only a stale lock
-  // remains, reap it (the run finished) and continue.
-  if (runtimeState === 'idle') {
-    const activeRun = await messageRunService.findActiveRun(slug, sessionId)
-    if (activeRun?.status === 'running') {
-      await messageRunService.markActiveRunSucceeded(slug, sessionId).catch(() => undefined)
+  // remains, reap it (the run finished) and continue. If status is unknown,
+  // skip the reap but still refuse when a run is actively locked.
+  const activeRun = await messageRunService.findActiveRun(slug, sessionId)
+  if (activeRun?.status === 'running') {
+    if (runtimeState === 'unknown') {
+      return jsonErrorResponse(409, 'session_busy')
     }
+    await messageRunService.markActiveRunSucceeded(slug, sessionId).catch(() => undefined)
   }
 
   const built = await buildWorkspacePromptParts({
