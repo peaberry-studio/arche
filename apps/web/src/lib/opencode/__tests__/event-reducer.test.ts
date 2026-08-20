@@ -2,9 +2,12 @@ import { describe, expect, it } from 'vitest'
 
 import {
   createEmptyChatStore,
+  hydratePermissionsIntoStore,
   hydrateSessionIntoStore,
   isSending,
+  overlaySessionRuntimeStatus,
   reduceOpenCodeEvent,
+  toWorkspaceMessage,
   type ChatStore,
 } from '@/lib/opencode/event-reducer'
 
@@ -294,6 +297,46 @@ describe('reduceOpenCodeEvent', () => {
     expect(isSending(store, 'missing')).toBe(false)
   })
 
+  describe('overlaySessionRuntimeStatus', () => {
+    const idle = { id: 's1', title: 'Chat', status: 'idle' as const, updatedAt: 'now' }
+    const listedBusy = { ...idle, status: 'busy' as const }
+    const listedError = { ...idle, status: 'error' as const }
+
+    it('paints busy only from the bus', () => {
+      expect(overlaySessionRuntimeStatus(idle, 'busy').status).toBe('busy')
+      expect(overlaySessionRuntimeStatus(listedBusy, undefined).status).toBe('idle')
+      expect(overlaySessionRuntimeStatus(listedBusy, 'idle').status).toBe('idle')
+    })
+
+    it('keeps list error when the bus is not busy', () => {
+      expect(overlaySessionRuntimeStatus(listedError, undefined).status).toBe('error')
+      expect(overlaySessionRuntimeStatus(listedError, 'idle').status).toBe('error')
+      expect(overlaySessionRuntimeStatus(listedError, 'busy').status).toBe('busy')
+    })
+  })
+
+  it('toWorkspaceMessage is the single snapshot/event mapper', () => {
+    const message = toWorkspaceMessage({
+      id: 'm1',
+      role: 'assistant',
+      sessionID: 's1',
+      providerID: 'openai',
+      modelID: 'gpt-4',
+      time: { created: 10, completed: 20 },
+      parts: [{ type: 'text', text: 'Hi' }],
+    })
+    expect(message).toMatchObject({
+      id: 'm1',
+      sessionId: 's1',
+      role: 'assistant',
+      content: 'Hi',
+      completedAt: 20,
+      model: { providerId: 'openai', modelId: 'gpt-4' },
+    })
+    expect(message?.pending).toBeUndefined()
+    expect(message?.statusInfo).toBeUndefined()
+  })
+
   describe('legacy event shapes', () => {
     it.each([
       {
@@ -575,6 +618,35 @@ describe('reduceOpenCodeEvent', () => {
         parts: [],
       }])
       expect(store.messages.s1[0].content).toBe('Streamed')
+    })
+  })
+
+  describe('hydratePermissionsIntoStore', () => {
+    const asked = { id: 'perm-1', sessionId: 's1', title: 'Edit', state: 'pending' as const }
+
+    it('keeps a live asked that the snapshot does not include', () => {
+      const live: ChatStore = {
+        ...createEmptyChatStore(),
+        permissions: { s1: [asked] },
+      }
+      const store = hydratePermissionsIntoStore(live, {}, {})
+      expect(store.permissions.s1).toMatchObject([{ id: 'perm-1' }])
+    })
+
+    it('drops a baseline permission that the snapshot no longer has', () => {
+      const live: ChatStore = {
+        ...createEmptyChatStore(),
+        permissions: { s1: [asked] },
+      }
+      const store = hydratePermissionsIntoStore(live, {}, { s1: [asked] })
+      expect(store.permissions.s1 ?? []).toHaveLength(0)
+    })
+
+    it('does not restore a permission removed on the bus during fetch', () => {
+      const baseline = { s1: [asked] }
+      const live = createEmptyChatStore()
+      const store = hydratePermissionsIntoStore(live, { s1: [asked] }, baseline)
+      expect(store.permissions.s1 ?? []).toHaveLength(0)
     })
   })
 })

@@ -99,7 +99,7 @@ describe("useWorkspaceMessageActions", () => {
     expect(getStore().messages.s1 ?? []).toHaveLength(0);
   });
 
-  it("merges the permission safety-net snapshot per session", async () => {
+  it("does not re-list permissions after answering; the bus is the source", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 200 })));
     const { hook, getStore, commitStore } = renderActions();
 
@@ -111,11 +111,6 @@ describe("useWorkspaceMessageActions", () => {
       },
     }));
 
-    opencodeMocks.listPermissionsAction.mockResolvedValue({
-      ok: true,
-      permissions: { s1: [] },
-    });
-
     await act(async () => {
       await hook.result.current.answerPermission("s1", "perm-1", "once");
     });
@@ -124,27 +119,8 @@ describe("useWorkspaceMessageActions", () => {
       await vi.advanceTimersByTimeAsync(10_000);
     });
 
-    expect(getStore().permissions.s1 ?? []).toHaveLength(0);
-    expect(getStore().permissions.s2).toMatchObject([{ id: "perm-2", sessionId: "s2" }]);
-  });
-
-  it("skips the safety-net rewrite when listing permissions fails", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 200 })));
-    const { hook, getStore, commitStore } = renderActions();
-
-    commitStore((current) => ({
-      ...current,
-      permissions: { s1: [permission("perm-1", "s1")] },
-    }));
-    opencodeMocks.listPermissionsAction.mockResolvedValue({ ok: false, error: "boom" });
-
-    await act(async () => {
-      await hook.result.current.answerPermission("s1", "perm-1", "once");
-    });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(10_000);
-    });
-
+    expect(opencodeMocks.listPermissionsAction).not.toHaveBeenCalled();
     expect(getStore().permissions.s1).toMatchObject([{ id: "perm-1" }]);
+    expect(getStore().permissions.s2).toMatchObject([{ id: "perm-2" }]);
   });
 });

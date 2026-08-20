@@ -2,7 +2,10 @@
 
 import { useMemo, useState } from "react";
 
-import { isSending as isSessionSending } from "@/lib/opencode/event-reducer";
+import {
+  isSending as isSessionSending,
+  overlaySessionRuntimeStatus,
+} from "@/lib/opencode/event-reducer";
 import { useInstanceHeartbeat } from "@/hooks/use-instance-heartbeat";
 import { useWorkspaceConnection } from "@/hooks/use-workspace-connection";
 import { useWorkspaceDiffs } from "@/hooks/use-workspace-diffs";
@@ -70,7 +73,7 @@ export function useWorkspace({
     deleteSession: deleteWorkspaceSession,
     ensureSessionFamilyLoaded,
     loadSessions,
-    sessions,
+    sessions: listedSessions,
     sessionsRef,
     markFlowRunSeen,
     markSessionCompleted,
@@ -118,6 +121,14 @@ export function useWorkspace({
   } = eventBus;
 
   const messages = store.messages[activeSessionId ?? ""] ?? EMPTY_WORKSPACE_MESSAGES;
+
+  const sessions = useMemo(
+    () =>
+      listedSessions.map((session) =>
+        overlaySessionRuntimeStatus(session, store.sessionStatus[session.id]),
+      ),
+    [listedSessions, store.sessionStatus],
+  );
 
   // Visible pending permissions: the active session plus its known children
   // (session.parentId → active). The bus store is the single source; no
@@ -185,13 +196,10 @@ export function useWorkspace({
     loadModels,
   });
   useWorkspacePollingEffect({
-    activeSessionIdRef,
     enabled,
     isConnected,
     loadSessions,
     pollInterval,
-    refreshDiffs,
-    sessionsRef: sessionsHook.sessionsRef,
   });
   useWorkspaceFlowSeenEffect({
     activeSession: derived.activeSession,

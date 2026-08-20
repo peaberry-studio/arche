@@ -139,14 +139,14 @@ function isSameMinute(ts1?: number, ts2?: number): boolean {
 }
 
 function displayTimestamp(message: ChatMessage): string {
-  if (/^\d+$/.test(message.timestamp)) {
+  if (message.timestamp === "Just now" || /^\d+$/.test(message.timestamp)) {
     return formatTimestamp(message.timestampRaw ?? Number(message.timestamp));
   }
   return message.timestamp;
 }
 
 function isVisibleChatPart(part: MessagePart): boolean {
-  if (part.type === "text") return Boolean(part.text.trim());
+  if (part.type === "text" || part.type === "reasoning") return Boolean(part.text.trim());
   if (part.type === "step-start" || part.type === "step-finish") return false;
   return true;
 }
@@ -385,23 +385,6 @@ function groupMessageParts(parts: MessagePart[]): PartGroup[] {
   return groups;
 }
 
-function permissionToPart(
-  permission: WorkspacePermission,
-): Extract<MessagePart, { type: "permission" }> {
-  return {
-    type: "permission",
-    id: `permission:${permission.id}`,
-    permissionId: permission.id,
-    sessionId: permission.sessionId,
-    title: permission.title,
-    state: "pending",
-    ...(permission.callId ? { callId: permission.callId } : {}),
-    ...(permission.pattern ? { pattern: permission.pattern } : {}),
-    permissionType: "tool",
-    ...(permission.metadata ? { metadata: permission.metadata } : {}),
-  };
-}
-
 export function ChatPanelMessages({
   chatContentStyle,
   connectorNamesById,
@@ -618,7 +601,7 @@ export function ChatPanelMessages({
                 <PermissionCard
                   key={permission.id}
                   onAnswerPermission={onAnswerPermission}
-                  part={permissionToPart(permission)}
+                  permission={permission}
                 />
               ))}
 

@@ -2,7 +2,7 @@
 
 import { useCallback, type MutableRefObject, type SetStateAction } from "react";
 
-import { abortSessionAction, listPermissionsAction } from "@/actions/opencode";
+import { abortSessionAction } from "@/actions/opencode";
 import {
   PRE_SESSION_SELECTION_KEY,
   type SessionSelectionState,
@@ -183,29 +183,12 @@ export function useWorkspaceMessageActions({
           },
         );
         if (!reply.ok) return false;
-
-        // Safety net: if no permission.replied arrives via the bus, re-read the
-        // permission list to clear any ghost. OpenCode remains the truth.
-        setTimeout(async () => {
-          const listed = await listPermissionsAction(slug);
-          if (!listed.ok || !listed.permissions) return;
-          const fresh = listed.permissions[permissionSessionId];
-          commitStore((current) => {
-            const nextPermissions = { ...current.permissions };
-            if (!fresh || fresh.length === 0) {
-              delete nextPermissions[permissionSessionId];
-            } else {
-              nextPermissions[permissionSessionId] = fresh;
-            }
-            return { ...current, permissions: nextPermissions };
-          });
-        }, 10_000);
         return true;
       } catch {
         return false;
       }
     },
-    [commitStore, slug],
+    [slug],
   );
 
   const abortSession = useCallback(async () => {

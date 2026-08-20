@@ -16,6 +16,7 @@ import { listMessagesAction, listPermissionsAction } from "@/actions/opencode";
 import { EMPTY_WORKSPACE_MESSAGES } from "@/hooks/workspace/workspace-types";
 import {
   createEmptyChatStore,
+  hydratePermissionsIntoStore,
   hydrateSessionIntoStore,
   reduceOpenCodeEvent,
   type ChatStore,
@@ -122,6 +123,7 @@ export function useWorkspaceEventBus({
   const hydrateSessionMessages = useCallback(
     async (sessionId: string) => {
       setIsLoadingMessages(true);
+      const statusBefore = getStore().sessionStatus[sessionId];
       try {
         const result = await listMessagesAction(slug, sessionId);
         if (result.ok && result.messages) {
@@ -131,21 +133,29 @@ export function useWorkspaceEventBus({
           result.ok &&
           (result.sessionRuntimeStatus === "idle" || result.sessionRuntimeStatus === "busy")
         ) {
-          setSessionStatus(sessionId, result.sessionRuntimeStatus);
+          const snapshotStatus = result.sessionRuntimeStatus;
+          commitStore((prev) => {
+            if (prev.sessionStatus[sessionId] !== statusBefore) return prev;
+            return {
+              ...prev,
+              sessionStatus: { ...prev.sessionStatus, [sessionId]: snapshotStatus },
+            };
+          });
         }
       } finally {
         setIsLoadingMessages(false);
       }
     },
-    [slug, mergeHydratedMessages, setSessionStatus],
+    [slug, mergeHydratedMessages, getStore, commitStore],
   );
 
   const hydrateWorkspacePermissions = useCallback(async () => {
+    const baseline = getStore().permissions;
     const result = await listPermissionsAction(slug);
     if (!result.ok || !result.permissions) return;
-    const permissions = result.permissions;
-    commitStore((current) => ({ ...current, permissions }));
-  }, [commitStore, slug]);
+    const snapshot = result.permissions;
+    commitStore((current) => hydratePermissionsIntoStore(current, snapshot, baseline));
+  }, [commitStore, getStore, slug]);
 
   const hydrateOnConnect = useCallback(async () => {
     const sessionId = activeSessionIdGetterRef.current();

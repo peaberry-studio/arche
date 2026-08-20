@@ -1582,6 +1582,7 @@ vi.stubGlobal(
     await waitFor(() => {
       expect(result.current.isSending).toBe(true);
     });
+    expect(result.current.sessions.find((session) => session.id === "root")?.status).toBe("busy");
     expect(result.current.messages).toHaveLength(0);
 
     act(() => {
@@ -2330,7 +2331,7 @@ vi.stubGlobal(
       expect(opencodeMocks.listMessagesAction).not.toHaveBeenCalled();
     });
 
-    it("polls diffs when a session is busy (no per-message polling)", async () => {
+    it("does not poll diffs on the session interval even if the list snapshot says busy", async () => {
       opencodeMocks.listSessionsAction.mockResolvedValue({
         ok: true,
         sessions: [
@@ -2354,9 +2355,9 @@ vi.stubGlobal(
         await new Promise((resolve) => setTimeout(resolve, 500));
       });
 
-      expect(opencodeMocks.getWorkspaceDiffsAction).toHaveBeenCalled();
-      // The event bus is the only message source: no message polling.
+      expect(opencodeMocks.getWorkspaceDiffsAction).not.toHaveBeenCalled();
       expect(opencodeMocks.listMessagesAction).not.toHaveBeenCalled();
+      expect(result.current.sessions[0]?.status).toBe("idle");
     });
 
     it("does not poll messages for any session; the bus is the source of truth", async () => {
@@ -2384,9 +2385,7 @@ vi.stubGlobal(
         await new Promise((resolve) => setTimeout(resolve, 500));
       });
 
-      // Diffs should be polled because s2 is busy
-      expect(opencodeMocks.getWorkspaceDiffsAction).toHaveBeenCalled();
-      // Messages are never polled; the bus applies events.
+      expect(opencodeMocks.getWorkspaceDiffsAction).not.toHaveBeenCalled();
       expect(opencodeMocks.listMessagesAction).not.toHaveBeenCalled();
     });
   });

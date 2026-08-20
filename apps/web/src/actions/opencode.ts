@@ -4,6 +4,7 @@ import { createFlowActorScope } from "@/lib/flows/authorization";
 import { formatTimestamp } from "@/lib/format-timestamp";
 import { isLearningSessionTitle } from "@/lib/learning/session-title";
 import { createInstanceClient, getInstanceUrl } from "@/lib/opencode/client";
+import { toWorkspaceMessage } from "@/lib/opencode/event-reducer";
 import { normalizePendingPermission } from "@/lib/opencode/permission";
 import type { WorkspacePermission } from "@/lib/opencode/permission";
 import { getTerminalRetryError } from "@/lib/opencode/retry-state";
@@ -24,7 +25,6 @@ import type {
 import {
   getCanonicalProviderId,
   getProviderLabel,
-  normalizeProviderId,
   providerRequiresCredential,
   resolveRuntimeProviderId,
 } from "@/lib/providers/catalog";
@@ -33,7 +33,6 @@ import { getSession } from "@/lib/runtime/session";
 import { flowService, instanceService, messageRunService, slackService, userService } from "@/lib/services";
 import { decryptPassword } from "@/lib/spawner/crypto";
 import { createWorkspaceAgentClient } from "@/lib/workspace-agent/client";
-import { deriveWorkspaceMessageRuntimeState } from "@/lib/workspace-message-state";
 import {
   isHiddenWorkspacePath,
   isProtectedWorkspacePath,
@@ -56,21 +55,6 @@ function isFreeOpencodeModel(model: unknown): boolean {
   const output = (cost as { output?: unknown }).output;
 
   return input === 0 && output === 0;
-}
-
-function normalizeMessageRole(
-  role: unknown
-): "user" | "assistant" | "system" | null {
-  if (role === "user" || role === "assistant" || role === "system") {
-    return role;
-  }
-
-  return null;
-}
-
-function extractUserTextContent(parts: ReturnType<typeof transformParts>): string {
-  const firstText = parts.find((part) => part.type === "text");
-  return firstText ? firstText.text : "";
 }
 
 async function getAuthorizedClientContext(slug: string) {
@@ -355,16 +339,8 @@ type RuntimeSessionStatus = {
   type?: string;
 };
 
-function toBusyStatus(status: RuntimeSessionStatus | undefined): "active" | "idle" | "busy" | "error" {
-  if (getTerminalRetryError(status)) {
-    return "error";
-  }
-
-  if (status?.type === "busy" || status?.type === "retry") {
-    return "busy";
-  }
-
-  return "idle";
+function toListSessionStatus(status: RuntimeSessionStatus | undefined): "idle" | "error" {
+  return getTerminalRetryError(status) ? "error" : "idle";
 }
 
 function toWorkspaceSessions(
@@ -378,7 +354,7 @@ function toWorkspaceSessions(
     return {
       id: session.id,
       title: session.title || "Untitled",
-      status: toBusyStatus(statuses[session.id]),
+      status: toListSessionStatus(statuses[session.id]),
       updatedAt: formatTimestamp(session.updatedAtRaw),
       updatedAtRaw: session.updatedAtRaw,
       parentId: session.parentId,
@@ -737,12 +713,10 @@ export async function listMessagesAction(
     const messages = result.data ?? [];
 
     let sessionRuntimeStatus: "busy" | "idle" | "unknown" = "unknown";
-    let terminalRetryError: string | null = null;
     try {
       const statusResult = await client!.session.status();
       const statuses = (statusResult.data ?? {}) as Record<string, RuntimeSessionStatus | undefined>;
       const sessionStatus = statuses[sessionId]?.type;
-      terminalRetryError = getTerminalRetryError(statuses[sessionId]);
       if (sessionStatus === "busy" || sessionStatus === "retry") {
         sessionRuntimeStatus = "busy";
       } else if (sessionStatus === "idle") {
@@ -752,65 +726,20 @@ export async function listMessagesAction(
       // Keep unknown status when status endpoint fails.
     }
 
-    const terminalAssistantMessageId = terminalRetryError
-      ? [...messages].reverse().find((message) => {
-          if (normalizeMessageRole(message.info.role) !== "assistant") return false;
-          const completedAt = (message.info.time as { completed?: number } | undefined)?.completed;
-          return typeof completedAt !== "number" || completedAt <= 0;
-        })?.info.id
-      : undefined;
-
     const transformed: WorkspaceMessage[] = [];
     for (const m of messages) {
-      const role = normalizeMessageRole(m.info.role);
-      if (!role) continue;
-
-      const rawTimestamp = m.info.time?.created;
-      const completedAt = (m.info.time as { completed?: number } | undefined)
-        ?.completed;
-      const parts = transformParts(m.parts ?? []);
-      const runtimeState = deriveWorkspaceMessageRuntimeState({
-        role,
-        completedAt,
-        parts,
-        sessionStatus: sessionRuntimeStatus,
-        terminalError:
-          m.info.id === terminalAssistantMessageId ? terminalRetryError ?? undefined : undefined,
+      const info = m.info as unknown as Record<string, unknown>;
+      const mapped = toWorkspaceMessage({
+        ...info,
+        parts: m.parts ?? info.parts ?? [],
+        sessionID:
+          typeof info.sessionID === "string"
+            ? info.sessionID
+            : typeof info.sessionId === "string"
+              ? info.sessionId
+              : sessionId,
       });
-      const info = m.info as Record<string, unknown>;
-      const infoModel = info.model as Record<string, unknown> | undefined;
-      const rawProviderId =
-        typeof info.providerID === "string"
-          ? info.providerID
-          : typeof infoModel?.providerID === "string"
-            ? infoModel.providerID
-            : undefined;
-      const providerId = rawProviderId
-        ? normalizeProviderId(rawProviderId)
-        : undefined;
-      const modelId =
-        typeof info.modelID === "string"
-          ? info.modelID
-          : typeof infoModel?.modelID === "string"
-          ? infoModel.modelID
-          : undefined;
-      const agentId = typeof info.agent === "string" ? info.agent : undefined;
-
-      transformed.push({
-        id: m.info.id,
-        sessionId,
-        role,
-        agentId,
-        model: providerId && modelId ? { providerId, modelId } : undefined,
-        content:
-          role === "user" ? extractUserTextContent(parts) : extractTextContent(parts),
-        timestamp: formatTimestamp(rawTimestamp),
-        timestampRaw:
-          typeof rawTimestamp === "number" ? rawTimestamp : undefined,
-        parts,
-        pending: runtimeState.pending,
-        statusInfo: runtimeState.statusInfo,
-      });
+      if (mapped) transformed.push(mapped);
     }
 
     return { ok: true, messages: transformed, sessionRuntimeStatus };

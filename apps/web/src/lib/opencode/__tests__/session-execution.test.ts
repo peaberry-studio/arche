@@ -78,6 +78,8 @@ describe('session execution helpers', () => {
       await vi.advanceTimersByTimeAsync(16_000)
 
       await expect(runPromise).resolves.toEqual({ status: 'failed', error: 'flow_no_assistant_message' })
+      expect(messages).toHaveBeenCalledTimes(1)
+      expect(status.mock.calls.length).toBeGreaterThan(1)
     } finally {
       vi.useRealTimers()
     }
@@ -413,25 +415,15 @@ describe('session execution helpers', () => {
   })
 
   it('reports no assistant message when the idle outcome has only non-assistant messages', async () => {
-    const status = vi.fn().mockResolvedValue({
-      data: {
-        'session-1': { type: 'idle' },
-      },
-    })
-    const messages = vi
-      .fn()
-      .mockResolvedValueOnce({
-        data: [
-          {
-            info: {
-              role: 'assistant',
-              time: { completed: 1 },
-            },
-            parts: [{ id: 'part-1', text: 'Done', type: 'text' }],
-          },
-        ],
+    vi.useFakeTimers()
+
+    try {
+      const status = vi.fn().mockResolvedValue({
+        data: {
+          'session-1': { type: 'idle' },
+        },
       })
-      .mockResolvedValueOnce({
+      const messages = vi.fn().mockResolvedValue({
         data: [
           {
             info: {
@@ -443,6 +435,46 @@ describe('session execution helpers', () => {
         ],
       })
 
+      const { waitForSessionToComplete } = await import('../session-execution')
+      const runPromise = waitForSessionToComplete({
+        client: {
+          session: { messages, status },
+        } as Parameters<typeof waitForSessionToComplete>[0]['client'],
+        sessionId: 'session-1',
+        slug: 'slack-bot',
+      })
+
+      await vi.advanceTimersByTimeAsync(16_000)
+
+      await expect(runPromise).resolves.toEqual({ status: 'failed', error: 'flow_no_assistant_message' })
+      expect(messages).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('completes when idle even if an assistant message still has a running tool', async () => {
+    const pendingMessage = {
+      info: {
+        role: 'assistant',
+        time: {},
+      },
+      parts: [
+        {
+          id: 'tool-1',
+          state: { input: {}, status: 'running', title: 'reading' },
+          tool: 'read_file',
+          type: 'tool',
+        },
+      ],
+    }
+    const status = vi.fn().mockResolvedValue({
+      data: {
+        'session-1': { type: 'idle' },
+      },
+    })
+    const messages = vi.fn().mockResolvedValue({ data: [pendingMessage] })
+
     const { waitForSessionToComplete } = await import('../session-execution')
 
     await expect(waitForSessionToComplete({
@@ -451,45 +483,29 @@ describe('session execution helpers', () => {
       } as Parameters<typeof waitForSessionToComplete>[0]['client'],
       sessionId: 'session-1',
       slug: 'slack-bot',
-    })).resolves.toEqual({ status: 'failed', error: 'flow_no_assistant_message' })
+    })).resolves.toEqual({ status: 'completed' })
+    expect(messages).toHaveBeenCalledTimes(1)
   })
 
-  it('keeps polling while an idle assistant message still has a running tool', async () => {
+  it('does not fetch messages while status is busy and fetches once after idle', async () => {
     vi.useFakeTimers()
 
     try {
-      const pendingMessage = {
-        info: {
-          role: 'assistant',
-          time: {},
-        },
-        parts: [
+      const status = vi.fn()
+        .mockResolvedValueOnce({ data: { 'session-1': { type: 'busy' } } })
+        .mockResolvedValueOnce({ data: { 'session-1': { type: 'busy' } } })
+        .mockResolvedValue({ data: { 'session-1': { type: 'idle' } } })
+      const messages = vi.fn().mockResolvedValue({
+        data: [
           {
-            id: 'tool-1',
-            state: { input: {}, status: 'running', title: 'reading' },
-            tool: 'read_file',
-            type: 'tool',
+            info: {
+              role: 'assistant',
+              time: { completed: 1 },
+            },
+            parts: [{ id: 'part-1', text: 'Done', type: 'text' }],
           },
         ],
-      }
-      const completedMessage = {
-        info: {
-          role: 'assistant',
-          time: { completed: 1 },
-        },
-        parts: [{ id: 'part-1', text: 'Done', type: 'text' }],
-      }
-      const status = vi.fn().mockResolvedValue({
-        data: {
-          'session-1': { type: 'idle' },
-        },
       })
-      const messages = vi
-        .fn()
-        .mockResolvedValueOnce({ data: [pendingMessage] })
-        .mockResolvedValueOnce({ data: [pendingMessage] })
-        .mockResolvedValueOnce({ data: [completedMessage] })
-        .mockResolvedValueOnce({ data: [completedMessage] })
 
       const { waitForSessionToComplete } = await import('../session-execution')
       const promise = waitForSessionToComplete({
@@ -500,10 +516,10 @@ describe('session execution helpers', () => {
         slug: 'slack-bot',
       })
 
-      await vi.advanceTimersByTimeAsync(2_000)
+      await vi.advanceTimersByTimeAsync(4_000)
 
       await expect(promise).resolves.toEqual({ status: 'completed' })
-      expect(messages).toHaveBeenCalledTimes(4)
+      expect(messages).toHaveBeenCalledTimes(1)
     } finally {
       vi.useRealTimers()
     }

@@ -434,4 +434,74 @@ describe("useWorkspaceEventBus", () => {
     expect(onBackgroundSessionIdle).toHaveBeenCalledTimes(1);
     expect(onBackgroundSessionIdle).toHaveBeenCalledWith("s2");
   });
+
+  it("does not clobber live busy with a stale idle hydrate snapshot", async () => {
+    const stream = createEventStream();
+    vi.stubGlobal("fetch", vi.fn(async () => sseResponse(stream)));
+
+    let resolveHydrate: (value: {
+      ok: boolean;
+      messages: unknown[];
+      sessionRuntimeStatus: "idle" | "busy";
+    }) => void = () => undefined;
+    opencodeMocks.listMessagesAction.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveHydrate = resolve;
+        }),
+    );
+
+    const { hook } = renderBus();
+    await flush();
+
+    await act(async () => {
+      stream.sendEvent(busyEvent("s1"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(isSending(hook.result.current.store, "s1")).toBe(true);
+
+    await act(async () => {
+      resolveHydrate({ ok: true, messages: [], sessionRuntimeStatus: "idle" });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(isSending(hook.result.current.store, "s1")).toBe(true);
+  });
+
+  it("keeps a permission.asked that arrives while hydrate is in flight", async () => {
+    const stream = createEventStream();
+    vi.stubGlobal("fetch", vi.fn(async () => sseResponse(stream)));
+
+    let resolvePermissions: (value: {
+      ok: boolean;
+      permissions: Record<string, unknown[]>;
+    }) => void = () => undefined;
+    opencodeMocks.listPermissionsAction.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolvePermissions = resolve;
+        }),
+    );
+
+    const { hook } = renderBus();
+    await flush();
+
+    await act(async () => {
+      stream.sendEvent({
+        type: "permission.asked",
+        properties: {
+          permission: { id: "perm-live", sessionID: "s1", permission: "Edit file" },
+        },
+      });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(hook.result.current.store.permissions.s1?.[0]?.id).toBe("perm-live");
+
+    await act(async () => {
+      resolvePermissions({ ok: true, permissions: {} });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(hook.result.current.store.permissions.s1).toMatchObject([
+      { id: "perm-live", sessionId: "s1" },
+    ]);
+  });
 });

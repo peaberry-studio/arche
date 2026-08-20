@@ -3,18 +3,15 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { PermissionCard } from '@/components/workspace/chat-panel/permission-card'
-import type { MessagePart, PermissionResponse, PermissionState } from '@/lib/opencode/types'
+import type { WorkspacePermission } from '@/lib/opencode/permission'
+import type { PermissionResponse } from '@/lib/opencode/types'
 
-type PermissionPart = Extract<MessagePart, { type: 'permission' }>
-
-function createPart(state: PermissionState): PermissionPart {
+function createPermission(): WorkspacePermission {
   return {
-    type: 'permission',
-    id: 'part-1',
-    permissionId: 'perm-1',
+    id: 'perm-1',
     sessionId: 's1',
     title: 'Run command: pnpm test',
-    state,
+    state: 'pending',
     pattern: 'bash(pnpm test)',
     metadata: { tool: 'bash' },
   }
@@ -26,7 +23,7 @@ describe('PermissionCard', () => {
   })
 
   it('renders the pending state with the shared tool-card surface', () => {
-    const { container } = render(<PermissionCard part={createPart('pending')} />)
+    const { container } = render(<PermissionCard permission={createPermission()} />)
 
     const card = container.firstElementChild
     expect(card?.className).toContain('border-border/40')
@@ -42,28 +39,8 @@ describe('PermissionCard', () => {
     expect(subtitle.textContent).toBe('Run command: pnpm test')
   })
 
-  it('renders the approved state with the shared tool-card surface and no actions', () => {
-    const { container } = render(<PermissionCard part={createPart('approved')} />)
-
-    const card = container.firstElementChild
-    expect(card?.className).toContain('border-border/40')
-    expect(card?.className).toContain('bg-muted/20')
-    expect(screen.getByText('Permission granted')).toBeTruthy()
-    expect(screen.queryByRole('button')).toBeNull()
-  })
-
-  it('renders the rejected state with the shared tool-card surface and no actions', () => {
-    const { container } = render(<PermissionCard part={createPart('rejected')} />)
-
-    const card = container.firstElementChild
-    expect(card?.className).toContain('border-border/40')
-    expect(card?.className).toContain('bg-muted/20')
-    expect(screen.getByText('Permission rejected')).toBeTruthy()
-    expect(screen.queryByRole('button')).toBeNull()
-  })
-
   it('renders explicit action labels with a homogeneous solid hierarchy', () => {
-    render(<PermissionCard part={createPart('pending')} onAnswerPermission={vi.fn()} />)
+    render(<PermissionCard permission={createPermission()} onAnswerPermission={vi.fn()} />)
 
     const allowOnce = screen.getByRole('button', { name: 'Allow once' })
     expect(allowOnce.className).toContain('bg-warning')
@@ -87,7 +64,7 @@ describe('PermissionCard', () => {
     ['Allow for this session', 'always'],
   ] as const)('sends %s as %s', async (label, expected) => {
     const onAnswerPermission = vi.fn(async () => true)
-    render(<PermissionCard part={createPart('pending')} onAnswerPermission={onAnswerPermission} />)
+    render(<PermissionCard permission={createPermission()} onAnswerPermission={onAnswerPermission} />)
 
     fireEvent.click(screen.getByRole('button', { name: label }))
 
@@ -98,7 +75,7 @@ describe('PermissionCard', () => {
 
   it('announces submission failures with an alert', async () => {
     const onAnswerPermission = vi.fn(async () => false)
-    render(<PermissionCard part={createPart('pending')} onAnswerPermission={onAnswerPermission} />)
+    render(<PermissionCard permission={createPermission()} onAnswerPermission={onAnswerPermission} />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Allow once' }))
 
@@ -114,7 +91,7 @@ describe('PermissionCard', () => {
           resolveAnswer = resolve
         }),
     )
-    render(<PermissionCard part={createPart('pending')} onAnswerPermission={onAnswerPermission} />)
+    render(<PermissionCard permission={createPermission()} onAnswerPermission={onAnswerPermission} />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Allow once' }))
 
@@ -131,7 +108,7 @@ describe('PermissionCard', () => {
   })
 
   it('keeps actions disabled without a handler (read-only conversation)', () => {
-    render(<PermissionCard part={createPart('pending')} />)
+    render(<PermissionCard permission={createPermission()} />)
 
     for (const button of screen.getAllByRole('button')) {
       expect((button as HTMLButtonElement).disabled).toBe(true)

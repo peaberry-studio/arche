@@ -1,3 +1,5 @@
+import { extractTextContent, transformParts } from '@/lib/opencode/transform'
+
 export type SessionHistoryRequest = {
   includeMessages?: boolean
   limit?: number
@@ -22,14 +24,7 @@ export function getSessionId(session: unknown): string | null {
 
 export function getMessageText(message: unknown): string {
   if (!isRecord(message) || !Array.isArray(message.parts)) return ''
-  return message.parts
-    .map((part) => {
-      if (!isRecord(part)) return ''
-      const text = part.text ?? part.content
-      return typeof text === 'string' ? text : ''
-    })
-    .filter(Boolean)
-    .join('\n')
+  return extractTextContent(transformParts(message.parts))
 }
 
 export function getMessageRole(message: unknown): string {

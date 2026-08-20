@@ -744,7 +744,7 @@ describe('listMessagesAction', () => {
     expect(result.sessionRuntimeStatus).toBe('busy')
   })
 
-  it('stops the latest incomplete assistant for terminal provider retries', async () => {
+  it('does not persist pending or statusInfo on hydrated messages', async () => {
     mockSessionMessages.mockResolvedValue({
       data: [
         {
@@ -764,13 +764,10 @@ describe('listMessagesAction', () => {
 
     const result = await listMessagesAction('alice', 'sess-1')
 
-    expect(result.messages).toMatchObject([
-      {
-        id: 'msg-1',
-        pending: false,
-        statusInfo: { status: 'error', detail: 'free_tier_limit' },
-      },
-    ])
+    expect(result.sessionRuntimeStatus).toBe('busy')
+    expect(result.messages![0]).toMatchObject({ id: 'msg-1', role: 'assistant' })
+    expect(result.messages![0].pending).toBeUndefined()
+    expect(result.messages![0].statusInfo).toBeUndefined()
   })
 
   it('does not graft pending permissions onto the assistant transcript', async () => {

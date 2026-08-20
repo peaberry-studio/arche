@@ -43,6 +43,22 @@ export function isSending(store: ChatStore, sessionId: string): boolean {
   return (store.sessionStatus[sessionId] ?? 'idle') === 'busy'
 }
 
+/**
+ * Paint busy/idle from the bus. List snapshots must not show busy.
+ * Terminal-retry `error` from the session list is preserved when the bus is not busy.
+ */
+export function overlaySessionRuntimeStatus(
+  session: WorkspaceSession,
+  runtime: SessionRuntimeStatus | undefined,
+): WorkspaceSession {
+  if (runtime === 'busy') {
+    return session.status === 'busy' ? session : { ...session, status: 'busy' }
+  }
+  if (session.status === 'error') return session
+  if (session.status === 'idle') return session
+  return { ...session, status: 'idle' }
+}
+
 function getNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
@@ -118,7 +134,7 @@ function withMessages(
   return next
 }
 
-function toWorkspaceMessage(info: Record<string, unknown>): WorkspaceMessage | null {
+export function toWorkspaceMessage(info: Record<string, unknown>): WorkspaceMessage | null {
   const id = getString(info.id)
   const role = normalizeMessageRole(info.role)
   const sessionId = getString(info.sessionID) ?? getString(info.sessionId)
@@ -325,6 +341,55 @@ export function hydrateSessionIntoStore(
   return withMessages(store, sessionId, Array.from(byId.values()))
 }
 
+function flattenPermissions(
+  grouped: Record<string, WorkspacePermission[]>,
+): WorkspacePermission[] {
+  return Object.values(grouped).flat()
+}
+
+/**
+ * Merge a permission.list snapshot into the store.
+ * Permissions that arrived on the bus after `baseline` was captured are kept
+ * even if the snapshot is stale. Permissions removed on the bus during the
+ * fetch are not restored from the snapshot.
+ */
+export function hydratePermissionsIntoStore(
+  store: ChatStore,
+  snapshot: Record<string, WorkspacePermission[]>,
+  baseline: Record<string, WorkspacePermission[]> = {},
+): ChatStore {
+  const baselineIds = new Set(
+    flattenPermissions(baseline).map((permission) => permission.id),
+  )
+  const liveIds = new Set(
+    flattenPermissions(store.permissions).map((permission) => permission.id),
+  )
+  const removedDuringFetch = new Set(
+    [...baselineIds].filter((id) => !liveIds.has(id)),
+  )
+  const arrivedDuringFetch = flattenPermissions(store.permissions).filter(
+    (permission) => !baselineIds.has(permission.id),
+  )
+
+  const bySession: Record<string, WorkspacePermission[]> = {}
+  const add = (permission: WorkspacePermission) => {
+    if (removedDuringFetch.has(permission.id)) return
+    const current = bySession[permission.sessionId] ?? []
+    const existingIndex = current.findIndex((candidate) => candidate.id === permission.id)
+    bySession[permission.sessionId] =
+      existingIndex >= 0
+        ? current.map((candidate, index) => (index === existingIndex ? permission : candidate))
+        : [...current, permission]
+  }
+
+  for (const list of Object.values(snapshot)) {
+    for (const permission of list) add(permission)
+  }
+  for (const permission of arrivedDuringFetch) add(permission)
+
+  return { ...store, permissions: bySession }
+}
+
 function upsertMessageFromEvent(
   store: ChatStore,
   info: Record<string, unknown>,
@@ -458,17 +523,7 @@ function locateMessageGlobal(
 }
 
 function transformMessagePart(part: Record<string, unknown>): MessagePart | null {
-  const partType = getString(part.type)
-  const partId = getString(part.id)
-  // OpenCode creates text/reasoning parts with empty text, then streams via
-  // message.part.delta. transformParts drops empty snapshots for history;
-  // the live path must keep the placeholder so deltas have a part to append to.
-  if ((partType === 'text' || partType === 'reasoning') && partId) {
-    const text = typeof part.text === 'string' ? part.text : ''
-    return { type: partType, id: partId, text }
-  }
-  const transformed = transformParts([part])
-  return transformed[0] ?? null
+  return transformParts([part])[0] ?? null
 }
 
 function applyMessagePartDelta(store: ChatStore, properties: Record<string, unknown>): ChatStore {

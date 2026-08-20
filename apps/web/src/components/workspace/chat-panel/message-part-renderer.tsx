@@ -913,7 +913,20 @@ export function MessagePartRenderer({
       )
 
     case 'permission':
-      return <PermissionCard part={part} onAnswerPermission={onAnswerPermission} />
+      return (
+        <PermissionCard
+          onAnswerPermission={part.state === 'pending' ? onAnswerPermission : undefined}
+          permission={{
+            id: part.permissionId,
+            sessionId: part.sessionId,
+            title: part.title,
+            state: 'pending',
+            ...(part.callId ? { callId: part.callId } : {}),
+            ...(part.pattern ? { pattern: part.pattern } : {}),
+            ...(part.metadata ? { metadata: part.metadata } : {}),
+          }}
+        />
+      )
 
     case 'file':
       return (
