@@ -117,6 +117,7 @@ describe('KnowledgeReviewList', () => {
     render(<KnowledgeReviewList slug="alice" />)
 
     expect(await screen.findByText('No knowledge proposals awaiting review.')).toBeTruthy()
+    expect(screen.getByText('Agent and curator suggestions appear here. They are not on disk until you Apply.')).toBeTruthy()
   })
 
   it('shows a readable error label when the load fails on the network', async () => {

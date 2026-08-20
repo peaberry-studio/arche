@@ -5,7 +5,6 @@ export {
   rebaseKnowledgeReviewChangeForUser,
   rejectKnowledgeReviewChangeForUser,
   saveKnowledgeReviewChangeDraft,
-  submitWorkspaceDiffForReview,
 } from '@/lib/learning/proposal-application'
 export {
   cancelLearningRun,

@@ -4,10 +4,12 @@ import { describe, it, expect } from 'vitest'
 import {
   applyAgentExecutionGuards,
   applyDefaultAgentModel,
+  denyAgentKnowledgeWrites,
   injectAlwaysOnAgentTools,
   injectCustomConnectorHints,
   injectSelfDelegationGuards,
   injectSystemSkillAccess,
+  materializeAgentToolMaps,
   remapAgentConnectorTools,
 } from '../agent-config-transforms'
 
@@ -233,6 +235,114 @@ describe('injectAlwaysOnAgentTools', () => {
 
     const result = injectAlwaysOnAgentTools(config)
     expect(result).toBe(config)
+  })
+})
+
+describe('materializeAgentToolMaps', () => {
+  it('materializes the full legacy toolset for all-mode and missing tool configs', () => {
+    const result = materializeAgentToolMaps({
+      agent: {
+        allMode: { tools: 'all' },
+        implicit: {},
+      },
+    })
+    const agents = result.agent as Record<string, Record<string, Record<string, boolean>>>
+
+    expect(agents.allMode.tools).toEqual(agents.implicit.tools)
+    // Faithful `'all'` semantics: every built-in, always-on tool, the skill
+    // tool, and MCP connector access. write/edit are still true here — the
+    // deny transform flips them off later in the pipeline.
+    expect(agents.allMode.tools).toMatchObject({
+      'arche_*': true,
+      bash: true,
+      chart_create: true,
+      diagram_create: true,
+      edit: true,
+      email_draft: true,
+      flow_propose: true,
+      learning_propose: true,
+      read: true,
+      session_history_query: true,
+      skill: true,
+      write: true,
+    })
+  })
+
+  it('runs after the deny step of a full pipeline only as a fallback; leaves maps and non-record agents alone', () => {
+    const config = {
+      agent: {
+        mapped: { tools: { read: true, write: true } },
+        unavailable: null,
+      },
+    }
+    const result = materializeAgentToolMaps(config)
+    expect(result).toBe(config)
+  })
+})
+
+describe('denyAgentKnowledgeWrites', () => {
+  it('disables write and edit while preserving explicit tool maps', () => {
+    const result = denyAgentKnowledgeWrites({
+      agent: {
+        assistant: {
+          tools: {
+            bash: true,
+            edit: true,
+            learning_propose: true,
+            read: true,
+            write: true,
+          },
+        },
+      },
+    })
+    const tools = (result.agent as Record<string, Record<string, Record<string, boolean>>>).assistant.tools
+
+    expect(tools).toEqual({
+      bash: true,
+      edit: false,
+      learning_propose: true,
+      read: true,
+      write: false,
+    })
+  })
+
+  it('materializes the full tool set for all-mode and missing tool configs', () => {
+    const result = denyAgentKnowledgeWrites({
+      agent: {
+        allMode: { tools: 'all' },
+        implicit: {},
+      },
+    })
+    const agents = result.agent as Record<string, Record<string, Record<string, boolean>>>
+
+    expect(agents.allMode.tools).toEqual(agents.implicit.tools)
+    // Legacy 'all'/missing-tool configs keep the sanctioned proposal path
+    // (learning_propose), skills, always-on tools, and MCP connector access;
+    // only write/edit are flipped off.
+    expect(agents.allMode.tools).toMatchObject({
+      'arche_*': true,
+      bash: true,
+      chart_create: true,
+      diagram_create: true,
+      edit: false,
+      email_draft: true,
+      flow_propose: true,
+      learning_propose: true,
+      read: true,
+      session_history_query: true,
+      skill: true,
+      write: false,
+    })
+  })
+
+  it('leaves non-record agents alone', () => {
+    const result = denyAgentKnowledgeWrites({
+      agent: {
+        unavailable: null,
+      },
+    })
+
+    expect(result.agent).toEqual({ unavailable: null })
   })
 })
 

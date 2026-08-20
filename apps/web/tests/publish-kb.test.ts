@@ -55,7 +55,7 @@ function instance(status = 'running', containerId = 'ctr-1') {
   return { containerId, status }
 }
 
-function mockFetchResponse(payload: unknown, status = 200, diffPaths = ['file1.md']) {
+function mockFetchResponse(payload: unknown, status = 200, diffPaths = ['file1.md'], fileHash = 'sha256:file1') {
   const ok = status >= 200 && status < 300
   const response = {
     ok,
@@ -68,6 +68,11 @@ function mockFetchResponse(payload: unknown, status = 200, diffPaths = ['file1.m
       ok: true,
     status: 200,
     json: async () => ({ ok: true, diffs: diffPaths.map((path) => ({ path })) }),
+    })
+    .mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ ok: true, hash: fileHash }),
     })
     .mockResolvedValue(response)
 }
@@ -209,7 +214,7 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     expect(body.files).toEqual(['file1.md', 'file2.md'])
   })
 
-  it('publishes only reviewed applied paths and records the resulting commit', async () => {
+  it('publishes reviewed and user-only paths and records the resulting commit', async () => {
     mockGetAuthenticatedUser.mockResolvedValue(session('alice'))
     mockFindUnique.mockResolvedValue(instance())
     mockCreateWorkspaceAgentClient.mockResolvedValue({
@@ -222,7 +227,7 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
       status: 'published',
       commitHash: 'abc1234',
       files: ['reviewed.md', 'unreviewed.md'],
-    }, 200, ['reviewed.md', 'unreviewed.md'])
+    }, 200, ['reviewed.md', 'unreviewed.md'], 'sha256:reviewed')
 
     const { status, body } = await callPOST('alice')
 
@@ -234,7 +239,7 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     })
     expect(global.fetch).toHaveBeenLastCalledWith('http://agent/kb/publish', expect.objectContaining({
       body: JSON.stringify({
-        paths: ['reviewed.md'],
+        paths: ['reviewed.md', 'unreviewed.md'],
         pathHashes: { 'reviewed.md': 'sha256:reviewed' },
       }),
     }))

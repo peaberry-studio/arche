@@ -1,6 +1,5 @@
 import { auditEvent } from '@/lib/auth'
 import {
-  createKnowledgeReviewChange,
   findKnowledgeReviewChange,
   markKnowledgeReviewChangeApplied,
   markKnowledgeReviewChangeApplying,
@@ -10,7 +9,6 @@ import {
   saveKnowledgeReviewDraft,
   startLearningRunForKnowledgeReviewRegeneration,
 } from '@/lib/learning/repository'
-import { isValidKbPath } from '@/lib/learning/validation'
 import { dispatchLearningRunExecution } from '@/lib/learning/run-executor'
 import { createWorkspaceAgentClient } from '@/lib/workspace-agent/client'
 import { workspaceAgentFetch } from '@/lib/workspace-agent-client'
@@ -39,14 +37,6 @@ type FileDeleteResponse = {
   ok: boolean
   path: string
   deleted: boolean
-}
-
-type FileReadRefResponse = {
-  ok: boolean
-  path: string
-  content: string
-  encoding: string
-  hash: string
 }
 
 export type KnowledgeReviewBaseCapture = {
@@ -185,65 +175,6 @@ export async function regenerateKnowledgeReviewChangeForUser(args: {
     metadata: { changeId: change.id, kbPath: change.kbPath, runId: run.id },
   })
   return { ok: true, run }
-}
-
-export async function submitWorkspaceDiffForReview(args: {
-  actor: string
-  author: string
-  operation: KnowledgeReviewOperation
-  path: string
-  slug: string
-  userId: string
-}): Promise<{ ok: true; change: KnowledgeReviewChange } | { ok: false; error: string }> {
-  if (!isValidKbPath(args.path)) return { ok: false, error: 'invalid_path' }
-
-  const agent = await createWorkspaceAgentClient(args.slug)
-  if (!agent) return { ok: false, error: 'workspace_agent_unavailable' }
-
-  // The working tree already carries the change: its bytes become the proposal,
-  // and the committed revision becomes the base the proposal is reviewed against.
-  const current = await workspaceAgentFetch<FileReadResponse>(agent, '/files/read', { path: args.path })
-
-  let currentContent: string
-  if (args.operation === 'delete') {
-    if (current.ok) return { ok: false, error: 'workspace_diff_changed' }
-    if (current.status !== 404) return { ok: false, error: current.error }
-    currentContent = ''
-  } else {
-    if (!current.ok) return { ok: false, error: current.error }
-    currentContent = current.data.content
-  }
-
-  const base = await workspaceAgentFetch<FileReadRefResponse>(agent, '/files/read_ref', {
-    path: args.path,
-    ref: 'HEAD',
-  })
-  const baseContent = base.ok ? base.data.content : null
-  const baseHash = base.ok ? base.data.hash : null
-
-  const result = await createKnowledgeReviewChange(args.userId, {
-    author: args.author,
-    agent: 'workspace',
-    origin: 'workspace',
-    title: `${args.operation.charAt(0).toUpperCase()}${args.operation.slice(1)} ${args.path}`,
-    reason: 'Submitted from workspace changes for review.',
-    confidence: 1,
-    evidence: { source: 'workspace' },
-    kbPath: args.path,
-    operation: args.operation,
-    baseContent,
-    baseHash,
-    proposedContent: currentContent,
-    initialStatus: 'open',
-  })
-  if (!result.ok) return result
-
-  await auditEvent({
-    actorUserId: args.userId,
-    action: 'knowledge.review_submitted',
-    metadata: { changeId: result.change.id, kbPath: args.path, origin: 'workspace' },
-  })
-  return { ok: true, change: result.change }
 }
 
 export async function applyKnowledgeReviewChange(args: {

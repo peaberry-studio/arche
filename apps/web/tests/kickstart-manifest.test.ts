@@ -34,6 +34,21 @@ describe('kickstart manifests', () => {
     expect(curator?.systemPrompt.toLowerCase()).toContain('never write')
   })
 
+  it('does not give kickstart agents Knowledge Base write tools', () => {
+    const assistant = KICKSTART_AGENT_BY_ID.get('assistant')
+    const requirements = KICKSTART_AGENT_BY_ID.get('requirements')
+    const seo = KICKSTART_AGENT_BY_ID.get('seo')
+
+    expect(assistant?.tools).not.toBe('all')
+    expect(assistant?.tools).not.toContain('write')
+    expect(assistant?.tools).not.toContain('edit')
+    expect(requirements?.tools).not.toContain('write')
+    expect(requirements?.tools).not.toContain('edit')
+    expect(seo?.tools).not.toContain('write')
+    expect(seo?.tools).not.toContain('edit')
+    expect(assistant?.systemPrompt.toLowerCase()).toContain('never write')
+  })
+
   it('marketing template exposes curated prompt overrides for specialist agents', () => {
     const marketing = getKickstartTemplateById('marketing-studio')
     expect(marketing).not.toBeNull()
@@ -103,6 +118,10 @@ describe('kickstart artifact generation', () => {
       doom_loop: 'deny',
       task: 'deny',
     })
+    expect(built.artifacts.agentsMdContent).toContain(
+      'Chat agents never write the Knowledge Base. They create Knowledge Review proposals. Users apply proposals, edit files in Explore, and publish from Pending publish.'
+    )
+    expect(built.artifacts.agentsMdContent).not.toContain('before any KB write')
 
     const profileFile = built.artifacts.kbFiles.find(
       (file) => file.path === 'Company/00 - Company Profile.md'

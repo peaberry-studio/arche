@@ -55,6 +55,9 @@ deployments/
 infra/one-click/archectl
 archectl_*
 
+# Local Go workspace-agent build artifact (Containerfile builds from source)
+infra/workspace-image/workspace-agent/arche-workspace-agent
+
 # Infrastructure secrets (never commit .env or .env.local*)
 infra/**/.env
 infra/**/.env.local*

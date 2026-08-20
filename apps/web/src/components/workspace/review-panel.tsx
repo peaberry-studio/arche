@@ -3,10 +3,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { CaretDown, CaretRight, GitDiff, Trash } from "@phosphor-icons/react";
 
-import {
-  resolveWorkspaceConflictAction,
-  submitWorkspaceDiffForReviewAction,
-} from "@/actions/workspace-agent";
+import { resolveWorkspaceConflictAction } from "@/actions/workspace-agent";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DiffViewer } from "@/components/ui/diff-viewer";
@@ -37,17 +34,10 @@ type ReviewPanelProps = {
   onDiscardFileChanges?: (path: string) => Promise<{ ok: true } | { ok: false; error: string }>;
   onResolveConflict?: (path: string) => void | Promise<void>;
   onKnowledgeReviewApplied?: () => void | Promise<void>;
-  onSubmittedForReview?: () => void | Promise<void>;
   knowledgeReviewRefreshKey?: number;
 };
 
 const DIFF_PREVIEW_LINES = 120;
-
-const SUBMIT_OPERATION_BY_DIFF_STATUS: Record<WorkspaceDiff["status"], "create" | "update" | "delete"> = {
-  added: "create",
-  modified: "update",
-  deleted: "delete",
-};
 
 export function ReviewPanel({
   slug,
@@ -60,7 +50,6 @@ export function ReviewPanel({
   onProposalCountChange,
   onDiscardFileChanges,
   onKnowledgeReviewApplied,
-  onSubmittedForReview,
   onResolveConflict,
   knowledgeReviewRefreshKey,
 }: ReviewPanelProps) {
@@ -74,9 +63,6 @@ export function ReviewPanel({
   const [discardOpen, setDiscardOpen] = useState(false);
   const [isDiscarding, setIsDiscarding] = useState(false);
   const [discardError, setDiscardError] = useState<string | null>(null);
-  const [submittingPath, setSubmittingPath] = useState<string | null>(null);
-  const [submittedPaths, setSubmittedPaths] = useState<Record<string, boolean>>({});
-  const [submitErrors, setSubmitErrors] = useState<Record<string, string | undefined>>({});
 
   const conflictCount = useMemo(() => diffs.filter((diff) => diff.conflicted).length, [diffs]);
   const hasConflicts = conflictCount > 0;
@@ -115,27 +101,6 @@ export function ReviewPanel({
     setDiscardPath(path);
     setDiscardOpen(true);
   }, []);
-
-  const submitDiffForReview = useCallback(async (path: string, status: WorkspaceDiff["status"]) => {
-    setSubmittingPath(path);
-    setSubmitErrors((prev) => ({ ...prev, [path]: undefined }));
-    try {
-      const result = await submitWorkspaceDiffForReviewAction(slug, {
-        path,
-        operation: SUBMIT_OPERATION_BY_DIFF_STATUS[status],
-      });
-      if (!result.ok) {
-        setSubmitErrors((prev) => ({ ...prev, [path]: result.error ?? "submit_failed" }));
-        return;
-      }
-      setSubmittedPaths((prev) => ({ ...prev, [path]: true }));
-      await onSubmittedForReview?.();
-    } catch {
-      setSubmitErrors((prev) => ({ ...prev, [path]: "submit_failed" }));
-    } finally {
-      setSubmittingPath(null);
-    }
-  }, [onSubmittedForReview, slug]);
 
   const handleDiscardOpenChange = useCallback((open: boolean) => {
     setDiscardOpen(open);
@@ -177,7 +142,7 @@ export function ReviewPanel({
             <p className="text-xs text-muted-foreground">{isLoading ? 'Loading changes…' : 'No pending changes to publish'}</p>
             {isLoading ? null : (
               <p className="max-w-[320px] text-[11px] leading-relaxed text-muted-foreground/70">
-                Apply a Knowledge proposal or edit a file to create publishable changes.
+                Applied proposals and your Explore edits show up here. Chat agents cannot write the Knowledge Base.
               </p>
             )}
           </div>
@@ -201,9 +166,6 @@ export function ReviewPanel({
                 const resolvingStrategy = resolvingConflict?.path === diff.path
                   ? resolvingConflict.strategy
                   : null;
-                const submitError = submitErrors[diff.path];
-                const isSubmitted = Boolean(submittedPaths[diff.path]);
-
                 return (
                   <div key={diff.path} className="overflow-hidden rounded-md border-[0.5px] border-border/20 bg-foreground/[0.015]">
                     <div className="flex items-center gap-1.5 px-2 py-1.5">
@@ -262,18 +224,6 @@ export function ReviewPanel({
                           <Trash size={13} weight="regular" />
                         </Button>
                       ) : null}
-                      {!diff.conflicted ? (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-7 shrink-0 border-border/40 px-2 text-[11px]"
-                          disabled={isSubmitted || submittingPath !== null}
-                          onClick={() => void submitDiffForReview(diff.path, diff.status)}
-                          title={isSubmitted ? "Submitted for review" : "Create a Knowledge proposal from this change"}
-                        >
-                          {isSubmitted ? "Submitted" : submittingPath === diff.path ? "Submitting…" : "Submit for review"}
-                        </Button>
-                      ) : null}
                       {isLong ? (
                         <Button
                           size="sm"
@@ -289,11 +239,6 @@ export function ReviewPanel({
                     {conflictError ? (
                       <div className="border-t border-border/20 px-3 py-2 text-[11px] text-destructive">
                         {conflictError}
-                      </div>
-                    ) : null}
-                    {submitError ? (
-                      <div className="border-t border-border/20 px-3 py-2 text-[11px] text-destructive">
-                        Could not submit this change for review: {submitError}
                       </div>
                     ) : null}
                     <div

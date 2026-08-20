@@ -700,8 +700,7 @@ func (s *server) handleFileRead(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleFileReadRef reads a file at a fixed git revision (e.g. HEAD) without
-// touching the working tree. It backs "submit workspace diff for review",
-// which needs the committed bytes as the proposal's base.
+// touching the working tree.
 func (s *server) handleFileReadRef(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed")
@@ -1759,9 +1758,29 @@ func (s *server) commitWorkspacePathsIfNeeded(ctx context.Context, paths []strin
 		return false, nil, "reviewed_path_manifest_required"
 	}
 
-	// The BFF authorizes the applied content by hash, not just the path. Verify
-	// the working tree still carries exactly the reviewed bytes before staging
-	// so later unreviewed edits at an approved path cannot be published.
+	// The manifest is a snapshot the BFF computed from /git/diffs. A reviewable
+	// working-tree file that went dirty after that snapshot is absent from the
+	// manifest; committing the listed subset would silently ship its siblings
+	// while stranding that path locally. Compare the live reviewable index
+	// against the manifest before any byte is staged, applying the same
+	// unreviewed_changes_present contract the post-commit history check
+	// enforces — but against the working tree, not just HEAD.
+	liveEntries, liveErr := s.gitStatusEntries(ctx)
+	if liveErr != nil {
+		return false, nil, liveErr.Error()
+	}
+	var liveReviewable []string
+	for _, entry := range liveEntries {
+		if isReviewableKbPath(entry.Path) {
+			liveReviewable = append(liveReviewable, entry.Path)
+		}
+	}
+	if !pathsAreWithinManifest(liveReviewable, manifest) {
+		return false, nil, "unreviewed_changes_present"
+	}
+
+	// Hashes authorize matching applied content when the BFF sends them. Paths
+	// without a hash are user edits or overrides authorized by the manifest.
 	if msg := verifyReviewManifestHashes(s.workspace, manifest, expectedHashes); msg != "" {
 		return false, nil, msg
 	}
@@ -1821,10 +1840,10 @@ func (s *server) commitWorkspacePathsIfNeeded(ctx context.Context, paths []strin
 }
 
 // verifyReviewManifestHashes fails closed when the working tree no longer
-// matches the reviewed hashes for any manifest path. A path expected to be
-// deleted ("deleted" sentinel) must be absent; every other path must still
-// carry exactly the reviewed bytes. Paths without a recorded expectation are
-// legacy publishes and are left to the manifest path check alone.
+// matches a hash supplied for a manifest path. A path expected to be deleted
+// ("deleted" sentinel) must be absent; every other hashed path must still
+// carry exactly the applied bytes. Paths without a recorded expectation are
+// user edits or overrides and are left to the manifest path check alone.
 func verifyReviewManifestHashes(workspace string, manifest []string, expectedHashes map[string]string) string {
 	for _, path := range manifest {
 		expected, ok := expectedHashes[path]

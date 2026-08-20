@@ -103,6 +103,14 @@ Runtime behavior:
 - `kb-config` (bare repo): runtime `CommonWorkspaceConfig.json` + generated `AGENTS.md`
 - both repos start empty and are populated by kickstart on first setup
 
+### Knowledge Review and publishing
+
+- Agents persist Knowledge Base changes only as Knowledge Review proposals through `learning_propose` or MCP `kb:write`.
+- Apply is the only agent-originated write, using workspace-agent `/files/write` or `/files/delete`.
+- User edits made in Explore go directly to Pending publish and can publish without a proposal.
+- The publish manifest contains all current non-conflicted diffs that are reviewable KB paths. Hidden or dot-prefixed paths (e.g. `.obsidian/`) are excluded from the manifest: they are neither reviewable nor publishable, and a workspace whose changes are all hidden fails with `invalid_reviewed_path`. A hash is attached only while a path still matches its applied proposal's `appliedHash`.
+- Spawn forces `write` and `edit` off for every agent, including existing workspace configs that have not been re-kickstarted.
+
 ### GitHub repositories as KB sources
 
 The GitHub connector wires GitHub's hosted remote MCP server (`api.githubcopilot.com/mcp/`)

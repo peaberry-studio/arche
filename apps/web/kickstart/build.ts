@@ -116,7 +116,7 @@ function buildAgentsMarkdown(
   const sharedRules = [
     '- The primary `assistant` delegates learn/remember/store requests to `knowledge-curator`.',
     '- The `assistant` suggests saving high-value new knowledge and asks for confirmation first.',
-    '- The `knowledge-curator` must ask for explicit confirmation before any KB write.',
+    '- Chat agents never write the Knowledge Base. They create Knowledge Review proposals. Users apply proposals, edit files in Explore, and publish from Pending publish.',
   ]
 
   const markdownCapabilityLines = [

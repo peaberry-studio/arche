@@ -9,9 +9,7 @@
     "read",
     "list",
     "glob",
-    "grep",
-    "write",
-    "edit"
+    "grep"
   ],
   "order": 400
 }

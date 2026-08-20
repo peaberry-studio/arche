@@ -21,16 +21,19 @@ import { connectorService, userService } from '@/lib/services'
 import {
   applyAgentExecutionGuards,
   applyDefaultAgentModel,
+  denyAgentKnowledgeWrites,
   injectAlwaysOnAgentTools,
   injectCustomConnectorHints,
   injectSelfDelegationGuards,
   injectSystemSkillAccess,
+  materializeAgentToolMaps,
   remapAgentConnectorTools,
 } from '@/lib/spawner/agent-config-transforms'
 import { buildMcpConfigForSlug } from '@/lib/spawner/mcp-config'
 import {
   withWorkspaceIdentity,
   withLinkedRepositories,
+  withWorkspaceKnowledgePolicy,
   withWorkspacePermissionGuards,
 } from '@/lib/spawner/runtime-config-utils'
 import {
@@ -197,6 +200,12 @@ async function buildBaseWorkspaceConfig(
     }
   }
 
+  // Materialize legacy `'all'`/missing-tool agents before the connector remap:
+  // remap, always-on, and skill transforms only act on boolean tool maps, so a
+  // legacy non-map agent would otherwise lose connector access, the proposal
+  // path, and skills at materialization time.
+  baseConfig = materializeAgentToolMaps(baseConfig)
+
   try {
     const mcpResult = await buildMcpConfigForSlug(slug)
     if (mcpResult && Object.keys(mcpResult.mcpConfig.mcp).length > 0) {
@@ -221,7 +230,10 @@ async function buildBaseWorkspaceConfig(
   baseConfig = injectSystemSkillAccess(baseConfig, [SYSTEM_FLOW_AUTHORING_SKILL_NAME])
   baseConfig = applyDefaultAgentModel(baseConfig)
   baseConfig = applyAgentExecutionGuards(baseConfig)
-  return injectSelfDelegationGuards(baseConfig)
+  baseConfig = injectSelfDelegationGuards(baseConfig)
+  // denyAgentKnowledgeWrites must stay the last transform: nothing after it may
+  // re-enable write/edit for any agent, no matter what the stored config says.
+  return denyAgentKnowledgeWrites(baseConfig)
 }
 
 function cloneProviderGatewayConfig(providerGatewayConfig: Record<string, unknown>): Record<string, unknown> {
@@ -345,7 +357,9 @@ export async function buildWorkspaceAgentsMd(
     slug: resolvedOwner?.slug ?? slug,
     email: resolvedOwner?.email,
   })
-  return withLinkedRepositories(agentsMd, await getLinkedRepositoriesForOwner(resolvedOwner))
+  return withWorkspaceKnowledgePolicy(
+    withLinkedRepositories(agentsMd, await getLinkedRepositoriesForOwner(resolvedOwner))
+  )
 }
 
 export async function buildWorkspaceRuntimeArtifacts(

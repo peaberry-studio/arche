@@ -105,7 +105,7 @@ describe('AgentForm', () => {
     fireEvent.change(screen.getByLabelText('Temperature'), { target: { value: '0.4' } })
     fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Research specialist' } })
     fireEvent.change(screen.getByLabelText('Prompt'), { target: { value: 'Investigate carefully.' } })
-    fireEvent.click(screen.getByLabelText('Write files'))
+    fireEvent.click(screen.getByLabelText('Read files'))
     fireEvent.click(screen.getByLabelText(/Zendesk/))
     fireEvent.click(screen.getByLabelText('seo-audit'))
     fireEvent.click(screen.getByLabelText('Set as primary'))
@@ -121,7 +121,7 @@ describe('AgentForm', () => {
       isPrimary: true,
       expectedHash: 'hash-agents',
       capabilities: {
-        tools: ['write'],
+        tools: ['read'],
         mcpConnectorIds: ['globalzendesk'],
         skillIds: ['seo-audit'],
       },
@@ -189,7 +189,7 @@ describe('AgentForm', () => {
             prompt: 'Be helpful.',
             isPrimary: false,
             capabilities: {
-              tools: ['read'],
+              tools: ['edit', 'read', 'write'],
               mcpConnectorIds: ['custom-crm'],
               skillIds: ['seo-audit'],
             },
@@ -208,7 +208,6 @@ describe('AgentForm', () => {
 
     fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Escalates customer issues' } })
     fireEvent.click(screen.getByLabelText('Read files'))
-    fireEvent.click(screen.getByLabelText('Write files'))
     fireEvent.click(screen.getByLabelText(/Custom CRM/))
     fireEvent.click(screen.getByLabelText(/Zendesk/))
     fireEvent.click(screen.getByLabelText('seo-audit'))
@@ -223,12 +222,22 @@ describe('AgentForm', () => {
       prompt: 'Be helpful.',
       expectedHash: 'hash-existing',
       capabilities: {
-        tools: ['write'],
+        tools: [],
         mcpConnectorIds: ['globalzendesk'],
         skillIds: [],
       },
     })
     expect(mockNotifyWorkspaceConfigChanged).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not show knowledge write tools and explains the review policy', async () => {
+    mockSharedEndpoints()
+
+    render(<AgentForm slug="alice" mode="create" />)
+
+    expect(await screen.findByText('Knowledge Base writes go through Knowledge Review proposals. File write and edit tools are disabled at spawn and cannot be enabled here.')).toBeDefined()
+    expect(screen.queryByLabelText('Write files')).toBeNull()
+    expect(screen.queryByLabelText('Edit files')).toBeNull()
   })
 
   it('promotes an existing agent to primary', async () => {

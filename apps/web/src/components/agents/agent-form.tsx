@@ -39,6 +39,10 @@ type SkillListItem = {
   name: string
 }
 
+// write/edit are stripped at spawn by denyAgentKnowledgeWrites and must not be
+// re-persisted from the form; keep this list in sync with that transform.
+const HIDDEN_TOOL_IDS = new Set<OpenCodeAgentToolId>(['write', 'edit'])
+
 export function AgentForm({
   slug,
   mode,
@@ -286,7 +290,7 @@ export function AgentForm({
 
     const capabilities: AgentCapabilities = {
       skillIds: enabledSkillIds,
-      tools: enabledTools,
+      tools: enabledTools.filter((toolId) => !HIDDEN_TOOL_IDS.has(toolId)),
       mcpConnectorIds: enabledMcpConnectorIds,
     }
 
@@ -501,8 +505,11 @@ export function AgentForm({
                 </TooltipContent>
               </Tooltip>
             </div>
+            <p className="mb-3 text-xs text-muted-foreground">
+              Knowledge Base writes go through Knowledge Review proposals. File write and edit tools are disabled at spawn and cannot be enabled here.
+            </p>
             <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3">
-              {OPENCODE_AGENT_TOOL_OPTIONS.map((tool) => {
+              {OPENCODE_AGENT_TOOL_OPTIONS.filter((tool) => !HIDDEN_TOOL_IDS.has(tool.id)).map((tool) => {
                 const checked = enabledTools.includes(tool.id)
                 return (
                   <label
