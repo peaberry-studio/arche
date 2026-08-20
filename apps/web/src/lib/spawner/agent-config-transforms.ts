@@ -174,6 +174,43 @@ export function injectAlwaysOnAgentTools(
   return { ...config, agent: nextAgents }
 }
 
+// Full `'all'` semantics as an explicit boolean map: every built-in, every
+// always-on tool, the skill tool, and MCP connector access (arche_*). This is
+// what a pre-#473 `tools: 'all'` / missing-tools agent implicitly had, so
+// materializing it preserves those capabilities through the connector remap,
+// always-on, and skill transforms instead of silently dropping them.
+function materializeLegacyToolsMap(): Record<string, boolean> {
+  return {
+    ...Object.fromEntries(OPENCODE_AGENT_TOOLS.map((toolId) => [toolId, true])),
+    ...Object.fromEntries(ALWAYS_ENABLED_TOOLS.map((toolId) => [toolId, true])),
+    skill: true,
+    'arche_*': true,
+  }
+}
+
+export function materializeAgentToolMaps(
+  config: Record<string, unknown>,
+): Record<string, unknown> {
+  const agents = isRecord(config.agent) ? config.agent : null
+  if (!agents) return config
+
+  const nextAgents: Record<string, unknown> = {}
+  let changed = false
+
+  for (const [agentId, agent] of Object.entries(agents)) {
+    if (!isRecord(agent) || isToolMap(agent.tools)) {
+      nextAgents[agentId] = agent
+      continue
+    }
+
+    nextAgents[agentId] = { ...agent, tools: materializeLegacyToolsMap() }
+    changed = true
+  }
+
+  if (!changed) return config
+  return { ...config, agent: nextAgents }
+}
+
 export function denyAgentKnowledgeWrites(
   config: Record<string, unknown>,
 ): Record<string, unknown> {
@@ -188,9 +225,12 @@ export function denyAgentKnowledgeWrites(
       continue
     }
 
-    const tools = isToolMap(agent.tools)
+    // Fallback for any non-map tools that reach the deny step (materialize
+    // is meant to run earlier in the pipeline, so this normally never fires):
+    // seed the full legacy toolset before flipping write/edit off.
+    const tools: Record<string, boolean> = isToolMap(agent.tools)
       ? { ...agent.tools }
-      : Object.fromEntries(OPENCODE_AGENT_TOOLS.map((toolId) => [toolId, true]))
+      : materializeLegacyToolsMap()
     tools.write = false
     tools.edit = false
 

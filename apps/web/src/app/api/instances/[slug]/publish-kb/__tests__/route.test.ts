@@ -239,6 +239,90 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     spy.mockRestore()
   })
 
+  it('marks GitHub sync conflicts for BFF-side conflicted diffs', async () => {
+    mocks.createWorkspaceRemoteConfig.mockResolvedValue({
+      ok: true,
+      remote: {
+        branch: 'main',
+        repoCloneUrl: 'https://github.com/acme/kb.git',
+        token: 'token-1',
+      },
+    })
+    const spy = mockFetch({ ok: true, status: 'published' }, 200, {
+      diffs: [{ conflicted: true, path: 'Notes/Conflict.md' }],
+      includeFileRead: false,
+    })
+
+    const res = await POST(makeRequest(), params('alice'))
+
+    expect(await res.json()).toEqual({ ok: true, status: 'conflicts' })
+    expect(mocks.updateSyncState).toHaveBeenCalledWith(expect.objectContaining({
+      lastSyncStatus: 'conflicts',
+    }))
+    expect(spy).toHaveBeenCalledTimes(1)
+    spy.mockRestore()
+  })
+
+  it('filters hidden dot-prefixed diff paths out of the publish manifest', async () => {
+    const spy = mockFetch(
+      { ok: true, status: 'published', commitHash: 'abc123', files: ['Notes/Reviewed.md'] },
+      200,
+      { diffs: [{ path: 'Notes/Reviewed.md' }, { path: '.obsidian/workspace.json' }] },
+    )
+
+    const res = await POST(makeRequest(), params('alice'))
+
+    expect((await res.json()).ok).toBe(true)
+    expect(spy).not.toHaveBeenCalledWith('http://agent:8080/files/read', expect.objectContaining({
+      body: JSON.stringify({ path: '.obsidian/workspace.json' }),
+    }))
+    expect(spy).toHaveBeenLastCalledWith('http://agent:8080/kb/publish', expect.objectContaining({
+      body: JSON.stringify({
+        paths: ['Notes/Reviewed.md'],
+        pathHashes: { 'Notes/Reviewed.md': 'sha256:reviewed' },
+      }),
+    }))
+    spy.mockRestore()
+  })
+
+  it('returns invalid_reviewed_path when every diff is a hidden dot-prefixed file', async () => {
+    const spy = mockFetch(
+      { ok: true, status: 'published', commitHash: 'abc123', files: [] },
+      200,
+      { diffs: [{ path: '.obsidian/workspace.json' }, { path: '.config/cache.json' }], includeFileRead: false },
+    )
+
+    const res = await POST(makeRequest(), params('alice'))
+    const body = await res.json()
+
+    expect(body).toEqual({
+      ok: false,
+      status: 'error',
+      message: 'Publish includes hidden or internal files. Discard those changes before publishing.',
+    })
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect(spy).not.toHaveBeenCalledWith('http://agent:8080/kb/publish', expect.anything())
+    expect(mocks.listAppliedKnowledgeReviewChanges).not.toHaveBeenCalled()
+    spy.mockRestore()
+  })
+
+  it('translates an agent invalid_reviewed_path error into a readable message', async () => {
+    const spy = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, diffs: [] }), {
+        headers: { 'Content-Type': 'application/json' },
+      }))
+      .mockResolvedValue(new Response(JSON.stringify({ ok: false, status: 'error', message: 'invalid_reviewed_path' }), {
+        headers: { 'Content-Type': 'application/json' },
+      }))
+
+    const res = await POST(makeRequest(), params('alice'))
+    const body = await res.json()
+
+    expect(body.ok).toBe(false)
+    expect(body.message).toBe('Publish includes hidden or internal files. Discard those changes before publishing.')
+    spy.mockRestore()
+  })
+
   it('translates agent manifest errors into readable messages', async () => {
     const spy = mockFetch({ ok: false, status: 'error', message: 'unreviewed_changes_present' })
 
@@ -478,12 +562,14 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     mocks.listAppliedKnowledgeReviewChanges.mockResolvedValue([
       { kbPath: 'Notes/Reviewed.md', operation: 'update', appliedHash: null },
     ])
-    const spy = mockFetch({ ok: true, status: 'published' })
+    const spy = mockFetch({ ok: true, status: 'published' }, 200, { includeFileRead: false })
 
     const res = await POST(makeRequest(), params('alice'))
     const body = await res.json()
 
     expect(body).toEqual({ ok: true, status: 'published' })
+    // Nothing to attest: the read would be wasted, so it is skipped entirely.
+    expect(spy).not.toHaveBeenCalledWith('http://agent:8080/files/read', expect.anything())
     expect(spy).toHaveBeenLastCalledWith('http://agent:8080/kb/publish', expect.objectContaining({
       body: JSON.stringify({
         paths: ['Notes/Reviewed.md'],

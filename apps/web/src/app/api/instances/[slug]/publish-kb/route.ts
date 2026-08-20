@@ -5,11 +5,13 @@ import {
   listAppliedKnowledgeReviewChanges,
   markKnowledgeReviewChangesPublished,
 } from '@/lib/learning/service'
+import { isValidKbPath } from '@/lib/learning/validation'
 import { isWorkspaceReachable } from '@/lib/runtime/workspace-host'
 import { withAuth } from '@/lib/runtime/with-auth'
 import { kbGithubRemoteService } from '@/lib/services'
 import { findIdBySlug } from '@/lib/services/user'
 import { createWorkspaceAgentClient } from '@/lib/workspace-agent/client'
+import { workspaceAgentFetch, type WorkspaceAgent } from '@/lib/workspace-agent-client'
 
 export interface PublishKbResult {
   ok: boolean
@@ -44,24 +46,20 @@ function getWorkspaceDiffPaths(value: unknown): WorkspaceDiffPath[] | null {
   ))
 }
 
-async function readWorkspaceFile(agent: { baseUrl: string; authHeader: string }, path: string): Promise<WorkspaceFileReadResult> {
+async function readWorkspaceFile(agent: WorkspaceAgent, path: string): Promise<WorkspaceFileReadResult> {
+  // Fail-open by design (locked product decision: hash attestation is
+  // best-effort; the real defense is the spawn-time writers deny). An
+  // unreadable or missing-hash file publishes as a user override (no hash)
+  // instead of blocking the whole publish.
   try {
-    const response = await fetch(`${agent.baseUrl}/files/read`, {
-      method: 'POST',
-      headers: {
-        Authorization: agent.authHeader,
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ path }),
-      cache: 'no-store',
-    })
-    if (response.status === 404) return { exists: false, hash: null }
+    const response = await workspaceAgentFetch<{ hash?: unknown }>(agent, '/files/read', { path })
+    if (!response.ok) {
+      return response.status === 404 ? { exists: false, hash: null } : { exists: true, hash: null }
+    }
 
-    const data = await response.json().catch(() => null)
     return {
       exists: true,
-      hash: isRecord(data) && typeof data.hash === 'string' ? data.hash : null,
+      hash: typeof response.data.hash === 'string' ? response.data.hash : null,
     }
   } catch {
     return { exists: true, hash: null }
@@ -69,6 +67,7 @@ async function readWorkspaceFile(agent: { baseUrl: string; authHeader: string },
 }
 
 const PUBLISH_MESSAGE_LABELS: Record<string, string> = {
+  invalid_reviewed_path: 'Publish includes hidden or internal files. Discard those changes before publishing.',
   reviewed_path_manifest_required: 'Unreviewed workspace changes must be reviewed or discarded before publishing.',
   unreviewed_changes_present: 'The workspace contains unreviewed changes. Review or discard them before publishing.',
   reviewed_content_changed: 'A reviewed file changed after it was applied. Re-apply or discard the newer edits before publishing.',
@@ -124,10 +123,35 @@ export const POST = withAuth<PublishKbResult | { error: string }>(
       }
 
       if (diffs.some((diff) => diff.conflicted)) {
+        // BFF-side conflict gate mirrors the Publish button: never call
+        // /kb/publish with conflicted diffs. Keep the GitHub sync badge in
+        // step when a remote is configured.
+        const githubRemote = await kbGithubRemoteService.createWorkspaceRemoteConfig()
+        if (githubRemote.ok && githubRemote.remote) {
+          await markGithubSync('conflicts', 'Resolve conflicts before publishing.')
+        }
         return NextResponse.json({ ok: true, status: 'conflicts' })
       }
 
-      const publishablePaths = diffs.map((diff) => diff.path)
+      // Only KB paths may be committed by publish. Hidden/dot-prefixed files
+      // (e.g. .obsidian/) are not reviewable KB content — the workspace agent
+      // rejects them with invalid_reviewed_path — so exclude them from the
+      // manifest instead of letting them fail the whole publish.
+      const publishablePaths = diffs.map((diff) => diff.path).filter(isValidKbPath)
+
+      // A dirty tree whose every diff is hidden/internal has nothing to
+      // publish. Without this short-circuit the agent would reject the empty
+      // manifest with reviewed_path_manifest_required, which reads as
+      // "unreviewed workspace changes" — misleading for files that cannot be
+      // reviewed or published at all.
+      if (diffs.length > 0 && publishablePaths.length === 0) {
+        return NextResponse.json({
+          ok: false,
+          status: 'error',
+          message: publishMessage('invalid_reviewed_path'),
+        })
+      }
+
       const githubRemote = await kbGithubRemoteService.createWorkspaceRemoteConfig()
       if (!githubRemote.ok) {
         return NextResponse.json({
@@ -147,6 +171,12 @@ export const POST = withAuth<PublishKbResult | { error: string }>(
       for (const path of publishablePaths) {
         const change = appliedChangesByPath.get(path)
         if (!change) continue
+
+        // Only read the working tree when the hash can still be attested:
+        // deletes need to know whether the file is gone, updates only when
+        // there is an appliedHash to compare. A null appliedHash always ships
+        // as an override, so the read would be wasted.
+        if (change.operation !== 'delete' && !change.appliedHash) continue
 
         const file = await readWorkspaceFile(agent, path)
         if (change.operation === 'delete') {

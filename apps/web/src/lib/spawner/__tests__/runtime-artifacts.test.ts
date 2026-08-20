@@ -173,6 +173,46 @@ describe('runtime artifacts', () => {
     ])
   })
 
+  it('keeps proposal path, skills, and connector access for legacy all-tools agents', async () => {
+    await createRuntimeRepo({
+      'CommonWorkspaceConfig.json': JSON.stringify({
+        default_agent: 'assistant',
+        agent: {
+          assistant: { mode: 'all', tools: 'all' },
+        },
+      }),
+    })
+
+    const {
+      buildWorkspaceRuntimeArtifacts,
+      getWebProviderGatewayConfig,
+    } = await loadRuntimeArtifactsModule()
+
+    const artifacts = await buildWorkspaceRuntimeArtifacts('alice', getWebProviderGatewayConfig())
+    const config = JSON.parse(artifacts.opencodeConfigContent) as {
+      agent?: Record<string, {
+        mode?: string
+        steps?: number
+        tools?: Record<string, boolean>
+      }>
+    }
+
+    // Legacy pre-#473 `tools: 'all'` configs are materialized up front, so the
+    // surviving spawn config still has the sanctioned proposal path, skills,
+    // always-on tools, and MCP connector access — with only write/edit denied.
+    expect(config.agent?.assistant).toMatchObject({
+      mode: 'primary',
+      steps: 120,
+      tools: {
+        'arche_*': true,
+        edit: false,
+        learning_propose: true,
+        skill: true,
+        write: false,
+      },
+    })
+  })
+
   it('normalizes the default all-mode agent before serializing runtime config', async () => {
     await createRuntimeRepo({
       'CommonWorkspaceConfig.json': JSON.stringify({

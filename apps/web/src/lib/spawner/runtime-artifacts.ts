@@ -26,6 +26,7 @@ import {
   injectCustomConnectorHints,
   injectSelfDelegationGuards,
   injectSystemSkillAccess,
+  materializeAgentToolMaps,
   remapAgentConnectorTools,
 } from '@/lib/spawner/agent-config-transforms'
 import { buildMcpConfigForSlug } from '@/lib/spawner/mcp-config'
@@ -199,6 +200,12 @@ async function buildBaseWorkspaceConfig(
     }
   }
 
+  // Materialize legacy `'all'`/missing-tool agents before the connector remap:
+  // remap, always-on, and skill transforms only act on boolean tool maps, so a
+  // legacy non-map agent would otherwise lose connector access, the proposal
+  // path, and skills at materialization time.
+  baseConfig = materializeAgentToolMaps(baseConfig)
+
   try {
     const mcpResult = await buildMcpConfigForSlug(slug)
     if (mcpResult && Object.keys(mcpResult.mcpConfig.mcp).length > 0) {
@@ -224,6 +231,8 @@ async function buildBaseWorkspaceConfig(
   baseConfig = applyDefaultAgentModel(baseConfig)
   baseConfig = applyAgentExecutionGuards(baseConfig)
   baseConfig = injectSelfDelegationGuards(baseConfig)
+  // denyAgentKnowledgeWrites must stay the last transform: nothing after it may
+  // re-enable write/edit for any agent, no matter what the stored config says.
   return denyAgentKnowledgeWrites(baseConfig)
 }
 

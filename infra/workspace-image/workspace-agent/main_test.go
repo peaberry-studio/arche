@@ -747,15 +747,19 @@ func TestHandleKbPublishRejectsUnreviewedChanges(t *testing.T) {
 	runGit(t, ctx, workspace, "remote", "add", "kb", remote)
 	runGit(t, ctx, workspace, "push", "-u", "kb", "main")
 
-	// A previously committed change sits outside the reviewed manifest.
+	// Both changes are still uncommitted working-tree files: one is the
+	// requested manifest path, the other is a reviewable file the BFF never
+	// listed (a stale /git/diffs snapshot). A publish must not commit the
+	// subset and strand the omitted reviewable path.
 	writeWorkspaceTestFile(t, workspace, "Knowledge/Unreviewed.md", "unreviewed\n")
-	runGit(t, ctx, workspace, "add", "Knowledge/Unreviewed.md")
-	runGit(t, ctx, workspace, "commit", "-m", "unreviewed change")
-
-	// The reviewed change is still an untracked working-tree file.
 	writeWorkspaceTestFile(t, workspace, "Knowledge/Reviewed.md", "reviewed\n")
 
 	s := &server{workspace: workspace}
+	localBefore, _, _, _ := runCmd(ctx, workspace, []string{"git", "rev-parse", "HEAD"})
+	// Inspect the real bare remote (not the local tracking ref, which can go
+	// stale) so an advance of the published branch is unmissable.
+	remoteBefore, _, _, _ := runCmd(ctx, workspace, []string{"git", "--git-dir", remote, "rev-parse", "refs/heads/main"})
+
 	req := httptest.NewRequest(http.MethodPost, "/kb/publish", strings.NewReader(`{"paths":["Knowledge/Reviewed.md"]}`))
 	recorder := httptest.NewRecorder()
 	s.handleKbPublish(recorder, req)
@@ -770,11 +774,19 @@ func TestHandleKbPublishRejectsUnreviewedChanges(t *testing.T) {
 	if response.Ok || response.Status != "error" || response.Message != "unreviewed_changes_present" {
 		t.Fatalf("unexpected publish response: %+v", response)
 	}
-	if len(response.Files) != 2 {
-		t.Fatalf("expected both reviewed and unreviewed files in the report, got %v", response.Files)
+
+	// Nothing must be committed or pushed: the local HEAD stays put and the
+	// remote branch must not advance.
+	localAfter, _, _, _ := runCmd(ctx, workspace, []string{"git", "rev-parse", "HEAD"})
+	remoteAfter, _, _, _ := runCmd(ctx, workspace, []string{"git", "--git-dir", remote, "rev-parse", "refs/heads/main"})
+	if strings.TrimSpace(localAfter) != strings.TrimSpace(localBefore) {
+		t.Fatalf("local HEAD advanced on rejection: %q -> %q", strings.TrimSpace(localBefore), strings.TrimSpace(localAfter))
+	}
+	if strings.TrimSpace(remoteAfter) != strings.TrimSpace(remoteBefore) {
+		t.Fatalf("remote branch advanced on rejection: %q -> %q", strings.TrimSpace(remoteBefore), strings.TrimSpace(remoteAfter))
 	}
 
-	// The remote must not have received anything because the publish was rejected.
+	// The rejected path must not be anywhere on the remote either.
 	remoteWork := filepath.Join(root, "remote-work")
 	runGit(t, ctx, root, "clone", remote, remoteWork)
 	if _, err := os.Stat(filepath.Join(remoteWork, "Knowledge", "Reviewed.md")); !os.IsNotExist(err) {
