@@ -531,7 +531,7 @@ vi.stubGlobal(
     });
   });
 
-  it("reverts the optimistic user message and busy state when prompt fails (502)", async () => {
+  it("restores idle when prompt fails (502) and never inserts a local user message", async () => {
     let promptCalls = 0;
 
     vi.stubGlobal(
@@ -604,7 +604,6 @@ vi.stubGlobal(
 
     expect(accepted).toBe(false);
     expect(promptCalls).toBe(1);
-    // The optimistic user message is removed and the composer is free again.
     expect(result.current.messages.some((message) => message.content === "This should fail")).toBe(false);
     expect(result.current.isSending).toBe(false);
   });
@@ -1581,8 +1580,9 @@ vi.stubGlobal(
     });
 
     await waitFor(() => {
-      expect(result.current.messages).toHaveLength(1);
+      expect(result.current.isSending).toBe(true);
     });
+    expect(result.current.messages).toHaveLength(0);
 
     act(() => {
       result.current.selectSession("child");
@@ -1601,8 +1601,8 @@ vi.stubGlobal(
 
     await waitFor(() => {
       expect(result.current.activeSessionId).toBe("root");
-      expect(result.current.messages).toHaveLength(1);
     });
+    expect(result.current.messages).toHaveLength(0);
 
     sessionMessages.root = [
       {
@@ -1723,8 +1723,8 @@ vi.stubGlobal(
 
     await waitFor(() => {
       expect(result.current.isSending).toBe(true);
-      expect(result.current.messages.some((message) => message.content === "first")).toBe(true);
     });
+    expect(result.current.messages.some((message) => message.content === "first")).toBe(false);
 
     act(() => {
       result.current.selectSession("s2");
@@ -1743,8 +1743,8 @@ vi.stubGlobal(
 
     await waitFor(() => {
       expect(result.current.isSending).toBe(true);
-      expect(result.current.messages.some((message) => message.content === "second")).toBe(true);
     });
+    expect(result.current.messages.some((message) => message.content === "second")).toBe(false);
 
     expect(
       fetchMock.mock.calls.filter(([input]) => String(input) === "/api/w/alice/chat/prompt")

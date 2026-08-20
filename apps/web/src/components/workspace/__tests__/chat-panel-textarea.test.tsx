@@ -924,10 +924,6 @@ describe("ChatPanel textarea", () => {
   });
 
   it("does not auto-scroll when the user has scrolled away from the bottom", async () => {
-    // Globally stub scrollIntoView which doesn't exist in jsdom
-    const scrollIntoViewMock = vi.fn();
-    Element.prototype.scrollIntoView = scrollIntoViewMock;
-
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ attachments: [] }),
@@ -951,21 +947,15 @@ describe("ChatPanel textarea", () => {
       </WorkspaceThemeProvider>
     );
 
-    // Initial load triggers scroll — clear and set up for the real assertion
-    scrollIntoViewMock.mockClear();
-
-    // Find the scroll container and simulate the user scrolling up
     const scrollContainer = document.querySelector(".workspace-chat-content");
     expect(scrollContainer).toBeTruthy();
+    const el = scrollContainer as HTMLElement;
 
-    Object.defineProperty(scrollContainer!, "scrollTop", { value: 0, writable: true, configurable: true });
-    Object.defineProperty(scrollContainer!, "clientHeight", { value: 400, writable: true, configurable: true });
-    Object.defineProperty(scrollContainer!, "scrollHeight", { value: 2000, writable: true, configurable: true });
-    fireEvent.scroll(scrollContainer!);
+    Object.defineProperty(el, "clientHeight", { value: 400, configurable: true });
+    Object.defineProperty(el, "scrollHeight", { value: 2000, configurable: true });
+    el.scrollTop = 0;
+    fireEvent.scroll(el);
 
-    scrollIntoViewMock.mockClear();
-
-    // Re-render with updated messages (simulates new streaming content)
     rerender(
       <WorkspaceThemeProvider storageScope="alice">
         <ChatPanel
@@ -984,8 +974,67 @@ describe("ChatPanel textarea", () => {
       </WorkspaceThemeProvider>
     );
 
-    // scrollIntoView should NOT have been called because user scrolled away
-    expect(scrollIntoViewMock).not.toHaveBeenCalled();
+    expect(el.scrollTop).toBe(0);
+  });
+
+  it("follows streamed content while the user is at the bottom", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ attachments: [] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { rerender } = render(
+      <WorkspaceThemeProvider storageScope="alice">
+        <ChatPanel
+          slug={"alice"}
+          sessions={[{ id: "s1", title: "Chat", status: "idle", updatedAt: "now", agent: "OpenCode" }]}
+          messages={[
+            { id: "m1", sessionId: "s1", role: "user", content: "Hola", timestamp: "now" },
+            { id: "m2", sessionId: "s1", role: "assistant", content: "He", timestamp: "now" },
+          ]}
+          activeSessionId={"s1"}
+          openFilePaths={[]}
+          onCloseSession={vi.fn()}
+          onOpenFile={vi.fn()}
+          onSendMessage={vi.fn().mockResolvedValue(true)}
+        />
+      </WorkspaceThemeProvider>
+    );
+
+    const scrollContainer = document.querySelector(".workspace-chat-content");
+    expect(scrollContainer).toBeTruthy();
+    const el = scrollContainer as HTMLElement;
+
+    Object.defineProperty(el, "clientHeight", { value: 400, configurable: true });
+    let scrollHeight = 500;
+    Object.defineProperty(el, "scrollHeight", {
+      configurable: true,
+      get: () => scrollHeight,
+    });
+    el.scrollTop = 100;
+    fireEvent.scroll(el);
+
+    scrollHeight = 900;
+    rerender(
+      <WorkspaceThemeProvider storageScope="alice">
+        <ChatPanel
+          slug={"alice"}
+          sessions={[{ id: "s1", title: "Chat", status: "idle", updatedAt: "now", agent: "OpenCode" }]}
+          messages={[
+            { id: "m1", sessionId: "s1", role: "user", content: "Hola", timestamp: "now" },
+            { id: "m2", sessionId: "s1", role: "assistant", content: "Hello there", timestamp: "now" },
+          ]}
+          activeSessionId={"s1"}
+          openFilePaths={[]}
+          onCloseSession={vi.fn()}
+          onOpenFile={vi.fn()}
+          onSendMessage={vi.fn().mockResolvedValue(true)}
+        />
+      </WorkspaceThemeProvider>
+    );
+
+    expect(el.scrollTop).toBe(900);
   });
 
   it("renders subagent sessions as read-only inspection views", async () => {

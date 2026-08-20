@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -915,32 +916,63 @@ export function ChatPanel({
     );
   }, [attachmentSearch, attachments]);
 
-  // --- Smart auto-scroll: only scroll when the user is "stuck" to the bottom ---
-  const SCROLL_BOTTOM_THRESHOLD = 60;
+  // --- Smart auto-scroll: only follow when the user is at the bottom ---
+  const SCROLL_BOTTOM_THRESHOLD = 80;
+  const isProgrammaticScrollRef = useRef(false);
+  const prevSessionIdRef = useRef(activeSessionId);
 
   const handleScrollContainer = useCallback(() => {
+    if (isProgrammaticScrollRef.current) return;
     const el = scrollContainerRef.current;
     if (!el) return;
     isStuckToBottomRef.current =
-      el.scrollTop + el.clientHeight >= el.scrollHeight - SCROLL_BOTTOM_THRESHOLD;
+      el.scrollHeight - el.scrollTop - el.clientHeight <= SCROLL_BOTTOM_THRESHOLD;
   }, []);
 
+  const scrollToBottom = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    isProgrammaticScrollRef.current = true;
+    el.scrollTop = el.scrollHeight;
+    isStuckToBottomRef.current = true;
+    isProgrammaticScrollRef.current = false;
+  }, []);
+
+  const followScrollIfStuck = useCallback(() => {
+    if (!isStuckToBottomRef.current) return;
+    scrollToBottom();
+  }, [scrollToBottom]);
+
   const prevMessagesLengthRef = useRef(0);
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (prevSessionIdRef.current !== activeSessionId) {
+      prevSessionIdRef.current = activeSessionId;
+      isStuckToBottomRef.current = true;
+      prevMessagesLengthRef.current = 0;
+    }
+
     const isInitialLoad = prevMessagesLengthRef.current === 0 && messages.length > 0;
     prevMessagesLengthRef.current = messages.length;
 
     if (isInitialLoad) {
-      // Always scroll on initial load
       isStuckToBottomRef.current = true;
-      messagesEndRef.current?.scrollIntoView({ behavior: "instant" });
-      return;
     }
 
-    if (!isStuckToBottomRef.current) return;
+    followScrollIfStuck();
+  }, [activeSessionId, messages, permissions, followScrollIfStuck]);
 
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  useEffect(() => {
+    const scroller = scrollContainerRef.current;
+    if (!scroller || typeof ResizeObserver === "undefined") return;
+    const inner = scroller.firstElementChild;
+    if (!inner) return;
+
+    const observer = new ResizeObserver(() => {
+      followScrollIfStuck();
+    });
+    observer.observe(inner);
+    return () => observer.disconnect();
+  }, [activeSessionId, followScrollIfStuck, messages.length]);
 
   // Restore focus when isSending changes from true to false
   const prevIsSendingRef = useRef(isSending);

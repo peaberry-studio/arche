@@ -10,9 +10,7 @@ import {
 import { isSending, type ChatStore } from "@/lib/opencode/event-reducer";
 import type {
   AvailableModel,
-  MessagePart,
   PermissionResponse,
-  WorkspaceMessage,
   WorkspaceSession,
 } from "@/lib/opencode/types";
 import type { MessageAttachmentInput } from "@/types/workspace";
@@ -45,18 +43,6 @@ function normalizeContextPaths(contextPaths: string[] | undefined): string[] {
         .filter((path) => path.length > 0),
     ),
   );
-}
-
-function buildOptimisticUserParts(text: string, attachments: MessageAttachmentInput[]): MessagePart[] {
-  return [
-    { type: "text", text },
-    ...attachments.map((attachment) => ({
-      type: "file" as const,
-      path: attachment.path,
-      filename: attachment.filename,
-      mime: attachment.mime,
-    })),
-  ];
 }
 
 export function useWorkspaceMessageActions({
@@ -123,60 +109,21 @@ export function useWorkspaceMessageActions({
       }
 
       const messageId =
-        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
           ? crypto.randomUUID()
           : `user-${Date.now()}`;
-      const optimisticParts = buildOptimisticUserParts(text, messageAttachments);
-      const optimisticUser: WorkspaceMessage = {
-        id: messageId,
-        sessionId,
-        role: "user",
-        content: text,
-        timestamp: "Just now",
-        timestampRaw: Date.now(),
-        parts: optimisticParts,
-        pending: false,
-      };
 
       const previousStatus = getStore().sessionStatus[sessionId] ?? "idle";
 
-      const revertOptimistic = (status: "idle" | "busy" = previousStatus) => {
-        commitStore((current) => {
-          const messages = (current.messages[sessionId] ?? []).filter((m) => m.id !== messageId);
-          const optimisticIds = (current.optimisticUserIds[sessionId] ?? []).filter(
-            (id) => id !== messageId,
-          );
-          const nextMessages = { ...current.messages };
-          if (messages.length === 0) {
-            delete nextMessages[sessionId];
-          } else {
-            nextMessages[sessionId] = messages;
-          }
-          const nextOptimistic = { ...current.optimisticUserIds };
-          if (optimisticIds.length === 0) {
-            delete nextOptimistic[sessionId];
-          } else {
-            nextOptimistic[sessionId] = optimisticIds;
-          }
-          return {
-            ...current,
-            messages: nextMessages,
-            optimisticUserIds: nextOptimistic,
-            sessionStatus: { ...current.sessionStatus, [sessionId]: status },
-          };
-        });
+      const restoreStatus = (status: "idle" | "busy" = previousStatus) => {
+        commitStore((current) => ({
+          ...current,
+          sessionStatus: { ...current.sessionStatus, [sessionId]: status },
+        }));
       };
 
       commitStore((current) => ({
         ...current,
-        messages: {
-          ...current.messages,
-          [sessionId]: [...(current.messages[sessionId] ?? []), optimisticUser],
-        },
-        optimisticUserIds: {
-          ...current.optimisticUserIds,
-          [sessionId]: [...(current.optimisticUserIds[sessionId] ?? []), messageId],
-        },
         sessionStatus: { ...current.sessionStatus, [sessionId]: "busy" },
       }));
 
@@ -195,12 +142,12 @@ export function useWorkspaceMessageActions({
           }),
         });
       } catch {
-        revertOptimistic();
+        restoreStatus();
         return false;
       }
 
       if (!result.ok) {
-        revertOptimistic(result.status === 409 ? "busy" : previousStatus);
+        restoreStatus(result.status === 409 ? "busy" : previousStatus);
         return false;
       }
 

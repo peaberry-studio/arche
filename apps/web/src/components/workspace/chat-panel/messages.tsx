@@ -27,6 +27,7 @@ import {
   workspaceRemarkPlugins,
 } from "@/components/workspace/markdown-plugins";
 import { copyTextToClipboard } from "@/lib/clipboard";
+import { formatTimestamp } from "@/lib/format-timestamp";
 import type { WorkspacePermission } from "@/lib/opencode/permission";
 import type { MessagePart, PermissionResponse } from "@/lib/opencode/types";
 import { cn } from "@/lib/utils";
@@ -135,6 +136,26 @@ function isSameMinute(ts1?: number, ts2?: number): boolean {
     d1.getHours() === d2.getHours() &&
     d1.getMinutes() === d2.getMinutes()
   );
+}
+
+function displayTimestamp(message: ChatMessage): string {
+  if (/^\d+$/.test(message.timestamp)) {
+    return formatTimestamp(message.timestampRaw ?? Number(message.timestamp));
+  }
+  return message.timestamp;
+}
+
+function isVisibleChatPart(part: MessagePart): boolean {
+  if (part.type === "text") return Boolean(part.text.trim());
+  if (part.type === "step-start" || part.type === "step-finish") return false;
+  return true;
+}
+
+function isRenderableChatMessage(message: ChatMessage): boolean {
+  if (message.statusInfo?.status === "error") return true;
+  if (message.content.trim()) return true;
+  if (message.attachments && message.attachments.length > 0) return true;
+  return Boolean(message.parts?.some(isVisibleChatPart));
 }
 
 function humanizeChatErrorCode(code: string): string {
@@ -279,8 +300,9 @@ function MessageFooter({ message, showTimestamp = true }: { message: ChatMessage
     </div>
   );
 
-  const timestamp = !message.pending && showTimestamp ? (
-    <span className={cn("chat-text-micro text-muted-foreground/60", isUser ? "px-1" : "")}>{message.timestamp}</span>
+  const timestampLabel = displayTimestamp(message);
+  const timestamp = !message.pending && showTimestamp && timestampLabel && timestampLabel !== "Just now" ? (
+    <span className={cn("chat-text-micro text-muted-foreground/60", isUser ? "px-1" : "")}>{timestampLabel}</span>
   ) : null;
 
   return (
@@ -463,8 +485,8 @@ export function ChatPanelMessages({
             </div>
           ) : (
             <div className="space-y-6">
-              {messages.map((message, index) => {
-                const nextMessage = messages[index + 1];
+              {messages.filter(isRenderableChatMessage).map((message, index, visibleMessages) => {
+                const nextMessage = visibleMessages[index + 1];
                 const showTimestamp = !nextMessage || !isSameMinute(message.timestampRaw, nextMessage.timestampRaw);
                 const assistantErrorDetail =
                   message.role === "assistant" && message.statusInfo?.status === "error"

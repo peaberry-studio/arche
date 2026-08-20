@@ -59,6 +59,20 @@ describe("useWorkspaceMessageActions", () => {
     return { hook, getStore, commitStore };
   }
 
+  it("does not insert a local user message; the bus is the source of truth", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 202 })));
+    const { hook, getStore } = renderActions();
+
+    let sent = false;
+    await act(async () => {
+      sent = await hook.result.current.sendMessage("Hola");
+    });
+
+    expect(sent).toBe(true);
+    expect(getStore().messages.s1 ?? []).toHaveLength(0);
+    expect(getStore().sessionStatus.s1).toBe("busy");
+  });
+
   it("keeps sessionStatus busy when prompt returns 409", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 409 })));
     const { hook, getStore } = renderActions();

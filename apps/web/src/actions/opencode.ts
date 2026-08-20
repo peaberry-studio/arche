@@ -1,6 +1,7 @@
 "use server";
 
 import { createFlowActorScope } from "@/lib/flows/authorization";
+import { formatTimestamp } from "@/lib/format-timestamp";
 import { isLearningSessionTitle } from "@/lib/learning/session-title";
 import { createInstanceClient, getInstanceUrl } from "@/lib/opencode/client";
 import { normalizePendingPermission } from "@/lib/opencode/permission";
@@ -315,40 +316,6 @@ export async function loadFileTreeAction(
 // ============================================================================
 // Sessions
 // ============================================================================
-
-/**
- * Format a timestamp (unix ms or Date) for display.
- */
-function formatTimestamp(
-  timestamp: number | Date | string | undefined
-): string {
-  if (!timestamp) return "";
-
-  let d: Date;
-  if (typeof timestamp === "number") {
-    d = new Date(timestamp);
-  } else if (typeof timestamp === "string") {
-    d = new Date(timestamp);
-  } else {
-    d = timestamp;
-  }
-
-  const now = new Date();
-  const diffMs = now.getTime() - d.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-
-  if (diffMins < 1) return "Just now";
-  if (diffMins < 60) return `${diffMins} min ago`;
-
-  const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
-
-  const diffDays = Math.floor(diffHours / 24);
-  if (diffDays === 1) return "Yesterday";
-  if (diffDays < 7) return `${diffDays} days ago`;
-
-  return d.toLocaleDateString("en-US", { day: "numeric", month: "short" });
-}
 
 type WorkspaceSessionListEntry = {
   id: string;

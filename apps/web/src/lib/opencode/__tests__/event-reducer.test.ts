@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   createEmptyChatStore,
+  hydrateSessionIntoStore,
   isSending,
   reduceOpenCodeEvent,
   type ChatStore,
@@ -261,11 +262,10 @@ describe('reduceOpenCodeEvent', () => {
     })
   })
 
-  it('optimistic user with same id is substituted, not duplicated', () => {
+  it('user message with same id is substituted, not duplicated', () => {
     const base = apply(createEmptyChatStore(), 'message.updated', {
       info: { id: 'user-1', role: 'user', sessionID: 's1', parts: [] },
     })
-    // Re-arrive as the confirmed server message with the same id.
     const store = apply(base, 'message.updated', {
       info: { id: 'user-1', role: 'user', sessionID: 's1', parts: [{ type: 'text', text: 'Hola' }] },
     })
@@ -360,6 +360,221 @@ describe('reduceOpenCodeEvent', () => {
       })
       store = apply(store, 'message.removed', { info: { id: 'm1' } })
       expect(store.messages.s1 ?? []).toHaveLength(0)
+    })
+  })
+
+  describe('live OpenCode event order', () => {
+    it('does not wipe streamed parts when message.updated has no parts', () => {
+      let store = apply(createEmptyChatStore(), 'message.updated', {
+        info: { id: 'm1', role: 'assistant', sessionID: 's1', time: { created: 1 } },
+      })
+      store = apply(store, 'message.part.updated', {
+        part: { id: 'p1', type: 'text', text: 'Hello', messageID: 'm1', sessionID: 's1' },
+      })
+      store = apply(store, 'message.updated', {
+        info: { id: 'm1', role: 'assistant', sessionID: 's1', time: { created: 1, completed: 2 } },
+      })
+      expect(store.messages.s1).toHaveLength(1)
+      expect(store.messages.s1[0].content).toBe('Hello')
+      expect(store.messages.s1[0].parts).toMatchObject([{ type: 'text', text: 'Hello' }])
+      expect(store.messages.s1[0].completedAt).toBe(2)
+    })
+
+    it('keeps existing user text when a later message.updated has no parts', () => {
+      let store = createEmptyChatStore()
+      store = {
+        ...store,
+        messages: {
+          s1: [{
+            id: 'u1',
+            sessionId: 's1',
+            role: 'user',
+            content: 'Hola',
+            timestamp: 'Just now',
+            timestampRaw: 10,
+            parts: [{ type: 'text', text: 'Hola' }],
+          }],
+        },
+      }
+      store = apply(store, 'message.updated', {
+        info: { id: 'u1', role: 'user', sessionID: 's1', time: { created: 10 } },
+      })
+      expect(store.messages.s1).toHaveLength(1)
+      expect(store.messages.s1[0].content).toBe('Hola')
+    })
+
+    it('applies part.updated that arrived before message.updated', () => {
+      let store = apply(createEmptyChatStore(), 'message.part.updated', {
+        part: { id: 'p1', type: 'text', text: 'Hi', messageID: 'm1', sessionID: 's1' },
+      })
+      expect(store.messages.s1 ?? []).toHaveLength(0)
+      store = apply(store, 'message.updated', {
+        info: { id: 'm1', role: 'assistant', sessionID: 's1', time: { created: 1 } },
+      })
+      expect(store.messages.s1[0].content).toBe('Hi')
+      expect(store.messages.s1[0].role).toBe('assistant')
+    })
+
+    it('stores a relative timestamp instead of the raw epoch', () => {
+      const created = Date.now()
+      const store = apply(createEmptyChatStore(), 'message.updated', {
+        info: { id: 'm1', role: 'user', sessionID: 's1', time: { created } },
+      })
+      expect(store.messages.s1[0].timestamp).toBe('Just now')
+      expect(store.messages.s1[0].timestamp).not.toBe(String(created))
+      expect(store.messages.s1[0].timestampRaw).toBe(created)
+    })
+
+    it('keeps empty text parts so OpenCode deltas can stream', () => {
+      let store = apply(createEmptyChatStore(), 'message.updated', {
+        info: { id: 'm1', role: 'assistant', sessionID: 's1', time: { created: 1 } },
+      })
+      store = apply(store, 'message.part.updated', {
+        part: { id: 'p1', type: 'text', text: '', messageID: 'm1', sessionID: 's1' },
+      })
+      expect(store.messages.s1[0].parts).toMatchObject([{ type: 'text', id: 'p1', text: '' }])
+
+      store = apply(store, 'message.part.delta', {
+        sessionID: 's1',
+        messageID: 'm1',
+        partID: 'p1',
+        field: 'text',
+        delta: 'He',
+      })
+      store = apply(store, 'message.part.delta', {
+        sessionID: 's1',
+        messageID: 'm1',
+        partID: 'p1',
+        field: 'text',
+        delta: 'llo',
+      })
+      expect(store.messages.s1[0].parts).toMatchObject([{ type: 'text', text: 'Hello' }])
+      expect(store.messages.s1[0].content).toBe('Hello')
+
+      store = apply(store, 'message.part.updated', {
+        part: { id: 'p1', type: 'text', text: 'Hello', messageID: 'm1', sessionID: 's1' },
+      })
+      expect(store.messages.s1[0].parts).toMatchObject([{ type: 'text', text: 'Hello' }])
+    })
+
+    it('streams reasoning deltas from an empty placeholder without wiping later text', () => {
+      let store = apply(createEmptyChatStore(), 'message.updated', {
+        info: { id: 'm1', role: 'assistant', sessionID: 's1', time: { created: 1 } },
+      })
+      store = apply(store, 'message.part.updated', {
+        part: { id: 'r1', type: 'reasoning', text: '', messageID: 'm1', sessionID: 's1' },
+      })
+      store = apply(store, 'message.part.delta', {
+        sessionID: 's1',
+        messageID: 'm1',
+        partID: 'r1',
+        field: 'text',
+        delta: 'think',
+      })
+      expect(store.messages.s1[0].parts).toMatchObject([{ type: 'reasoning', text: 'think' }])
+
+      store = apply(store, 'message.part.updated', {
+        part: { id: 'r1', type: 'reasoning', text: 'think', messageID: 'm1', sessionID: 's1' },
+      })
+      store = apply(store, 'message.part.updated', {
+        part: { id: 't1', type: 'text', text: '', messageID: 'm1', sessionID: 's1' },
+      })
+      store = apply(store, 'message.part.delta', {
+        sessionID: 's1',
+        messageID: 'm1',
+        partID: 't1',
+        field: 'text',
+        delta: 'Hi',
+      })
+      expect(store.messages.s1[0].parts).toMatchObject([
+        { type: 'reasoning', text: 'think' },
+        { type: 'text', text: 'Hi' },
+      ])
+    })
+
+    it('does not let an empty part.updated wipe already streamed text', () => {
+      let store = apply(createEmptyChatStore(), 'message.updated', {
+        info: { id: 'm1', role: 'assistant', sessionID: 's1', time: { created: 1 } },
+      })
+      store = apply(store, 'message.part.updated', {
+        part: { id: 'p1', type: 'text', text: '', messageID: 'm1', sessionID: 's1' },
+      })
+      store = apply(store, 'message.part.delta', {
+        sessionID: 's1',
+        messageID: 'm1',
+        partID: 'p1',
+        field: 'text',
+        delta: 'Hello',
+      })
+      store = apply(store, 'message.part.updated', {
+        part: { id: 'p1', type: 'text', text: '', messageID: 'm1', sessionID: 's1' },
+      })
+      expect(store.messages.s1[0].parts).toMatchObject([{ type: 'text', text: 'Hello' }])
+    })
+
+    it('buffers an empty part and its deltas until message.updated arrives', () => {
+      let store = apply(createEmptyChatStore(), 'message.part.updated', {
+        part: { id: 'p1', type: 'text', text: '', messageID: 'm1', sessionID: 's1' },
+      })
+      store = apply(store, 'message.part.delta', {
+        sessionID: 's1',
+        messageID: 'm1',
+        partID: 'p1',
+        field: 'text',
+        delta: 'Hi',
+      })
+      expect(store.messages.s1 ?? []).toHaveLength(0)
+      store = apply(store, 'message.updated', {
+        info: { id: 'm1', role: 'assistant', sessionID: 's1', time: { created: 1 } },
+      })
+      expect(store.messages.s1[0].content).toBe('Hi')
+      expect(store.messages.s1[0].parts).toMatchObject([{ type: 'text', text: 'Hi' }])
+    })
+  })
+
+  describe('hydrateSessionIntoStore', () => {
+    it('keeps an existing user message across hydrate', () => {
+      const live = createEmptyChatStore()
+      const seeded: ChatStore = {
+        ...live,
+        messages: {
+          s1: [{
+            id: 'u1',
+            sessionId: 's1',
+            role: 'user',
+            content: 'Hola',
+            timestamp: 'Just now',
+            parts: [{ type: 'text', text: 'Hola' }],
+          }],
+        },
+      }
+      const store = hydrateSessionIntoStore(seeded, 's1', [{
+        id: 'u1',
+        sessionId: 's1',
+        role: 'user',
+        content: 'Hola',
+        timestamp: 'Just now',
+        parts: [{ type: 'text', text: 'Hola' }],
+      }])
+      expect(store.messages.s1.map((message) => message.id)).toEqual(['u1'])
+    })
+
+    it('keeps live streamed parts when hydrate snapshot is emptier', () => {
+      const live = apply(createEmptyChatStore(), 'message.updated', {
+        info: { id: 'm1', role: 'assistant', sessionID: 's1', time: { created: 1 } },
+      })
+      const streamed = apply(live, 'message.part.updated', {
+        part: { id: 'p1', type: 'text', text: 'Streamed', messageID: 'm1', sessionID: 's1' },
+      })
+      const store = hydrateSessionIntoStore(streamed, 's1', [{
+        id: 'm1',
+        sessionId: 's1',
+        role: 'assistant',
+        content: '',
+        timestamp: 'Just now',
+        parts: [],
+      }])
+      expect(store.messages.s1[0].content).toBe('Streamed')
     })
   })
 })

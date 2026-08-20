@@ -1,3 +1,4 @@
+import { formatTimestamp } from '@/lib/format-timestamp'
 import { isWorkspaceTouchEvent, type OpenCodeEvent } from '@/lib/opencode/opencode-event'
 import {
   getPermissionEventPayload,
@@ -19,8 +20,8 @@ export type ChatStore = {
   permissions: Record<string, WorkspacePermission[]>
   /** Flat session list (parentId used to resolve child permission visibility) */
   sessions: WorkspaceSession[]
-  /** sessionId → ids of optimistic user messages not yet confirmed server-side */
-  optimisticUserIds: Record<string, string[]>
+  /** messageId → parts that arrived before the matching message.updated */
+  pendingParts: Record<string, MessagePart[]>
 }
 
 export type ReduceResult = {
@@ -34,7 +35,7 @@ export function createEmptyChatStore(): ChatStore {
     sessionStatus: {},
     permissions: {},
     sessions: [],
-    optimisticUserIds: {},
+    pendingParts: {},
   }
 }
 
@@ -96,6 +97,9 @@ function compareMessages(a: WorkspaceMessage, b: WorkspaceMessage): number {
   const leftTime = a.timestampRaw ?? 0
   const rightTime = b.timestampRaw ?? 0
   if (leftTime !== rightTime) return leftTime - rightTime
+  // Both missing a created time: keep insertion order (user then assistant from
+  // hydrate snapshots that omit timestampRaw).
+  if (!a.timestampRaw && !b.timestampRaw) return 0
   return a.id.localeCompare(b.id)
 }
 
@@ -138,10 +142,25 @@ function toWorkspaceMessage(info: Record<string, unknown>): WorkspaceMessage | n
     ...(rawProviderId && modelId ? { model: { providerId: rawProviderId, modelId } } : {}),
     content:
       role === 'user' ? extractUserTextContent(parts) : extractTextContent(parts),
-    timestamp: timestampRaw ? String(timestampRaw) : '',
+    timestamp: formatTimestamp(timestampRaw),
     ...(typeof timestampRaw === 'number' && { timestampRaw }),
     ...(typeof completedAt === 'number' && completedAt > 0 && { completedAt }),
     parts,
+  }
+}
+
+function mergeWorkspaceMessage(
+  existing: WorkspaceMessage,
+  incoming: WorkspaceMessage,
+): WorkspaceMessage {
+  const parts = incoming.parts.length > 0 ? incoming.parts : existing.parts
+  return {
+    ...existing,
+    ...incoming,
+    parts,
+    content:
+      incoming.role === 'user' ? extractUserTextContent(parts) : extractTextContent(parts),
+    timestamp: incoming.timestamp || existing.timestamp,
   }
 }
 
@@ -154,9 +173,27 @@ function upsertMessageInSession(
   const existingIndex = messages.findIndex((candidate) => candidate.id === message.id)
   const nextMessages =
     existingIndex >= 0
-      ? messages.map((candidate, index) => (index === existingIndex ? message : candidate))
+      ? messages.map((candidate, index) => (
+        index === existingIndex ? mergeWorkspaceMessage(candidate, message) : candidate
+      ))
       : [...messages, message]
   return withMessages(store, sessionId, nextMessages)
+}
+
+function isTextishPart(
+  part: MessagePart,
+): part is Extract<MessagePart, { type: 'text' | 'reasoning'; text: string }> {
+  return part.type === 'text' || part.type === 'reasoning'
+}
+
+function mergeIncomingPart(existing: MessagePart, incoming: MessagePart): MessagePart {
+  if (isTextishPart(existing) && existing.type === incoming.type && isTextishPart(incoming)) {
+    return {
+      ...incoming,
+      text: existing.text.length > incoming.text.length ? existing.text : incoming.text,
+    }
+  }
+  return incoming
 }
 
 function upsertPartInMessage(
@@ -175,7 +212,7 @@ function upsertPartInMessage(
         ? message.parts.findIndex((candidate) => 'id' in candidate && candidate.id === partId)
         : -1
       if (targetIndex >= 0) {
-        nextParts[targetIndex] = part
+        nextParts[targetIndex] = mergeIncomingPart(nextParts[targetIndex], part)
       } else {
         nextParts.push(part)
       }
@@ -231,71 +268,70 @@ function removeMessageById(store: ChatStore, messageId: string): ChatStore {
   return store
 }
 
-function withOptimisticRemoved(store: ChatStore, sessionId: string, messageId: string): ChatStore {
-  const optimisticIds = store.optimisticUserIds[sessionId] ?? []
-  if (!optimisticIds.includes(messageId)) return store
-  const next = { ...store, optimisticUserIds: { ...store.optimisticUserIds } }
-  const remaining = optimisticIds.filter((id) => id !== messageId)
-  if (remaining.length === 0) {
-    delete next.optimisticUserIds[sessionId]
+function withPendingParts(store: ChatStore, messageId: string, parts: MessagePart[]): ChatStore {
+  const next = { ...store, pendingParts: { ...store.pendingParts } }
+  if (parts.length === 0) {
+    delete next.pendingParts[messageId]
   } else {
-    next.optimisticUserIds[sessionId] = remaining
+    next.pendingParts[messageId] = parts
   }
   return next
 }
 
-function addOptimisticUser(store: ChatStore, sessionId: string, messageId: string): ChatStore {
-  const optimisticIds = store.optimisticUserIds[sessionId] ?? []
-  if (optimisticIds.includes(messageId)) return store
-  const next = { ...store, optimisticUserIds: { ...store.optimisticUserIds } }
-  next.optimisticUserIds[sessionId] = [...optimisticIds, messageId]
-  return next
+function upsertPendingPart(store: ChatStore, messageId: string, part: MessagePart): ChatStore {
+  const current = store.pendingParts[messageId] ?? []
+  const partId = 'id' in part ? part.id : undefined
+  const targetIndex = partId
+    ? current.findIndex((candidate) => 'id' in candidate && candidate.id === partId)
+    : -1
+  const nextParts = [...current]
+  if (targetIndex >= 0) {
+    nextParts[targetIndex] = mergeIncomingPart(nextParts[targetIndex], part)
+  } else {
+    nextParts.push(part)
+  }
+  return withPendingParts(store, messageId, nextParts)
+}
+
+function keepRicherMessage(
+  live: WorkspaceMessage | undefined,
+  incoming: WorkspaceMessage,
+): WorkspaceMessage {
+  if (!live) return incoming
+  const liveRicher =
+    live.parts.length > incoming.parts.length ||
+    (live.parts.length === incoming.parts.length && live.content.length > incoming.content.length)
+  if (!liveRicher) return incoming
+  return {
+    ...incoming,
+    parts: live.parts,
+    content: live.content,
+  }
+}
+
+/**
+ * Merge a listMessages snapshot into the store without clobbering live parts.
+ */
+export function hydrateSessionIntoStore(
+  store: ChatStore,
+  sessionId: string,
+  hydrated: WorkspaceMessage[],
+): ChatStore {
+  const current = messagesForSession(store, sessionId)
+  const byId = new Map(current.map((message) => [message.id, message]))
+  for (const incoming of hydrated) {
+    byId.set(incoming.id, keepRicherMessage(byId.get(incoming.id), incoming))
+  }
+  return withMessages(store, sessionId, Array.from(byId.values()))
 }
 
 function upsertMessageFromEvent(
   store: ChatStore,
   info: Record<string, unknown>,
-  optimistic: boolean,
 ): ChatStore {
   const message = toWorkspaceMessage(info)
   if (!message) return store
-
-  let next = upsertMessageInSession(store, message.sessionId, message)
-
-  if (message.role === 'user') {
-    if (optimistic) {
-      next = addOptimisticUser(next, message.sessionId, message.id)
-      return next
-    }
-
-    // A confirmed server user message clears optimistic user messages in the
-    // same session that share its id or its text.
-    const optimisticIds = next.optimisticUserIds[message.sessionId] ?? []
-    for (const optimisticId of optimisticIds) {
-      if (optimisticId === message.id) continue
-      const optimisticMessage = messagesForSession(next, message.sessionId)
-        .find((candidate) => candidate.id === optimisticId)
-      if (!optimisticMessage) continue
-      if (optimisticMessage.content === message.content) {
-        next = removeOptimisticUserMessage(next, message.sessionId, optimisticId)
-      }
-    }
-  }
-
-  return next
-}
-
-function removeOptimisticUserMessage(
-  store: ChatStore,
-  sessionId: string,
-  messageId: string,
-): ChatStore {
-  let next = withOptimisticRemoved(store, sessionId, messageId)
-  const messages = messagesForSession(store, sessionId)
-  if (messages.some((candidate) => candidate.id === messageId)) {
-    next = withMessages(next, sessionId, messages.filter((candidate) => candidate.id !== messageId))
-  }
-  return next
+  return upsertMessageInSession(store, message.sessionId, message)
 }
 
 function setStatus(store: ChatStore, sessionId: string, status: SessionRuntimeStatus): ChatStore {
@@ -375,7 +411,17 @@ function markLastAssistantError(
 function applyMessageUpdated(store: ChatStore, properties: Record<string, unknown>): ChatStore {
   const info = isRecord(properties.info) ? properties.info : null
   if (!info) return store
-  return upsertMessageFromEvent(store, info, false)
+  let next = upsertMessageFromEvent(store, info)
+  const messageId = getString(info.id)
+  if (!messageId) return next
+  const pending = next.pendingParts[messageId]
+  if (!pending || pending.length === 0) return next
+  const sessionId = getString(info.sessionID) ?? getString(info.sessionId)
+  if (!sessionId) return next
+  for (const part of pending) {
+    next = upsertPartInMessage(next, sessionId, messageId, part)
+  }
+  return withPendingParts(next, messageId, [])
 }
 
 function applyMessagePartUpdated(store: ChatStore, properties: Record<string, unknown>): ChatStore {
@@ -394,7 +440,9 @@ function applyMessagePartUpdated(store: ChatStore, properties: Record<string, un
   if (!transformed) return store
 
   const { sessionId, message } = locateMessageGlobal(store, messageId)
-  if (!message) return store
+  if (!message) {
+    return upsertPendingPart(store, messageId, transformed)
+  }
   return upsertPartInMessage(store, sessionId, messageId, transformed)
 }
 
@@ -410,6 +458,15 @@ function locateMessageGlobal(
 }
 
 function transformMessagePart(part: Record<string, unknown>): MessagePart | null {
+  const partType = getString(part.type)
+  const partId = getString(part.id)
+  // OpenCode creates text/reasoning parts with empty text, then streams via
+  // message.part.delta. transformParts drops empty snapshots for history;
+  // the live path must keep the placeholder so deltas have a part to append to.
+  if ((partType === 'text' || partType === 'reasoning') && partId) {
+    const text = typeof part.text === 'string' ? part.text : ''
+    return { type: partType, id: partId, text }
+  }
   const transformed = transformParts([part])
   return transformed[0] ?? null
 }
@@ -424,7 +481,18 @@ function applyMessagePartDelta(store: ChatStore, properties: Record<string, unkn
   if (!messageId || !partId || delta === undefined) return store
 
   const { sessionId, message } = locateMessageGlobal(store, messageId)
-  if (!message) return store
+  if (!message) {
+    const pending = store.pendingParts[messageId] ?? []
+    const pendingIndex = pending.findIndex((part) => 'id' in part && part.id === partId)
+    if (pendingIndex < 0) return store
+    if (field !== 'text' && field !== 'reasoning') return store
+    const nextParts = pending.map((part, index) => {
+      if (index !== pendingIndex) return part
+      if (part.type !== 'text' && part.type !== 'reasoning') return part
+      return { ...part, text: `${part.text}${delta}` }
+    })
+    return withPendingParts(store, messageId, nextParts)
+  }
 
   // No-op unless the part already exists; the full part.updated carries text.
   const partExists = message.parts.some((part) => 'id' in part && part.id === partId)
@@ -522,8 +590,9 @@ export function reduceOpenCodeEvent(
         getString(properties.messageID) ??
         getString(properties.id) ??
         (info ? getString(info.id) : undefined)
+      if (!messageId) return { store, workspaceTouched: false }
       return {
-        store: messageId ? removeMessageById(store, messageId) : store,
+        store: withPendingParts(removeMessageById(store, messageId), messageId, []),
         workspaceTouched: false,
       }
     }

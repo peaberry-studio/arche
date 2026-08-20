@@ -16,6 +16,7 @@ import { listMessagesAction, listPermissionsAction } from "@/actions/opencode";
 import { EMPTY_WORKSPACE_MESSAGES } from "@/hooks/workspace/workspace-types";
 import {
   createEmptyChatStore,
+  hydrateSessionIntoStore,
   reduceOpenCodeEvent,
   type ChatStore,
   type SessionRuntimeStatus,
@@ -102,49 +103,7 @@ export function useWorkspaceEventBus({
 
   const mergeHydratedMessages = useCallback(
     (sessionId: string, hydrated: WorkspaceMessage[]) => {
-      commitStore((prev) => {
-        const current = prev.messages[sessionId] ?? EMPTY_WORKSPACE_MESSAGES;
-        const byId = new Map(current.map((message) => [message.id, message]));
-        for (const message of hydrated) {
-          byId.set(message.id, message);
-        }
-
-        // Drop an optimistic user message only once a confirmed server message
-        // carries the same text under a different id. A hydrate that races a
-        // send (server still processing) must keep the in-flight optimistic.
-        const optimisticIds = prev.optimisticUserIds[sessionId] ?? [];
-        const confirmedText = new Set(
-          hydrated.filter((message) => message.role === "user").map((message) => message.content),
-        );
-        const droppedOptimisticIds = new Set<string>();
-        for (const id of optimisticIds) {
-          const optimistic = byId.get(id);
-          if (!optimistic) continue;
-          if (
-            hydrated.some((message) => message.id === id) ||
-            confirmedText.has(optimistic.content)
-          ) {
-            byId.delete(id);
-            droppedOptimisticIds.add(id);
-          }
-        }
-
-        const merged = Array.from(byId.values());
-        const remainingOptimisticIds = (prev.optimisticUserIds[sessionId] ?? []).filter(
-          (id) => !droppedOptimisticIds.has(id),
-        );
-        const nextOptimisticUserIds = { ...prev.optimisticUserIds };
-        if (remainingOptimisticIds.length === 0) {
-          delete nextOptimisticUserIds[sessionId];
-        } else {
-          nextOptimisticUserIds[sessionId] = remainingOptimisticIds;
-        }
-        return {
-          ...prev,
-          messages: { ...prev.messages, [sessionId]: merged },
-          optimisticUserIds: nextOptimisticUserIds,
-        };
-      });
+      commitStore((prev) => hydrateSessionIntoStore(prev, sessionId, hydrated));
       syncRuntimeMetadataForSession?.(sessionId, hydrated);
     },
     [commitStore, syncRuntimeMetadataForSession],
@@ -231,14 +190,16 @@ export function useWorkspaceEventBus({
       const messages = { ...prev.messages };
       const sessionStatus = { ...prev.sessionStatus };
       const permissions = { ...prev.permissions };
-      const optimisticUserIds = { ...prev.optimisticUserIds };
+      const pendingParts = { ...prev.pendingParts };
       for (const sessionId of sessionIds) {
+        for (const message of prev.messages[sessionId] ?? []) {
+          delete pendingParts[message.id];
+        }
         delete messages[sessionId];
         delete sessionStatus[sessionId];
         delete permissions[sessionId];
-        delete optimisticUserIds[sessionId];
       }
-      return { ...prev, messages, sessionStatus, permissions, optimisticUserIds };
+      return { ...prev, messages, sessionStatus, permissions, pendingParts };
     });
   }, [commitStore]);
 
