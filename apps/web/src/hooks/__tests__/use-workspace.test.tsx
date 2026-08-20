@@ -2013,6 +2013,7 @@ describe("useWorkspace", () => {
             },
           ],
           pending: true,
+          statusInfo: { status: "tool-calling", detail: "permission_required" },
         },
       ],
     });
@@ -2068,6 +2069,92 @@ describe("useWorkspace", () => {
       type: "permission",
       state: "approved",
     });
+    expect(result.current.messages[0]?.statusInfo?.detail).not.toBe("permission_required");
+  });
+
+  it("optimistically updates a delegated permission card on the parent session", async () => {
+    let permissionBody: { sessionId?: string; response?: string } | null = null;
+
+    opencodeMocks.listMessagesAction.mockResolvedValue({
+      ok: true,
+      messages: [
+        {
+          id: "assistant-permission",
+          sessionId: "s1",
+          role: "assistant",
+          content: "Need approval",
+          timestamp: "now",
+          parts: [
+            {
+              type: "permission",
+              id: "permission:perm-child",
+              permissionId: "perm-child",
+              sessionId: "child-1",
+              title: "Delete Mailerlite campaign",
+              state: "pending",
+            },
+          ],
+          pending: true,
+          statusInfo: { status: "tool-calling", detail: "permission_required" },
+        },
+      ],
+    });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input) === "/api/u/alice/agents") {
+          return {
+            ok: true,
+            json: async () => ({ agents: [] }),
+          };
+        }
+
+        if (String(input) === "/api/u/alice/providers") {
+          return {
+            ok: true,
+            json: async () => ({ providers: [] }),
+          };
+        }
+
+        if (String(input) === "/api/w/alice/chat/permissions/perm-child") {
+          permissionBody = JSON.parse(String(init?.body ?? "{}")) as {
+            sessionId?: string;
+            response?: string;
+          };
+          return { ok: true };
+        }
+
+        throw new Error(`Unexpected fetch: ${String(input)}`);
+      })
+    );
+
+    const { result } = renderHook(() =>
+      useWorkspace({ slug: "alice", pollInterval: 0 })
+    );
+
+    await waitFor(() => {
+      expect(result.current.messages[0]?.parts[0]).toMatchObject({
+        permissionId: "perm-child",
+        sessionId: "child-1",
+        state: "pending",
+        type: "permission",
+      });
+    });
+
+    let accepted = false;
+    await act(async () => {
+      accepted = await result.current.answerPermission("child-1", "perm-child", "once");
+    });
+
+    expect(accepted).toBe(true);
+    expect(permissionBody).toEqual({ sessionId: "child-1", response: "once" });
+    expect(result.current.messages[0]?.parts[0]).toMatchObject({
+      permissionId: "perm-child",
+      state: "approved",
+      type: "permission",
+    });
+    expect(result.current.messages[0]?.statusInfo?.detail).not.toBe("permission_required");
   });
 
   it("cleans messages and model selection state for deleted session families", async () => {

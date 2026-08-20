@@ -7,6 +7,7 @@ import type {
   AvailableModel,
   MessagePart,
   PermissionResponse,
+  PermissionState,
   WorkspaceMessage,
   WorkspaceSession,
 } from "@/lib/opencode/types";
@@ -236,23 +237,41 @@ export function useWorkspaceMessageActions({
 
         if (!reply.ok) return false;
 
-        updateSessionMessages(permissionSessionId, (prev) =>
-          prev.map((message) => ({
-            ...message,
-            parts: message.parts.map((part) =>
+        const nextState: PermissionState = response === "reject" ? "rejected" : "approved";
+        const applyOptimisticReply = (prev: WorkspaceMessage[]): WorkspaceMessage[] =>
+          prev.map((message) => {
+            const parts = message.parts.map((part) =>
               part.type === "permission" && part.permissionId === permissionId
-                ? { ...part, state: response === "reject" ? "rejected" : "approved" }
+                ? { ...part, state: nextState }
                 : part
-            ),
-          }))
-        );
+            );
+            const stillWaiting = parts.some(
+              (part) => part.type === "permission" && part.state === "pending"
+            );
+
+            return {
+              ...message,
+              parts,
+              statusInfo: stillWaiting
+                ? message.statusInfo
+                : message.statusInfo?.detail === "permission_required"
+                  ? { status: "thinking" }
+                  : message.statusInfo,
+            };
+          });
+
+        const displaySessionId = activeSessionIdRef.current;
+        updateSessionMessages(permissionSessionId, applyOptimisticReply);
+        if (displaySessionId && displaySessionId !== permissionSessionId) {
+          updateSessionMessages(displaySessionId, applyOptimisticReply);
+        }
 
         return true;
       } catch {
         return false;
       }
     },
-    [slug, updateSessionMessages]
+    [activeSessionIdRef, slug, updateSessionMessages]
   );
 
   const abortSession = useCallback(async () => {
