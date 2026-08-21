@@ -6,8 +6,17 @@ type WorkspaceHrefOptions = {
 };
 
 export function getWorkspaceHref(slug: string, options: WorkspaceHrefOptions = {}): string {
-  const params = new URLSearchParams();
   const mode = options.mode ?? (options.path ? "explore" : undefined);
+
+  // Explore is a dedicated page, not a workspace mode.
+  if (mode === "explore") {
+    const params = new URLSearchParams();
+    if (options.path) params.set("path", options.path);
+    const query = params.toString();
+    return query ? `/w/${slug}/explore?${query}` : `/w/${slug}/explore`;
+  }
+
+  const params = new URLSearchParams();
 
   if (mode && mode !== "chat") {
     params.set("mode", mode);

@@ -27,8 +27,6 @@ import { flattenWorkspaceFileNodes, rankWorkspaceFileSearchCandidates } from "@/
 import { isFlowSession } from "@/lib/workspace-session-utils";
 import type { WorkspaceThemeId } from "@/lib/workspace-theme";
 
-import type { WorkspaceMode } from "./workspace-modes";
-
 type WorkspaceCommandPaletteProps = {
   fileNodes?: WorkspaceFileNode[];
   slug: string;
@@ -36,14 +34,15 @@ type WorkspaceCommandPaletteProps = {
   hideFlows: boolean;
   onOpenChange: (open: boolean) => void;
   onCreateSession: () => Promise<void> | void;
-  onModeChange: (mode: WorkspaceMode) => void;
+  onOpenCurator: () => void;
+  onOpenExplore: () => void;
   onNavigateFlows: () => void;
   onOpenFile?: (path: string) => Promise<void> | void;
   onNavigateConnectors: () => void;
   onNavigateProviders: () => void;
   onNavigateSettings: () => void;
   onRefreshSessions: () => Promise<void> | void;
-  onSelectSession: (sessionId: string, mode: WorkspaceMode) => void;
+  onSelectSession: (sessionId: string) => void;
   onToggleLeftPanel: () => void;
 };
 
@@ -74,7 +73,8 @@ export function WorkspaceCommandPalette({
   hideFlows,
   onOpenChange,
   onCreateSession,
-  onModeChange,
+  onOpenCurator,
+  onOpenExplore,
   onNavigateFlows,
   onOpenFile,
   onNavigateConnectors,
@@ -197,31 +197,22 @@ export function WorkspaceCommandPalette({
   const baseItems = useMemo<PaletteItem[]>(() => {
     const items: PaletteItem[] = [
       {
-        id: "mode-sessions",
-        title: "Go to Sessions mode",
-        subtitle: "Show chats and conversation history",
-        section: "Modes",
-        icon: ChatCircle,
-        keywords: "chat conversations",
-        run: () => onModeChange("chat"),
-      },
-      {
         id: "mode-explore",
-        title: "Go to Explore mode",
-        subtitle: "Browse files and knowledge graph",
-        section: "Modes",
+        title: "Open Explore",
+        subtitle: "Browse files and knowledge graph in a separate workspace",
+        section: "Navigation",
         icon: Compass,
         keywords: "files graph kb",
-        run: () => onModeChange("explore"),
+        run: onOpenExplore,
       },
       {
-        id: "mode-knowledge",
-        title: "Go to Knowledge mode",
+        id: "mode-curator",
+        title: "Open Curator",
         subtitle: "Review learning proposals and workspace changes",
-        section: "Modes",
+        section: "Navigation",
         icon: Database,
         keywords: "proposals changes publish",
-        run: () => onModeChange("knowledge"),
+        run: onOpenCurator,
       },
       {
         id: "new-chat",
@@ -231,7 +222,6 @@ export function WorkspaceCommandPalette({
         icon: Sparkle,
         keywords: "session conversation",
         run: async () => {
-          onModeChange("chat");
           await onCreateSession();
         },
       },
@@ -284,7 +274,7 @@ export function WorkspaceCommandPalette({
         id: "mode-flows",
         title: "Go to Flows manager",
         subtitle: "Open the flows automation manager",
-        section: "Modes",
+        section: "Navigation",
         icon: GitBranch,
         keywords: "flows automation runs",
         run: onNavigateFlows,
@@ -304,7 +294,7 @@ export function WorkspaceCommandPalette({
     }
 
     return items;
-  }, [hideFlows, onCreateSession, onModeChange, onNavigateConnectors, onNavigateFlows, onNavigateProviders, onNavigateSettings, onToggleLeftPanel, setThemeId, themeId, themes, toggleDark]);
+  }, [hideFlows, onCreateSession, onNavigateConnectors, onNavigateFlows, onNavigateProviders, onNavigateSettings, onOpenCurator, onOpenExplore, onToggleLeftPanel, setThemeId, themeId, themes, toggleDark]);
 
   const flowItems = useMemo<PaletteItem[]>(() => {
     if (hideFlows) return [];
@@ -336,7 +326,7 @@ export function WorkspaceCommandPalette({
           section: isFlowRun ? "Flow runs" : "Chats",
           icon: isFlowRun ? GitBranch : ChatCircle,
           keywords: session.flow?.flowName,
-          run: () => onSelectSession(session.id, "chat"),
+          run: () => onSelectSession(session.id),
         };
       });
   }, [hideFlows, onSelectSession, sessionResults]);
@@ -358,11 +348,10 @@ export function WorkspaceCommandPalette({
       icon: File,
       keywords: file.path,
       run: async () => {
-        onModeChange("explore");
         await onOpenFile(file.path);
       },
     }));
-  }, [fileResults, localFileCandidates, onModeChange, onOpenFile, query]);
+  }, [fileResults, localFileCandidates, onOpenFile, query]);
 
   const visibleItems = useMemo(() => {
     const trimmedQuery = query.trim();

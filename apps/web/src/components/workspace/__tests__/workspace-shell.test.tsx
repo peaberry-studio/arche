@@ -176,6 +176,27 @@ vi.mock("@/components/workspace/arc-loader", () => ({
   ArcLoader: () => <div>Loader</div>,
 }));
 
+const curatorDialogProps = vi.hoisted(() => ({ current: undefined as Record<string, unknown> | undefined }));
+
+vi.mock("@/components/workspace/curator-dialog", () => ({
+  CuratorDialog: (props: Record<string, unknown>) => {
+    curatorDialogProps.current = props;
+    return (
+      <div data-testid="curator-dialog" data-open={String(props.open)} data-can-publish={String(Boolean(props.onPublish))} data-can-discard={String(Boolean(props.onDiscardFileChanges))} data-can-resolve={String(Boolean(props.onResolveConflict))}>
+        <span>Curator Dialog</span>
+        {props.onProposalCountChange ? (
+          <button type="button" onClick={() => (props.onProposalCountChange as (count: number) => void)(3)}>
+            Report proposal count
+          </button>
+        ) : null}
+        <button type="button" onClick={() => (props.onOpenChange as (open: boolean) => void)(false)}>
+          Close curator
+        </button>
+      </div>
+    );
+  },
+}));
+
 vi.mock("@/components/workspace/inspector-panel", () => ({
   InspectorPanel: ({
     activeFilePath,
@@ -287,6 +308,7 @@ describe("WorkspaceShell", () => {
   beforeEach(() => {
     stubBrowserStorage();
     setViewportWidth(1440);
+    curatorDialogProps.current = undefined;
     createSessionMock.mockClear();
     discardFileChangesMock.mockReset();
     discardFileChangesMock.mockResolvedValue({ ok: true });
@@ -490,7 +512,7 @@ describe("WorkspaceShell", () => {
     expect(await screen.findByRole("button", { name: "New chat" })).toBeTruthy();
     expect(screen.getByText("Arche")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Explore" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Knowledge" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Curator" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Flows" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Sessions" })).toBeNull();
 
@@ -609,27 +631,18 @@ describe("WorkspaceShell", () => {
     });
   });
 
-  it("passes disabled workspace-agent capabilities into chat and knowledge panels", async () => {
-    const { unmount } = render(<WorkspaceShell slug="alice" workspaceAgentEnabled={false} />);
+  it("passes disabled workspace-agent capabilities into chat and curator", async () => {
+    render(<WorkspaceShell slug="alice" workspaceAgentEnabled={false} />);
 
     expect((await screen.findByTestId("chat-panel")).dataset.attachmentsEnabled).toBe("false");
 
-    unmount();
+    fireEvent.click(screen.getByRole("button", { name: "Curator" }));
 
-    render(
-      <WorkspaceShell
-        slug="alice"
-        initialWorkspaceMode="explore"
-        initialFilePath="docs/plan.md"
-        workspaceAgentEnabled={false}
-      />
-    );
-
-    const filesPanel = await screen.findByRole("button", { name: "Files Panel" });
-    expect(filesPanel.dataset.canSave).toBe("false");
-    expect(filesPanel.dataset.canDiscard).toBe("false");
-    expect(filesPanel.dataset.canPublish).toBe("false");
-    expect(filesPanel.dataset.canResolve).toBe("false");
+    const curator = await screen.findByTestId("curator-dialog");
+    expect(curator.dataset.open).toBe("true");
+    expect(curator.dataset.canPublish).toBe("false");
+    expect(curator.dataset.canDiscard).toBe("false");
+    expect(curator.dataset.canResolve).toBe("false");
   });
 
   it("marks subagent sessions read-only and returns to the root session", async () => {
@@ -741,11 +754,20 @@ describe("WorkspaceShell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Edit file" }));
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Explore" }).getAttribute("aria-pressed")).toBe("true");
+      expect(routerPushMock).toHaveBeenCalledWith("/w/alice/explore?path=docs%2Fplan.md");
     });
 
-    expect(screen.getByRole("button", { name: "Files Panel" }).dataset.panelMode).toBe("files");
     expect(readFileMock).toHaveBeenCalledWith("docs/plan.md");
+  });
+
+  it("opens the Explore page from the sidebar nav", async () => {
+    render(<WorkspaceShell slug="alice" />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Explore" }));
+
+    await waitFor(() => {
+      expect(routerPushMock).toHaveBeenCalledWith("/w/alice/explore");
+    });
   });
 
   it("toggles the sidebar with Command+B", async () => {
@@ -767,151 +789,21 @@ describe("WorkspaceShell", () => {
     });
   });
 
-  it("shows the unified sessions list and returns to chat when selecting from Explore", async () => {
-    render(
-      <WorkspaceShell
-        slug="alice"
-        initialWorkspaceMode="explore"
-        initialFilePath="docs/plan.md"
-      />
-    );
+  it("opens the Curator modal over the chat workspace", async () => {
+    render(<WorkspaceShell slug="alice" />);
 
-    expect(await screen.findByRole("button", { name: "Tree" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Root session/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Curator" }));
 
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Explore" }).getAttribute("aria-pressed")).toBe("false");
-    });
-    expect(screen.getByText("Chat Panel")).toBeTruthy();
-    expect(selectSessionMock).toHaveBeenCalledWith("root-session");
-  });
-
-  it("moves the tree/graph to the right panel in Explore mode", async () => {
-    render(
-      <WorkspaceShell
-        slug="alice"
-        initialWorkspaceMode="explore"
-        initialFilePath="docs/plan.md"
-        knowledgeAgentSources={[{ id: "strategist", displayName: "Strategist", prompt: "[[docs/plan.md]]" }]}
-      />
-    );
-
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Tree" })).toBeTruthy();
-    });
-
-    expect(screen.getByRole("button", { name: "Graph" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Files Panel" }).dataset.panelMode).toBe("files");
-    expect(screen.queryByText("Chat Panel")).toBeNull();
-
-    fireEvent.click(screen.getByRole("button", { name: "Graph" }));
-    expect(await screen.findByText("Knowledge Graph Panel")).toBeTruthy();
-  });
-
-  it("collapses and re-expands the Explore tree panel from the right pane", async () => {
-    render(
-      <WorkspaceShell
-        slug="alice"
-        initialWorkspaceMode="explore"
-        initialFilePath="docs/plan.md"
-      />
-    );
-
-    expect(await screen.findByRole("button", { name: "Tree" })).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: "Collapse right panel" }));
-
-    const expandButton = await screen.findByRole("button", { name: "Expand right panel" });
-    expect(expandButton).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Tree" })).toBeNull();
-
-    fireEvent.click(expandButton);
-
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Tree" })).toBeTruthy();
-    });
-  });
-
-  it("keeps the sidebar visible in Knowledge mode with proposals in the center", async () => {
-    render(<WorkspaceShell slug="alice" initialWorkspaceMode="knowledge" />);
-
-    const knowledgePanel = await screen.findByRole("button", { name: "Knowledge Panel" });
-    expect(knowledgePanel.dataset.panelMode).toBe("knowledge");
+    const curator = await screen.findByTestId("curator-dialog");
+    expect(curator.dataset.open).toBe("true");
     expect(screen.getByRole("button", { name: "Collapse sessions panel" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Files Panel" })).toBeNull();
-  });
+    expect(screen.getByText("Chat Panel")).toBeTruthy();
 
-  it("routes Explore file actions through workspace handlers", async () => {
-    render(
-      <WorkspaceShell
-        slug="alice"
-        initialWorkspaceMode="explore"
-        initialFilePath="docs/plan.md"
-      />
-    );
-
-    fireEvent.click(await screen.findByRole("button", { name: "Open linked file" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close curator" }));
 
     await waitFor(() => {
-      expect(readFileMock).toHaveBeenCalledWith("docs/linked.md");
-      expect(screen.getByRole("button", { name: "Files Panel" }).dataset.openFiles).toContain("docs/linked.md");
+      expect(screen.getByTestId("curator-dialog").dataset.open).toBe("false");
     });
-
-    fireEvent.click(screen.getByRole("button", { name: "Save active file" }));
-
-    await waitFor(() => {
-      expect(writeFileMock).toHaveBeenCalledWith("docs/linked.md", "Updated content", "expected-hash");
-      expect(refreshDiffsMock).toHaveBeenCalled();
-      expect(refreshFilesMock).toHaveBeenCalled();
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "Reload active file" }));
-    fireEvent.click(screen.getByRole("button", { name: "Resolve active conflict" }));
-    fireEvent.click(screen.getByRole("button", { name: "Publish file changes" }));
-
-    expect(refreshDiffsMock.mock.calls.length).toBeGreaterThan(1);
-    expect(refreshFilesMock.mock.calls.length).toBeGreaterThan(1);
-
-    readFileMock.mockResolvedValueOnce(null);
-    fireEvent.click(screen.getByRole("button", { name: "Discard active file" }));
-
-    await waitFor(() => {
-      expect(discardFileChangesMock).toHaveBeenCalledWith("docs/linked.md");
-    });
-  });
-
-  it("handles file action failures", async () => {
-    writeFileMock.mockResolvedValueOnce({ ok: false, error: "write_failed" });
-    discardFileChangesMock.mockResolvedValueOnce({ ok: false, error: "discard_failed" });
-
-    render(
-      <WorkspaceShell
-        slug="alice"
-        initialWorkspaceMode="explore"
-        initialFilePath="docs/plan.md"
-      />
-    );
-
-    fireEvent.click(await screen.findByRole("button", { name: "Save active file" }));
-    fireEvent.click(screen.getByRole("button", { name: "Discard active file" }));
-
-    await waitFor(() => {
-      expect(writeFileMock).toHaveBeenCalledWith("docs/plan.md", "Updated content", "expected-hash");
-      expect(discardFileChangesMock).toHaveBeenCalledWith("docs/plan.md");
-    });
-  });
-
-  it("ignores protected initial file paths in Explore mode", async () => {
-    render(
-      <WorkspaceShell
-        slug="alice"
-        initialWorkspaceMode="explore"
-        initialFilePath="node_modules/pkg/index.js"
-      />
-    );
-
-    expect(await screen.findByText("Browse your knowledge base")).toBeTruthy();
-    expect(readFileMock).not.toHaveBeenCalledWith("node_modules/pkg/index.js");
   });
 
   it("shows fallback quickview content when preview file loading fails", async () => {
@@ -941,7 +833,7 @@ describe("WorkspaceShell", () => {
     expect(screen.queryByText("Quickview")).toBeNull();
   });
 
-  it("caps the Knowledge badge label at 99 plus", async () => {
+  it("caps the Curator badge label at 99 plus", async () => {
     workspaceMockOverrides = {
       diffs: Array.from({ length: 120 }, (_, index) => ({
         additions: 1,
@@ -953,7 +845,7 @@ describe("WorkspaceShell", () => {
       })),
     };
 
-    render(<WorkspaceShell slug="alice" initialWorkspaceMode="knowledge" />);
+    render(<WorkspaceShell slug="alice" />);
 
     expect(await screen.findByLabelText("120 pending")).toBeTruthy();
     expect(screen.getAllByText("99+")).toHaveLength(1);
@@ -984,7 +876,7 @@ describe("WorkspaceShell", () => {
       rightTab: "preview",
     }))}; Path=/`;
 
-    render(<WorkspaceShell slug="alice" initialWorkspaceMode="explore" />);
+    render(<WorkspaceShell slug="alice" />);
 
     await waitFor(() => {
       expect(window.localStorage.getItem("arche.workspace.alice.layout")).toContain('"rightCollapsed":true');
@@ -999,7 +891,6 @@ describe("WorkspaceShell", () => {
     render(
       <WorkspaceShell
         slug="alice"
-        initialWorkspaceMode="explore"
         initialLayoutState={{
           leftWidth: 288,
           rightWidth: 410,
@@ -1031,47 +922,12 @@ describe("WorkspaceShell", () => {
     expect(readCookieValue("arche-workspace-layout-alice")).toContain('"leftCollapsed":true');
   });
 
-  it("shows Knowledge proposals as the primary surface", async () => {
-    learningApiResponse = {
-      runs: [],
-      proposals: [{
-        id: "review-1",
-        sourceProposalId: null,
-        runId: null,
-        author: "knowledge-curator",
-        agent: "knowledge-curator",
-        origin: "learning",
-        title: "Remember preference",
-        reason: "Durable user preference.",
-        evidence: { quote: "Use concise answers" },
-        confidence: 0.8,
-        kbPath: "Preferences/Answers.md",
-        operation: "update",
-        baseContent: "# Preference\n",
-        baseHash: "sha256:old",
-        proposedContent: "# Preference\n\nUse concise answers.\n",
-        status: "open",
-        actualContent: null,
-        actualHash: null,
-        appliedHash: null,
-        publishCommitSha: null,
-        auditTrail: [],
-        createdAt: "2026-01-01T00:00:00.000Z",
-        updatedAt: "2026-01-01T00:00:00.000Z",
-      }],
-    };
+  it("takes the Curator badge count from the dialog without refetching it", async () => {
+    render(<WorkspaceShell slug="alice" />);
 
-    render(<WorkspaceShell slug="alice" initialWorkspaceMode="knowledge" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Curator" }));
+    await screen.findByTestId("curator-dialog");
 
-    const knowledgePanel = await screen.findByRole("button", { name: "Knowledge Panel" });
-    expect(knowledgePanel.dataset.panelMode).toBe("knowledge");
-    expect(screen.queryByText("Chat Panel")).toBeNull();
-  });
-
-  it("takes the knowledge badge count from the review list without refetching it", async () => {
-    render(<WorkspaceShell slug="alice" initialWorkspaceMode="knowledge" />);
-
-    await screen.findByRole("button", { name: "Knowledge Panel" });
     const learningCalls = () => (globalThis.fetch as unknown as { mock: { calls: unknown[][] } })
       .mock.calls.filter(([input]) => String(input).endsWith("/learning")).length;
     await waitFor(() => expect(learningCalls()).toBeGreaterThan(0));
@@ -1083,7 +939,7 @@ describe("WorkspaceShell", () => {
     expect(learningCalls()).toBe(callsBefore);
   });
 
-  it("refetches the knowledge pending count when entering Knowledge mode", async () => {
+  it("refetches the knowledge pending count when entering Curator", async () => {
     render(<WorkspaceShell slug="alice" />);
 
     await screen.findByRole("button", { name: "New chat" });
@@ -1092,10 +948,10 @@ describe("WorkspaceShell", () => {
     await waitFor(() => expect(learningCalls()).toBeGreaterThan(0));
     const callsBefore = learningCalls();
 
-    fireEvent.click(screen.getByRole("button", { name: "Knowledge" }));
+    fireEvent.click(screen.getByRole("button", { name: "Curator" }));
 
     await waitFor(() => expect(learningCalls()).toBeGreaterThan(callsBefore));
-    expect(screen.getByRole("button", { name: "Knowledge" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByTestId("curator-dialog").dataset.open).toBe("true");
   });
 
   it("shows chat as default view in compact layout", async () => {
@@ -1127,18 +983,5 @@ describe("WorkspaceShell", () => {
     });
 
     expect(screen.getByText("Chat Panel")).toBeTruthy();
-  });
-
-  it("shows Knowledge as the compact primary surface", async () => {
-    setViewportWidth(720);
-    render(
-      <WorkspaceShell
-        slug="alice"
-        initialWorkspaceMode="knowledge"
-      />
-    );
-
-    expect(await screen.findByRole("button", { name: "Knowledge Panel" })).toBeTruthy();
-    expect(screen.queryByRole("navigation", { name: "Workspace sections" })).toBeNull();
   });
 });

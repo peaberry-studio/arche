@@ -50,7 +50,8 @@ vi.mock("@/hooks/use-flow-runner", () => ({
 
 type PaletteHandlers = {
   onCreateSession: ReturnType<typeof vi.fn>
-  onModeChange: ReturnType<typeof vi.fn>
+  onOpenCurator: ReturnType<typeof vi.fn>
+  onOpenExplore: ReturnType<typeof vi.fn>
   onNavigateFlows: ReturnType<typeof vi.fn>
   onOpenFile: ReturnType<typeof vi.fn>
   onNavigateConnectors: ReturnType<typeof vi.fn>
@@ -65,7 +66,8 @@ type PaletteHandlers = {
 function makeHandlers(): PaletteHandlers {
   return {
     onCreateSession: vi.fn().mockResolvedValue(undefined),
-    onModeChange: vi.fn(),
+    onOpenCurator: vi.fn(),
+    onOpenExplore: vi.fn(),
     onNavigateFlows: vi.fn(),
     onOpenFile: vi.fn().mockResolvedValue(undefined),
     onNavigateConnectors: vi.fn(),
@@ -148,7 +150,6 @@ describe("WorkspaceCommandPalette", () => {
     })
 
     await waitFor(() => expect(handlers.onOpenChange).toHaveBeenCalledWith(false))
-    expect(handlers.onModeChange).toHaveBeenCalledWith("chat")
     expect(handlers.onCreateSession).toHaveBeenCalledTimes(1)
   })
 
@@ -189,7 +190,7 @@ describe("WorkspaceCommandPalette", () => {
     fireEvent.click(screen.getByText("Weekly run"))
 
     await waitFor(() => expect(handlers.onOpenChange).toHaveBeenCalledWith(false))
-    expect(handlers.onSelectSession).toHaveBeenCalledWith("flow-session", "chat")
+    expect(handlers.onSelectSession).toHaveBeenCalledWith("flow-session")
   })
 
   it("hides flow commands and flow search results when flows are unavailable", async () => {
@@ -253,7 +254,7 @@ describe("WorkspaceCommandPalette", () => {
     expect(handlers.onNavigateFlows).toHaveBeenCalledTimes(1)
   })
 
-  it("finds files by fuzzy name and opens them in Explore mode", async () => {
+  it("finds files by fuzzy name and opens them in Explore", async () => {
     searchFilesActionMock.mockResolvedValue({ ok: true, files: ["Company/Research/Customer Interviews.md"] })
     const handlers = renderPalette()
     const input = screen.getByPlaceholderText(palettePlaceholder)
@@ -264,8 +265,29 @@ describe("WorkspaceCommandPalette", () => {
     fireEvent.click(screen.getByText("Product Strategy.md"))
 
     await waitFor(() => expect(handlers.onOpenChange).toHaveBeenCalledWith(false))
-    expect(handlers.onModeChange).toHaveBeenCalledWith("explore")
     expect(handlers.onOpenFile).toHaveBeenCalledWith("Company/Product Strategy.md")
+  })
+
+  it("runs the Open Explore command", async () => {
+    const handlers = renderPalette()
+    const input = screen.getByPlaceholderText(palettePlaceholder)
+
+    fireEvent.change(input, { target: { value: "open explore" } })
+    fireEvent.keyDown(input, { key: "Enter" })
+
+    await waitFor(() => expect(handlers.onOpenExplore).toHaveBeenCalledTimes(1))
+    expect(handlers.onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it("runs the Open Curator command", async () => {
+    const handlers = renderPalette()
+    const input = screen.getByPlaceholderText(palettePlaceholder)
+
+    fireEvent.change(input, { target: { value: "open curator" } })
+    fireEvent.keyDown(input, { key: "Enter" })
+
+    await waitFor(() => expect(handlers.onOpenCurator).toHaveBeenCalledTimes(1))
+    expect(handlers.onOpenChange).toHaveBeenCalledWith(false)
   })
 
   it("includes file results returned by workspace search", async () => {

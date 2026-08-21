@@ -42,7 +42,7 @@ function renderSidebar(overrides: Record<string, unknown> = {}) {
     unseenCompletedSessions: new Set<string>(),
     knowledgePendingCount: 0,
     isCollapsed: false,
-    activeMode: "chat" as const,
+    curatorOpen: false,
     accountMenu: (collapsed: boolean) => (
       <button
         type="button"
@@ -59,8 +59,8 @@ function renderSidebar(overrides: Record<string, unknown> = {}) {
     onToggleCollapsed: vi.fn(),
     onNavAgents: vi.fn(),
     onNavExplore: vi.fn(),
+    onNavCurator: vi.fn(),
     onNavFlows: vi.fn(),
-    onNavKnowledge: vi.fn(),
     onNavSkills: vi.fn(),
     ...overrides,
   } as Parameters<typeof WorkspaceSidebar>[0];
@@ -89,23 +89,23 @@ describe("WorkspaceSidebar", () => {
     expect(onCreateSession).toHaveBeenCalledTimes(1);
   });
 
-  it("renders nav items Explore, Knowledge, Agents, Skills, and Flows", () => {
+  it("renders nav items Explore, Curator, Agents, Skills, and Flows", () => {
     renderSidebar();
 
     expect(screen.getByRole("button", { name: "Explore" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Knowledge" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Curator" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Agents" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Skills" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Flows" })).toBeTruthy();
   });
 
-  it("shows the knowledge pending badge with the count prop", () => {
+  it("shows the curator pending badge with the count prop", () => {
     renderSidebar({ knowledgePendingCount: 7 });
 
     expect(screen.getByLabelText("7 pending")).toBeTruthy();
   });
 
-  it("does not show the knowledge badge when the count is zero", () => {
+  it("does not show the curator badge when the count is zero", () => {
     renderSidebar({ knowledgePendingCount: 0 });
 
     expect(screen.queryByLabelText("0 pending")).toBeNull();
@@ -113,20 +113,20 @@ describe("WorkspaceSidebar", () => {
 
   it("routes nav clicks to the provided callbacks", () => {
     const onNavExplore = vi.fn();
-    const onNavKnowledge = vi.fn();
+    const onNavCurator = vi.fn();
     const onNavAgents = vi.fn();
     const onNavSkills = vi.fn();
     const onNavFlows = vi.fn();
-    renderSidebar({ onNavExplore, onNavKnowledge, onNavAgents, onNavSkills, onNavFlows });
+    renderSidebar({ onNavExplore, onNavCurator, onNavAgents, onNavSkills, onNavFlows });
 
     fireEvent.click(screen.getByRole("button", { name: "Explore" }));
-    fireEvent.click(screen.getByRole("button", { name: "Knowledge" }));
+    fireEvent.click(screen.getByRole("button", { name: "Curator" }));
     fireEvent.click(screen.getByRole("button", { name: "Agents" }));
     fireEvent.click(screen.getByRole("button", { name: "Skills" }));
     fireEvent.click(screen.getByRole("button", { name: "Flows" }));
 
     expect(onNavExplore).toHaveBeenCalledTimes(1);
-    expect(onNavKnowledge).toHaveBeenCalledTimes(1);
+    expect(onNavCurator).toHaveBeenCalledTimes(1);
     expect(onNavAgents).toHaveBeenCalledTimes(1);
     expect(onNavSkills).toHaveBeenCalledTimes(1);
     expect(onNavFlows).toHaveBeenCalledTimes(1);
@@ -158,7 +158,7 @@ describe("WorkspaceSidebar", () => {
 
     expect(screen.getByRole("img", { name: "Arche" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Explore" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Knowledge" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Curator" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Agents" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Skills" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Flows" })).toBeTruthy();
@@ -191,7 +191,7 @@ describe("WorkspaceSidebar", () => {
           unseenCompletedSessions: new Set<string>(),
           knowledgePendingCount: 0,
           isCollapsed: true,
-          activeMode: "chat" as const,
+          curatorOpen: false,
           accountMenu: (collapsed: boolean) => (
             <button type="button" aria-label="Workspace account menu">
               {collapsed ? "User" : "Account"}
@@ -202,8 +202,8 @@ describe("WorkspaceSidebar", () => {
           onLoadMoreSessions: vi.fn(async () => {}),
           onToggleCollapsed,
           onNavAgents: vi.fn(),
+          onNavCurator: vi.fn(),
           onNavExplore: vi.fn(),
-          onNavKnowledge: vi.fn(),
           onNavSkills: vi.fn(),
           onNavFlows: vi.fn(),
         } as Parameters<typeof WorkspaceSidebar>[0])}

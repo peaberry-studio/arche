@@ -99,6 +99,20 @@ describe('KnowledgeReviewList', () => {
     expect(screen.getByText('Use concise answers')).toBeTruthy()
   })
 
+  it('notifies the parent when a proposal title is clicked', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(learningResponse([makeChange()])))
+    const onOpenProposal = vi.fn()
+
+    render(<KnowledgeReviewList slug="alice" onOpenProposal={onOpenProposal} />)
+
+    fireEvent.click(await screen.findByText('Remember preference'))
+
+    expect(onOpenProposal).toHaveBeenCalledTimes(1)
+    const [change, content] = onOpenProposal.mock.calls[0]
+    expect(change).toMatchObject({ id: 'change-1', kbPath: 'Preferences/Answers.md' })
+    expect(content).toBe('# Preference\n\nUse **concise** answers.\n')
+  })
+
   it('hides the generic curator reason but keeps the author attribution', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(learningResponse([
       makeChange({ reason: 'Proposed by the knowledge curator.' }),

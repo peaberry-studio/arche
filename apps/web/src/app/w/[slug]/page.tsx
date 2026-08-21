@@ -4,10 +4,7 @@ import { redirect } from 'next/navigation'
 import { DesktopFlowsDialog } from '@/components/desktop/desktop-flows-dialog'
 import { DesktopSettingsDialog } from '@/components/desktop/desktop-settings-dialog'
 import { WorkspaceShell } from '@/components/workspace/workspace-shell'
-import type { WorkspaceMode } from '@/components/workspace/workspace-modes'
-import { readCommonWorkspaceConfig } from '@/lib/common-workspace-config-store'
 import { ensureFlowSchedulerStarted } from '@/lib/flows/scheduler-bootstrap'
-import type { KnowledgeGraphAgentSource } from '@/lib/kb-graph'
 import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 import {
   getCurrentDesktopVault,
@@ -22,22 +19,7 @@ import {
   getWorkspaceLayoutCookieName,
   parseWorkspaceLayoutState,
 } from '@/lib/workspace-panel-state'
-import { getAgentSummaries, parseCommonWorkspaceConfig } from '@/lib/workspace-config'
 import { getKickstartStatus } from '@/kickstart/status'
-
-async function loadKnowledgeAgentSources(): Promise<KnowledgeGraphAgentSource[]> {
-  const configResult = await readCommonWorkspaceConfig()
-  if (!configResult.ok) return []
-
-  const parsedConfig = parseCommonWorkspaceConfig(configResult.content)
-  if (!parsedConfig.ok) return []
-
-  return getAgentSummaries(parsedConfig.config).map((agent) => ({
-    id: agent.id,
-    displayName: agent.displayName,
-    prompt: agent.prompt,
-  }))
-}
 
 export default async function WorkspaceHostPage({
   params,
@@ -75,13 +57,19 @@ export default async function WorkspaceHostPage({
     redirect(`/u/${slug}/flows`)
   }
 
-  if (search?.mode === 'knowledge' && search.path) {
-    const params = new URLSearchParams({ mode: 'explore', path: search.path })
+  if (search?.mode === 'explore' || (search?.path && search?.mode !== 'flows')) {
+    const params = new URLSearchParams()
+    if (search.path) params.set('path', search.path)
+    const query = params.toString()
+    redirect(query ? `/w/${slug}/explore?${query}` : `/w/${slug}/explore`)
+  }
+
+  if (search?.mode === 'knowledge') {
+    const params = new URLSearchParams()
     if (search.session) params.set('session', search.session)
     if (search.settings) params.set('settings', search.settings)
-    if (search.flowId) params.set('flowId', search.flowId)
-    if (search.flows) params.set('flows', search.flows)
-    redirect(`/w/${slug}?${params.toString()}`)
+    const query = params.toString()
+    redirect(query ? `/w/${slug}?${query}` : `/w/${slug}`)
   }
 
   const kickstartStatus = await getKickstartStatus()
@@ -110,16 +98,6 @@ export default async function WorkspaceHostPage({
   const initialSettingsSection = desktopVault && !initialFlowsView && isDesktopSettingsSection(search?.settings)
     ? search.settings
     : null
-  const requestedWorkspaceMode = search?.mode === 'knowledge'
-    ? 'knowledge'
-    : search?.mode === 'explore'
-      ? 'explore'
-      : search?.mode === 'flows'
-        ? 'flows'
-        : 'chat'
-  const initialWorkspaceMode: WorkspaceMode =
-    requestedWorkspaceMode === 'flows' ? 'chat' : requestedWorkspaceMode
-  const knowledgeAgentSources = await loadKnowledgeAgentSources()
 
   return (
     <>
@@ -127,10 +105,7 @@ export default async function WorkspaceHostPage({
         slug={slug}
         persistenceScope={persistenceScope}
         currentVault={desktopVault ? { id: desktopVault.vaultId, name: desktopVault.vaultName, path: desktopVault.vaultPath } : null}
-        initialFilePath={search?.path ?? null}
         initialSessionId={search?.session ?? null}
-        initialWorkspaceMode={initialWorkspaceMode}
-        knowledgeAgentSources={knowledgeAgentSources}
         initialLayoutState={initialLayoutState}
         macDesktopWindowInset={macDesktopWindowInset}
         workspaceAgentEnabled={caps.workspaceAgent}

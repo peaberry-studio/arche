@@ -7,11 +7,8 @@ import WorkspaceHostPage from '@/app/w/[slug]/page'
 
 type WorkspaceShellProps = {
   currentVault: { id: string; name: string; path: string } | null
-  initialFilePath: string | null
   initialLayoutState: unknown
   initialSessionId: string | null
-  initialWorkspaceMode: string
-  knowledgeAgentSources: { displayName: string; id: string; prompt: string }[]
   macDesktopWindowInset: boolean
   persistenceScope: string
   reaperEnabled: boolean
@@ -24,7 +21,6 @@ const redirectMock = vi.hoisted(() => vi.fn((path: string) => {
 }))
 const cookiesMock = vi.hoisted(() => vi.fn())
 const ensureFlowSchedulerStartedMock = vi.hoisted(() => vi.fn())
-const readCommonWorkspaceConfigMock = vi.hoisted(() => vi.fn())
 const getRuntimeCapabilitiesMock = vi.hoisted(() => vi.fn())
 const getCurrentDesktopVaultMock = vi.hoisted(() => vi.fn())
 const getWorkspacePersistenceScopeMock = vi.hoisted(() => vi.fn())
@@ -34,8 +30,6 @@ const shouldUseCurrentMacOsInsetTitleBarMock = vi.hoisted(() => vi.fn())
 const isDesktopMock = vi.hoisted(() => vi.fn())
 const getSessionMock = vi.hoisted(() => vi.fn())
 const getKickstartStatusMock = vi.hoisted(() => vi.fn())
-const parseCommonWorkspaceConfigMock = vi.hoisted(() => vi.fn())
-const getAgentSummariesMock = vi.hoisted(() => vi.fn())
 const parseWorkspaceLayoutStateMock = vi.hoisted(() => vi.fn())
 const workspaceShellProps = vi.hoisted(() => ({ current: undefined as WorkspaceShellProps | undefined }))
 
@@ -70,10 +64,6 @@ vi.mock('@/lib/flows/scheduler-bootstrap', () => ({
   ensureFlowSchedulerStarted: () => ensureFlowSchedulerStartedMock(),
 }))
 
-vi.mock('@/lib/common-workspace-config-store', () => ({
-  readCommonWorkspaceConfig: () => readCommonWorkspaceConfigMock(),
-}))
-
 vi.mock('@/lib/runtime/capabilities', () => ({
   getRuntimeCapabilities: () => getRuntimeCapabilitiesMock(),
 }))
@@ -101,11 +91,6 @@ vi.mock('@/kickstart/status', () => ({
   getKickstartStatus: () => getKickstartStatusMock(),
 }))
 
-vi.mock('@/lib/workspace-config', () => ({
-  getAgentSummaries: (...args: unknown[]) => getAgentSummariesMock(...args),
-  parseCommonWorkspaceConfig: (...args: unknown[]) => parseCommonWorkspaceConfigMock(...args),
-}))
-
 vi.mock('@/lib/workspace-panel-state', () => ({
   getWorkspaceLayoutCookieName: (scope: string) => `layout:${scope}`,
   parseWorkspaceLayoutState: (...args: unknown[]) => parseWorkspaceLayoutStateMock(...args),
@@ -129,7 +114,6 @@ describe('WorkspaceHostPage', () => {
       },
     })
     ensureFlowSchedulerStartedMock.mockResolvedValue(undefined)
-    readCommonWorkspaceConfigMock.mockResolvedValue({ ok: true, content: 'config' })
     getRuntimeCapabilitiesMock.mockReturnValue({ workspaceAgent: true, reaper: false })
     getCurrentDesktopVaultMock.mockReturnValue(null)
     getWorkspacePersistenceScopeMock.mockReturnValue('scope-alice')
@@ -139,10 +123,6 @@ describe('WorkspaceHostPage', () => {
     isDesktopMock.mockReturnValue(false)
     getSessionMock.mockResolvedValue({ user: { role: 'USER', slug: 'alice' } })
     getKickstartStatusMock.mockResolvedValue('ready')
-    parseCommonWorkspaceConfigMock.mockReturnValue({ ok: true, config: {} })
-    getAgentSummariesMock.mockReturnValue([
-      { id: 'assistant', displayName: 'Assistant', prompt: 'Help users' },
-    ])
     parseWorkspaceLayoutStateMock.mockReturnValue({ layout: 'parsed' })
   })
 
@@ -160,12 +140,29 @@ describe('WorkspaceHostPage', () => {
     await expect(renderHostPage()).rejects.toThrow('REDIRECT:/w/bob')
   })
 
-  it('redirects legacy knowledge file links to Explore', async () => {
+  it('redirects legacy knowledge file links to the Explore page', async () => {
     await expect(renderHostPage({
       mode: 'knowledge',
       path: 'Notes/Brief.md',
       session: 'session-1',
-    })).rejects.toThrow('REDIRECT:/w/alice?mode=explore&path=Notes%2FBrief.md&session=session-1')
+    })).rejects.toThrow('REDIRECT:/w/alice/explore?path=Notes%2FBrief.md')
+  })
+
+  it('redirects legacy Explore mode links to the Explore page', async () => {
+    await expect(renderHostPage({ mode: 'explore', path: 'Notes/Brief.md' }))
+      .rejects.toThrow('REDIRECT:/w/alice/explore?path=Notes%2FBrief.md')
+    await expect(renderHostPage({ mode: 'explore' }))
+      .rejects.toThrow('REDIRECT:/w/alice/explore')
+  })
+
+  it('redirects bare path links to the Explore page', async () => {
+    await expect(renderHostPage({ path: 'Notes/Brief.md' }))
+      .rejects.toThrow('REDIRECT:/w/alice/explore?path=Notes%2FBrief.md')
+  })
+
+  it('redirects legacy knowledge mode links to the chat view', async () => {
+    await expect(renderHostPage({ mode: 'knowledge', session: 'session-1' }))
+      .rejects.toThrow('REDIRECT:/w/alice?session=session-1')
   })
 
   it('redirects legacy flows mode links to the flows manager', async () => {
@@ -209,11 +206,8 @@ describe('WorkspaceHostPage', () => {
     expect(ensureFlowSchedulerStartedMock).toHaveBeenCalled()
     expect(workspaceShellProps.current).toMatchObject({
       currentVault: { id: 'vault-1', name: 'Arche Vault', path: '/tmp/arche' },
-      initialFilePath: 'Notes/Brief.md',
       initialLayoutState: { layout: 'parsed' },
       initialSessionId: 'session-1',
-      initialWorkspaceMode: 'chat',
-      knowledgeAgentSources: [{ id: 'assistant', displayName: 'Assistant', prompt: 'Help users' }],
       macDesktopWindowInset: true,
       persistenceScope: 'scope-alice',
       reaperEnabled: false,
@@ -221,15 +215,6 @@ describe('WorkspaceHostPage', () => {
     })
     expect(getWorkspacePersistenceScopeMock).toHaveBeenCalledWith('alice')
     expect(parseWorkspaceLayoutStateMock).toHaveBeenCalledWith('layout-cookie')
-  })
-
-  it('passes Explore mode through to the workspace shell', async () => {
-    render(await renderHostPage({ mode: 'explore', path: 'Notes/Brief.md' }))
-
-    expect(workspaceShellProps.current).toMatchObject({
-      initialFilePath: 'Notes/Brief.md',
-      initialWorkspaceMode: 'explore',
-    })
   })
 
   it('renders desktop flow dialog state from the workspace query string', async () => {

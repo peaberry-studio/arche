@@ -25,6 +25,7 @@ type KnowledgeReviewListProps = {
   onApplied?: () => void | Promise<void>
   onOpenCountChange?: (count: number) => void
   onOpenFile?: (path: string) => void
+  onOpenProposal?: (change: KnowledgeReviewChange, content: string) => void
   refreshKey?: number
   slug: string
 }
@@ -141,6 +142,7 @@ export function KnowledgeReviewList({
   onApplied,
   onOpenCountChange,
   onOpenFile,
+  onOpenProposal,
   refreshKey = 0,
   slug,
 }: KnowledgeReviewListProps) {
@@ -328,7 +330,18 @@ export function KnowledgeReviewList({
             <div className="p-4">
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
-                  <p className="min-w-0 truncate text-sm font-medium">{change.title}</p>
+                  {onOpenProposal ? (
+                    <button
+                      type="button"
+                      onClick={() => onOpenProposal(change, content)}
+                      className="min-w-0 flex-1 truncate text-left text-sm font-medium hover:text-primary"
+                      title={change.title}
+                    >
+                      {change.title}
+                    </button>
+                  ) : (
+                    <p className="min-w-0 truncate text-sm font-medium">{change.title}</p>
+                  )}
                   {isRebase ? (
                     <Badge variant="warning" className="shrink-0 px-2 py-0 text-[10px]">Needs rebase</Badge>
                   ) : null}

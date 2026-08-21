@@ -8,15 +8,14 @@ import { cn } from '@/lib/utils'
 import type { WorkspaceSession } from '@/lib/opencode/types'
 import { hasUnseenFlowResult } from '@/lib/workspace-session-utils'
 
-import type { WorkspaceMode } from './workspace-modes'
 import { ArcheMark } from './arche-mark'
 import { SessionsPanel } from './sessions-panel'
 import { WorkspaceSessionsRail } from './workspace-sessions-rail'
 
 type WorkspaceSidebarProps = {
-  activeMode: WorkspaceMode
   activeSessionId: string | null
   accountMenu: (collapsed: boolean) => ReactNode
+  curatorOpen: boolean
   hasMoreSessions: boolean
   isCollapsed: boolean
   isInitialSessionsReady: boolean
@@ -27,9 +26,9 @@ type WorkspaceSidebarProps = {
   onLoadMoreSessions: () => Promise<void>
   onMarkFlowRunSeen?: (runId: string) => Promise<void> | void
   onNavAgents: () => void
+  onNavCurator: () => void
   onNavExplore: () => void
   onNavFlows: () => void
-  onNavKnowledge: () => void
   onNavSkills: () => void
   onSelectSession: (id: string) => void
   onToggleCollapsed: () => void
@@ -99,9 +98,9 @@ function NavButton({ active = false, badgeCount, icon: Icon, label, onClick, ico
 }
 
 export function WorkspaceSidebar({
-  activeMode,
   activeSessionId,
   accountMenu,
+  curatorOpen,
   hasMoreSessions,
   isCollapsed,
   isInitialSessionsReady,
@@ -112,9 +111,9 @@ export function WorkspaceSidebar({
   onLoadMoreSessions,
   onMarkFlowRunSeen,
   onNavAgents,
+  onNavCurator,
   onNavExplore,
   onNavFlows,
-  onNavKnowledge,
   onNavSkills,
   onSelectSession,
   onToggleCollapsed,
@@ -153,19 +152,18 @@ export function WorkspaceSidebar({
 
           <nav aria-label="Workspace navigation" className="flex w-full flex-col items-center gap-1">
             <NavButton
-              active={activeMode === 'explore'}
               icon={Compass}
               iconOnly
               label="Explore"
               onClick={onNavExplore}
             />
             <NavButton
-              active={activeMode === 'knowledge'}
+              active={curatorOpen}
               badgeCount={knowledgePendingCount}
               icon={Database}
               iconOnly
-              label="Knowledge"
-              onClick={onNavKnowledge}
+              label="Curator"
+              onClick={onNavCurator}
             />
             <NavButton icon={Robot} iconOnly label="Agents" onClick={onNavAgents} />
             <NavButton icon={Lightning} iconOnly label="Skills" onClick={onNavSkills} />
@@ -218,17 +216,16 @@ export function WorkspaceSidebar({
 
       <nav aria-label="Workspace navigation" className="flex flex-col gap-0.5 px-1.5 pb-1.5 pt-1">
         <NavButton
-          active={activeMode === 'explore'}
           icon={Compass}
           label="Explore"
           onClick={onNavExplore}
         />
         <NavButton
-          active={activeMode === 'knowledge'}
+          active={curatorOpen}
           badgeCount={knowledgePendingCount}
           icon={Database}
-          label="Knowledge"
-          onClick={onNavKnowledge}
+          label="Curator"
+          onClick={onNavCurator}
         />
         <NavButton icon={Robot} label="Agents" onClick={onNavAgents} />
         <NavButton icon={Lightning} label="Skills" onClick={onNavSkills} />
