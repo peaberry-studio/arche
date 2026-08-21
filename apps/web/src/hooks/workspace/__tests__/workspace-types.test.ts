@@ -1,30 +1,23 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  applyDeltaToPart,
-  areMessageListsEqual,
-  areMessagesEqual,
-  areModelsEqual,
-  arePartsEqual,
-  areStatusInfoEqual,
   areWorkspaceSessionListsEqual,
   collectSessionFamilyIds,
   createDefaultSessionSelectionState,
-  extractPartDeltaText,
   filterModelsByProviderStatus,
   findAgentInCatalog,
   getPrimaryAgent,
   getSessionSelectionKey,
-  getString,
   hasModelEntry,
   mergeWorkspaceSessions,
   normalizeAgentId,
   parseModelString,
   removeWorkspaceSessions,
   resolveModelEntry,
-  toPermissionPart,
+  selectVisiblePermissions,
 } from "@/hooks/workspace/workspace-types";
-import type { AvailableModel, WorkspaceMessage, WorkspaceSession } from "@/lib/opencode/types";
+import type { WorkspacePermission } from "@/lib/opencode/permission";
+import type { AvailableModel, WorkspaceSession } from "@/lib/opencode/types";
 
 function session(
   id: string,
@@ -35,19 +28,6 @@ function session(
     title: id,
     status: "idle",
     updatedAt: "now",
-    ...options,
-  };
-}
-
-function message(options: Partial<WorkspaceMessage> = {}): WorkspaceMessage {
-  return {
-    id: "message-1",
-    sessionId: "session-1",
-    role: "assistant",
-    content: "Hello",
-    timestamp: "now",
-    timestampRaw: 1,
-    parts: [{ type: "text", text: "Hello" }],
     ...options,
   };
 }
@@ -107,91 +87,38 @@ describe("workspace-types session helpers", () => {
     ).toEqual(["child", "grandchild", "root"]);
   });
 
-  it("compares message fields, models, statuses, and parts", () => {
-    const base = message({
-      agentId: "agent-1",
-      model: { providerId: "openai", modelId: "gpt-4.1" },
-      pending: true,
-      statusInfo: { status: "tool-calling", toolName: "Read", detail: "file.ts" },
-    });
-
-    expect(areModelsEqual(base.model, { providerId: "openai", modelId: "gpt-4.1" })).toBe(true);
-    expect(areModelsEqual(base.model, { providerId: "openai", modelId: "gpt-4o" })).toBe(false);
-    expect(areStatusInfoEqual(base.statusInfo, { status: "tool-calling", toolName: "Read", detail: "file.ts" })).toBe(true);
-    expect(areStatusInfoEqual(base.statusInfo, { status: "error", detail: "file.ts" })).toBe(false);
-    expect(arePartsEqual(base.parts, [{ type: "text", text: "Hello" }])).toBe(true);
-    expect(arePartsEqual(base.parts, [{ type: "text", text: "Different" }])).toBe(false);
-    expect(areMessagesEqual(base, { ...base })).toBe(true);
-    expect(areMessagesEqual(base, { ...base, content: "Different" })).toBe(false);
-    expect(areMessageListsEqual([base], [{ ...base }])).toBe(true);
-    expect(areMessageListsEqual([base], [])).toBe(false);
-  });
-
-  it("normalizes stream deltas and permission parts", () => {
-    expect(extractPartDeltaText("hello")).toBe("hello");
-    expect(extractPartDeltaText({ text: "hello" })).toBe("hello");
-    expect(extractPartDeltaText({ text: 1 })).toBeNull();
-    expect(extractPartDeltaText(null)).toBeNull();
-    expect(getString(" value ")).toBe("value");
-    expect(getString("   ")).toBeUndefined();
-
-    expect(toPermissionPart(null)).toBeNull();
-    expect(toPermissionPart({ id: "perm-1" })).toBeNull();
-    expect(toPermissionPart({
-      callId: "call-1",
-      id: "perm-1",
-      metadata: { reason: "needs approval" },
-      pattern: "Bash(*)",
-      sessionId: "session-1",
-      state: "approved",
-      title: "Approve command",
-      type: "tool",
-    })).toEqual({
-      callId: "call-1",
-      id: "permission:perm-1",
-      metadata: { reason: "needs approval" },
-      pattern: "Bash(*)",
-      permissionId: "perm-1",
-      permissionType: "tool",
-      sessionId: "session-1",
-      state: "approved",
-      title: "Approve command",
-      type: "permission",
-    });
-    expect(toPermissionPart({ id: "perm-2", pattern: "Edit(*)", sessionId: "session-1" })).toMatchObject({
+  it("selects visible pending permissions for the active session family", () => {
+    const permission = (id: string, sessionId: string): WorkspacePermission => ({
+      id,
+      sessionId,
+      title: `Approve ${id}`,
       state: "pending",
-      title: "Edit(*)",
     });
-  });
+    const permissionsBySession = {
+      root: [permission("perm-root", "root")],
+      child: [permission("perm-child", "child")],
+      grandchild: [permission("perm-grandchild", "grandchild")],
+      sibling: [permission("perm-sibling", "sibling")],
+    };
+    const sessions = [
+      session("root"),
+      session("child", { parentId: "root" }),
+      session("grandchild", { parentId: "child" }),
+      session("sibling"),
+    ];
 
-  it("applies text deltas to streaming parts", () => {
-    const accumulator = new Map<string, string>();
+    expect(selectVisiblePermissions(permissionsBySession, sessions, "root")).toEqual([
+      permissionsBySession.root[0],
+      permissionsBySession.child[0],
+      permissionsBySession.grandchild[0],
+    ]);
 
-    expect(applyDeltaToPart("message-1", "raw", "ignored", accumulator)).toBe("raw");
-    expect(applyDeltaToPart("message-1", { type: "file", path: "a.md" }, "ignored", accumulator)).toEqual({
-      type: "file",
-      path: "a.md",
-    });
-    expect(applyDeltaToPart("message-1", { type: "text", id: "part-1", text: "" }, "Hel", accumulator)).toEqual({
-      type: "text",
-      id: "part-1",
-      text: "Hel",
-    });
-    expect(applyDeltaToPart("message-1", { type: "text", id: "part-1", text: "" }, { text: "lo" }, accumulator)).toEqual({
-      type: "text",
-      id: "part-1",
-      text: "Hello",
-    });
-    expect(applyDeltaToPart("message-2", { type: "reasoning", text: "Seed" }, "ignored", accumulator)).toEqual({
-      type: "reasoning",
-      id: "reasoning:message-2",
-      text: "Seed",
-    });
-    expect(applyDeltaToPart("message-3", { type: "text", text: "" }, null, accumulator)).toEqual({
-      type: "text",
-      id: "text:message-3",
-      text: "",
-    });
+    // Another session's family only sees its own permissions.
+    expect(selectVisiblePermissions(permissionsBySession, sessions, "sibling")).toEqual([
+      permission("perm-sibling", "sibling"),
+    ]);
+
+    expect(selectVisiblePermissions(permissionsBySession, sessions, null)).toEqual([]);
   });
 
   it("filters models and resolves catalog selections", () => {

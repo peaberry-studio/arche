@@ -8,7 +8,6 @@ import type { ProviderId } from '@/lib/providers/types'
 import { getWorkspaceStatus, startWorkspace } from '@/lib/runtime/workspace-host'
 import { instanceService, messageRunService } from '@/lib/services'
 import type { ActiveRunRuntimeState } from '@/lib/services/message-run'
-import { deriveWorkspaceMessageRuntimeState } from '@/lib/workspace-message-state'
 
 const RUN_POLL_INTERVAL_MS = 2_000
 const RUN_TIMEOUT_MS = 30 * 60 * 1000
@@ -273,16 +272,9 @@ function extractAssistantFailure(messages: ReturnType<typeof getMessagesSinceCur
     : detail
 }
 
-async function inspectSessionOutcome(
-  client: SessionExecutionClient,
-  sessionId: string,
-  cursor?: SessionMessageCursor,
-): Promise<string | null> {
-  const response = await client.session.messages(
-    { sessionID: sessionId },
-    { throwOnError: true },
-  )
-  const messages = getMessagesSinceCursor(response.data, cursor)
+function inspectSessionOutcome(
+  messages: ReturnType<typeof getMessagesSinceCursor>,
+): string | null {
   const assistantFailure = extractAssistantFailure(messages)
   if (assistantFailure) {
     return assistantFailure
@@ -295,21 +287,16 @@ async function inspectSessionOutcome(
   }
 
   const latestAssistant = assistantMessages[assistantMessages.length - 1]
-  const completedAt = (latestAssistant.info.time as { completed?: number } | undefined)?.completed
   const parts = transformParts(latestAssistant.parts ?? [])
-  const runtimeState = deriveWorkspaceMessageRuntimeState({
-    role: 'assistant',
-    completedAt,
-    parts,
-    sessionStatus: 'idle',
-  })
-
-  if (runtimeState.pending) {
-    return 'flow_session_pending'
+  let lastToolPart: Extract<MessagePart, { type: 'tool' }> | undefined
+  for (const part of parts) {
+    if (part.type === 'tool') {
+      lastToolPart = part
+    }
   }
 
-  if (runtimeState.statusInfo?.status === 'error') {
-    return runtimeState.statusInfo.detail ?? 'flow_run_failed'
+  if (lastToolPart?.state.status === 'error') {
+    return lastToolPart.state.error
   }
 
   return null
@@ -496,7 +483,7 @@ export async function waitForSessionToComplete(params: {
   const deadline = Date.now() + RUN_TIMEOUT_MS
   const startedAt = Date.now()
   let lastActivityTouchAt = 0
-  let assistantSeen = false
+  let fetchedIdleSnapshot = false
 
   while (Date.now() < deadline) {
     if (Date.now() - lastActivityTouchAt >= ACTIVITY_TOUCH_INTERVAL_MS) {
@@ -516,33 +503,37 @@ export async function waitForSessionToComplete(params: {
         : { status: 'termination_unconfirmed', cause: pulseFailure }
     }
 
-    const [statusResult, messagesResult] = await Promise.all([
-      params.client.session.status({}, { throwOnError: true }),
-      params.client.session.messages({ sessionID: params.sessionId }, { throwOnError: true }),
-    ])
-
+    const statusResult = await params.client.session.status({}, { throwOnError: true })
     const sessionStatus = statusResult.data?.[params.sessionId]
-    const messages = getMessagesSinceCursor(messagesResult.data, params.cursor)
-    assistantSeen = assistantSeen || messages.some((message) => normalizeRole(message.info.role) === 'assistant')
 
-    if ((sessionStatus?.type === 'idle' || !sessionStatus) && assistantSeen) {
-      const outcome = await inspectSessionOutcome(params.client, params.sessionId, params.cursor)
-      if (outcome === 'flow_session_pending') {
-        await sleep(RUN_POLL_INTERVAL_MS)
-        continue
-      }
-
-      recordSessionRunUsageBestEffort({ messages, usage: params.usage })
-      return outcome ? { status: 'failed', error: outcome } : { status: 'completed' }
+    if (sessionStatus?.type === 'busy' || sessionStatus?.type === 'retry') {
+      fetchedIdleSnapshot = false
+      await sleep(RUN_POLL_INTERVAL_MS)
+      continue
     }
 
-    if (
-      (sessionStatus?.type === 'idle' || !sessionStatus) &&
-      !assistantSeen &&
-      Date.now() - startedAt >= IDLE_WITHOUT_ASSISTANT_GRACE_MS
-    ) {
-      await recordLatestSessionRunUsageBestEffort(params)
-      return { status: 'failed', error: 'flow_no_assistant_message' }
+    if (sessionStatus?.type === 'idle' || !sessionStatus) {
+      if (!fetchedIdleSnapshot) {
+        const messagesResult = await params.client.session.messages(
+          { sessionID: params.sessionId },
+          { throwOnError: true },
+        )
+        const messages = getMessagesSinceCursor(messagesResult.data, params.cursor)
+        const hasAssistant = messages.some((message) => normalizeRole(message.info.role) === 'assistant')
+
+        if (hasAssistant) {
+          const outcome = inspectSessionOutcome(messages)
+          recordSessionRunUsageBestEffort({ messages, usage: params.usage })
+          return outcome ? { status: 'failed', error: outcome } : { status: 'completed' }
+        }
+
+        fetchedIdleSnapshot = true
+      }
+
+      if (Date.now() - startedAt >= IDLE_WITHOUT_ASSISTANT_GRACE_MS) {
+        await recordLatestSessionRunUsageBestEffort(params)
+        return { status: 'failed', error: 'flow_no_assistant_message' }
+      }
     }
 
     await sleep(RUN_POLL_INTERVAL_MS)

@@ -34,8 +34,8 @@ describe('POST /api/internal/learning/session-history', () => {
         }),
         messages: vi.fn().mockResolvedValue({
           data: [
-            { info: { role: 'user' }, parts: [{ text: 'Remember this preference' }] },
-            { info: { role: 'assistant' }, parts: [{ content: 'Noted' }] },
+            { info: { role: 'user' }, parts: [{ text: 'Remember this preference', type: 'text' }] },
+            { info: { role: 'assistant' }, parts: [{ text: 'Noted', type: 'text' }] },
           ],
         }),
       },

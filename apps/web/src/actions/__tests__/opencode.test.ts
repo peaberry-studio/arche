@@ -84,6 +84,7 @@ import {
   deleteSessionAction,
   updateSessionAction,
   listMessagesAction,
+  listPermissionsAction,
   sendMessageAction,
   abortSessionAction,
   getWorkspaceDiffsAction,
@@ -731,9 +732,19 @@ describe('listMessagesAction', () => {
     mockSessionStatus.mockRejectedValue(new Error('status fail'))
     const result = await listMessagesAction('alice', 'sess-1')
     expect(result.ok).toBe(true)
+    expect(result.sessionRuntimeStatus).toBe('unknown')
   })
 
-  it('stops the latest incomplete assistant for terminal provider retries', async () => {
+  it('returns sessionRuntimeStatus from the status endpoint', async () => {
+    mockSessionMessages.mockResolvedValue({ data: [] })
+    mockSessionStatus.mockResolvedValue({
+      data: { 'sess-1': { type: 'busy' } },
+    })
+    const result = await listMessagesAction('alice', 'sess-1')
+    expect(result.sessionRuntimeStatus).toBe('busy')
+  })
+
+  it('does not persist pending or statusInfo on hydrated messages', async () => {
     mockSessionMessages.mockResolvedValue({
       data: [
         {
@@ -753,16 +764,13 @@ describe('listMessagesAction', () => {
 
     const result = await listMessagesAction('alice', 'sess-1')
 
-    expect(result.messages).toMatchObject([
-      {
-        id: 'msg-1',
-        pending: false,
-        statusInfo: { status: 'error', detail: 'free_tier_limit' },
-      },
-    ])
+    expect(result.sessionRuntimeStatus).toBe('busy')
+    expect(result.messages![0]).toMatchObject({ id: 'msg-1', role: 'assistant' })
+    expect(result.messages![0].pending).toBeUndefined()
+    expect(result.messages![0].statusInfo).toBeUndefined()
   })
 
-  it('hydrates pending permissions onto their assistant message and keeps it pending', async () => {
+  it('does not graft pending permissions onto the assistant transcript', async () => {
     mockSessionMessages.mockResolvedValue({
       data: [
         {
@@ -787,23 +795,11 @@ describe('listMessagesAction', () => {
 
     const result = await listMessagesAction('alice', 'sess-1')
 
+    // Permissions are a separate entity now; the message keeps only its real parts.
     expect(result.messages![0]).toMatchObject({
-      pending: true,
-      statusInfo: {
-        status: 'tool-calling',
-        detail: 'permission_required',
-      },
-      parts: [
-        { type: 'tool', id: 'tool-1' },
-        {
-          type: 'permission',
-          id: 'permission:permission-1',
-          permissionId: 'permission-1',
-          sessionId: 'sess-1',
-          state: 'pending',
-        },
-      ],
+      parts: [{ type: 'tool', id: 'tool-1' }],
     })
+    expect(result.messages![0].parts.some((part) => part.type === 'permission')).toBe(false)
   })
 
   it('does not hydrate foreign-session or unlinked permissions', async () => {
@@ -883,22 +879,12 @@ describe('listMessagesAction', () => {
 
     const result = await listMessagesAction('alice', 'sess-1')
 
+    // Permissions stay off the transcript; child-session permissions are not
+    // grafted onto the parent assistant.
     expect(result.messages![0]).toMatchObject({
-      pending: true,
-      statusInfo: {
-        status: 'tool-calling',
-        detail: 'permission_required',
-      },
-      parts: [
-        { type: 'tool', id: 'task-1' },
-        {
-          type: 'permission',
-          permissionId: 'child-perm',
-          sessionId: 'child-1',
-          state: 'pending',
-        },
-      ],
+      parts: [{ type: 'tool', id: 'task-1' }],
     })
+    expect(result.messages![0].parts.some((part) => part.type === 'permission')).toBe(false)
   })
 
   it.each([
@@ -1043,6 +1029,30 @@ describe('listMessagesAction', () => {
 
     const result = await listMessagesAction('alice', 'sess-1')
     expect(result.messages![0].agentId).toBe('researcher')
+  })
+})
+
+describe('listPermissionsAction', () => {
+  it('groups pending permissions by session', async () => {
+    mockPermissionList.mockResolvedValue({
+      data: [
+        { id: 'p1', sessionID: 's1', permission: 'Edit' },
+        { id: 'p2', sessionID: 's2', permission: 'Read' },
+      ],
+    })
+
+    const result = await listPermissionsAction('alice')
+
+    expect(result.ok).toBe(true)
+    expect(result.permissions?.s1).toMatchObject([{ id: 'p1', sessionId: 's1' }])
+    expect(result.permissions?.s2).toMatchObject([{ id: 'p2', sessionId: 's2' }])
+  })
+
+  it('returns ok false when permission.list fails', async () => {
+    mockPermissionList.mockRejectedValue(new Error('nope'))
+    const result = await listPermissionsAction('alice')
+    expect(result.ok).toBe(false)
+    expect(result.permissions).toBeUndefined()
   })
 })
 

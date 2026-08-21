@@ -83,9 +83,13 @@ describe('transformParts', () => {
     expect(result).toEqual([{ type: 'text', id: 't1', text: 'hello' }])
   })
 
-  it('filters empty text parts', () => {
-    expect(transformParts([{ type: 'text', id: 't1', text: '' }])).toEqual([])
-    expect(transformParts([{ type: 'text', id: 't2', text: '   ' }])).toEqual([])
+  it('keeps empty text parts so live deltas have a target', () => {
+    expect(transformParts([{ type: 'text', id: 't1', text: '' }])).toEqual([
+      { type: 'text', id: 't1', text: '' },
+    ])
+    expect(transformParts([{ type: 'text', id: 't2', text: '   ' }])).toEqual([
+      { type: 'text', id: 't2', text: '   ' },
+    ])
   })
 
   it('transforms reasoning parts', () => {
@@ -93,8 +97,10 @@ describe('transformParts', () => {
     expect(result).toEqual([{ type: 'reasoning', id: 'r1', text: 'thinking' }])
   })
 
-  it('filters empty reasoning parts', () => {
-    expect(transformParts([{ type: 'reasoning', id: 'r1', text: '' }])).toEqual([])
+  it('keeps empty reasoning parts so live deltas have a target', () => {
+    expect(transformParts([{ type: 'reasoning', id: 'r1', text: '' }])).toEqual([
+      { type: 'reasoning', id: 'r1', text: '' },
+    ])
   })
 
   it('hides snapshot and compaction parts', () => {
@@ -398,6 +404,14 @@ describe('extractTextContent', () => {
 
   it('returns empty string for empty array', () => {
     expect(extractTextContent([])).toBe('')
+  })
+
+  it('skips empty text and reasoning placeholders', () => {
+    expect(extractTextContent([
+      { type: 'reasoning', id: 'r1', text: '' },
+      { type: 'text', id: 't1', text: '' },
+      { type: 'text', id: 't2', text: 'hello' },
+    ])).toBe('hello')
   })
 
   it('combines text and reasoning parts', () => {

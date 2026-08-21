@@ -19,6 +19,7 @@ import {
   type FilePart,
   type ToolPart,
 } from "@/components/workspace/chat-panel/message-part-renderer";
+import { PermissionCard } from "@/components/workspace/chat-panel/permission-card";
 import type { SessionTabInfo } from "@/components/workspace/chat-panel/types";
 import { workspaceMarkdownComponents } from "@/components/workspace/markdown-components";
 import {
@@ -26,6 +27,8 @@ import {
   workspaceRemarkPlugins,
 } from "@/components/workspace/markdown-plugins";
 import { copyTextToClipboard } from "@/lib/clipboard";
+import { formatTimestamp } from "@/lib/format-timestamp";
+import type { WorkspacePermission } from "@/lib/opencode/permission";
 import type { MessagePart, PermissionResponse } from "@/lib/opencode/types";
 import { cn } from "@/lib/utils";
 import type { ChatMessage } from "@/types/workspace";
@@ -37,6 +40,7 @@ type ChatPanelMessagesProps = {
   isLoadingMessages: boolean;
   isStartingNewSession: boolean;
   messages: ChatMessage[];
+  permissions?: WorkspacePermission[];
   messagesEndRef: RefObject<HTMLDivElement | null>;
   onAnswerPermission?: (
     sessionId: string,
@@ -132,6 +136,26 @@ function isSameMinute(ts1?: number, ts2?: number): boolean {
     d1.getHours() === d2.getHours() &&
     d1.getMinutes() === d2.getMinutes()
   );
+}
+
+function displayTimestamp(message: ChatMessage): string {
+  if (message.timestamp === "Just now" || /^\d+$/.test(message.timestamp)) {
+    return formatTimestamp(message.timestampRaw ?? Number(message.timestamp));
+  }
+  return message.timestamp;
+}
+
+function isVisibleChatPart(part: MessagePart): boolean {
+  if (part.type === "text" || part.type === "reasoning") return Boolean(part.text.trim());
+  if (part.type === "step-start" || part.type === "step-finish") return false;
+  return true;
+}
+
+function isRenderableChatMessage(message: ChatMessage): boolean {
+  if (message.statusInfo?.status === "error") return true;
+  if (message.content.trim()) return true;
+  if (message.attachments && message.attachments.length > 0) return true;
+  return Boolean(message.parts?.some(isVisibleChatPart));
 }
 
 function humanizeChatErrorCode(code: string): string {
@@ -276,8 +300,9 @@ function MessageFooter({ message, showTimestamp = true }: { message: ChatMessage
     </div>
   );
 
-  const timestamp = !message.pending && showTimestamp ? (
-    <span className={cn("chat-text-micro text-muted-foreground/60", isUser ? "px-1" : "")}>{message.timestamp}</span>
+  const timestampLabel = displayTimestamp(message);
+  const timestamp = !message.pending && showTimestamp && timestampLabel && timestampLabel !== "Just now" ? (
+    <span className={cn("chat-text-micro text-muted-foreground/60", isUser ? "px-1" : "")}>{timestampLabel}</span>
   ) : null;
 
   return (
@@ -367,6 +392,7 @@ export function ChatPanelMessages({
   isLoadingMessages,
   isStartingNewSession,
   messages,
+  permissions = [],
   messagesEndRef,
   onAnswerPermission,
   onOpenFile,
@@ -382,9 +408,7 @@ export function ChatPanelMessages({
   const isLoadingSession = !isInitialSessionsReady && !sessionsError && messages.length === 0;
   const hasSessionsError = Boolean(sessionsError) && messages.length === 0;
   const showsCenteredState = isStartingNewSession || isLoadingConversation || isLoadingSession || hasSessionsError || messages.length === 0;
-  const hasPendingPermission = messages.some((message) =>
-    message.parts?.some((part) => part.type === "permission" && part.state === "pending"),
-  );
+  const hasPendingPermission = permissions.length > 0;
 
   return (
     <div className="relative min-h-0 flex-1">
@@ -444,8 +468,8 @@ export function ChatPanelMessages({
             </div>
           ) : (
             <div className="space-y-6">
-              {messages.map((message, index) => {
-                const nextMessage = messages[index + 1];
+              {messages.filter(isRenderableChatMessage).map((message, index, visibleMessages) => {
+                const nextMessage = visibleMessages[index + 1];
                 const showTimestamp = !nextMessage || !isSameMinute(message.timestampRaw, nextMessage.timestampRaw);
                 const assistantErrorDetail =
                   message.role === "assistant" && message.statusInfo?.status === "error"
@@ -572,6 +596,14 @@ export function ChatPanelMessages({
                   </div>
                 );
               })}
+
+              {permissions.map((permission) => (
+                <PermissionCard
+                  key={permission.id}
+                  onAnswerPermission={onAnswerPermission}
+                  permission={permission}
+                />
+              ))}
 
               <div ref={messagesEndRef} />
             </div>

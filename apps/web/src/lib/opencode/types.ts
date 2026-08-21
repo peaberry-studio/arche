@@ -83,6 +83,7 @@ export type WorkspaceMessage = {
   timestamp: string
   /** Raw timestamp in milliseconds for comparison (e.g., grouping by minute) */
   timestampRaw?: number
+  completedAt?: number
   parts: MessagePart[]
   pending?: boolean
   /** Status info for streaming messages */

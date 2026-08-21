@@ -83,17 +83,11 @@ export function transformParts(parts: unknown[]): MessagePart[] {
 
       switch (partType) {
         case "text": {
-          const text = String(part.text ?? "");
-          // Skip empty text parts
-          if (!text.trim()) return null;
-          return { type: "text" as const, id: partId, text };
+          return { type: "text" as const, id: partId, text: String(part.text ?? "") };
         }
 
         case "reasoning": {
-          const text = String(part.text ?? "");
-          // Skip empty reasoning
-          if (!text.trim()) return null;
-          return { type: "reasoning" as const, id: partId, text };
+          return { type: "reasoning" as const, id: partId, text: String(part.text ?? "") };
         }
 
         case "tool": {
@@ -259,7 +253,7 @@ export function extractTextContent(parts: MessagePart[]): string {
   return parts
     .filter(
       (p): p is { type: "text"; text: string } | { type: "reasoning"; text: string } =>
-        p.type === "text" || p.type === "reasoning"
+        (p.type === "text" || p.type === "reasoning") && Boolean(p.text.trim())
     )
     .map((p) => p.text)
     .join("\n");

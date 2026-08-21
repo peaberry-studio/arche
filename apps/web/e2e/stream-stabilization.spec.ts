@@ -2,15 +2,22 @@ import { expect, test } from '@playwright/test'
 
 import { adminSlug } from './support/test-data'
 
-// Covers the PRD "Estabilización de streams": verifies that a normal
-// text-only chat message flows through the stabilized SSE pipeline
-// (connect timeout, heartbeats, watchdog grace windows) without being
-// prematurely terminated. The fake runtime echoes `E2E_OK: <prompt>`,
-// so we assert on that deterministic reply.
+// Covers the chat event bus (PRD "Chat como bus de eventos de OpenCode"):
+// verifies that a normal text-only chat message flows through the persistent
+// /events pipe + prompt_async without hanging the composer. The fake runtime
+// echoes `E2E_OK: <prompt>`, so we assert on that deterministic reply.
 
 test.setTimeout(90_000)
 
 test('streams a text chat response through the stabilized SSE pipeline', async ({ page }) => {
+  // V10 cutover: the web chat must never touch the legacy per-message stream.
+  const forbiddenRequests: string[] = []
+  page.on('request', (request) => {
+    if (request.url().includes('/chat/stream')) {
+      forbiddenRequests.push(request.url())
+    }
+  })
+
   await page.goto(`/w/${adminSlug}`)
 
   // The chat composer only renders once the instance is started and connected.
@@ -26,4 +33,5 @@ test('streams a text chat response through the stabilized SSE pipeline', async (
   // (no lingering "Reconnecting..." or error state from a healthy flow).
   await expect(page.getByPlaceholder('Type a message...')).toBeVisible({ timeout: 10_000 })
   await expect(page.getByText('Reconnecting...')).toHaveCount(0)
+  expect(forbiddenRequests).toEqual([])
 })

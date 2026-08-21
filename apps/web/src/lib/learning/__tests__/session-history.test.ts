@@ -26,7 +26,13 @@ describe('session history helpers', () => {
   it('extracts message role and text from OpenCode-like parts', () => {
     expect(getMessageRole({ info: { role: 'assistant' } })).toBe('assistant')
     expect(getMessageRole({ info: {} })).toBe('unknown')
-    expect(getMessageText({ parts: [{ text: 'hello' }, { content: 'world' }, null] })).toBe('hello\nworld')
+    expect(getMessageText({
+      parts: [
+        { id: 'part-1', text: 'hello', type: 'text' },
+        { content: 'world', id: 'part-2' },
+        { id: 'part-3', text: 'world', type: 'text' },
+      ],
+    })).toBe('hello\nworld')
     expect(getMessageText({ parts: [] })).toBe('')
   })
 

@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -54,6 +55,7 @@ import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
 import { useAgentMentionAutocomplete } from "@/hooks/use-agent-mention-autocomplete";
 import type { SkillListItem } from "@/hooks/use-skills-catalog";
 import type { AgentCatalogItem } from "@/hooks/use-workspace";
+import type { WorkspacePermission } from "@/lib/opencode/permission";
 import type { AvailableModel, PermissionResponse } from "@/lib/opencode/types";
 import { getDesktopPlatform, getOptionalDesktopBridge } from "@/lib/runtime/desktop/client";
 import {
@@ -82,6 +84,7 @@ type ChatPanelProps = {
   sessions: ChatSession[];
   skills?: SkillListItem[];
   messages: ChatMessage[];
+  permissions?: WorkspacePermission[];
   activeSessionId: string | null;
   sessionTabs?: SessionTabInfo[];
   openFilePaths: string[];
@@ -133,6 +136,7 @@ const MAX_CONTEXT_PATHS_PER_MESSAGE = 20;
 const EMPTY_AGENTS: AgentCatalogItem[] = [];
 const EMPTY_CONTEXT_FILE_PATHS: string[] = [];
 const EMPTY_MODELS: AvailableModel[] = [];
+const EMPTY_PERMISSIONS: WorkspacePermission[] = [];
 const EMPTY_SESSION_TABS: SessionTabInfo[] = [];
 const EMPTY_SKILLS: SkillListItem[] = [];
 
@@ -209,6 +213,7 @@ export function ChatPanel({
   sessions,
   skills = EMPTY_SKILLS,
   messages,
+  permissions = EMPTY_PERMISSIONS,
   activeSessionId,
   sessionTabs = EMPTY_SESSION_TABS,
   openFilePaths,
@@ -911,32 +916,63 @@ export function ChatPanel({
     );
   }, [attachmentSearch, attachments]);
 
-  // --- Smart auto-scroll: only scroll when the user is "stuck" to the bottom ---
-  const SCROLL_BOTTOM_THRESHOLD = 60;
+  // --- Smart auto-scroll: only follow when the user is at the bottom ---
+  const SCROLL_BOTTOM_THRESHOLD = 80;
+  const isProgrammaticScrollRef = useRef(false);
+  const prevSessionIdRef = useRef(activeSessionId);
 
   const handleScrollContainer = useCallback(() => {
+    if (isProgrammaticScrollRef.current) return;
     const el = scrollContainerRef.current;
     if (!el) return;
     isStuckToBottomRef.current =
-      el.scrollTop + el.clientHeight >= el.scrollHeight - SCROLL_BOTTOM_THRESHOLD;
+      el.scrollHeight - el.scrollTop - el.clientHeight <= SCROLL_BOTTOM_THRESHOLD;
   }, []);
 
+  const scrollToBottom = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    isProgrammaticScrollRef.current = true;
+    el.scrollTop = el.scrollHeight;
+    isStuckToBottomRef.current = true;
+    isProgrammaticScrollRef.current = false;
+  }, []);
+
+  const followScrollIfStuck = useCallback(() => {
+    if (!isStuckToBottomRef.current) return;
+    scrollToBottom();
+  }, [scrollToBottom]);
+
   const prevMessagesLengthRef = useRef(0);
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (prevSessionIdRef.current !== activeSessionId) {
+      prevSessionIdRef.current = activeSessionId;
+      isStuckToBottomRef.current = true;
+      prevMessagesLengthRef.current = 0;
+    }
+
     const isInitialLoad = prevMessagesLengthRef.current === 0 && messages.length > 0;
     prevMessagesLengthRef.current = messages.length;
 
     if (isInitialLoad) {
-      // Always scroll on initial load
       isStuckToBottomRef.current = true;
-      messagesEndRef.current?.scrollIntoView({ behavior: "instant" });
-      return;
     }
 
-    if (!isStuckToBottomRef.current) return;
+    followScrollIfStuck();
+  }, [activeSessionId, messages, permissions, followScrollIfStuck]);
 
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  useEffect(() => {
+    const scroller = scrollContainerRef.current;
+    if (!scroller || typeof ResizeObserver === "undefined") return;
+    const inner = scroller.firstElementChild;
+    if (!inner) return;
+
+    const observer = new ResizeObserver(() => {
+      followScrollIfStuck();
+    });
+    observer.observe(inner);
+    return () => observer.disconnect();
+  }, [activeSessionId, followScrollIfStuck, messages.length]);
 
   // Restore focus when isSending changes from true to false
   const prevIsSendingRef = useRef(isSending);
@@ -1044,10 +1080,23 @@ export function ChatPanel({
   // Error statuses from stale pending messages are hidden when no stream is active.
   const currentStatus = useMemo(() => {
     const lastMessage = messages[messages.length - 1];
-    if (!lastMessage?.pending || !lastMessage?.statusInfo) return null;
-    if (lastMessage.statusInfo.status === "complete" || lastMessage.statusInfo.status === "idle") return null;
-    if (lastMessage.statusInfo.status === "error" && !isSending) return null;
-    return lastMessage.statusInfo;
+    if (lastMessage?.pending && lastMessage?.statusInfo) {
+      if (lastMessage.statusInfo.status === "complete" || lastMessage.statusInfo.status === "idle") return null;
+      if (lastMessage.statusInfo.status === "error" && !isSending) return null;
+      return lastMessage.statusInfo;
+    }
+    // Session-status driven thinking chip: busy and the current turn's
+    // assistant message has not started writing visible parts yet. Messages
+    // are sorted by creation time, so the last message belongs to the in-flight
+    // turn. OpenCode is the source of truth.
+    if (isSending) {
+      const assistantWriting =
+        lastMessage?.role === "assistant" && (lastMessage.parts?.length ?? 0) > 0;
+      if (!assistantWriting) {
+        return { status: "thinking" as const };
+      }
+    }
+    return null;
   }, [messages, isSending]);
 
   const titleInputClassName = cn(
@@ -1096,6 +1145,7 @@ export function ChatPanel({
         isLoadingMessages={isLoadingMessages}
         isStartingNewSession={isStartingNewSession}
         messages={messages}
+        permissions={permissions}
         messagesEndRef={messagesEndRef}
         onOpenFile={onOpenFile}
         onAnswerPermission={isReadOnly ? undefined : onAnswerPermission}

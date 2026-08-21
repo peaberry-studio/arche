@@ -267,19 +267,16 @@ describe("ChatPanelMessages", () => {
     const onAnswerPermission = vi.fn().mockResolvedValue(true);
     const { container } = renderMessages({
       onAnswerPermission,
-      messages: [
-        assistantMessage([
-          {
-            type: "permission",
-            id: "permission:perm-1",
-            permissionId: "perm-1",
-            sessionId: "s1",
-            title: "Create Linear issue",
-            state: "pending",
-            pattern: "arche_linear_conn_create_issue",
-            metadata: { tool: "arche_linear_conn_create_issue" },
-          },
-        ]),
+      messages: [assistantMessage([])],
+      permissions: [
+        {
+          id: "perm-1",
+          sessionId: "s1",
+          title: "Create Linear issue",
+          pattern: "arche_linear_conn_create_issue",
+          metadata: { tool: "arche_linear_conn_create_issue" },
+          state: "pending",
+        },
       ],
     });
 
@@ -382,7 +379,10 @@ describe("ChatPanelMessages", () => {
     });
 
     expect(screen.queryByText("Hidden **thought**")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Reasoning" }));
+    const reasoningButton = screen.getByRole("button", { name: "Reasoning" });
+    expect(reasoningButton.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(reasoningButton);
+    expect(reasoningButton.getAttribute("aria-expanded")).toBe("true");
     const renderedMarkdown = screen.getByText("thought");
     expect(renderedMarkdown.tagName).toBe("STRONG");
 
@@ -538,5 +538,62 @@ describe("ChatPanelMessages", () => {
 
     fireEvent.click(screen.getByLabelText("Copy body"));
     await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith("Body text"));
+  });
+
+  it("does not render a raw epoch or a Just now timestamp on a fresh user message", () => {
+    const raw = Date.now();
+    renderMessages({
+      messages: [{
+        id: "u1",
+        sessionId: "s1",
+        role: "user",
+        content: "Hola",
+        timestamp: String(raw),
+        timestampRaw: raw,
+        parts: [],
+      }],
+    });
+    expect(screen.getByText("Hola")).toBeTruthy();
+    expect(screen.queryByText(String(raw))).toBeNull();
+    expect(screen.queryByText("Just now")).toBeNull();
+  });
+
+  it("does not render an empty assistant shell with Just now before content arrives", () => {
+    renderMessages({
+      messages: [
+        {
+          id: "u1",
+          sessionId: "s1",
+          role: "user",
+          content: "Hola",
+          timestamp: "Just now",
+          parts: [{ type: "text", text: "Hola" }],
+        },
+        {
+          id: "a1",
+          sessionId: "s1",
+          role: "assistant",
+          content: "",
+          timestamp: "Just now",
+          parts: [{ type: "text", id: "p1", text: "" }],
+        },
+      ],
+    });
+    expect(screen.getByText("Hola")).toBeTruthy();
+    expect(screen.queryByText("Just now")).toBeNull();
+  });
+
+  it("does not render empty user bubbles", () => {
+    renderMessages({
+      messages: [{
+        id: "u1",
+        sessionId: "s1",
+        role: "user",
+        content: "",
+        timestamp: "Just now",
+        parts: [],
+      }],
+    });
+    expect(screen.queryByText("Just now")).toBeNull();
   });
 });

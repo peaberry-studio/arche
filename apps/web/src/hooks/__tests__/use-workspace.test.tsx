@@ -16,6 +16,7 @@ const opencodeMocks = vi.hoisted(() => ({
   markFlowRunSeenAction: vi.fn(),
   updateSessionAction: vi.fn(),
   listMessagesAction: vi.fn(),
+  listPermissionsAction: vi.fn(),
   abortSessionAction: vi.fn(),
   loadFileTreeAction: vi.fn(),
   readFileAction: vi.fn(),
@@ -66,32 +67,6 @@ function createThrowingStorageMock() {
   };
 }
 
-function createPendingStreamBody() {
-  let resolveRead: ((value: ReadableStreamReadResult<Uint8Array>) => void) | null = null;
-  let closed = false;
-
-  return {
-    body: {
-      getReader() {
-        return {
-          read: () =>
-            new Promise<ReadableStreamReadResult<Uint8Array>>((resolve) => {
-              if (closed) {
-                resolve({ done: true, value: undefined });
-                return;
-              }
-              resolveRead = resolve;
-            }),
-        };
-      },
-    },
-    close() {
-      closed = true;
-      resolveRead?.({ done: true, value: undefined });
-    },
-  };
-}
-
 describe("useWorkspace", () => {
   beforeEach(() => {
     vi.stubGlobal("localStorage", createStorageMock());
@@ -112,6 +87,7 @@ describe("useWorkspace", () => {
     opencodeMocks.deleteSessionAction.mockResolvedValue({ ok: true });
     opencodeMocks.markFlowRunSeenAction.mockResolvedValue({ ok: true });
     opencodeMocks.updateSessionAction.mockResolvedValue({ ok: true });
+    opencodeMocks.listPermissionsAction.mockResolvedValue({ ok: true, permissions: {} });
     opencodeMocks.listMessagesAction.mockImplementation(async (_slug: string, sessionId: string) => {
       if (sessionId === "s1") {
         return {
@@ -164,9 +140,9 @@ describe("useWorkspace", () => {
     workspaceAgentMocks.applyWorkspacePatchAction.mockResolvedValue({ ok: true });
     workspaceAgentMocks.discardWorkspaceFileChangesAction.mockResolvedValue({ ok: true });
 
-    vi.stubGlobal(
+vi.stubGlobal(
       "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
+      vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
         if (String(input) === "/api/u/alice/agents") {
           return {
             ok: true,
@@ -189,6 +165,22 @@ describe("useWorkspace", () => {
             json: async () => ({
               providers: [{ providerId: "openai", status: "enabled" }],
             }),
+          };
+        }
+
+        // Persistent event bus: keep the stream open; tests drive the store via
+        // assumption of the pure reducer's behavior.
+        if (String(input) === "/api/w/alice/events") {
+          return {
+            ok: true,
+            body: {
+              getReader() {
+                return {
+                  read: () => new Promise<ReadableStreamReadResult<Uint8Array>>(() => {}),
+                  cancel: async () => undefined,
+                };
+              },
+            },
           };
         }
 
@@ -489,19 +481,14 @@ describe("useWorkspace", () => {
           return { ok: true, json: async () => ({ runId: "run-1" }) };
         }
 
-        if (String(input) === "/api/w/alice/chat/stream") {
+        if (String(input) === "/api/w/alice/chat/prompt") {
           requestBody = JSON.parse(String(init?.body ?? "{}")) as {
             model?: { providerId: string; modelId: string };
           };
           return {
             ok: true,
-            body: {
-              getReader() {
-                return {
-                  read: async () => ({ done: true, value: undefined }),
-                };
-              },
-            },
+            status: 202,
+            json: async () => ({ ok: true }),
           };
         }
 
@@ -544,6 +531,83 @@ describe("useWorkspace", () => {
     });
   });
 
+  it("restores idle when prompt fails (502) and never inserts a local user message", async () => {
+    let promptCalls = 0;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input) === "/api/u/alice/agents") {
+          return {
+            ok: true,
+            json: async () => ({
+              agents: [
+                {
+                  id: "assistant",
+                  displayName: "Assistant",
+                  model: "openai/gpt-5.4",
+                  isPrimary: true,
+                },
+              ],
+            }),
+          };
+        }
+
+        if (String(input) === "/api/u/alice/providers") {
+          return {
+            ok: true,
+            json: async () => ({
+              providers: [{ providerId: "openai", status: "enabled" }],
+            }),
+          };
+        }
+
+        if (String(input) === "/api/w/alice/events") {
+          return {
+            ok: true,
+            body: {
+              getReader() {
+                return {
+                  read: () => new Promise<ReadableStreamReadResult<Uint8Array>>(() => {}),
+                  cancel: async () => undefined,
+                };
+              },
+            },
+          };
+        }
+
+        if (String(input) === "/api/w/alice/chat/prompt") {
+          promptCalls += 1;
+          return {
+            ok: false,
+            status: 502,
+            json: async () => ({ error: "prompt_failed" }),
+          };
+        }
+
+        throw new Error(`Unexpected fetch: ${String(input)}`);
+      })
+    );
+
+    const { result } = renderHook(() =>
+      useWorkspace({ slug: "alice", pollInterval: 0 })
+    );
+
+    await waitFor(() => {
+      expect(result.current.activeSessionId).toBe("s1");
+    });
+
+    let accepted = true;
+    await act(async () => {
+      accepted = await result.current.sendMessage("This should fail");
+    });
+
+    expect(accepted).toBe(false);
+    expect(promptCalls).toBe(1);
+    expect(result.current.messages.some((message) => message.content === "This should fail")).toBe(false);
+    expect(result.current.isSending).toBe(false);
+  });
+
   it("filters attachments and context paths before sending a message", async () => {
     let requestBody:
       | {
@@ -584,20 +648,15 @@ describe("useWorkspace", () => {
           return { ok: true, json: async () => ({ runId: "run-1" }) };
         }
 
-        if (String(input) === "/api/w/alice/chat/stream") {
+        if (String(input) === "/api/w/alice/chat/prompt") {
           requestBody = JSON.parse(String(init?.body ?? "{}")) as {
             attachments?: Array<{ path: string; filename?: string; mime?: string }>;
             contextPaths?: string[];
           };
           return {
             ok: true,
-            body: {
-              getReader() {
-                return {
-                  read: async () => ({ done: true, value: undefined }),
-                };
-              },
-            },
+            status: 202,
+            json: async () => ({ ok: true }),
           };
         }
 
@@ -681,19 +740,14 @@ describe("useWorkspace", () => {
           return { ok: true, json: async () => ({ runId: "run-1" }) };
         }
 
-        if (String(input) === "/api/w/alice/chat/stream") {
+        if (String(input) === "/api/w/alice/chat/prompt") {
           requestBody = JSON.parse(String(init?.body ?? "{}")) as {
             model?: { providerId: string; modelId: string };
           };
           return {
             ok: true,
-            body: {
-              getReader() {
-                return {
-                  read: async () => ({ done: true, value: undefined }),
-                };
-              },
-            },
+            status: 202,
+            json: async () => ({ ok: true }),
           };
         }
 
@@ -787,23 +841,28 @@ describe("useWorkspace", () => {
           };
         }
 
-        if (String(input) === "/api/w/alice/chat/runs") {
-          return { ok: true, json: async () => ({ runId: `run-${requestBodies.length + 1}` }) };
-        }
-
-        if (String(input) === "/api/w/alice/chat/stream") {
-          requestBodies.push(JSON.parse(String(init?.body ?? "{}")) as {
-            model?: { providerId: string; modelId: string };
-          });
+        if (String(input) === "/api/w/alice/events") {
           return {
             ok: true,
             body: {
               getReader() {
                 return {
-                  read: async () => ({ done: true, value: undefined }),
+                  read: () => new Promise<ReadableStreamReadResult<Uint8Array>>(() => {}),
+                  cancel: async () => undefined,
                 };
               },
             },
+          };
+        }
+
+        if (String(input) === "/api/w/alice/chat/prompt") {
+          requestBodies.push(JSON.parse(String(init?.body ?? "{}")) as {
+            model?: { providerId: string; modelId: string };
+          });
+          return {
+            ok: true,
+            status: 202,
+            json: async () => ({ ok: true }),
           };
         }
 
@@ -1442,8 +1501,6 @@ describe("useWorkspace", () => {
         },
       ],
     };
-    const stream = createPendingStreamBody();
-    let streamSignal: AbortSignal | undefined;
 
     opencodeMocks.listSessionsAction.mockResolvedValue({
       ok: true,
@@ -1467,7 +1524,7 @@ describe("useWorkspace", () => {
 
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
         if (String(input) === "/api/u/alice/agents") {
           return {
             ok: true,
@@ -1484,15 +1541,25 @@ describe("useWorkspace", () => {
           };
         }
 
-        if (String(input) === "/api/w/alice/chat/runs") {
-          return { ok: true, json: async () => ({ runId: "run-1" }) };
-        }
-
-        if (String(input) === "/api/w/alice/chat/stream") {
-          streamSignal = init?.signal as AbortSignal | undefined;
+        if (String(input) === "/api/w/alice/events") {
           return {
             ok: true,
-            body: stream.body,
+            body: {
+              getReader() {
+                return {
+                  read: () => new Promise<ReadableStreamReadResult<Uint8Array>>(() => {}),
+                  cancel: async () => undefined,
+                };
+              },
+            },
+          };
+        }
+
+        if (String(input) === "/api/w/alice/chat/prompt") {
+          return {
+            ok: true,
+            status: 202,
+            json: async () => ({ ok: true }),
           };
         }
 
@@ -1513,8 +1580,10 @@ describe("useWorkspace", () => {
     });
 
     await waitFor(() => {
-      expect(result.current.messages).toHaveLength(2);
+      expect(result.current.isSending).toBe(true);
     });
+    expect(result.current.sessions.find((session) => session.id === "root")?.status).toBe("busy");
+    expect(result.current.messages).toHaveLength(0);
 
     act(() => {
       result.current.selectSession("child");
@@ -1527,16 +1596,14 @@ describe("useWorkspace", () => {
       ]);
     });
 
-    expect(streamSignal?.aborted).toBe(false);
-
     act(() => {
       result.current.selectSession("root");
     });
 
     await waitFor(() => {
       expect(result.current.activeSessionId).toBe("root");
-      expect(result.current.messages).toHaveLength(2);
     });
+    expect(result.current.messages).toHaveLength(0);
 
     sessionMessages.root = [
       {
@@ -1558,14 +1625,6 @@ describe("useWorkspace", () => {
         pending: false,
       },
     ];
-
-    act(() => {
-      stream.close();
-    });
-
-    await waitFor(() => {
-      expect(result.current.isSending).toBe(false);
-    });
 
     await act(async () => {
       await result.current.refreshMessages();
@@ -1599,8 +1658,7 @@ describe("useWorkspace", () => {
       return { ok: true, messages: [] };
     });
 
-    const streamClosers: Array<() => void> = [];
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
       if (String(input) === "/api/u/alice/agents") {
         return {
           ok: true,
@@ -1624,29 +1682,25 @@ describe("useWorkspace", () => {
         };
       }
 
-      if (String(input) === "/api/w/alice/chat/runs") {
-        return { ok: true, json: async () => ({ runId: `run-${streamClosers.length + 1}` }) };
-      }
-
-      if (String(input) === "/api/w/alice/chat/stream") {
-        let closeStream = () => {};
-        const streamDone = new Promise<void>((resolve) => {
-          closeStream = resolve;
-        });
-        streamClosers.push(closeStream);
-
+      if (String(input) === "/api/w/alice/events") {
         return {
           ok: true,
           body: {
             getReader() {
               return {
-                read: async () => {
-                  await streamDone;
-                  return { done: true, value: undefined };
-                },
+                read: () => new Promise<ReadableStreamReadResult<Uint8Array>>(() => {}),
+                cancel: async () => undefined,
               };
             },
           },
+        };
+      }
+
+      if (String(input) === "/api/w/alice/chat/prompt") {
+        return {
+          ok: true,
+          status: 202,
+          json: async () => ({ ok: true }),
         };
       }
 
@@ -1670,8 +1724,8 @@ describe("useWorkspace", () => {
 
     await waitFor(() => {
       expect(result.current.isSending).toBe(true);
-      expect(result.current.messages.some((message) => message.content === "first")).toBe(true);
     });
+    expect(result.current.messages.some((message) => message.content === "first")).toBe(false);
 
     act(() => {
       result.current.selectSession("s2");
@@ -1690,17 +1744,16 @@ describe("useWorkspace", () => {
 
     await waitFor(() => {
       expect(result.current.isSending).toBe(true);
-      expect(result.current.messages.some((message) => message.content === "second")).toBe(true);
     });
+    expect(result.current.messages.some((message) => message.content === "second")).toBe(false);
 
     expect(
-      fetchMock.mock.calls.filter(([input]) => String(input) === "/api/w/alice/chat/stream")
+      fetchMock.mock.calls.filter(([input]) => String(input) === "/api/w/alice/chat/prompt")
     ).toHaveLength(2);
 
-    streamClosers.forEach((closeStream) => closeStream());
-
     await act(async () => {
-      await Promise.all([firstSendPromise, secondSendPromise]);
+      const results = await Promise.all([firstSendPromise, secondSendPromise]);
+      expect(results).toEqual([true, true]);
     });
   });
 
@@ -1825,8 +1878,6 @@ describe("useWorkspace", () => {
   });
 
   it("resolves sendMessage before the stream finishes so the composer can clear immediately", async () => {
-    const stream = createPendingStreamBody();
-
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
@@ -1846,14 +1897,25 @@ describe("useWorkspace", () => {
           };
         }
 
-        if (String(input) === "/api/w/alice/chat/runs") {
-          return { ok: true, json: async () => ({ runId: "run-1" }) };
-        }
-
-        if (String(input) === "/api/w/alice/chat/stream") {
+        if (String(input) === "/api/w/alice/events") {
           return {
             ok: true,
-            body: stream.body,
+            body: {
+              getReader() {
+                return {
+                  read: () => new Promise<ReadableStreamReadResult<Uint8Array>>(() => {}),
+                  cancel: async () => undefined,
+                };
+              },
+            },
+          };
+        }
+
+        if (String(input) === "/api/w/alice/chat/prompt") {
+          return {
+            ok: true,
+            status: 202,
+            json: async () => ({ ok: true }),
           };
         }
 
@@ -1876,15 +1938,9 @@ describe("useWorkspace", () => {
 
     expect(accepted).toBe(true);
     expect(result.current.isSending).toBe(true);
-
-    act(() => {
-      stream.close();
-    });
   });
 
-  it("aborts the active stream and clears pending assistant state", async () => {
-    const stream = createPendingStreamBody();
-
+  it("aborts the active session through the server action; the store follows OpenCode", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
@@ -1904,14 +1960,32 @@ describe("useWorkspace", () => {
           };
         }
 
-        if (String(input) === "/api/w/alice/chat/runs") {
-          return { ok: true, json: async () => ({ runId: "run-1" }) };
-        }
-
-        if (String(input) === "/api/w/alice/chat/stream") {
+        if (String(input) === "/api/w/alice/providers") {
           return {
             ok: true,
-            body: stream.body,
+            json: async () => ({ providers: [] }),
+          };
+        }
+
+        if (String(input) === "/api/w/alice/events") {
+          return {
+            ok: true,
+            body: {
+              getReader() {
+                return {
+                  read: () => new Promise<ReadableStreamReadResult<Uint8Array>>(() => {}),
+                  cancel: async () => undefined,
+                };
+              },
+            },
+          };
+        }
+
+        if (String(input) === "/api/w/alice/chat/prompt") {
+          return {
+            ok: true,
+            status: 202,
+            json: async () => ({ ok: true }),
           };
         }
 
@@ -1940,19 +2014,11 @@ describe("useWorkspace", () => {
     });
 
     expect(opencodeMocks.abortSessionAction).toHaveBeenCalledWith("alice", "s1");
-    expect(result.current.isSending).toBe(false);
-    expect(result.current.messages.at(-1)?.pending).toBe(false);
-    expect(result.current.messages.at(-1)?.statusInfo).toEqual({
-      status: "error",
-      detail: "cancelled",
-    });
-
-    act(() => {
-      stream.close();
-    });
+    // No local "cancelled" mutation: the store follows OpenCode's session.status.
+    expect(result.current.messages.at(-1)?.statusInfo).toBeUndefined();
   });
 
-  it("shows the unconfirmed termination error when cancellation cannot stop the session", async () => {
+  it("aborts through the server action when cancellation cannot confirm idle", async () => {
     opencodeMocks.listMessagesAction.mockResolvedValue({
       ok: true,
       messages: [
@@ -1984,13 +2050,12 @@ describe("useWorkspace", () => {
       await result.current.abortSession();
     });
 
-    expect(result.current.messages[0]?.statusInfo).toEqual({
-      status: "error",
-      detail: "execution_termination_unconfirmed",
-    });
+    expect(opencodeMocks.abortSessionAction).toHaveBeenCalledWith("alice", "s1");
+    // The store does not invent state; OpenCode remains the source of truth.
+    expect(result.current.isSending).toBe(false);
   });
 
-  it("answers permission requests and updates the active message state", async () => {
+  it("answers permission requests by posting the reply and awaiting the bus", async () => {
     let permissionBody: { sessionId?: string; response?: string } | null = null;
 
     opencodeMocks.listMessagesAction.mockResolvedValue({
@@ -2002,18 +2067,8 @@ describe("useWorkspace", () => {
           role: "assistant",
           content: "Need approval",
           timestamp: "now",
-          parts: [
-            {
-              type: "permission",
-              id: "permission:perm-1",
-              permissionId: "perm-1",
-              sessionId: "s1",
-              title: "Run command",
-              state: "pending",
-            },
-          ],
+          parts: [],
           pending: true,
-          statusInfo: { status: "tool-calling", detail: "permission_required" },
         },
       ],
     });
@@ -2032,6 +2087,20 @@ describe("useWorkspace", () => {
           return {
             ok: true,
             json: async () => ({ providers: [] }),
+          };
+        }
+
+        if (String(input) === "/api/w/alice/events") {
+          return {
+            ok: true,
+            body: {
+              getReader() {
+                return {
+                  read: () => new Promise<ReadableStreamReadResult<Uint8Array>>(() => {}),
+                  cancel: async () => undefined,
+                };
+              },
+            },
           };
         }
 
@@ -2052,10 +2121,7 @@ describe("useWorkspace", () => {
     );
 
     await waitFor(() => {
-      expect(result.current.messages[0]?.parts[0]).toMatchObject({
-        type: "permission",
-        state: "pending",
-      });
+      expect(result.current.activeSessionId).toBe("s1");
     });
 
     let accepted = false;
@@ -2065,14 +2131,11 @@ describe("useWorkspace", () => {
 
     expect(accepted).toBe(true);
     expect(permissionBody).toEqual({ sessionId: "s1", response: "once" });
-    expect(result.current.messages[0]?.parts[0]).toMatchObject({
-      type: "permission",
-      state: "approved",
-    });
-    expect(result.current.messages[0]?.statusInfo?.detail).not.toBe("permission_required");
+    // No optimistic part mutation: the card is removed by permission.replied.
+    expect(result.current.messages[0]?.parts).toEqual([]);
   });
 
-  it("optimistically updates a delegated permission card on the parent session", async () => {
+  it("posts a delegated child-session permission reply without grafting a card", async () => {
     let permissionBody: { sessionId?: string; response?: string } | null = null;
 
     opencodeMocks.listMessagesAction.mockResolvedValue({
@@ -2084,18 +2147,8 @@ describe("useWorkspace", () => {
           role: "assistant",
           content: "Need approval",
           timestamp: "now",
-          parts: [
-            {
-              type: "permission",
-              id: "permission:perm-child",
-              permissionId: "perm-child",
-              sessionId: "child-1",
-              title: "Delete Mailerlite campaign",
-              state: "pending",
-            },
-          ],
+          parts: [],
           pending: true,
-          statusInfo: { status: "tool-calling", detail: "permission_required" },
         },
       ],
     });
@@ -2117,6 +2170,20 @@ describe("useWorkspace", () => {
           };
         }
 
+        if (String(input) === "/api/w/alice/events") {
+          return {
+            ok: true,
+            body: {
+              getReader() {
+                return {
+                  read: () => new Promise<ReadableStreamReadResult<Uint8Array>>(() => {}),
+                  cancel: async () => undefined,
+                };
+              },
+            },
+          };
+        }
+
         if (String(input) === "/api/w/alice/chat/permissions/perm-child") {
           permissionBody = JSON.parse(String(init?.body ?? "{}")) as {
             sessionId?: string;
@@ -2134,12 +2201,7 @@ describe("useWorkspace", () => {
     );
 
     await waitFor(() => {
-      expect(result.current.messages[0]?.parts[0]).toMatchObject({
-        permissionId: "perm-child",
-        sessionId: "child-1",
-        state: "pending",
-        type: "permission",
-      });
+      expect(result.current.activeSessionId).toBe("s1");
     });
 
     let accepted = false;
@@ -2149,12 +2211,8 @@ describe("useWorkspace", () => {
 
     expect(accepted).toBe(true);
     expect(permissionBody).toEqual({ sessionId: "child-1", response: "once" });
-    expect(result.current.messages[0]?.parts[0]).toMatchObject({
-      permissionId: "perm-child",
-      state: "approved",
-      type: "permission",
-    });
-    expect(result.current.messages[0]?.statusInfo?.detail).not.toBe("permission_required");
+    // Child permission is never injected into the parent transcript.
+    expect(result.current.messages[0]?.parts).toEqual([]);
   });
 
   it("cleans messages and model selection state for deleted session families", async () => {
@@ -2273,7 +2331,7 @@ describe("useWorkspace", () => {
       expect(opencodeMocks.listMessagesAction).not.toHaveBeenCalled();
     });
 
-    it("polls diffs and messages when a session is busy", async () => {
+    it("does not poll diffs on the session interval even if the list snapshot says busy", async () => {
       opencodeMocks.listSessionsAction.mockResolvedValue({
         ok: true,
         sessions: [
@@ -2297,11 +2355,12 @@ describe("useWorkspace", () => {
         await new Promise((resolve) => setTimeout(resolve, 500));
       });
 
-      expect(opencodeMocks.getWorkspaceDiffsAction).toHaveBeenCalled();
-      expect(opencodeMocks.listMessagesAction).toHaveBeenCalledWith("alice", "s1");
+      expect(opencodeMocks.getWorkspaceDiffsAction).not.toHaveBeenCalled();
+      expect(opencodeMocks.listMessagesAction).not.toHaveBeenCalled();
+      expect(result.current.sessions[0]?.status).toBe("idle");
     });
 
-    it("polls messages only for busy sessions, not the idle active session", async () => {
+    it("does not poll messages for any session; the bus is the source of truth", async () => {
       opencodeMocks.listSessionsAction.mockResolvedValue({
         ok: true,
         sessions: [
@@ -2326,19 +2385,12 @@ describe("useWorkspace", () => {
         await new Promise((resolve) => setTimeout(resolve, 500));
       });
 
-      // Diffs should be polled because s2 is busy
-      expect(opencodeMocks.getWorkspaceDiffsAction).toHaveBeenCalled();
-      // Messages for s2 (busy) should be polled
-      expect(opencodeMocks.listMessagesAction).toHaveBeenCalledWith("alice", "s2");
-      // Messages for s1 (idle active) should NOT be polled
-      const s1Calls = opencodeMocks.listMessagesAction.mock.calls.filter(
-        ([, sessionId]: [string, string]) => sessionId === "s1"
-      );
-      expect(s1Calls).toHaveLength(0);
+      expect(opencodeMocks.getWorkspaceDiffsAction).not.toHaveBeenCalled();
+      expect(opencodeMocks.listMessagesAction).not.toHaveBeenCalled();
     });
   });
 
-  it("preserves the active message list reference when refresh returns identical messages", async () => {
+  it("keeps messages stable when refresh returns identical content", async () => {
     const { result } = renderHook(() =>
       useWorkspace({ slug: "alice", pollInterval: 0 })
     );
@@ -2354,6 +2406,7 @@ describe("useWorkspace", () => {
       await result.current.refreshMessages();
     });
 
-    expect(result.current.messages).toBe(initialMessages);
+    // The store merges by id; a no-op refresh keeps the same message content.
+    expect(result.current.messages).toStrictEqual(initialMessages);
   });
 });

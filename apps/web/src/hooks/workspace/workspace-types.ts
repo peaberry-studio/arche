@@ -1,15 +1,14 @@
 "use client";
 
+import type { WorkspacePermission } from "@/lib/opencode/permission";
 import type {
   AvailableModel,
-  MessagePart,
   PermissionResponse,
   WorkspaceFileNode,
   WorkspaceMessage,
   WorkspaceSession,
 } from "@/lib/opencode/types";
 import { isProviderId, normalizeProviderId } from "@/lib/providers/catalog";
-import { isRecord } from "@/lib/records";
 import type { MessageAttachmentInput } from "@/types/workspace";
 
 export type { WorkspaceDiff } from "@/hooks/use-workspace-diffs";
@@ -27,149 +26,9 @@ export type ProviderStatusEntry = {
   status: string;
 };
 
-export const STALE_PENDING_ASSISTANT_MS = 5_000;
-export const RESUME_POLL_INTERVAL_MS = 4_000;
 export const ROOT_SESSION_LIMIT_STEP = 500;
 export const EMPTY_WORKSPACE_MESSAGES: WorkspaceMessage[] = [];
 export const PRE_SESSION_SELECTION_KEY = "__pre_session__";
-
-export function areStatusInfoEqual(
-  left: WorkspaceMessage["statusInfo"],
-  right: WorkspaceMessage["statusInfo"]
-): boolean {
-  return (
-    left?.status === right?.status &&
-    left?.toolName === right?.toolName &&
-    left?.detail === right?.detail
-  );
-}
-
-export function areModelsEqual(
-  left: WorkspaceMessage["model"],
-  right: WorkspaceMessage["model"]
-): boolean {
-  return (
-    left?.providerId === right?.providerId &&
-    left?.modelId === right?.modelId
-  );
-}
-
-export function arePartsEqual(left: MessagePart[], right: MessagePart[]): boolean {
-  if (left.length !== right.length) return false;
-
-  return left.every((part, index) => JSON.stringify(part) === JSON.stringify(right[index]));
-}
-
-export function areMessagesEqual(left: WorkspaceMessage, right: WorkspaceMessage): boolean {
-  return (
-    left.id === right.id &&
-    left.sessionId === right.sessionId &&
-    left.role === right.role &&
-    left.content === right.content &&
-    left.timestamp === right.timestamp &&
-    left.timestampRaw === right.timestampRaw &&
-    left.pending === right.pending &&
-    left.agentId === right.agentId &&
-    areModelsEqual(left.model, right.model) &&
-    areStatusInfoEqual(left.statusInfo, right.statusInfo) &&
-    arePartsEqual(left.parts, right.parts)
-  );
-}
-
-export function areMessageListsEqual(left: WorkspaceMessage[], right: WorkspaceMessage[]): boolean {
-  if (left.length !== right.length) return false;
-  return left.every((message, index) => areMessagesEqual(message, right[index]));
-}
-
-export function extractPartDeltaText(delta: unknown): string | null {
-  if (typeof delta === "string") {
-    return delta;
-  }
-
-  if (!delta || typeof delta !== "object") {
-    return null;
-  }
-
-  const maybeText = (delta as { text?: unknown }).text;
-  return typeof maybeText === "string" ? maybeText : null;
-}
-
-export function getString(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-export function toPermissionPart(data: unknown): MessagePart | null {
-  if (!isRecord(data)) return null;
-
-  const permissionId = getString(data.id);
-  const sessionId = getString(data.sessionId);
-  if (!permissionId || !sessionId) return null;
-
-  const metadata = isRecord(data.metadata) ? data.metadata : undefined;
-  const state = data.state === "approved" || data.state === "rejected" ? data.state : "pending";
-
-  return {
-    type: "permission",
-    id: `permission:${permissionId}`,
-    permissionId,
-    sessionId,
-    title: getString(data.title) ?? getString(data.pattern) ?? "Tool approval required",
-    state,
-    callId: getString(data.callId),
-    pattern: getString(data.pattern),
-    permissionType: getString(data.type),
-    metadata,
-  };
-}
-
-export function applyDeltaToPart(
-  messageId: string,
-  part: unknown,
-  delta: unknown,
-  textAccumulatorByPart: Map<string, string>
-): unknown {
-  if (!part || typeof part !== "object") {
-    return part;
-  }
-
-  const partRecord = part as Record<string, unknown>;
-  const partType = partRecord.type;
-  if (partType !== "text" && partType !== "reasoning") {
-    return part;
-  }
-
-  const partId =
-    typeof partRecord.id === "string" && partRecord.id.trim().length > 0
-      ? partRecord.id
-      : `${String(partType)}:${messageId}`;
-  const accumulatorKey = `${messageId}:${partId}`;
-  const partText = typeof partRecord.text === "string" ? partRecord.text : "";
-
-  if (partText.length > 0) {
-    textAccumulatorByPart.set(accumulatorKey, partText);
-    return {
-      ...partRecord,
-      id: partId,
-    };
-  }
-
-  const deltaText = extractPartDeltaText(delta);
-  if (!deltaText || deltaText.length === 0) {
-    return {
-      ...partRecord,
-      id: partId,
-    };
-  }
-
-  const nextText = `${textAccumulatorByPart.get(accumulatorKey) ?? ""}${deltaText}`;
-  textAccumulatorByPart.set(accumulatorKey, nextText);
-
-  return {
-    ...partRecord,
-    id: partId,
-    text: nextText,
-  };
-}
 
 export function filterModelsByProviderStatus(
   models: AvailableModel[],
@@ -345,6 +204,23 @@ export function collectSessionFamilyIds(
   return familyIds;
 }
 
+/**
+ * Pending permissions visible for a session: those belonging to the session
+ * itself or to any known child (subagent) session. The bus store keeps every
+ * session's permissions; the UI shows only the active family.
+ */
+export function selectVisiblePermissions(
+  permissionsBySession: Record<string, WorkspacePermission[]>,
+  sessions: WorkspaceSession[],
+  activeSessionId: string | null
+): WorkspacePermission[] {
+  if (!activeSessionId) return [];
+  const familyIds = collectSessionFamilyIds(sessions, activeSessionId);
+  return Object.entries(permissionsBySession).flatMap(([sessionId, items]) =>
+    familyIds.has(sessionId) ? items : [],
+  );
+}
+
 export type UseWorkspaceOptions = {
   slug: string;
   storageScope?: string;
@@ -419,6 +295,10 @@ export type UseWorkspaceReturn = {
   abortSession: () => Promise<void>;
   refreshMessages: () => Promise<void>;
 
+  // Permissions (pending) visible for the active session, from the event-bus
+  // store: the active session plus its known child sessions.
+  permissions: WorkspacePermission[];
+
   // Diffs
   diffs: import("@/hooks/use-workspace-diffs").WorkspaceDiff[];
   isLoadingDiffs: boolean;
@@ -434,17 +314,4 @@ export type UseWorkspaceReturn = {
 
   // Agents
   agentCatalog: AgentCatalogItem[];
-};
-
-export type StreamMode = "send" | "resume";
-
-export type StreamOptions = {
-  sessionId: string;
-  mode: StreamMode;
-  targetMessageId: string;
-  runId?: string;
-  text?: string;
-  model?: { providerId: string; modelId: string };
-  attachments?: MessageAttachmentInput[];
-  contextPaths?: string[];
 };

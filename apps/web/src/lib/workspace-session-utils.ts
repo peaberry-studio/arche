@@ -25,10 +25,6 @@ export function getWorkspaceSessionMode(session: WorkspaceSession): WorkspaceSes
   return isFlowSession(session) ? "flows" : "chat";
 }
 
-export function canAutoResumeWorkspaceSession(session: WorkspaceSession | null | undefined): boolean {
-  return !isFlowSession(session);
-}
-
 export function isBusyFlowWorkspaceSession(session: WorkspaceSession | null | undefined): boolean {
   return isFlowSession(session) && (
     session?.status === "busy" ||

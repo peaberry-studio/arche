@@ -291,10 +291,11 @@ function ReasoningBlock({ text }: { text: string }) {
     <div className="my-1">
       <button
         type="button"
+        aria-expanded={isOpen}
         onClick={() => setIsOpen((previous) => !previous)}
         className="flex items-center gap-1.5 py-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
       >
-        <CaretDown size={10} className={cn('transition-transform', isOpen && 'rotate-180')} />
+        {isOpen ? <CaretDown size={10} /> : <CaretRight size={10} />}
         <span>Reasoning</span>
       </button>
       {isOpen ? (
@@ -885,6 +886,7 @@ export function MessagePartRenderer({
 }: MessagePartRendererProps) {
   switch (part.type) {
     case 'text':
+      if (!part.text) return null
       return (
         <div className="markdown-content my-3 first:mt-0 last:mb-0">
           <ReactMarkdown remarkPlugins={workspaceRemarkPlugins} rehypePlugins={workspaceRehypePlugins} components={workspaceMarkdownComponents}>
@@ -911,7 +913,20 @@ export function MessagePartRenderer({
       )
 
     case 'permission':
-      return <PermissionCard part={part} onAnswerPermission={onAnswerPermission} />
+      return (
+        <PermissionCard
+          onAnswerPermission={part.state === 'pending' ? onAnswerPermission : undefined}
+          permission={{
+            id: part.permissionId,
+            sessionId: part.sessionId,
+            title: part.title,
+            state: 'pending',
+            ...(part.callId ? { callId: part.callId } : {}),
+            ...(part.pattern ? { pattern: part.pattern } : {}),
+            ...(part.metadata ? { metadata: part.metadata } : {}),
+          }}
+        />
+      )
 
     case 'file':
       return (

@@ -1,8 +1,12 @@
 "use server";
 
 import { createFlowActorScope } from "@/lib/flows/authorization";
+import { formatTimestamp } from "@/lib/format-timestamp";
 import { isLearningSessionTitle } from "@/lib/learning/session-title";
 import { createInstanceClient, getInstanceUrl } from "@/lib/opencode/client";
+import { toWorkspaceMessage } from "@/lib/opencode/event-reducer";
+import { normalizePendingPermission } from "@/lib/opencode/permission";
+import type { WorkspacePermission } from "@/lib/opencode/permission";
 import { getTerminalRetryError } from "@/lib/opencode/retry-state";
 import {
   abortSessionFamilyAndConfirmIdle,
@@ -21,7 +25,6 @@ import type {
 import {
   getCanonicalProviderId,
   getProviderLabel,
-  normalizeProviderId,
   providerRequiresCredential,
   resolveRuntimeProviderId,
 } from "@/lib/providers/catalog";
@@ -30,7 +33,6 @@ import { getSession } from "@/lib/runtime/session";
 import { flowService, instanceService, messageRunService, slackService, userService } from "@/lib/services";
 import { decryptPassword } from "@/lib/spawner/crypto";
 import { createWorkspaceAgentClient } from "@/lib/workspace-agent/client";
-import { deriveWorkspaceMessageRuntimeState } from "@/lib/workspace-message-state";
 import {
   isHiddenWorkspacePath,
   isProtectedWorkspacePath,
@@ -53,136 +55,6 @@ function isFreeOpencodeModel(model: unknown): boolean {
   const output = (cost as { output?: unknown }).output;
 
   return input === 0 && output === 0;
-}
-
-function normalizeMessageRole(
-  role: unknown
-): "user" | "assistant" | "system" | null {
-  if (role === "user" || role === "assistant" || role === "system") {
-    return role;
-  }
-
-  return null;
-}
-
-function extractUserTextContent(parts: ReturnType<typeof transformParts>): string {
-  const firstText = parts.find((part) => part.type === "text");
-  return firstText ? firstText.text : "";
-}
-
-type PendingPermission = {
-  id: string;
-  metadata?: Record<string, unknown>;
-  patterns: string[];
-  permission: string;
-  sessionID: string;
-  messageID?: string;
-  callID?: string;
-};
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function normalizeListedPermission(value: unknown): PendingPermission | null {
-  if (!isRecord(value)) return null;
-
-  const id = typeof value.id === "string" && value.id.trim() ? value.id.trim() : null;
-  const sessionID =
-    typeof value.sessionID === "string" && value.sessionID.trim()
-      ? value.sessionID.trim()
-      : typeof value.sessionId === "string" && value.sessionId.trim()
-        ? value.sessionId.trim()
-        : null;
-  if (!id || !sessionID) return null;
-
-  const tool = isRecord(value.tool) ? value.tool : null;
-  const source = isRecord(value.source) ? value.source : null;
-  const messageID =
-    (typeof tool?.messageID === "string" && tool.messageID.trim()) ||
-    (typeof tool?.messageId === "string" && tool.messageId.trim()) ||
-    (typeof source?.messageID === "string" && source.messageID.trim()) ||
-    (typeof source?.messageId === "string" && source.messageId.trim()) ||
-    (typeof value.messageID === "string" && value.messageID.trim()) ||
-    (typeof value.messageId === "string" && value.messageId.trim()) ||
-    undefined;
-  const callID =
-    (typeof tool?.callID === "string" && tool.callID.trim()) ||
-    (typeof tool?.callId === "string" && tool.callId.trim()) ||
-    (typeof source?.callID === "string" && source.callID.trim()) ||
-    (typeof source?.callId === "string" && source.callId.trim()) ||
-    (typeof value.callID === "string" && value.callID.trim()) ||
-    (typeof value.callId === "string" && value.callId.trim()) ||
-    undefined;
-
-  const resources = Array.isArray(value.resources)
-    ? value.resources.filter((resource): resource is string => typeof resource === "string")
-    : [];
-  if (value.patterns !== undefined && !Array.isArray(value.patterns) && resources.length === 0) {
-    return null;
-  }
-
-  const patterns = Array.isArray(value.patterns)
-    ? value.patterns.filter((pattern): pattern is string => typeof pattern === "string")
-    : resources;
-
-  const permission =
-    (typeof value.permission === "string" && value.permission.trim()) ||
-    (typeof value.title === "string" && value.title.trim()) ||
-    (typeof value.action === "string" && value.action.trim()) ||
-    (patterns.length > 0 ? patterns.join(", ") : "Tool approval required");
-
-  return {
-    id,
-    sessionID,
-    permission,
-    patterns,
-    ...(messageID ? { messageID } : {}),
-    ...(callID ? { callID } : {}),
-    ...(isRecord(value.metadata) ? { metadata: value.metadata } : {}),
-  };
-}
-
-function getPendingPermissionPartsByMessageId(
-  permissions: unknown,
-  sessionId: string,
-  options: {
-    familySessionIds: Set<string>;
-    fallbackMessageId?: string;
-    messageIds: Set<string>;
-  }
-) {
-  const partsByMessageId = new Map<string, ReturnType<typeof transformParts>>();
-  if (!Array.isArray(permissions)) return partsByMessageId;
-
-  for (const permission of permissions) {
-    const normalized = normalizeListedPermission(permission);
-    if (!normalized || !options.familySessionIds.has(normalized.sessionID)) continue;
-
-    const targetMessageId = normalized.messageID && options.messageIds.has(normalized.messageID)
-      ? normalized.messageID
-      : normalized.sessionID === sessionId
-        ? undefined
-        : options.fallbackMessageId;
-    if (!targetMessageId) continue;
-
-    const parts = partsByMessageId.get(targetMessageId) ?? [];
-    parts.push({
-      type: "permission",
-      id: `permission:${normalized.id}`,
-      permissionId: normalized.id,
-      sessionId: normalized.sessionID,
-      title: normalized.permission,
-      state: "pending",
-      ...(normalized.callID && { callId: normalized.callID }),
-      pattern: normalized.patterns.join(", "),
-      permissionType: "tool",
-      ...(normalized.metadata && { metadata: normalized.metadata }),
-    });
-    partsByMessageId.set(targetMessageId, parts);
-  }
-
-  return partsByMessageId;
 }
 
 async function getAuthorizedClientContext(slug: string) {
@@ -429,40 +301,6 @@ export async function loadFileTreeAction(
 // Sessions
 // ============================================================================
 
-/**
- * Format a timestamp (unix ms or Date) for display.
- */
-function formatTimestamp(
-  timestamp: number | Date | string | undefined
-): string {
-  if (!timestamp) return "";
-
-  let d: Date;
-  if (typeof timestamp === "number") {
-    d = new Date(timestamp);
-  } else if (typeof timestamp === "string") {
-    d = new Date(timestamp);
-  } else {
-    d = timestamp;
-  }
-
-  const now = new Date();
-  const diffMs = now.getTime() - d.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-
-  if (diffMins < 1) return "Just now";
-  if (diffMins < 60) return `${diffMins} min ago`;
-
-  const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
-
-  const diffDays = Math.floor(diffHours / 24);
-  if (diffDays === 1) return "Yesterday";
-  if (diffDays < 7) return `${diffDays} days ago`;
-
-  return d.toLocaleDateString("en-US", { day: "numeric", month: "short" });
-}
-
 type WorkspaceSessionListEntry = {
   id: string;
   parentId?: string;
@@ -501,16 +339,8 @@ type RuntimeSessionStatus = {
   type?: string;
 };
 
-function toBusyStatus(status: RuntimeSessionStatus | undefined): "active" | "idle" | "busy" | "error" {
-  if (getTerminalRetryError(status)) {
-    return "error";
-  }
-
-  if (status?.type === "busy" || status?.type === "retry") {
-    return "busy";
-  }
-
-  return "idle";
+function toListSessionStatus(status: RuntimeSessionStatus | undefined): "idle" | "error" {
+  return getTerminalRetryError(status) ? "error" : "idle";
 }
 
 function toWorkspaceSessions(
@@ -524,7 +354,7 @@ function toWorkspaceSessions(
     return {
       id: session.id,
       title: session.title || "Untitled",
-      status: toBusyStatus(statuses[session.id]),
+      status: toListSessionStatus(statuses[session.id]),
       updatedAt: formatTimestamp(session.updatedAtRaw),
       updatedAtRaw: session.updatedAtRaw,
       parentId: session.parentId,
@@ -872,6 +702,7 @@ export async function listMessagesAction(
 ): Promise<{
   ok: boolean;
   messages?: WorkspaceMessage[];
+  sessionRuntimeStatus?: "busy" | "idle" | "unknown";
   error?: string;
 }> {
   const { error, client } = await getAuthorizedClient(slug);
@@ -882,12 +713,10 @@ export async function listMessagesAction(
     const messages = result.data ?? [];
 
     let sessionRuntimeStatus: "busy" | "idle" | "unknown" = "unknown";
-    let terminalRetryError: string | null = null;
     try {
       const statusResult = await client!.session.status();
       const statuses = (statusResult.data ?? {}) as Record<string, RuntimeSessionStatus | undefined>;
       const sessionStatus = statuses[sessionId]?.type;
-      terminalRetryError = getTerminalRetryError(statuses[sessionId]);
       if (sessionStatus === "busy" || sessionStatus === "retry") {
         sessionRuntimeStatus = "busy";
       } else if (sessionStatus === "idle") {
@@ -897,109 +726,23 @@ export async function listMessagesAction(
       // Keep unknown status when status endpoint fails.
     }
 
-    const terminalAssistantMessageId = terminalRetryError
-      ? [...messages].reverse().find((message) => {
-          if (normalizeMessageRole(message.info.role) !== "assistant") return false;
-          const completedAt = (message.info.time as { completed?: number } | undefined)?.completed;
-          return typeof completedAt !== "number" || completedAt <= 0;
-        })?.info.id
-      : undefined;
-
-    const pendingPermissions = await client!.permission.list()
-      .then((result) => result.data)
-      .catch(() => []);
-    const familySessionIds = new Set<string>([sessionId]);
-    try {
-      const childrenResult = await client!.session.children({ sessionID: sessionId });
-      for (const child of childrenResult.data ?? []) {
-        if (typeof child.id === "string" && child.id.trim()) {
-          familySessionIds.add(child.id);
-        }
-      }
-    } catch {
-      // Family discovery is best-effort; parent permissions still hydrate.
-    }
-
-    const messageIds = new Set(
-      messages
-        .map((message) => message.info.id)
-        .filter((id): id is string => typeof id === "string" && id.length > 0)
-    );
-    const fallbackMessageId = [...messages].reverse().find((message) => {
-      if (normalizeMessageRole(message.info.role) !== "assistant") return false;
-      const completedAt = (message.info.time as { completed?: number } | undefined)?.completed;
-      return typeof completedAt !== "number" || completedAt <= 0;
-    })?.info.id;
-
-    const pendingPermissionPartsByMessageId = getPendingPermissionPartsByMessageId(
-      pendingPermissions,
-      sessionId,
-      {
-        familySessionIds,
-        messageIds,
-        ...(typeof fallbackMessageId === "string" ? { fallbackMessageId } : {}),
-      }
-    );
-
     const transformed: WorkspaceMessage[] = [];
     for (const m of messages) {
-      const role = normalizeMessageRole(m.info.role);
-      if (!role) continue;
-
-      const rawTimestamp = m.info.time?.created;
-      const completedAt = (m.info.time as { completed?: number } | undefined)
-        ?.completed;
-      const parts = [
-        ...transformParts(m.parts ?? []),
-        ...(typeof completedAt === "number" && completedAt > 0
-          ? []
-          : pendingPermissionPartsByMessageId.get(m.info.id) ?? []),
-      ];
-      const runtimeState = deriveWorkspaceMessageRuntimeState({
-        role,
-        completedAt,
-        parts,
-        sessionStatus: sessionRuntimeStatus,
-        terminalError:
-          m.info.id === terminalAssistantMessageId ? terminalRetryError ?? undefined : undefined,
+      const info = m.info as unknown as Record<string, unknown>;
+      const mapped = toWorkspaceMessage({
+        ...info,
+        parts: m.parts ?? info.parts ?? [],
+        sessionID:
+          typeof info.sessionID === "string"
+            ? info.sessionID
+            : typeof info.sessionId === "string"
+              ? info.sessionId
+              : sessionId,
       });
-      const info = m.info as Record<string, unknown>;
-      const infoModel = info.model as Record<string, unknown> | undefined;
-      const rawProviderId =
-        typeof info.providerID === "string"
-          ? info.providerID
-          : typeof infoModel?.providerID === "string"
-            ? infoModel.providerID
-            : undefined;
-      const providerId = rawProviderId
-        ? normalizeProviderId(rawProviderId)
-        : undefined;
-      const modelId =
-        typeof info.modelID === "string"
-          ? info.modelID
-          : typeof infoModel?.modelID === "string"
-          ? infoModel.modelID
-          : undefined;
-      const agentId = typeof info.agent === "string" ? info.agent : undefined;
-
-      transformed.push({
-        id: m.info.id,
-        sessionId,
-        role,
-        agentId,
-        model: providerId && modelId ? { providerId, modelId } : undefined,
-        content:
-          role === "user" ? extractUserTextContent(parts) : extractTextContent(parts),
-        timestamp: formatTimestamp(rawTimestamp),
-        timestampRaw:
-          typeof rawTimestamp === "number" ? rawTimestamp : undefined,
-        parts,
-        pending: runtimeState.pending,
-        statusInfo: runtimeState.statusInfo,
-      });
+      if (mapped) transformed.push(mapped);
     }
 
-    return { ok: true, messages: transformed };
+    return { ok: true, messages: transformed, sessionRuntimeStatus };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "unknown" };
   }
@@ -1286,6 +1029,35 @@ export async function getSessionDiffsAction(
         };
       }),
     };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "unknown" };
+  }
+}
+
+// ============================================================================
+// Permissions
+// ============================================================================
+
+export async function listPermissionsAction(
+  slug: string,
+): Promise<{
+  ok: boolean;
+  permissions?: Record<string, WorkspacePermission[]>;
+  error?: string;
+}> {
+  const { error, client } = await getAuthorizedClient(slug);
+  if (error) return { ok: false, error };
+
+  try {
+    const result = await client!.permission.list();
+    const grouped: Record<string, WorkspacePermission[]> = {};
+    for (const permission of result.data ?? []) {
+      const normalized = normalizePendingPermission(permission);
+      if (!normalized) continue;
+      const sessionId = normalized.sessionId;
+      grouped[sessionId] = [...(grouped[sessionId] ?? []), normalized];
+    }
+    return { ok: true, permissions: grouped };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "unknown" };
   }

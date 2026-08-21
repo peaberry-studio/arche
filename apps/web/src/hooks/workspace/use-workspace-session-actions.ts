@@ -12,41 +12,36 @@ import type { DeleteWorkspaceSessionResult } from "@/hooks/workspace/use-workspa
 type UseWorkspaceSessionActionsOptions = {
   createWorkspaceSession: (title?: string) => Promise<WorkspaceSession | null>;
   deleteWorkspaceSession: (id: string) => Promise<DeleteWorkspaceSessionResult | null>;
-  resetSessions: (sessionIds: Set<string>) => void;
   clearSessionSelectionState: (sessionId: string) => void;
   initializeSessionSelectionState: (
     sessionId: string,
     selection?: SessionSelectionState
   ) => void;
-  removeSessions: (sessionIds: Set<string>) => void;
-  sessionSelectionStateRef: MutableRefObject<
-    Record<string, SessionSelectionState>
-  >;
+  sessionSelectionStateRef: MutableRefObject<Record<string, SessionSelectionState>>;
   updateSessionMessages: (
     sessionId: string,
     updater: SetStateAction<WorkspaceMessage[]>
   ) => void;
+  removeSessionEntries: (sessionIds: Set<string>) => void;
 };
 
 export function useWorkspaceSessionActions({
   createWorkspaceSession,
   deleteWorkspaceSession,
-  resetSessions,
   clearSessionSelectionState,
   initializeSessionSelectionState,
-  removeSessions,
   sessionSelectionStateRef,
   updateSessionMessages,
+  removeSessionEntries,
 }: UseWorkspaceSessionActionsOptions) {
   const cleanupDeletedSessions = useCallback(
     (sessionIds: Set<string>) => {
-      resetSessions(sessionIds);
+      removeSessionEntries(sessionIds);
       for (const sessionId of sessionIds) {
         clearSessionSelectionState(sessionId);
       }
-      removeSessions(sessionIds);
     },
-    [clearSessionSelectionState, removeSessions, resetSessions]
+    [clearSessionSelectionState, removeSessionEntries]
   );
 
   const createSession = useCallback(

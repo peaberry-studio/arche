@@ -107,7 +107,7 @@ describe("session listing actions", () => {
           id: "root",
           share: { url: "https://share.test/root", version: 1 },
           title: "Daily brief",
-          status: "busy",
+          status: "idle",
           updatedAtRaw: 200,
           flow: expect.objectContaining({
             runId: "run-1",

@@ -3,49 +3,34 @@
 import { useCallback, type MutableRefObject, type SetStateAction } from "react";
 
 import { abortSessionAction } from "@/actions/opencode";
-import type {
-  AvailableModel,
-  MessagePart,
-  PermissionResponse,
-  PermissionState,
-  WorkspaceMessage,
-  WorkspaceSession,
-} from "@/lib/opencode/types";
 import {
   PRE_SESSION_SELECTION_KEY,
   type SessionSelectionState,
-  type StreamOptions,
 } from "@/hooks/workspace/workspace-types";
+import { isSending, type ChatStore } from "@/lib/opencode/event-reducer";
+import type {
+  AvailableModel,
+  PermissionResponse,
+  WorkspaceSession,
+} from "@/lib/opencode/types";
 import type { MessageAttachmentInput } from "@/types/workspace";
-
-type StreamStatus = "submitted" | "streaming" | "error";
 
 type UseWorkspaceMessageActionsOptions = {
   slug: string;
   activeSessionIdRef: MutableRefObject<string | null>;
-  activeStreamsRef: MutableRefObject<Map<string, unknown>>;
   agentDefaultModel: AvailableModel | null;
   createSession: (title?: string) => Promise<WorkspaceSession | null>;
   models: AvailableModel[];
   primaryAgentId: string | null;
-  refreshWorkspaceMessages: (sessionIdOverride?: string) => Promise<void>;
   sessionSelectionStateRef: MutableRefObject<Record<string, SessionSelectionState>>;
-  sessionStreamStatusRef: MutableRefObject<Record<string, StreamStatus>>;
-  setIsStartingNewSession: (value: boolean) => void;
-  streamChat: (options: StreamOptions) => Promise<void>;
-  abortSessionStream: (sessionId: string) => void;
-  updateSessionMessages: (
-    sessionId: string,
-    updater: SetStateAction<WorkspaceMessage[]>
-  ) => void;
+  getStore: () => ChatStore;
+  commitStore: (store: SetStateAction<ChatStore>) => void;
+  onStartingNewSessionChange: (value: boolean) => void;
 };
 
-function normalizeAttachments(
-  attachments: MessageAttachmentInput[] | undefined
-): MessageAttachmentInput[] {
+function normalizeAttachments(attachments: MessageAttachmentInput[] | undefined): MessageAttachmentInput[] {
   return (attachments ?? []).filter(
-    (attachment) =>
-      typeof attachment.path === "string" && attachment.path.trim().length > 0
+    (attachment) => typeof attachment.path === "string" && attachment.path.trim().length > 0,
   );
 }
 
@@ -55,47 +40,23 @@ function normalizeContextPaths(contextPaths: string[] | undefined): string[] {
       (contextPaths ?? [])
         .filter((path): path is string => typeof path === "string")
         .map((path) => path.trim())
-        .filter((path) => path.length > 0)
-    )
+        .filter((path) => path.length > 0),
+    ),
   );
 }
 
 export function useWorkspaceMessageActions({
   slug,
   activeSessionIdRef,
-  activeStreamsRef,
   agentDefaultModel,
   createSession,
   models,
   primaryAgentId,
-  refreshWorkspaceMessages,
   sessionSelectionStateRef,
-  sessionStreamStatusRef,
-  setIsStartingNewSession,
-  streamChat,
-  abortSessionStream,
-  updateSessionMessages,
+  getStore,
+  commitStore,
+  onStartingNewSessionChange,
 }: UseWorkspaceMessageActionsOptions) {
-  const refreshMessages = useCallback(async (sessionIdOverride?: string) => {
-    const targetSessionId = sessionIdOverride ?? activeSessionIdRef.current;
-    if (!targetSessionId) return;
-
-    const targetStatus = sessionStreamStatusRef.current[targetSessionId];
-    if (
-      targetStatus === "submitted" || targetStatus === "streaming" ||
-      activeStreamsRef.current.has(targetSessionId)
-    ) {
-      return;
-    }
-
-    await refreshWorkspaceMessages(sessionIdOverride);
-  }, [
-    activeSessionIdRef,
-    activeStreamsRef,
-    refreshWorkspaceMessages,
-    sessionStreamStatusRef,
-  ]);
-
   const sendMessage = useCallback(
     async (
       text: string,
@@ -104,33 +65,26 @@ export function useWorkspaceMessageActions({
         forceNewSession?: boolean;
         attachments?: MessageAttachmentInput[];
         contextPaths?: string[];
-      }
+      },
     ) => {
       const targetSessionId = activeSessionIdRef.current;
       const messageAttachments = normalizeAttachments(options?.attachments);
       const messageContextPaths = normalizeContextPaths(options?.contextPaths);
 
       const forceNewSession = options?.forceNewSession === true;
-      if (forceNewSession) {
-        setIsStartingNewSession(true);
-      }
-
       let sessionId = targetSessionId;
       if (forceNewSession || !sessionId) {
+        onStartingNewSessionChange(true);
         try {
           const newSession = await createSession();
           sessionId = newSession?.id ?? null;
         } finally {
-          if (forceNewSession) {
-            setIsStartingNewSession(false);
-          }
+          onStartingNewSessionChange(false);
         }
       }
-
       if (!sessionId) return false;
 
-      const currentStatus = sessionStreamStatusRef.current[sessionId];
-      if (currentStatus === "submitted" || currentStatus === "streaming") {
+      if (isSending(getStore(), sessionId)) {
         return false;
       }
 
@@ -140,14 +94,12 @@ export function useWorkspaceMessageActions({
           sessionSelectionStateRef.current[sessionId] ??
           sessionSelectionStateRef.current[PRE_SESSION_SELECTION_KEY] ??
           { manualModel: null, runtimeModel: null, activeAgentId: primaryAgentId };
-
         const fallbackModel =
           selection.manualModel ??
           selection.runtimeModel ??
           agentDefaultModel ??
           models[0] ??
           null;
-
         if (fallbackModel) {
           resolvedModel = {
             providerId: fallbackModel.providerId,
@@ -156,74 +108,70 @@ export function useWorkspaceMessageActions({
         }
       }
 
-      const tempUserMsgId = `temp-user-${Date.now()}`;
-      const tempUserParts: MessagePart[] = [
-        { type: "text", text },
-        ...messageAttachments.map((attachment) => ({
-          type: "file" as const,
-          path: attachment.path,
-          filename: attachment.filename,
-          mime: attachment.mime,
-        })),
-      ];
-      const tempUserMsg: WorkspaceMessage = {
-        id: tempUserMsgId,
-        sessionId,
-        role: "user",
-        content: text,
-        timestamp: "Just now",
-        parts: tempUserParts,
-        pending: false,
+      const messageId =
+        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : `user-${Date.now()}`;
+
+      const previousStatus = getStore().sessionStatus[sessionId] ?? "idle";
+
+      const restoreStatus = (status: "idle" | "busy" = previousStatus) => {
+        commitStore((current) => ({
+          ...current,
+          sessionStatus: { ...current.sessionStatus, [sessionId]: status },
+        }));
       };
 
-      const tempAssistantMsgId = `temp-assistant-${Date.now()}`;
-      const tempAssistantMsg: WorkspaceMessage = {
-        id: tempAssistantMsgId,
-        sessionId,
-        role: "assistant",
-        content: "",
-        timestamp: "Just now",
-        timestampRaw: Date.now(),
-        parts: [],
-        pending: true,
-        statusInfo: { status: "thinking" },
-      };
+      commitStore((current) => ({
+        ...current,
+        sessionStatus: { ...current.sessionStatus, [sessionId]: "busy" },
+      }));
 
-      updateSessionMessages(sessionId, (prev) => [
-        ...prev,
-        tempUserMsg,
-        tempAssistantMsg,
-      ]);
-      void streamChat({
-        sessionId,
-        mode: "send",
-        targetMessageId: tempAssistantMsgId,
-        text,
-        model: resolvedModel,
-        attachments: messageAttachments,
-        contextPaths: messageContextPaths,
-      });
+      let result: Response;
+      try {
+        result = await fetch(`/api/w/${slug}/chat/prompt`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sessionId,
+            messageId,
+            ...(text ? { text } : {}),
+            ...(resolvedModel ? { model: resolvedModel } : {}),
+            ...(messageAttachments.length > 0 ? { attachments: messageAttachments } : {}),
+            ...(messageContextPaths.length > 0 ? { contextPaths: messageContextPaths } : {}),
+          }),
+        });
+      } catch {
+        restoreStatus();
+        return false;
+      }
+
+      if (!result.ok) {
+        restoreStatus(result.status === 409 ? "busy" : previousStatus);
+        return false;
+      }
+
       return true;
     },
     [
       activeSessionIdRef,
       agentDefaultModel,
+      commitStore,
       createSession,
+      getStore,
       models,
+      onStartingNewSessionChange,
       primaryAgentId,
       sessionSelectionStateRef,
-      sessionStreamStatusRef,
-      setIsStartingNewSession,
-      streamChat,
-      updateSessionMessages,
-    ]
+      slug,
+    ],
   );
 
   const answerPermission = useCallback(
     async (
       permissionSessionId: string,
       permissionId: string,
-      response: PermissionResponse
+      response: PermissionResponse,
     ) => {
       try {
         const reply = await fetch(
@@ -232,88 +180,27 @@ export function useWorkspaceMessageActions({
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ sessionId: permissionSessionId, response }),
-          }
+          },
         );
-
         if (!reply.ok) return false;
-
-        const nextState: PermissionState = response === "reject" ? "rejected" : "approved";
-        const applyOptimisticReply = (prev: WorkspaceMessage[]): WorkspaceMessage[] =>
-          prev.map((message) => {
-            const parts = message.parts.map((part) =>
-              part.type === "permission" && part.permissionId === permissionId
-                ? { ...part, state: nextState }
-                : part
-            );
-            const stillWaiting = parts.some(
-              (part) => part.type === "permission" && part.state === "pending"
-            );
-
-            return {
-              ...message,
-              parts,
-              statusInfo: stillWaiting
-                ? message.statusInfo
-                : message.statusInfo?.detail === "permission_required"
-                  ? { status: "thinking" }
-                  : message.statusInfo,
-            };
-          });
-
-        const displaySessionId = activeSessionIdRef.current;
-        updateSessionMessages(permissionSessionId, applyOptimisticReply);
-        if (displaySessionId && displaySessionId !== permissionSessionId) {
-          updateSessionMessages(displaySessionId, applyOptimisticReply);
-        }
-
         return true;
       } catch {
         return false;
       }
     },
-    [activeSessionIdRef, slug, updateSessionMessages]
+    [slug],
   );
 
   const abortSession = useCallback(async () => {
     const currentActiveSessionId = activeSessionIdRef.current;
     if (!currentActiveSessionId) return;
-
-    updateSessionMessages(currentActiveSessionId, (prev) =>
-      prev.map((message) => {
-        if (message.role !== "assistant" || !message.pending) return message;
-
-        return {
-          ...message,
-          pending: false,
-          statusInfo: { status: "error", detail: "cancelled" },
-        };
-      })
-    );
-    abortSessionStream(currentActiveSessionId);
-    const abortResult = await abortSessionAction(slug, currentActiveSessionId);
-    if (!abortResult.ok && abortResult.error === "execution_termination_unconfirmed") {
-      updateSessionMessages(currentActiveSessionId, (prev) =>
-        prev.map((message) => {
-          if (
-            message.role !== "assistant" ||
-            message.statusInfo?.detail !== "cancelled"
-          ) {
-            return message;
-          }
-
-          return {
-            ...message,
-            statusInfo: { status: "error", detail: abortResult.error },
-          };
-        })
-      );
-    }
-  }, [abortSessionStream, activeSessionIdRef, slug, updateSessionMessages]);
+    await abortSessionAction(slug, currentActiveSessionId).catch(() => undefined);
+    // The bus applies session.status idle; the store stays coherent on its own.
+  }, [activeSessionIdRef, slug]);
 
   return {
-    abortSession,
-    answerPermission,
-    refreshMessages,
     sendMessage,
+    answerPermission,
+    abortSession,
   };
 }
