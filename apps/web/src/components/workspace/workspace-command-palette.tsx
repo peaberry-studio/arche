@@ -27,7 +27,7 @@ import { flattenWorkspaceFileNodes, rankWorkspaceFileSearchCandidates } from "@/
 import { isFlowSession } from "@/lib/workspace-session-utils";
 import type { WorkspaceThemeId } from "@/lib/workspace-theme";
 
-import type { WorkspaceMode } from "./workspace-mode-toggle";
+import type { WorkspaceMode } from "./workspace-modes";
 
 type WorkspaceCommandPaletteProps = {
   fileNodes?: WorkspaceFileNode[];
@@ -37,6 +37,7 @@ type WorkspaceCommandPaletteProps = {
   onOpenChange: (open: boolean) => void;
   onCreateSession: () => Promise<void> | void;
   onModeChange: (mode: WorkspaceMode) => void;
+  onNavigateFlows: () => void;
   onOpenFile?: (path: string) => Promise<void> | void;
   onNavigateConnectors: () => void;
   onNavigateProviders: () => void;
@@ -74,6 +75,7 @@ export function WorkspaceCommandPalette({
   onOpenChange,
   onCreateSession,
   onModeChange,
+  onNavigateFlows,
   onOpenFile,
   onNavigateConnectors,
   onNavigateProviders,
@@ -280,12 +282,12 @@ export function WorkspaceCommandPalette({
     if (!hideFlows) {
       items.splice(1, 0, {
         id: "mode-flows",
-        title: "Go to Flows mode",
-        subtitle: "Show flow runs",
+        title: "Go to Flows manager",
+        subtitle: "Open the flows automation manager",
         section: "Modes",
         icon: GitBranch,
         keywords: "flows automation runs",
-        run: () => onModeChange("flows"),
+        run: onNavigateFlows,
       });
     }
 
@@ -302,7 +304,7 @@ export function WorkspaceCommandPalette({
     }
 
     return items;
-  }, [hideFlows, onCreateSession, onModeChange, onNavigateConnectors, onNavigateProviders, onNavigateSettings, onToggleLeftPanel, setThemeId, themeId, themes, toggleDark]);
+  }, [hideFlows, onCreateSession, onModeChange, onNavigateConnectors, onNavigateFlows, onNavigateProviders, onNavigateSettings, onToggleLeftPanel, setThemeId, themeId, themes, toggleDark]);
 
   const flowItems = useMemo<PaletteItem[]>(() => {
     if (hideFlows) return [];
@@ -314,11 +316,11 @@ export function WorkspaceCommandPalette({
       icon: GitBranch,
       keywords: "flows automation",
       run: async () => {
-        onModeChange("flows");
+        onNavigateFlows();
         await runFlow(flow.id);
       },
     }));
-  }, [flows, hideFlows, onModeChange, runFlow]);
+  }, [flows, hideFlows, onNavigateFlows, runFlow]);
 
   const sessionItems = useMemo<PaletteItem[]>(() => {
     return sessionResults
@@ -334,7 +336,7 @@ export function WorkspaceCommandPalette({
           section: isFlowRun ? "Flow runs" : "Chats",
           icon: isFlowRun ? GitBranch : ChatCircle,
           keywords: session.flow?.flowName,
-          run: () => onSelectSession(session.id, isFlowRun ? "flows" : "chat"),
+          run: () => onSelectSession(session.id, "chat"),
         };
       });
   }, [hideFlows, onSelectSession, sessionResults]);

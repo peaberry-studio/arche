@@ -1,12 +1,5 @@
 import type { WorkspaceSession } from "@/lib/opencode/types";
 
-export type WorkspaceSessionMode = "chat" | "flows";
-
-export type WorkspaceUnreadCounts = {
-  sessionsUnreadCount: number;
-  flowsUnreadCount: number;
-};
-
 type FlowWorkspaceSession = WorkspaceSession & {
   flow: NonNullable<WorkspaceSession["flow"]>;
 };
@@ -21,10 +14,6 @@ export function hasUnseenFlowResult(session: WorkspaceSession | null | undefined
   return Boolean(session?.flow?.hasUnseenResult);
 }
 
-export function getWorkspaceSessionMode(session: WorkspaceSession): WorkspaceSessionMode {
-  return isFlowSession(session) ? "flows" : "chat";
-}
-
 export function isBusyFlowWorkspaceSession(session: WorkspaceSession | null | undefined): boolean {
   return isFlowSession(session) && (
     session?.status === "busy" ||
@@ -33,22 +22,14 @@ export function isBusyFlowWorkspaceSession(session: WorkspaceSession | null | un
   );
 }
 
-export function getWorkspaceUnreadCounts(
-  sessions: WorkspaceSession[],
-  unseenCompletedSessions: ReadonlySet<string>
-): WorkspaceUnreadCounts {
+/**
+ * Keep only root sessions: drop any session whose parent session is also in
+ * the list (subagent sessions that belong to a visible parent).
+ */
+export function excludeSubagentSessions(sessions: WorkspaceSession[]): WorkspaceSession[] {
+  if (sessions.length === 0) return sessions;
   const sessionsById = new Map(sessions.map((session) => [session.id, session]));
-  let sessionsUnreadCount = 0;
-
-  unseenCompletedSessions.forEach((sessionId) => {
-    const session = sessionsById.get(sessionId);
-    if (session && !isFlowSession(session)) {
-      sessionsUnreadCount += 1;
-    }
-  });
-
-  return {
-    sessionsUnreadCount,
-    flowsUnreadCount: sessions.filter(hasUnseenFlowResult).length,
-  };
+  return sessions.filter(
+    (session) => !session.parentId || !sessionsById.has(session.parentId)
+  );
 }

@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
-import { ChatCircle, CheckSquare, Circle, Plus, SpinnerGap, XCircle } from "@phosphor-icons/react";
+import { ChatCircle, Circle, Plus, SpinnerGap, XCircle } from "@phosphor-icons/react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { groupByDateBucket } from "@/lib/date-buckets";
 import type { WorkspaceSession } from "@/lib/opencode/types";
-import { hasUnseenFlowResult, isFlowSession } from "@/lib/workspace-session-utils";
+import { excludeSubagentSessions, hasUnseenFlowResult, isFlowSession } from "@/lib/workspace-session-utils";
 
 type SessionsPanelProps = {
   sessions: WorkspaceSession[];
@@ -20,7 +20,6 @@ type SessionsPanelProps = {
   onLoadMore?: () => void;
   onSelectSession: (id: string) => void;
   onCreateSession: () => void;
-  kind?: "chats" | "flows";
   query?: string;
 };
 
@@ -35,19 +34,19 @@ export function SessionsPanel({
   onLoadMore,
   onSelectSession,
   onCreateSession,
-  kind = "chats",
   query = "",
 }: SessionsPanelProps) {
   const normalizedQuery = query.trim().toLowerCase();
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
+  const visibleSessions = useMemo(() => excludeSubagentSessions(sessions), [sessions]);
   const filteredSessions = useMemo(() => {
-    if (!normalizedQuery) return sessions;
-    return sessions.filter((session) =>
+    if (!normalizedQuery) return visibleSessions;
+    return visibleSessions.filter((session) =>
       session.title.toLowerCase().includes(normalizedQuery) ||
       session.flow?.flowName.toLowerCase().includes(normalizedQuery)
     );
-  }, [normalizedQuery, sessions]);
+  }, [normalizedQuery, visibleSessions]);
 
   const buckets = useMemo(
     () => groupByDateBucket(filteredSessions, (s) => s.updatedAtRaw),
@@ -63,12 +62,12 @@ export function SessionsPanel({
     return null;
   };
 
-  const emptyLabel = kind === "flows" ? "No flows yet" : "No chats yet";
-  const emptySearchLabel = kind === "flows" ? "No flows found" : "No chats found";
-  const initialLoadingLabel = kind === "flows" ? "Loading flows..." : "Loading chats...";
-  const loadingLabel = kind === "flows" ? "Loading more flows..." : "Loading more chats...";
-  const moreLabel = kind === "flows" ? "Scroll for older flows" : "Scroll for older chats";
-  const errorLabel = kind === "flows" ? "Couldn't load flows." : "Couldn't load chats.";
+  const emptyLabel = "No chats yet";
+  const emptySearchLabel = "No chats found";
+  const initialLoadingLabel = "Loading chats...";
+  const loadingLabel = "Loading more chats...";
+  const moreLabel = "Scroll for older chats";
+  const errorLabel = "Couldn't load chats.";
 
   useEffect(() => {
     if (!hasMore || isLoadingMore || !onLoadMore) {
@@ -100,7 +99,7 @@ export function SessionsPanel({
     };
   }, [hasMore, isLoadingMore, onLoadMore]);
 
-  if (sessions.length === 0 && sessionsError) {
+  if (visibleSessions.length === 0 && sessionsError) {
     return (
       <div className="flex flex-1 items-center justify-center px-4">
         <div className="flex flex-col items-center justify-center gap-2 text-center">
@@ -111,7 +110,7 @@ export function SessionsPanel({
     );
   }
 
-  if (sessions.length === 0 && !isInitialSessionsReady) {
+  if (visibleSessions.length === 0 && !isInitialSessionsReady) {
     return (
       <div className="flex flex-1 items-center justify-center px-4">
         <div className="flex flex-col items-center justify-center gap-2 text-center">
@@ -122,35 +121,29 @@ export function SessionsPanel({
     );
   }
 
-  if (sessions.length === 0) {
-    const EmptyIcon = kind === "flows" ? CheckSquare : ChatCircle;
+  if (visibleSessions.length === 0) {
     return (
       <div className="flex flex-1 items-center justify-center px-4">
         <div className="flex flex-col items-center justify-center gap-2 text-center">
-          <EmptyIcon size={24} weight="bold" className="text-muted-foreground/50" />
+          <ChatCircle size={24} weight="bold" className="text-muted-foreground/50" />
           <p className="text-xs text-muted-foreground">{emptyLabel}</p>
-          {kind === "chats" ? (
-            <Button size="sm" className="h-7 px-2 text-xs" onClick={onCreateSession}>
-              <Plus size={12} weight="bold" className="mr-1" />
-              New chat
-            </Button>
-          ) : null}
+          <Button size="sm" className="h-7 px-2 text-xs" onClick={onCreateSession}>
+            <Plus size={12} weight="bold" className="mr-1" />
+            New chat
+          </Button>
         </div>
       </div>
     );
   }
 
   if (filteredSessions.length === 0) {
-    const EmptySearchIcon = kind === "flows" ? CheckSquare : ChatCircle;
     return (
       <div className="flex flex-1 flex-col">
-        {kind === "chats" ? (
-          <div className="px-3 pb-2 pt-3">
-            <Button size="sm" className="w-full" onClick={onCreateSession}><Plus size={14} weight="bold" className="mr-1.5" />New chat</Button>
-          </div>
-        ) : null}
+        <div className="px-3 pb-2 pt-3">
+          <Button size="sm" className="w-full" onClick={onCreateSession}><Plus size={14} weight="bold" className="mr-1.5" />New chat</Button>
+        </div>
         <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
-          <EmptySearchIcon size={24} weight="bold" className="text-muted-foreground/50" />
+          <ChatCircle size={24} weight="bold" className="text-muted-foreground/50" />
           <p className="text-xs text-muted-foreground">{emptySearchLabel}</p>
         </div>
       </div>
@@ -168,16 +161,14 @@ export function SessionsPanel({
             {bucket.items.map((session) => {
               const indicatorClassName = getIndicatorClassName(session);
               const hasIndicator = indicatorClassName !== null;
-              const primaryTitle =
-                kind === "flows" && session.flow
-                  ? session.flow.flowName
-                  : session.title;
+              const isFlow = isFlowSession(session);
+              const primaryTitle = isFlow && session.flow
+                ? session.flow.flowName
+                : session.title;
               const secondaryLabel =
-                kind === "flows" && session.flow && session.title !== session.flow.flowName
+                isFlow && session.flow && session.title !== session.flow.flowName
                   ? session.title
-                  : session.flow && kind !== "flows"
-                    ? session.flow.flowName
-                    : null;
+                  : null;
 
               return (
                 <button
@@ -208,7 +199,7 @@ export function SessionsPanel({
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center gap-2">
                       <span className="truncate font-medium">{primaryTitle}</span>
-                      {isFlowSession(session) && kind !== "flows" ? (
+                      {isFlow ? (
                         <span className="shrink-0 rounded-full border border-primary/20 bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary">
                           Flow
                         </span>

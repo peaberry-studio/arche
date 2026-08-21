@@ -11,7 +11,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const sessions: WorkspaceSession[] = [
+const chatSessions: WorkspaceSession[] = [
   {
     id: "idle-session",
     title: "Idle chat",
@@ -35,11 +35,118 @@ const sessions: WorkspaceSession[] = [
   },
 ];
 
+const flowSession: WorkspaceSession = {
+  id: "flow-session",
+  title: "Flow | Daily summary",
+  status: "idle",
+  updatedAt: "now",
+  updatedAtRaw: 4,
+  flow: {
+    runId: "run-1",
+    flowId: "flow-1",
+    flowName: "Daily summary",
+    status: "succeeded",
+    trigger: "schedule",
+    hasUnseenResult: false,
+  },
+};
+
+function renderPanel(sessions: WorkspaceSession[], overrides: Record<string, unknown> = {}) {
+  const props = {
+    sessions,
+    activeSessionId: null,
+    unseenCompletedSessions: new Set<string>(),
+    onSelectSession: vi.fn(),
+    onCreateSession: vi.fn(),
+    ...overrides,
+  } as Parameters<typeof SessionsPanel>[0];
+  return render(<SessionsPanel {...props} />);
+}
+
 describe("SessionsPanel", () => {
+  it("renders both chat sessions and flow sessions in the same list", () => {
+    renderPanel([...chatSessions, flowSession]);
+
+    expect(screen.getByRole("button", { name: /idle chat/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /busy chat/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Daily summary/i })).toBeTruthy();
+  });
+
+  it("shows a flow badge on flow sessions", () => {
+    renderPanel([flowSession]);
+
+    const flowRow = screen.getByRole("button", { name: /Daily summary/i });
+    expect(flowRow.textContent).toContain("Flow");
+    expect(flowRow.textContent).toContain("Flow | Daily summary");
+  });
+
+  it("filters out subagent sessions whose parent is in the list", () => {
+    renderPanel([
+      ...chatSessions,
+      {
+        id: "child-session",
+        title: "Child session",
+        status: "idle",
+        updatedAt: "now",
+        updatedAtRaw: 5,
+        parentId: "idle-session",
+      },
+    ]);
+
+    expect(screen.queryByRole("button", { name: /child session/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /idle chat/i })).toBeTruthy();
+  });
+
+  it("shows a waiting badge for flow sessions waiting for human input", () => {
+    renderPanel([
+      {
+        ...flowSession,
+        flow: { ...flowSession.flow!, status: "waiting_for_human" },
+      },
+    ]);
+
+    expect(screen.getByText("Waiting")).toBeTruthy();
+  });
+
+  it("groups sessions by date buckets", () => {
+    const now = Date.now();
+    const dayMs = 86_400_000;
+    renderPanel([
+      { id: "today-session", title: "Today chat", status: "idle", updatedAt: "now", updatedAtRaw: now },
+      { id: "yesterday-session", title: "Yesterday chat", status: "idle", updatedAt: "1d", updatedAtRaw: now - dayMs },
+      { id: "old-session", title: "Old chat", status: "idle", updatedAt: "30d", updatedAtRaw: now - 30 * dayMs },
+    ]);
+
+    expect(screen.getByText("Today")).toBeTruthy();
+    expect(screen.getByText("Yesterday")).toBeTruthy();
+    expect(screen.getByText("Older")).toBeTruthy();
+  });
+
+  it("shows unread indicators for unseen flow results and unseen completed chats", () => {
+    render(
+      <SessionsPanel
+        sessions={[
+          { ...flowSession, flow: { ...flowSession.flow!, hasUnseenResult: true } },
+          chatSessions[2],
+        ]}
+        activeSessionId={null}
+        unseenCompletedSessions={new Set(["done-session"]) as ReadonlySet<string>}
+        onSelectSession={vi.fn()}
+        onCreateSession={vi.fn()}
+      />
+    );
+
+    const flowRow = screen.getByRole("button", { name: /Daily summary/i });
+    const doneRow = screen.getByRole("button", { name: /done chat/i });
+
+    expect(flowRow.querySelector("svg.text-green-400")).toBeTruthy();
+    expect(doneRow.querySelector("svg.text-green-400")).toBeTruthy();
+  });
+
   it("hides idle indicators while preserving busy and completed indicators", () => {
     render(
       <SessionsPanel
-        sessions={sessions}
+        sessions={chatSessions}
         activeSessionId={"idle-session"}
         unseenCompletedSessions={new Set(["done-session"]) as ReadonlySet<string>}
         onSelectSession={vi.fn()}
@@ -63,15 +170,7 @@ describe("SessionsPanel", () => {
   });
 
   it("renders timestamps hidden by default with hover fade classes", () => {
-    render(
-      <SessionsPanel
-        sessions={sessions}
-        activeSessionId={"idle-session"}
-        unseenCompletedSessions={new Set<string>()}
-        onSelectSession={vi.fn()}
-        onCreateSession={vi.fn()}
-      />
-    );
+    renderPanel(chatSessions, { activeSessionId: "idle-session" });
 
     const timestamp = screen.getByText("2m");
 
@@ -81,66 +180,16 @@ describe("SessionsPanel", () => {
   });
 
   it("shows flow sessions with flow context and matches them in search", () => {
-    render(
-      <SessionsPanel
-        sessions={[
-          {
-            id: "flow-session",
-            title: "Flow | Daily summary",
-            status: "idle",
-            updatedAt: "now",
-            updatedAtRaw: 4,
-            flow: {
-              runId: "run-1",
-              flowId: "flow-1",
-              flowName: "Daily summary",
-              status: "succeeded",
-              trigger: "schedule",
-              hasUnseenResult: false,
-            },
-          },
-        ]}
-        activeSessionId={"flow-session"}
-        unseenCompletedSessions={new Set<string>()}
-        onSelectSession={vi.fn()}
-        onCreateSession={vi.fn()}
-        kind="flows"
-        query="daily summary"
-      />
-    );
+    renderPanel([flowSession], { activeSessionId: "flow-session", query: "daily summary" });
 
     expect(screen.getByText("Daily summary")).toBeTruthy();
     expect(screen.getByText("Flow | Daily summary")).toBeTruthy();
   });
 
-  it("hides chat creation affordances in flows mode", () => {
-    render(
-      <SessionsPanel
-        sessions={[]}
-        activeSessionId={null}
-        unseenCompletedSessions={new Set<string>()}
-        onSelectSession={vi.fn()}
-        onCreateSession={vi.fn()}
-        kind="flows"
-      />
-    );
-
-    expect(screen.getByText("No flows yet")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "New chat" })).toBeNull();
-  });
-
   it("offers chat creation in the empty chat state", () => {
     const onCreateSession = vi.fn();
 
-    render(
-      <SessionsPanel
-        sessions={[]}
-        activeSessionId={null}
-        unseenCompletedSessions={new Set<string>()}
-        onSelectSession={vi.fn()}
-        onCreateSession={onCreateSession}
-      />
-    );
+    renderPanel([], { onCreateSession });
 
     expect(screen.getByText("No chats yet")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "New chat" }));
@@ -149,50 +198,25 @@ describe("SessionsPanel", () => {
   });
 
   it("shows an initial loading state instead of the empty chat state", () => {
-    render(
-      <SessionsPanel
-        sessions={[]}
-        activeSessionId={null}
-        isInitialSessionsReady={false}
-        unseenCompletedSessions={new Set<string>()}
-        onSelectSession={vi.fn()}
-        onCreateSession={vi.fn()}
-      />
-    );
+    renderPanel([], { isInitialSessionsReady: false });
 
     expect(screen.getByText("Loading chats...")).toBeTruthy();
     expect(screen.queryByText("No chats yet")).toBeNull();
   });
 
   it("shows an initial loading error instead of the empty chat state", () => {
-    render(
-      <SessionsPanel
-        sessions={[]}
-        activeSessionId={null}
-        isInitialSessionsReady={false}
-        sessionsError="instance_unavailable"
-        unseenCompletedSessions={new Set<string>()}
-        onSelectSession={vi.fn()}
-        onCreateSession={vi.fn()}
-      />
-    );
+    renderPanel([], { isInitialSessionsReady: false, sessionsError: "instance_unavailable" });
 
     expect(screen.getByText("Couldn't load chats.")).toBeTruthy();
     expect(screen.queryByText("No chats yet")).toBeNull();
   });
 
   it("keeps rendering already loaded sessions while initial readiness is pending", () => {
-    render(
-      <SessionsPanel
-        sessions={sessions}
-        activeSessionId={"idle-session"}
-        isInitialSessionsReady={false}
-        sessionsError="instance_unavailable"
-        unseenCompletedSessions={new Set<string>()}
-        onSelectSession={vi.fn()}
-        onCreateSession={vi.fn()}
-      />
-    );
+    renderPanel(chatSessions, {
+      activeSessionId: "idle-session",
+      isInitialSessionsReady: false,
+      sessionsError: "instance_unavailable",
+    });
 
     expect(screen.getByRole("button", { name: /idle chat/i })).toBeTruthy();
     expect(screen.queryByText("Loading chats...")).toBeNull();
@@ -202,37 +226,12 @@ describe("SessionsPanel", () => {
   it("shows the chat search empty state with a creation shortcut", () => {
     const onCreateSession = vi.fn();
 
-    render(
-      <SessionsPanel
-        sessions={sessions}
-        activeSessionId="idle-session"
-        query="missing"
-        unseenCompletedSessions={new Set<string>()}
-        onSelectSession={vi.fn()}
-        onCreateSession={onCreateSession}
-      />
-    );
+    renderPanel(chatSessions, { activeSessionId: "idle-session", query: "missing", onCreateSession });
 
     expect(screen.getByText("No chats found")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "New chat" }));
 
     expect(onCreateSession).toHaveBeenCalledTimes(1);
-  });
-
-  it("shows flow-specific loading copy while fetching more", () => {
-    render(
-      <SessionsPanel
-        sessions={sessions}
-        activeSessionId="idle-session"
-        isLoadingMore
-        kind="flows"
-        unseenCompletedSessions={new Set<string>()}
-        onSelectSession={vi.fn()}
-        onCreateSession={vi.fn()}
-      />
-    );
-
-    expect(screen.getByText("Loading more flows...")).toBeTruthy();
   });
 
   it("requests more sessions when the load-more sentinel becomes visible", () => {
@@ -258,17 +257,7 @@ describe("SessionsPanel", () => {
 
     const onLoadMore = vi.fn();
 
-    render(
-      <SessionsPanel
-        sessions={sessions}
-        activeSessionId={"idle-session"}
-        hasMore
-        unseenCompletedSessions={new Set<string>()}
-        onLoadMore={onLoadMore}
-        onSelectSession={vi.fn()}
-        onCreateSession={vi.fn()}
-      />
-    );
+    renderPanel(chatSessions, { activeSessionId: "idle-session", hasMore: true, onLoadMore });
 
     expect(observe).toHaveBeenCalled();
 

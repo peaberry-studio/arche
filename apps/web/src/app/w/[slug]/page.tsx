@@ -62,6 +62,18 @@ export default async function WorkspaceHostPage({
     redirect(`/w/${session.user.slug}`)
   }
 
+  if (!desktopVault && search?.mode === 'flows') {
+    if (search.session) {
+      const params = new URLSearchParams({ session: search.session })
+      if (search.path) params.set('path', search.path)
+      if (search.settings) params.set('settings', search.settings)
+      if (search.flowId) params.set('flowId', search.flowId)
+      if (search.flows) params.set('flows', search.flows)
+      redirect(`/w/${slug}?${params.toString()}`)
+    }
+    redirect(`/u/${slug}/flows`)
+  }
+
   if (search?.mode === 'knowledge' && search.path) {
     const params = new URLSearchParams({ mode: 'explore', path: search.path })
     if (search.session) params.set('session', search.session)

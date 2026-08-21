@@ -168,6 +168,21 @@ describe('WorkspaceHostPage', () => {
     })).rejects.toThrow('REDIRECT:/w/alice?mode=explore&path=Notes%2FBrief.md&session=session-1')
   })
 
+  it('redirects legacy flows mode links to the flows manager', async () => {
+    await expect(renderHostPage({ mode: 'flows' })).rejects.toThrow('REDIRECT:/u/alice/flows')
+  })
+
+  it('redirects flows mode session links to the chat view', async () => {
+    await expect(renderHostPage({
+      mode: 'flows',
+      session: 'session-1',
+      path: 'Notes/Brief.md',
+      flowId: 'flow-1',
+    })).rejects.toThrow(
+      'REDIRECT:/w/alice?session=session-1&path=Notes%2FBrief.md&flowId=flow-1'
+    )
+  })
+
   it('redirects when kickstart setup is not ready', async () => {
     getKickstartStatusMock.mockResolvedValue('needs_setup')
 

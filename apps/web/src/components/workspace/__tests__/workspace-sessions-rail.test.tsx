@@ -61,9 +61,84 @@ function dotFor(name: string) {
   return dot
 }
 
+function renderRail(overrides: Record<string, unknown> = {}) {
+  const props = {
+    sessions,
+    activeSessionId: null,
+    unseenCompletedSessions: new Set<string>(),
+    onSelectSession: vi.fn(),
+    ...overrides,
+  } as Parameters<typeof WorkspaceSessionsRail>[0]
+  return render(<WorkspaceSessionsRail {...props} />)
+}
+
 describe('WorkspaceSessionsRail', () => {
   afterEach(() => {
     cleanup()
+  })
+
+  it('renders dots for both chat and flow sessions', () => {
+    renderRail()
+
+    expect(screen.queryByRole('button', { name: 'Idle chat' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Daily summary' })).toBeTruthy()
+    expect(dotFor('Idle chat').className).toContain('bg-muted-foreground')
+    expect(dotFor('Daily summary').className).toContain('bg-green-400')
+  })
+
+  it('filters out subagent sessions from the rail', () => {
+    render(
+      <WorkspaceSessionsRail
+        sessions={[
+          ...sessions,
+          {
+            id: 'child-session',
+            title: 'Child session',
+            status: 'idle',
+            updatedAt: 'now',
+            updatedAtRaw: 6,
+            parentId: 'idle-chat',
+          },
+        ]}
+        activeSessionId={null}
+        unseenCompletedSessions={new Set<string>()}
+        onSelectSession={vi.fn()}
+      />
+    )
+
+    expect(screen.queryByRole('button', { name: 'Child session' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Idle chat' })).toBeTruthy()
+  })
+
+  it('highlights the active session whether it is a chat or a flow', () => {
+    renderRail({ activeSessionId: 'flow-session' })
+
+    expect(dotFor('Daily summary').className).toContain('bg-green-400')
+  })
+
+  it('colors waiting-for-human flow dots amber', () => {
+    renderRail({
+      sessions: [
+        ...sessions,
+        {
+          id: 'waiting-flow',
+          title: 'Flow | Approval needed',
+          status: 'idle',
+          updatedAt: 'now',
+          updatedAtRaw: 6,
+          flow: {
+            runId: 'run-2',
+            flowId: 'flow-2',
+            flowName: 'Approval needed',
+            status: 'waiting_for_human',
+            trigger: 'manual',
+            hasUnseenResult: false,
+          },
+        },
+      ],
+    })
+
+    expect(dotFor('Approval needed').className).toContain('bg-amber-400')
   })
 
   it('renders chat session dots with status colors and click handling', () => {
@@ -71,7 +146,6 @@ describe('WorkspaceSessionsRail', () => {
 
     render(
       <WorkspaceSessionsRail
-        kind="chats"
         sessions={sessions}
         activeSessionId="idle-chat"
         unseenCompletedSessions={new Set(['done-chat'])}
@@ -79,7 +153,7 @@ describe('WorkspaceSessionsRail', () => {
       />
     )
 
-    const rail = screen.getByLabelText('Chats')
+    const rail = screen.getByLabelText('Sessions')
     Object.defineProperty(rail, 'scrollTop', { configurable: true, value: 12 })
     rail.getBoundingClientRect = () => ({
       bottom: 180,
@@ -96,7 +170,6 @@ describe('WorkspaceSessionsRail', () => {
     fireEvent.mouseMove(rail, { clientY: 74 })
     fireEvent.mouseLeave(rail)
 
-    expect(screen.queryByRole('button', { name: 'Daily summary' })).toBeNull()
     expect(dotFor('Idle chat').className).toContain('bg-primary')
     expect(dotFor('Busy chat').className).toContain('bg-amber-400')
     expect(dotFor('Error chat').className).toContain('bg-red-400')
@@ -107,13 +180,12 @@ describe('WorkspaceSessionsRail', () => {
     expect(onSelectSession).toHaveBeenCalledWith('done-chat')
   })
 
-  it('renders flow dots and marks unseen flow runs as seen', () => {
+  it('marks unseen flow runs as seen on selection', () => {
     const onMarkFlowRunSeen = vi.fn()
     const onSelectSession = vi.fn()
 
     render(
       <WorkspaceSessionsRail
-        kind="flows"
         sessions={sessions}
         activeSessionId={null}
         unseenCompletedSessions={new Set<string>()}
@@ -122,9 +194,6 @@ describe('WorkspaceSessionsRail', () => {
       />
     )
 
-    expect(screen.queryByRole('button', { name: 'Idle chat' })).toBeNull()
-    expect(dotFor('Daily summary').className).toContain('bg-green-400')
-
     fireEvent.click(screen.getByRole('button', { name: 'Daily summary' }))
 
     expect(onSelectSession).toHaveBeenCalledWith('flow-session')
@@ -132,17 +201,9 @@ describe('WorkspaceSessionsRail', () => {
   })
 
   it('magnifies, accents, and spaces dots around the cursor smoothly', async () => {
-    render(
-      <WorkspaceSessionsRail
-        kind="chats"
-        sessions={sessions}
-        activeSessionId={null}
-        unseenCompletedSessions={new Set<string>()}
-        onSelectSession={vi.fn()}
-      />
-    )
+    renderRail()
 
-    const rail = screen.getByLabelText('Chats')
+    const rail = screen.getByLabelText('Sessions')
     Object.defineProperty(rail, 'scrollTop', { configurable: true, value: 0 })
     rail.getBoundingClientRect = () => ({
       bottom: 180,
@@ -174,17 +235,9 @@ describe('WorkspaceSessionsRail', () => {
   })
 
   it('preserves cursor magnification when sessions refresh while hovering', async () => {
-    const { rerender } = render(
-      <WorkspaceSessionsRail
-        kind="chats"
-        sessions={sessions}
-        activeSessionId={null}
-        unseenCompletedSessions={new Set<string>()}
-        onSelectSession={vi.fn()}
-      />
-    )
+    const { rerender } = renderRail()
 
-    const rail = screen.getByLabelText('Chats')
+    const rail = screen.getByLabelText('Sessions')
     Object.defineProperty(rail, 'scrollTop', { configurable: true, value: 0 })
     rail.getBoundingClientRect = () => ({
       bottom: 180,
@@ -206,7 +259,6 @@ describe('WorkspaceSessionsRail', () => {
 
     rerender(
       <WorkspaceSessionsRail
-        kind="chats"
         sessions={sessions.map((session) => ({ ...session }))}
         activeSessionId={null}
         unseenCompletedSessions={new Set<string>()}
@@ -217,11 +269,10 @@ describe('WorkspaceSessionsRail', () => {
     expect(previousDot.style.transform).toBe(hoveringTransform)
   })
 
-  it('renders nothing when the selected rail kind has no sessions', () => {
+  it('renders nothing when there are no sessions', () => {
     const { container } = render(
       <WorkspaceSessionsRail
-        kind="flows"
-        sessions={sessions.filter((session) => !session.flow)}
+        sessions={[]}
         activeSessionId={null}
         unseenCompletedSessions={new Set<string>()}
         onSelectSession={vi.fn()}

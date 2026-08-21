@@ -12,7 +12,7 @@ export function KnowledgeEmptyState() {
         Browse your knowledge base
       </p>
       <p className="mt-1 max-w-[340px] text-xs leading-relaxed text-muted-foreground">
-        Pick a note from the sidebar to start reading or editing. Explore keeps your markdown notes, internal links, and the graph view in one place.
+        Pick a note from the file tree to start reading or editing. Explore keeps your markdown notes, internal links, and the graph view in one place.
       </p>
     </div>
   );

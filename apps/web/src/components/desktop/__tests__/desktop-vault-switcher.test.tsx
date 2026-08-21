@@ -3,7 +3,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { WorkspaceTopNav } from "@/components/workspace/workspace-top-nav";
+import { WorkspaceAccountMenu } from "@/components/workspace/workspace-account-menu";
 
 const desktopBridgeMocks = vi.hoisted(() => ({
   getOptionalDesktopBridge: vi.fn(),
@@ -63,12 +63,10 @@ function renderTopNav(
   }
 ) {
   render(
-    <WorkspaceTopNav
+    <WorkspaceAccountMenu
       slug="local"
       currentVault={currentVault}
-      mode="chat"
       status="active"
-      onModeChange={vi.fn()}
       onNavigateConnectors={vi.fn()}
       onNavigateProviders={vi.fn()}
       onNavigateSettings={vi.fn()}
@@ -76,7 +74,7 @@ function renderTopNav(
   );
 }
 
-describe("WorkspaceTopNav desktop vault menu", () => {
+describe("WorkspaceAccountMenu desktop vault menu", () => {
   beforeEach(() => {
     desktopBridgeMocks.listRecentVaults.mockResolvedValue([
       { id: "current", name: "Current Vault", path: "/vaults/current" },

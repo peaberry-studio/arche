@@ -5,7 +5,7 @@ import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import type { WorkspaceSession } from '@/lib/opencode/types'
-import { hasUnseenFlowResult, isFlowSession } from '@/lib/workspace-session-utils'
+import { excludeSubagentSessions, hasUnseenFlowResult } from '@/lib/workspace-session-utils'
 
 const ROW_HEIGHT = 22
 const FADE_END_INDEX = 6
@@ -17,10 +17,7 @@ const MAX_DOT_SCALE = 2.1
 const MAX_DOT_GAP_EXTRA = 5
 const RAIL_EDGE_PADDING_PX = 10
 
-type Kind = 'chats' | 'flows'
-
 type WorkspaceSessionsRailProps = {
-  kind: Kind
   sessions: WorkspaceSession[]
   activeSessionId: string | null
   unseenCompletedSessions: ReadonlySet<string>
@@ -69,7 +66,6 @@ function getRailAnchorY(activeIndex: number): number {
 }
 
 export function WorkspaceSessionsRail({
-  kind,
   sessions,
   activeSessionId,
   unseenCompletedSessions,
@@ -84,13 +80,7 @@ export function WorkspaceSessionsRail({
   const pointerStrengthRef = useRef(0)
   const [hoveredSessionId, setHoveredSessionId] = useState<string | null>(null)
 
-  const visibleSessions = useMemo(
-    () =>
-      sessions.filter((session) =>
-        kind === 'flows' ? isFlowSession(session) : !isFlowSession(session)
-      ),
-    [kind, sessions]
-  )
+  const visibleSessions = useMemo(() => excludeSubagentSessions(sessions), [sessions])
 
   const activeIndex = useMemo(() => {
     if (!activeSessionId) return -1
@@ -201,7 +191,7 @@ export function WorkspaceSessionsRail({
         onMouseLeave={handleMouseLeave}
         className="flex w-full min-h-0 flex-1 flex-col items-center overflow-hidden"
         style={{ paddingBottom: RAIL_EDGE_PADDING_PX, paddingTop: RAIL_EDGE_PADDING_PX }}
-        aria-label={kind === 'flows' ? 'Flows' : 'Chats'}
+        aria-label="Sessions"
       >
         {visibleSessions.map((session) => {
           const isActive = session.id === activeSessionId
@@ -213,7 +203,7 @@ export function WorkspaceSessionsRail({
             ? 'bg-primary'
             : statusColorCls
           const title =
-            kind === 'flows' && session.flow ? session.flow.flowName : session.title
+            session.flow ? session.flow.flowName : session.title
 
           return (
             <Tooltip key={session.id}>
