@@ -258,7 +258,7 @@ export function ExploreShell({
         <div className="flex min-w-0 items-center gap-2">
           <span className="type-display truncate text-base font-semibold tracking-tight">Arche</span>
           <span className="text-sm text-muted-foreground">/</span>
-          <span className="truncate text-sm font-medium text-card-foreground">Explore</span>
+          <span className="truncate text-sm font-medium text-card-foreground">Knowledge Base</span>
         </div>
         <button
           type="button"
@@ -299,7 +299,7 @@ export function ExploreShell({
                 minHeight: "calc(3.5rem + env(safe-area-inset-bottom, 0px))",
                 paddingBottom: "env(safe-area-inset-bottom, 0px)",
               }}
-              aria-label="Explore sections"
+              aria-label="Knowledge Base sections"
             >
               <button
                 type="button"

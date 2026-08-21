@@ -511,7 +511,7 @@ describe("WorkspaceShell", () => {
 
     expect(await screen.findByRole("button", { name: "New chat" })).toBeTruthy();
     expect(screen.getByText("Arche")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Explore" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Knowledge Base" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Curator" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Flows" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Sessions" })).toBeNull();
@@ -760,10 +760,10 @@ describe("WorkspaceShell", () => {
     expect(readFileMock).toHaveBeenCalledWith("docs/plan.md");
   });
 
-  it("opens the Explore page from the sidebar nav", async () => {
+  it("opens the Knowledge Base page from the sidebar nav", async () => {
     render(<WorkspaceShell slug="alice" />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Explore" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Knowledge Base" }));
 
     await waitFor(() => {
       expect(routerPushMock).toHaveBeenCalledWith("/w/alice/explore");

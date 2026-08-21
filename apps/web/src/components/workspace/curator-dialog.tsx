@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowSquareOut, FileMagnifyingGlass, Info, X } from "@phosphor-icons/react";
 
@@ -72,6 +72,7 @@ export function CuratorDialog({
   const router = useRouter();
   const [tab, setTab] = useState<ReviewTab>("proposals");
   const [selected, setSelected] = useState<SelectedProposal | null>(null);
+  const contentRef = useRef<HTMLDivElement | null>(null);
 
   const handleOpenProposal = useCallback((change: KnowledgeReviewChange, content: string) => {
     setSelected({ change, content });
@@ -88,8 +89,14 @@ export function CuratorDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="flex h-[min(88vh,54rem)] w-[min(96vw,84rem)] max-w-none flex-col gap-0 p-0 sm:rounded-2xl"
+        ref={contentRef}
+        className="flex h-[min(88vh,54rem)] w-[min(96vw,84rem)] max-w-none flex-col gap-0 p-0 outline-none sm:rounded-2xl"
+        tabIndex={-1}
         showCloseButton={false}
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          contentRef.current?.focus();
+        }}
       >
         <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border/40 px-5 py-3.5">
           <div className="min-w-0">
@@ -200,7 +207,7 @@ export function CuratorDialog({
                     onClick={handleOpenInExplore}
                   >
                     <ArrowSquareOut size={12} weight="bold" />
-                    Open in Explore
+                    Open in Knowledge Base
                   </Button>
                 </div>
                 <div className="min-h-0 flex-1 overflow-y-auto scrollbar-custom px-4 py-4">
@@ -254,7 +261,7 @@ export function CuratorDialog({
                 <FileMagnifyingGlass size={28} className="text-muted-foreground/30" />
                 <p className="text-xs text-muted-foreground">Select a proposal to preview its diff.</p>
                 <p className="max-w-[320px] text-[11px] leading-relaxed text-muted-foreground/70">
-                  For deeper edits, open it in Explore.
+                  For deeper edits, open it in the Knowledge Base.
                 </p>
               </div>
             )}

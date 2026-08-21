@@ -55,7 +55,7 @@ describe('ReviewPanel', () => {
 
     rerender(<ReviewPanel activeTab="changes" diffs={[]} onOpenFile={onOpenFile} slug="alice" />)
     expect(screen.getByText('No pending changes to publish')).toBeDefined()
-    expect(screen.getByText('Applied proposals and your Explore edits show up here. Chat agents cannot write the Knowledge Base.')).toBeDefined()
+    expect(screen.getByText('Applied proposals and your Knowledge Base edits show up here. Chat agents cannot write the Knowledge Base.')).toBeDefined()
   })
 
   it('opens diffs, toggles long previews, and discards changes', async () => {

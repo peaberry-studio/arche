@@ -3,12 +3,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import {
   ChatCircle,
-  Compass,
   Cpu,
   Database,
   File,
   GearSix,
   GitBranch,
+  GraduationCap,
   Moon,
   Palette,
   Plugs,
@@ -198,11 +198,11 @@ export function WorkspaceCommandPalette({
     const items: PaletteItem[] = [
       {
         id: "mode-explore",
-        title: "Open Explore",
+        title: "Open Knowledge Base",
         subtitle: "Browse files and knowledge graph in a separate workspace",
         section: "Navigation",
-        icon: Compass,
-        keywords: "files graph kb",
+        icon: Database,
+        keywords: "files graph kb explore",
         run: onOpenExplore,
       },
       {
@@ -210,8 +210,8 @@ export function WorkspaceCommandPalette({
         title: "Open Curator",
         subtitle: "Review learning proposals and workspace changes",
         section: "Navigation",
-        icon: Database,
-        keywords: "proposals changes publish",
+        icon: GraduationCap,
+        keywords: "proposals changes publish learning",
         run: onOpenCurator,
       },
       {

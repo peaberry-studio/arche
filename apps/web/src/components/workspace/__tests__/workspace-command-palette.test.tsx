@@ -268,11 +268,11 @@ describe("WorkspaceCommandPalette", () => {
     expect(handlers.onOpenFile).toHaveBeenCalledWith("Company/Product Strategy.md")
   })
 
-  it("runs the Open Explore command", async () => {
+  it("runs the Open Knowledge Base command", async () => {
     const handlers = renderPalette()
     const input = screen.getByPlaceholderText(palettePlaceholder)
 
-    fireEvent.change(input, { target: { value: "open explore" } })
+    fireEvent.change(input, { target: { value: "open knowledge base" } })
     fireEvent.keyDown(input, { key: "Enter" })
 
     await waitFor(() => expect(handlers.onOpenExplore).toHaveBeenCalledTimes(1))

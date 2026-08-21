@@ -19,7 +19,7 @@ describe('DashboardNav', () => {
   it('keeps logout out of the dashboard nav', () => {
     render(<DashboardNav slug="admin" />)
 
-    expect(screen.getByRole('link', { name: 'Explore' }).getAttribute('href')).toBe('/w/admin/explore')
+    expect(screen.getByRole('link', { name: 'Knowledge Base' }).getAttribute('href')).toBe('/w/admin/explore')
     expect(screen.getByRole('link', { name: 'Knowledge' }).getAttribute('href')).toBe('/w/admin?mode=knowledge')
     expect(screen.getByRole('link', { name: /open workspace/i }).getAttribute('href')).toBe('/w/admin')
     expect(screen.queryByRole('link', { name: 'Team' })).toBeNull()

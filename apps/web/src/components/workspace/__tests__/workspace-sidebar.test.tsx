@@ -89,10 +89,10 @@ describe("WorkspaceSidebar", () => {
     expect(onCreateSession).toHaveBeenCalledTimes(1);
   });
 
-  it("renders nav items Explore, Curator, Agents, Skills, and Flows", () => {
+  it("renders nav items Knowledge Base, Curator, Agents, Skills, and Flows", () => {
     renderSidebar();
 
-    expect(screen.getByRole("button", { name: "Explore" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Knowledge Base" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Curator" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Agents" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Skills" })).toBeTruthy();
@@ -119,7 +119,7 @@ describe("WorkspaceSidebar", () => {
     const onNavFlows = vi.fn();
     renderSidebar({ onNavExplore, onNavCurator, onNavAgents, onNavSkills, onNavFlows });
 
-    fireEvent.click(screen.getByRole("button", { name: "Explore" }));
+    fireEvent.click(screen.getByRole("button", { name: "Knowledge Base" }));
     fireEvent.click(screen.getByRole("button", { name: "Curator" }));
     fireEvent.click(screen.getByRole("button", { name: "Agents" }));
     fireEvent.click(screen.getByRole("button", { name: "Skills" }));
@@ -157,7 +157,7 @@ describe("WorkspaceSidebar", () => {
     renderSidebar({ isCollapsed: true });
 
     expect(screen.getByRole("img", { name: "Arche" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Explore" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Knowledge Base" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Curator" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Agents" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Skills" })).toBeTruthy();

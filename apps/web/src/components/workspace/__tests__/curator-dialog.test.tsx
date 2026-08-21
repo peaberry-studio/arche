@@ -91,16 +91,16 @@ describe("CuratorDialog", () => {
     expect(screen.getByRole("button", { name: "Apply" })).toBeTruthy();
   });
 
-  it("previews a proposal diff and opens it in Explore", async () => {
+  it("previews a proposal diff and opens it in the Knowledge Base", async () => {
     renderDialog();
 
     fireEvent.click(await screen.findByText("Remember preference"));
 
-    expect(await screen.findByRole("button", { name: "Open in Explore" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Open in Knowledge Base" })).toBeTruthy();
     expect(screen.getAllByText("Reason").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Durable user preference.").length).toBeGreaterThan(0);
 
-    fireEvent.click(screen.getByRole("button", { name: "Open in Explore" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open in Knowledge Base" }));
 
     await waitFor(() => {
       expect(routerPushMock).toHaveBeenCalledWith("/w/alice/explore?path=Preferences%2FAnswers.md");

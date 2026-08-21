@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import {
-  CaretDown,
+  CaretUp,
   Cpu,
   FolderOpen,
   GearSix,
@@ -283,7 +283,14 @@ export function WorkspaceAccountMenu({
           ) : (
             <>
               <span className="max-w-[6rem] truncate font-medium sm:max-w-none">{accountMenuLabel}</span>
-              <CaretDown size={13} weight="bold" className="shrink-0 text-muted-foreground" />
+              <CaretUp
+                size={13}
+                weight="bold"
+                className={cn(
+                  'shrink-0 text-muted-foreground transition-transform duration-150',
+                  accountMenuOpen && 'rotate-180'
+                )}
+              />
             </>
           )}
         </button>

@@ -142,7 +142,7 @@ export function ReviewPanel({
             <p className="text-xs text-muted-foreground">{isLoading ? 'Loading changes…' : 'No pending changes to publish'}</p>
             {isLoading ? null : (
               <p className="max-w-[320px] text-[11px] leading-relaxed text-muted-foreground/70">
-                Applied proposals and your Explore edits show up here. Chat agents cannot write the Knowledge Base.
+                Applied proposals and your Knowledge Base edits show up here. Chat agents cannot write the Knowledge Base.
               </p>
             )}
           </div>

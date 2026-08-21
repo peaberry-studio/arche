@@ -7,11 +7,11 @@ import {
   ArrowLineLeft,
   ArrowLineRight,
   ChatCircle,
-  Compass,
   Cpu,
   Database,
   GearSix,
   GitBranch,
+  GraduationCap,
   Lightning,
   List,
   Plugs,
@@ -50,8 +50,8 @@ function getWebNavItems(slug: string): DashboardNavItem[] {
 
   return [
     { label: 'New Chat', href: base, activeHref: base, exact: true, icon: ChatCircle },
-    { label: 'Explore', href: getWorkspaceHref(slug, { mode: 'explore' }), icon: Compass },
-    { label: 'Knowledge', href: getWorkspaceHref(slug, { mode: 'knowledge' }), icon: Database },
+    { label: 'Knowledge Base', href: getWorkspaceHref(slug, { mode: 'explore' }), icon: Database },
+    { label: 'Knowledge', href: getWorkspaceHref(slug, { mode: 'knowledge' }), icon: GraduationCap },
     { label: 'Agents', href: `${base}/agents`, icon: Robot },
     { label: 'Skills', href: `${base}/skills`, icon: Lightning },
     { label: 'Flows', href: `${base}/flows`, icon: GitBranch },
@@ -63,8 +63,8 @@ function getWebNavItems(slug: string): DashboardNavItem[] {
 function getDesktopNavItems(slug: string): DashboardNavItem[] {
   return [
     { label: 'Workspace', href: getWorkspaceHref(slug), activeHref: getWorkspaceHref(slug), exact: true, icon: SquaresFour },
-    { label: 'Explore', href: getWorkspaceHref(slug, { mode: 'explore' }), icon: Compass },
-    { label: 'Knowledge', href: getWorkspaceHref(slug, { mode: 'knowledge' }), icon: Database },
+    { label: 'Knowledge Base', href: getWorkspaceHref(slug, { mode: 'explore' }), icon: Database },
+    { label: 'Knowledge', href: getWorkspaceHref(slug, { mode: 'knowledge' }), icon: GraduationCap },
     { label: 'Agents', href: `/u/${slug}/agents`, icon: Robot },
     { label: 'Flows', href: getDesktopFlowsHref(slug, 'list'), icon: GitBranch },
     { label: 'Skills', href: getWorkspaceHref(slug, { settings: 'skills' }), icon: Lightning },

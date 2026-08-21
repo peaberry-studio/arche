@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, type ComponentType, type ReactNode } from 'react'
-import { ArrowLineLeft, ArrowLineRight, Compass, Database, GitBranch, Lightning, Robot } from '@phosphor-icons/react'
+import { CaretLineLeft, CaretLineRight, Database, GitBranch, GraduationCap, Lightning, Plus, Robot } from '@phosphor-icons/react'
 
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
@@ -136,31 +136,33 @@ export function WorkspaceSidebar({
     return (
       <TooltipProvider delayDuration={150}>
         <div className="flex h-full min-h-0 flex-col items-center py-2 text-card-foreground">
+          <div className="flex h-7 w-7 items-center justify-center">
+            <ArcheMark className="text-primary" size={16} />
+          </div>
+
           <button
             type="button"
             onClick={onToggleCollapsed}
-            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+            className="mt-1 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
             aria-label="Expand sessions panel"
             title="Expand panel"
           >
-            <ArrowLineRight size={13} weight="bold" />
+            <CaretLineRight size={14} weight="bold" />
           </button>
-
-          <ArcheMark className="mt-1 text-card-foreground" size={20} />
 
           <div className="my-2 h-px w-6 bg-border/40" />
 
           <nav aria-label="Workspace navigation" className="flex w-full flex-col items-center gap-1">
             <NavButton
-              icon={Compass}
+              icon={Database}
               iconOnly
-              label="Explore"
+              label="Knowledge Base"
               onClick={onNavExplore}
             />
             <NavButton
               active={curatorOpen}
               badgeCount={knowledgePendingCount}
-              icon={Database}
+              icon={GraduationCap}
               iconOnly
               label="Curator"
               onClick={onNavCurator}
@@ -190,11 +192,11 @@ export function WorkspaceSidebar({
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-none text-card-foreground">
       <div
         className={cn(
-          'flex shrink-0 items-center justify-between gap-2 px-1.5 py-2',
+          'flex h-11 shrink-0 items-center justify-between gap-2 pl-4 pr-1.5',
           macDesktopWindowInset && 'desktop-titlebar-drag'
         )}
       >
-        <div className="flex min-w-0 items-center gap-2 px-2.5">
+        <div className="flex min-w-0 items-center gap-2">
           {macDesktopWindowInset ? (
             <div aria-label="macOS traffic lights" className="desktop-titlebar-drag pl-[88px]" />
           ) : null}
@@ -210,35 +212,38 @@ export function WorkspaceSidebar({
           aria-label="Collapse sessions panel"
           title="Collapse panel"
         >
-          <ArrowLineLeft size={13} weight="bold" />
+          <CaretLineLeft size={14} weight="bold" />
         </button>
       </div>
 
-      <nav aria-label="Workspace navigation" className="flex flex-col gap-0.5 px-1.5 pb-1.5 pt-1">
+      <nav aria-label="Workspace navigation" className="flex flex-col gap-0.5 px-1.5 pt-1">
         <NavButton
-          icon={Compass}
-          label="Explore"
+          icon={Database}
+          label="Knowledge Base"
           onClick={onNavExplore}
         />
         <NavButton
           active={curatorOpen}
           badgeCount={knowledgePendingCount}
-          icon={Database}
+          icon={GraduationCap}
           label="Curator"
           onClick={onNavCurator}
         />
         <NavButton icon={Robot} label="Agents" onClick={onNavAgents} />
         <NavButton icon={Lightning} label="Skills" onClick={onNavSkills} />
         <NavButton icon={GitBranch} label="Flows" onClick={onNavFlows} />
+      </nav>
 
+      <div className="mt-1 px-1.5 pb-1.5">
         <button
           type="button"
           onClick={onCreateSession}
-          className="mt-1 flex h-7 w-full items-center px-2.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+          className="flex h-8 w-full items-center gap-2 rounded-md px-2.5 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
         >
-          New chat
+          <Plus size={15} weight="bold" className="shrink-0" aria-hidden="true" />
+          <span className="flex-1 text-left leading-none">New chat</span>
         </button>
-      </nav>
+      </div>
 
       <SessionsPanel
         sessions={sessions}
