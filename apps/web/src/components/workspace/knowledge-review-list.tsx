@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 
-import { GitPullRequest } from '@phosphor-icons/react'
+import { Tray } from '@phosphor-icons/react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -277,8 +277,11 @@ export function KnowledgeReviewList({
   // produced; only runs the user can still act on are worth the space here.
   const actionableRuns = runs.filter((run) => isRunActive(run) || run.status === 'failed')
 
+  const showEmptyState = openChanges.length === 0
+  const isFullyEmpty = showEmptyState && actionableRuns.length === 0 && !error
+
   return (
-    <div className="space-y-6">
+    <div className={isFullyEmpty ? 'flex min-h-full flex-col' : 'space-y-6'}>
       {error ? <p className="text-xs text-destructive">{errorLabel(error)}</p> : null}
       {actionableRuns.length > 0 ? (
         <section className="space-y-2" aria-label="Curator runs">
@@ -423,9 +426,9 @@ export function KnowledgeReviewList({
           </article>
         )
       })}
-      {openChanges.length === 0 ? (
-        <div className="flex flex-col items-center justify-center gap-2 py-10 text-center">
-          <GitPullRequest size={28} className="text-muted-foreground/30" />
+      {showEmptyState ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 py-10 text-center">
+          <Tray size={28} className="text-muted-foreground/30" />
           <p className="text-xs text-muted-foreground">{isLoading ? 'Loading Knowledge proposals…' : 'No knowledge proposals awaiting review.'}</p>
           {isLoading ? null : (
             <p className="max-w-[320px] text-[11px] leading-relaxed text-muted-foreground/70">

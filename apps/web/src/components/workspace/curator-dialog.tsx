@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowSquareOut, GitPullRequest, X } from "@phosphor-icons/react";
+import { ArrowSquareOut, FileMagnifyingGlass, Info, X } from "@phosphor-icons/react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import { KnowledgeReviewList } from "@/components/workspace/knowledge-review-lis
 import { MarkdownPreview } from "@/components/workspace/markdown-preview";
 import { PublishKbButton } from "@/components/workspace/publish-kb-button";
 import { ReviewPanel, type ReviewTab } from "@/components/workspace/review-panel";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { SegmentedControl, type SegmentedControlOption } from "@/components/workspace/segmented-control";
 import type { WorkspaceDiff } from "@/hooks/use-workspace";
 import { createUnifiedDiff } from "@/lib/line-diff";
@@ -92,8 +93,28 @@ export function CuratorDialog({
       >
         <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border/40 px-5 py-3.5">
           <div className="min-w-0">
-            <DialogTitle className="text-base">Curator</DialogTitle>
-            <DialogDescription className="mt-0.5">
+            <div className="flex items-center gap-1.5">
+              <DialogTitle className="text-base">Curator</DialogTitle>
+              <TooltipProvider delayDuration={150}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 text-muted-foreground"
+                      aria-label="About the Curator"
+                    >
+                      <Info size={14} />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="max-w-[280px]">
+                    Review agent and curator proposals, then publish workspace changes to the Knowledge Base.
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+            <DialogDescription className="sr-only">
               Review agent and curator proposals, then publish workspace changes to the Knowledge Base.
             </DialogDescription>
           </div>
@@ -229,10 +250,11 @@ export function CuratorDialog({
                 </div>
               </>
             ) : (
-              <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
-                <GitPullRequest size={28} className="text-muted-foreground/30" />
-                <p className="text-xs text-muted-foreground">
-                  Select a proposal to preview its diff. For deeper edits, open it in Explore.
+              <div className="flex h-full flex-col items-center justify-center gap-2 px-6 py-10 text-center">
+                <FileMagnifyingGlass size={28} className="text-muted-foreground/30" />
+                <p className="text-xs text-muted-foreground">Select a proposal to preview its diff.</p>
+                <p className="max-w-[320px] text-[11px] leading-relaxed text-muted-foreground/70">
+                  For deeper edits, open it in Explore.
                 </p>
               </div>
             )}
