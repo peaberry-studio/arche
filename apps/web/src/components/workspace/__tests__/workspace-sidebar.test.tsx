@@ -146,7 +146,7 @@ describe("WorkspaceSidebar", () => {
   it("collapses to logo, nav icons, sessions rail, and user slot", () => {
     renderSidebar({ isCollapsed: true });
 
-    expect(screen.getByText("Arche")).toBeTruthy();
+    expect(screen.getByRole("img", { name: "Arche" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Explore" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Knowledge" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Flows" })).toBeTruthy();

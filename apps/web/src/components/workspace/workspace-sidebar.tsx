@@ -9,6 +9,7 @@ import type { WorkspaceSession } from '@/lib/opencode/types'
 import { hasUnseenFlowResult } from '@/lib/workspace-session-utils'
 
 import type { WorkspaceMode } from './workspace-modes'
+import { ArcheMark } from './arche-mark'
 import { SessionsPanel } from './sessions-panel'
 import { WorkspaceSessionsRail } from './workspace-sessions-rail'
 
@@ -142,7 +143,7 @@ export function WorkspaceSidebar({
             <ArrowLineRight size={13} weight="bold" />
           </button>
 
-          <span className="type-display mt-1 text-sm font-semibold tracking-tight [writing-mode:vertical-rl]">Arche</span>
+          <ArcheMark className="mt-1 text-card-foreground" size={20} />
 
           <div className="my-2 h-px w-6 bg-border/40" />
 

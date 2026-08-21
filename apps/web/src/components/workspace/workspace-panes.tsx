@@ -46,7 +46,7 @@ export function WorkspacePanes({
   rightWidth,
 }: WorkspacePanesProps) {
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex h-full min-h-0 w-full flex-col">
       {macDesktopWindowInset ? (
         <div aria-label="Desktop titlebar drag region" className="desktop-titlebar-drag h-8 shrink-0" />
       ) : null}

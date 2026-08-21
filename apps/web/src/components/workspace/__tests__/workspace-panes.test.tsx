@@ -59,6 +59,13 @@ describe("WorkspacePanes", () => {
     expect(screen.queryByText("Right Element")).toBeNull();
   });
 
+  it("fills the full width of its container so panes dock to both edges", () => {
+    const { container } = renderPanes();
+
+    const root = container.firstElementChild as HTMLElement;
+    expect(root.className).toContain("w-full");
+  });
+
   it("collapses the left panel to the collapsed width while keeping its content", () => {
     renderPanes({ leftCollapsed: true });
 
