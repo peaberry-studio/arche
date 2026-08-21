@@ -685,6 +685,16 @@ export function WorkspaceShell({
     router.push(currentVault ? getDesktopFlowsHref(slug, 'list') : `/u/${slug}/flows`);
   }, [currentVault, router, slug]);
 
+  const navigateAgents = useCallback(() => {
+    router.push(`/u/${slug}/agents`);
+  }, [router, slug]);
+
+  const navigateSkills = useCallback(() => {
+    router.push(
+      currentVault ? getDesktopWorkspaceHref(slug, 'skills') : `/u/${slug}/skills`,
+    );
+  }, [currentVault, router, slug]);
+
   const handleWorkspaceModeChange = useCallback(
     (nextMode: WorkspaceModeRequest) => {
       if (nextMode === "flows") {
@@ -1901,9 +1911,11 @@ export function WorkspaceShell({
       onCreateSession={handleCreateSession}
       onLoadMoreSessions={workspace.loadMoreSessions}
       onMarkFlowRunSeen={workspace.markFlowRunSeen}
+      onNavAgents={navigateAgents}
       onNavExplore={() => handleWorkspaceModeChange('explore')}
       onNavFlows={handleOpenFlowsManager}
       onNavKnowledge={() => handleWorkspaceModeChange('knowledge')}
+      onNavSkills={navigateSkills}
       onSelectSession={handleSelectSession}
       onToggleCollapsed={handleToggleLeft}
       sessions={rootSessions}

@@ -57,9 +57,11 @@ function renderSidebar(overrides: Record<string, unknown> = {}) {
     onLoadMoreSessions: vi.fn(async () => {}),
     onMarkFlowRunSeen: vi.fn(),
     onToggleCollapsed: vi.fn(),
+    onNavAgents: vi.fn(),
     onNavExplore: vi.fn(),
-    onNavKnowledge: vi.fn(),
     onNavFlows: vi.fn(),
+    onNavKnowledge: vi.fn(),
+    onNavSkills: vi.fn(),
     ...overrides,
   } as Parameters<typeof WorkspaceSidebar>[0];
   return render(<WorkspaceSidebar {...props} />);
@@ -87,11 +89,13 @@ describe("WorkspaceSidebar", () => {
     expect(onCreateSession).toHaveBeenCalledTimes(1);
   });
 
-  it("renders nav items Explore, Knowledge, and Flows", () => {
+  it("renders nav items Explore, Knowledge, Agents, Skills, and Flows", () => {
     renderSidebar();
 
     expect(screen.getByRole("button", { name: "Explore" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Knowledge" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Agents" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Skills" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Flows" })).toBeTruthy();
   });
 
@@ -110,15 +114,21 @@ describe("WorkspaceSidebar", () => {
   it("routes nav clicks to the provided callbacks", () => {
     const onNavExplore = vi.fn();
     const onNavKnowledge = vi.fn();
+    const onNavAgents = vi.fn();
+    const onNavSkills = vi.fn();
     const onNavFlows = vi.fn();
-    renderSidebar({ onNavExplore, onNavKnowledge, onNavFlows });
+    renderSidebar({ onNavExplore, onNavKnowledge, onNavAgents, onNavSkills, onNavFlows });
 
     fireEvent.click(screen.getByRole("button", { name: "Explore" }));
     fireEvent.click(screen.getByRole("button", { name: "Knowledge" }));
+    fireEvent.click(screen.getByRole("button", { name: "Agents" }));
+    fireEvent.click(screen.getByRole("button", { name: "Skills" }));
     fireEvent.click(screen.getByRole("button", { name: "Flows" }));
 
     expect(onNavExplore).toHaveBeenCalledTimes(1);
     expect(onNavKnowledge).toHaveBeenCalledTimes(1);
+    expect(onNavAgents).toHaveBeenCalledTimes(1);
+    expect(onNavSkills).toHaveBeenCalledTimes(1);
     expect(onNavFlows).toHaveBeenCalledTimes(1);
   });
 
@@ -149,6 +159,8 @@ describe("WorkspaceSidebar", () => {
     expect(screen.getByRole("img", { name: "Arche" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Explore" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Knowledge" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Agents" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Skills" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Flows" })).toBeTruthy();
     expect(screen.getByLabelText("Sessions")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Workspace account menu" })).toBeTruthy();
@@ -189,8 +201,10 @@ describe("WorkspaceSidebar", () => {
           onSelectSession: vi.fn(),
           onLoadMoreSessions: vi.fn(async () => {}),
           onToggleCollapsed,
+          onNavAgents: vi.fn(),
           onNavExplore: vi.fn(),
           onNavKnowledge: vi.fn(),
+          onNavSkills: vi.fn(),
           onNavFlows: vi.fn(),
         } as Parameters<typeof WorkspaceSidebar>[0])}
       />

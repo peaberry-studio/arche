@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, type ComponentType, type ReactNode } from 'react'
-import { ArrowLineLeft, ArrowLineRight, Compass, Database, GitBranch, Plus } from '@phosphor-icons/react'
+import { ArrowLineLeft, ArrowLineRight, Compass, Database, GitBranch, Lightning, Robot } from '@phosphor-icons/react'
 
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
@@ -26,9 +26,11 @@ type WorkspaceSidebarProps = {
   onCreateSession: () => void
   onLoadMoreSessions: () => Promise<void>
   onMarkFlowRunSeen?: (runId: string) => Promise<void> | void
+  onNavAgents: () => void
   onNavExplore: () => void
   onNavFlows: () => void
   onNavKnowledge: () => void
+  onNavSkills: () => void
   onSelectSession: (id: string) => void
   onToggleCollapsed: () => void
   sessions: WorkspaceSession[]
@@ -109,9 +111,11 @@ export function WorkspaceSidebar({
   onCreateSession,
   onLoadMoreSessions,
   onMarkFlowRunSeen,
+  onNavAgents,
   onNavExplore,
   onNavFlows,
   onNavKnowledge,
+  onNavSkills,
   onSelectSession,
   onToggleCollapsed,
   sessions,
@@ -163,6 +167,8 @@ export function WorkspaceSidebar({
               label="Knowledge"
               onClick={onNavKnowledge}
             />
+            <NavButton icon={Robot} iconOnly label="Agents" onClick={onNavAgents} />
+            <NavButton icon={Lightning} iconOnly label="Skills" onClick={onNavSkills} />
             <NavButton icon={GitBranch} iconOnly label="Flows" onClick={onNavFlows} />
           </nav>
 
@@ -210,18 +216,7 @@ export function WorkspaceSidebar({
         </button>
       </div>
 
-      <div className="px-1.5 pb-1.5 pt-1">
-        <button
-          type="button"
-          onClick={onCreateSession}
-          className="flex h-8 w-full items-center gap-1.5 rounded-md bg-foreground/10 px-2.5 text-[12px] font-medium text-foreground transition-colors hover:bg-foreground/15"
-        >
-          <Plus size={13} weight="bold" />
-          New chat
-        </button>
-      </div>
-
-      <nav aria-label="Workspace navigation" className="flex flex-col gap-0.5 px-1.5 pb-2">
+      <nav aria-label="Workspace navigation" className="flex flex-col gap-0.5 px-1.5 pb-1.5 pt-1">
         <NavButton
           active={activeMode === 'explore'}
           icon={Compass}
@@ -235,7 +230,17 @@ export function WorkspaceSidebar({
           label="Knowledge"
           onClick={onNavKnowledge}
         />
+        <NavButton icon={Robot} label="Agents" onClick={onNavAgents} />
+        <NavButton icon={Lightning} label="Skills" onClick={onNavSkills} />
         <NavButton icon={GitBranch} label="Flows" onClick={onNavFlows} />
+
+        <button
+          type="button"
+          onClick={onCreateSession}
+          className="mt-1 flex h-7 w-full items-center px-2.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+        >
+          New chat
+        </button>
       </nav>
 
       <SessionsPanel
