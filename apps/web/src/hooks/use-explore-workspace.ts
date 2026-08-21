@@ -179,12 +179,18 @@ export function useExploreWorkspace({
 }: UseExploreWorkspaceOptions): UseExploreWorkspaceReturn {
   const { connection, isConnected } = useWorkspaceConnection(slug, enabled);
   const files = useWorkspaceFiles(slug, workspaceAgentEnabled);
+  const { refreshFiles } = files;
   const { diffs, isLoadingDiffs, diffsError, refreshDiffs } = useWorkspaceDiffs(
     slug,
     enabled && workspaceAgentEnabled,
     isConnected
   );
   useInstanceHeartbeat(slug, enabled && reaperEnabled);
+
+  useEffect(() => {
+    if (!isConnected) return;
+    void refreshFiles();
+  }, [isConnected, refreshFiles]);
 
   const openFilesStorageKey = getOpenFilesStorageKey(storageScope);
 

@@ -79,6 +79,22 @@ describe("useExploreWorkspace", () => {
     downloadWorkspaceFileMock.mockReset();
   });
 
+  it("loads the file tree once connected", async () => {
+    const { result } = renderHook(() =>
+      useExploreWorkspace({ slug: "alice", storageScope: "alice" })
+    );
+
+    await waitFor(() => {
+      expect(result.current.fileTree).toHaveLength(1);
+    });
+
+    expect(result.current.fileTree[0]).toMatchObject({
+      path: "docs",
+      type: "directory",
+    });
+    expect(opencodeMocks.loadFileTreeAction).toHaveBeenCalledWith("alice");
+  });
+
   it("opens a file into the multi-file tabs and loads its content", async () => {
     const { result } = renderHook(() =>
       useExploreWorkspace({ slug: "alice", storageScope: "alice" })
