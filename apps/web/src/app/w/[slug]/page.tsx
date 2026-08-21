@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation'
 import { DesktopFlowsDialog } from '@/components/desktop/desktop-flows-dialog'
 import { DesktopSettingsDialog } from '@/components/desktop/desktop-settings-dialog'
 import { WorkspaceShell } from '@/components/workspace/workspace-shell'
+import type { WorkspaceMode } from '@/components/workspace/workspace-modes'
 import { readCommonWorkspaceConfig } from '@/lib/common-workspace-config-store'
 import { ensureFlowSchedulerStarted } from '@/lib/flows/scheduler-bootstrap'
 import type { KnowledgeGraphAgentSource } from '@/lib/kb-graph'
@@ -116,9 +117,8 @@ export default async function WorkspaceHostPage({
       : search?.mode === 'flows'
         ? 'flows'
         : 'chat'
-  const initialWorkspaceMode = desktopVault && requestedWorkspaceMode === 'flows'
-    ? 'chat'
-    : requestedWorkspaceMode
+  const initialWorkspaceMode: WorkspaceMode =
+    requestedWorkspaceMode === 'flows' ? 'chat' : requestedWorkspaceMode
   const knowledgeAgentSources = await loadKnowledgeAgentSources()
 
   return (
