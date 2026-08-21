@@ -9,6 +9,11 @@ import { useExploreWorkspace } from "@/hooks/use-explore-workspace";
 import { useInstanceStartup } from "@/hooks/use-instance-startup";
 import type { KnowledgeGraphAgentSource } from "@/lib/kb-graph";
 import { cn } from "@/lib/utils";
+import {
+  parseWorkspaceLayoutState,
+  persistWorkspacePanelState,
+  readWorkspacePanelState,
+} from "@/lib/workspace-panel-state";
 
 import { InspectorPanel } from "./inspector-panel";
 import { KnowledgeEmptyState } from "./knowledge-empty-state";
@@ -64,6 +69,22 @@ export function ExploreShell({
   });
 
   const [knowledgeNavView, setKnowledgeNavView] = useState<KnowledgeNavigationView>("tree");
+
+  const layoutStorageKey = `arche.explore.${persistenceScope}.layout`;
+  const layoutCookieName = `arche-explore-layout-${persistenceScope}`;
+  const [leftCollapsed, setLeftCollapsed] = useState<boolean>(
+    () =>
+      readWorkspacePanelState(layoutStorageKey, layoutCookieName, parseWorkspaceLayoutState)
+        ?.leftCollapsed === true
+  );
+
+  useEffect(() => {
+    persistWorkspacePanelState(layoutStorageKey, layoutCookieName, { leftCollapsed });
+  }, [layoutCookieName, layoutStorageKey, leftCollapsed]);
+
+  const handleToggleLeft = useCallback(() => {
+    setLeftCollapsed((previous) => !previous);
+  }, []);
 
   const [leftWidth, setLeftWidth] = useState<number>(() =>
     typeof window === "undefined"
@@ -169,6 +190,7 @@ export function ExploreShell({
     <KnowledgeNavigationPanel
       activeFilePath={workspace.activeFilePath}
       agentSources={knowledgeAgentSources}
+      collapsed={!isCompactLayout && leftCollapsed}
       fileNodes={workspace.fileTree}
       onDownloadFile={workspace.onDownloadFile}
       onExportFileDocx={workspace.onExportFileDocx}
@@ -176,6 +198,7 @@ export function ExploreShell({
       onOpenFile={(path) => {
         void workspace.onOpenFile(path)
       }}
+      onToggleCollapsed={isCompactLayout ? undefined : handleToggleLeft}
       openFiles={workspace.openFiles}
       readFile={workspace.readFile}
       reloadKey={0}
@@ -312,7 +335,7 @@ export function ExploreShell({
           </>
         ) : (
           <WorkspacePanes
-            leftCollapsed={false}
+            leftCollapsed={leftCollapsed}
             leftWidth={leftWidth}
             rightCollapsed={true}
             rightWidth={MIN_RIGHT_PX}
