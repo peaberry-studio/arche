@@ -13,14 +13,16 @@ const PANEL_TRANSITION = `width ${PANEL_ANIM}, min-width ${PANEL_ANIM}, opacity 
 type WorkspacePanesProps = {
   centerElement: ReactNode
   containerRef: RefObject<HTMLDivElement | null>
+  hasLeftPanel?: boolean
   hasRightPanel: boolean
   isDragging: boolean
-  leftCollapsed: boolean
-  leftElement: ReactNode
-  leftWidth: number
+  leftCollapsed?: boolean
+  leftElement?: ReactNode
+  leftWidth?: number
   macDesktopWindowInset?: boolean
   minCenterWidth: number
-  onResizeLeft: (event: React.PointerEvent<HTMLDivElement>) => void
+  minRightWidth?: number
+  onResizeLeft?: (event: React.PointerEvent<HTMLDivElement>) => void
   onResizeRight: (event: React.PointerEvent<HTMLDivElement>) => void
   rightCollapsed: boolean
   rightCollapsedWidth?: number
@@ -31,13 +33,15 @@ type WorkspacePanesProps = {
 export function WorkspacePanes({
   centerElement,
   containerRef,
+  hasLeftPanel = true,
   hasRightPanel,
   isDragging,
-  leftCollapsed,
+  leftCollapsed = false,
   leftElement,
-  leftWidth,
+  leftWidth = MIN_LEFT_PX,
   macDesktopWindowInset = false,
   minCenterWidth,
+  minRightWidth = MIN_RIGHT_PX,
   onResizeLeft,
   onResizeRight,
   rightCollapsed,
@@ -51,20 +55,22 @@ export function WorkspacePanes({
         <div aria-label="Desktop titlebar drag region" className="desktop-titlebar-drag h-8 shrink-0" />
       ) : null}
       <div ref={containerRef} className="relative z-10 flex min-h-0 flex-1">
-        <div
-          data-testid="panes-left"
-          className="shrink-0 overflow-hidden border-r border-border/30"
-          style={{
-            width: leftCollapsed ? COLLAPSED_PANEL_PX : leftWidth,
-            minWidth: leftCollapsed ? COLLAPSED_PANEL_PX : MIN_LEFT_PX,
-            opacity: 1,
-            transition: isDragging ? 'none' : PANEL_TRANSITION,
-          }}
-        >
-          {leftElement}
-        </div>
+        {hasLeftPanel ? (
+          <div
+            data-testid="panes-left"
+            className="shrink-0 overflow-hidden border-r border-border/30"
+            style={{
+              width: leftCollapsed ? COLLAPSED_PANEL_PX : leftWidth,
+              minWidth: leftCollapsed ? COLLAPSED_PANEL_PX : MIN_LEFT_PX,
+              opacity: 1,
+              transition: isDragging ? 'none' : PANEL_TRANSITION,
+            }}
+          >
+            {leftElement}
+          </div>
+        ) : null}
 
-        {!leftCollapsed ? (
+        {hasLeftPanel && !leftCollapsed ? (
           <div
             className="absolute bottom-0 top-0 z-20 w-6 cursor-col-resize"
             style={{ left: leftWidth - 3 }}
@@ -104,7 +110,7 @@ export function WorkspacePanes({
             className="box-border shrink-0 overflow-hidden"
             style={{
               width: rightCollapsed ? rightCollapsedWidth : rightWidth,
-              minWidth: rightCollapsed ? rightCollapsedWidth : MIN_RIGHT_PX,
+              minWidth: rightCollapsed ? rightCollapsedWidth : minRightWidth,
               opacity: 1,
               transition: isDragging ? 'none' : PANEL_TRANSITION,
             }}

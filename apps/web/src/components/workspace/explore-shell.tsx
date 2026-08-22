@@ -76,26 +76,26 @@ export function ExploreShell({
 
   const layoutStorageKey = `arche.explore.${persistenceScope}.layout`;
   const layoutCookieName = `arche-explore-layout-${persistenceScope}`;
-  const [leftCollapsed, setLeftCollapsed] = useState<boolean>(
+  const [navCollapsed, setNavCollapsed] = useState<boolean>(
     () =>
       readWorkspacePanelState(layoutStorageKey, layoutCookieName, parseWorkspaceLayoutState)
         ?.leftCollapsed === true
   );
 
   useEffect(() => {
-    persistWorkspacePanelState(layoutStorageKey, layoutCookieName, { leftCollapsed });
-  }, [layoutCookieName, layoutStorageKey, leftCollapsed]);
+    persistWorkspacePanelState(layoutStorageKey, layoutCookieName, { leftCollapsed: navCollapsed });
+  }, [layoutCookieName, layoutStorageKey, navCollapsed]);
 
-  const handleToggleLeft = useCallback(() => {
-    setLeftCollapsed((previous) => !previous);
+  const handleToggleNav = useCallback(() => {
+    setNavCollapsed((previous) => !previous);
   }, []);
 
-  const [leftWidth, setLeftWidth] = useState<number>(() =>
+  const [navWidth, setNavWidth] = useState<number>(() =>
     typeof window === "undefined"
       ? MIN_LEFT_PX
       : Math.min(
           Math.max(window.innerWidth * DEFAULT_LEFT_RATIO, MIN_LEFT_PX),
-          window.innerWidth - MIN_RIGHT_PX - MIN_CENTER_PX
+          window.innerWidth - MIN_CENTER_PX
         )
   );
   const [viewportWidth, setViewportWidth] = useState(() =>
@@ -131,7 +131,7 @@ export function ExploreShell({
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
 
-  const handleResizeLeft = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+  const handleResizeNav = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     event.preventDefault();
     const container = containerRef.current;
     if (!container) return;
@@ -144,9 +144,9 @@ export function ExploreShell({
     document.body.style.userSelect = "none";
 
     const onMove = (moveEvent: PointerEvent) => {
-      const maxLeft = Math.max(MIN_LEFT_PX, rect.width - MIN_RIGHT_PX - MIN_CENTER_PX);
-      const nextWidth = Math.min(Math.max(moveEvent.clientX - rect.left, MIN_LEFT_PX), maxLeft);
-      setLeftWidth(nextWidth);
+      const maxNav = Math.max(MIN_LEFT_PX, rect.width - MIN_CENTER_PX);
+      const nextWidth = Math.min(Math.max(rect.right - moveEvent.clientX, MIN_LEFT_PX), maxNav);
+      setNavWidth(nextWidth);
     };
 
     const onUp = () => {
@@ -184,7 +184,8 @@ export function ExploreShell({
     <KnowledgeNavigationPanel
       activeFilePath={workspace.activeFilePath}
       agentSources={knowledgeAgentSources}
-      collapsed={!isCompactLayout && leftCollapsed}
+      collapsed={!isCompactLayout && navCollapsed}
+      dockedSide="right"
       fileNodes={workspace.fileTree}
       onDownloadFile={workspace.onDownloadFile}
       onExportFileDocx={workspace.onExportFileDocx}
@@ -192,7 +193,7 @@ export function ExploreShell({
       onOpenFile={(path) => {
         void workspace.onOpenFile(path)
       }}
-      onToggleCollapsed={isCompactLayout ? undefined : handleToggleLeft}
+      onToggleCollapsed={isCompactLayout ? undefined : handleToggleNav}
       openFiles={workspace.openFiles}
       readFile={workspace.readFile}
       reloadKey={0}
@@ -328,20 +329,18 @@ export function ExploreShell({
           </>
         ) : (
           <WorkspacePanes
-            leftCollapsed={leftCollapsed}
-            leftWidth={leftWidth}
-            rightCollapsed={true}
-            rightWidth={MIN_RIGHT_PX}
+            hasLeftPanel={false}
+            rightCollapsed={navCollapsed}
+            rightWidth={navWidth}
+            minRightWidth={MIN_LEFT_PX}
             minCenterWidth={MIN_CENTER_PX}
             isDragging={isDragging}
-            hasRightPanel={false}
+            hasRightPanel
             macDesktopWindowInset={false}
             containerRef={containerRef}
-            leftElement={navigationPanelElement}
             centerElement={editorPanelElement}
-            rightElement={null}
-            onResizeLeft={handleResizeLeft}
-            onResizeRight={() => undefined}
+            rightElement={navigationPanelElement}
+            onResizeRight={handleResizeNav}
           />
         )}
       </div>

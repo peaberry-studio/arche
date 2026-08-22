@@ -22,6 +22,7 @@ type KnowledgeNavigationPanelProps = {
   activeFilePath: string | null
   agentSources: KnowledgeGraphAgentSource[]
   collapsed?: boolean
+  dockedSide?: 'left' | 'right'
   fileNodes: WorkspaceFileNode[]
   headerActions?: ReactNode
   onDownloadFile?: (path: string) => void
@@ -41,9 +42,10 @@ type CollapsedViewButtonProps = {
   icon: ComponentType<{ size?: number; weight?: 'regular' | 'bold' | 'fill'; className?: string }>
   label: string
   onClick: () => void
+  tooltipSide?: 'left' | 'right'
 }
 
-function CollapsedViewButton({ active, icon: Icon, label, onClick }: CollapsedViewButtonProps) {
+function CollapsedViewButton({ active, icon: Icon, label, onClick, tooltipSide = 'right' }: CollapsedViewButtonProps) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -62,7 +64,7 @@ function CollapsedViewButton({ active, icon: Icon, label, onClick }: CollapsedVi
           <Icon size={15} weight={active ? 'fill' : 'bold'} className="shrink-0" />
         </button>
       </TooltipTrigger>
-      <TooltipContent side="right" sideOffset={10}>
+      <TooltipContent side={tooltipSide} sideOffset={10}>
         {label}
       </TooltipContent>
     </Tooltip>
@@ -73,6 +75,7 @@ export function KnowledgeNavigationPanel({
   activeFilePath,
   agentSources,
   collapsed = false,
+  dockedSide = 'left',
   fileNodes,
   headerActions,
   onDownloadFile,
@@ -96,6 +99,8 @@ export function KnowledgeNavigationPanel({
   }
 
   if (collapsed) {
+    const ExpandIcon = dockedSide === 'right' ? CaretLineLeft : CaretLineRight
+    const tooltipSide = dockedSide === 'right' ? 'left' : 'right'
     return (
       <TooltipProvider delayDuration={150}>
         <div className="flex h-full min-h-0 flex-col items-center py-2 text-card-foreground">
@@ -106,7 +111,7 @@ export function KnowledgeNavigationPanel({
             aria-label="Expand navigation panel"
             title="Expand panel"
           >
-            <CaretLineRight size={14} weight="bold" />
+            <ExpandIcon size={14} weight="bold" />
           </button>
 
           <div className="my-2 h-px w-6 bg-border/40" />
@@ -117,12 +122,14 @@ export function KnowledgeNavigationPanel({
               icon={TreeStructure}
               label="Tree"
               onClick={() => expandToView('tree')}
+              tooltipSide={tooltipSide}
             />
             <CollapsedViewButton
               active={view === 'graph'}
               icon={Graph}
               label="Graph"
               onClick={() => expandToView('graph')}
+              tooltipSide={tooltipSide}
             />
           </nav>
         </div>
@@ -174,7 +181,11 @@ export function KnowledgeNavigationPanel({
               aria-label="Collapse navigation panel"
               title="Collapse panel"
             >
-              <CaretLineLeft size={14} weight="bold" />
+              {dockedSide === 'right' ? (
+                <CaretLineRight size={14} weight="bold" />
+              ) : (
+                <CaretLineLeft size={14} weight="bold" />
+              )}
             </button>
           ) : null}
         </div>

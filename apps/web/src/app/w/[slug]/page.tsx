@@ -110,6 +110,8 @@ export default async function WorkspaceHostPage({
       macDesktopWindowInset={macDesktopWindowInset}
       workspaceAgentEnabled={caps.workspaceAgent}
       reaperEnabled={caps.reaper}
+      slackIntegrationAvailable={caps.slackIntegration}
+      teamVisibilityAvailable={caps.teamManagement}
       recentUpdates={recentUpdates}
     />
   )

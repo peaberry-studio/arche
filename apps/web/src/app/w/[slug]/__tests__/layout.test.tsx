@@ -39,10 +39,6 @@ vi.mock('@/components/workspace/workspace-settings-dialog', () => ({
   WorkspaceSettingsDialog: () => <div data-testid="workspace-settings-dialog" />,
 }))
 
-vi.mock('@/components/workspace/workspace-flows-overlay', () => ({
-  WorkspaceFlowsOverlay: () => <div data-testid="workspace-flows-overlay" />,
-}))
-
 vi.mock('@/lib/runtime/session', () => ({
   getSession: () => getSessionMock(),
 }))
@@ -180,14 +176,13 @@ describe('WorkspaceLayout', () => {
     expect(getWorkspacePersistenceScopeMock).toHaveBeenCalledWith('alice')
   })
 
-  it('mounts the shared chrome and both overlays on web (no desktop vault)', async () => {
+  it('mounts the shared chrome and the settings dialog on web (no desktop vault)', async () => {
     render(await renderWorkspaceLayout())
 
     expect(screen.getByTestId('workspace-runtime-provider')).toBeTruthy()
     expect(screen.getByTestId('workspace-app-chrome')).toBeTruthy()
     expect(screen.getByText('Workspace child')).toBeTruthy()
     expect(screen.getByTestId('workspace-settings-dialog')).toBeTruthy()
-    expect(screen.getByTestId('workspace-flows-overlay')).toBeTruthy()
   })
 
   it('falls back to default theme values for invalid cookies', async () => {

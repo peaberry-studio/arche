@@ -11,7 +11,11 @@ import { useWorkspace } from "@/hooks/use-workspace";
 import { useConfigStatus } from "@/hooks/use-config-status";
 import { useSkillsCatalog } from "@/hooks/use-skills-catalog";
 import type { WorkspaceSession } from "@/lib/opencode/types";
-import { getWorkspaceFlowsHref, getWorkspaceHref } from "@/lib/workspace-hrefs";
+import {
+  getWorkspaceFlowsHref,
+  getWorkspaceHref,
+  WORKSPACE_FLOWS_VIEWS,
+} from "@/lib/workspace-hrefs";
 import {
   isProtectedWorkspacePath,
   normalizeWorkspacePath,
@@ -41,6 +45,7 @@ import { CuratorDialog } from "./curator-dialog";
 import { FilePreviewPanel } from "./file-preview-panel";
 import { WorkspaceCatalogView } from "./workspace-catalog-view";
 import { WorkspaceCommandPalette } from "./workspace-command-palette";
+import { WorkspaceFlowsView } from "./workspace-flows-view";
 import { COLLAPSED_PANEL_PX, MIN_LEFT_PX, MIN_RIGHT_PX } from "./workspace-panes";
 import { WorkspaceConnectingBanner } from "./workspace-startup-screens";
 
@@ -57,6 +62,8 @@ type WorkspaceShellProps = {
   macDesktopWindowInset?: boolean;
   workspaceAgentEnabled?: boolean;
   reaperEnabled?: boolean;
+  slackIntegrationAvailable?: boolean;
+  teamVisibilityAvailable?: boolean;
   recentUpdates?: { fileName: string; filePath: string }[];
 };
 
@@ -179,11 +186,14 @@ export function WorkspaceShell({
   macDesktopWindowInset = false,
   workspaceAgentEnabled = true,
   reaperEnabled = true,
+  slackIntegrationAvailable = false,
+  teamVisibilityAvailable = false,
   recentUpdates = [],
 }: WorkspaceShellProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const catalogParam = searchParams.get("catalog");
+  const flowsParam = searchParams.get("flows");
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -887,8 +897,17 @@ export function WorkspaceShell({
   );
 
   const catalogActive = catalogParam === "agents" || catalogParam === "skills";
+  const flowsActive = flowsParam
+    ? (WORKSPACE_FLOWS_VIEWS as readonly string[]).includes(flowsParam)
+    : false;
   const centerPanelElement = catalogActive ? (
     <WorkspaceCatalogView slug={slug} isAdmin={isAdmin} />
+  ) : flowsActive ? (
+    <WorkspaceFlowsView
+      slug={slug}
+      slackIntegrationAvailable={slackIntegrationAvailable}
+      teamVisibilityAvailable={teamVisibilityAvailable}
+    />
   ) : isReady ? chatPanelElement : (
     <WorkspaceConnectingBanner
       connection={connection}

@@ -4,7 +4,6 @@ import { redirect } from 'next/navigation'
 import { get2FAStatus } from '@/app/u/[slug]/settings/security/actions'
 import { normalizeTwoFactorStatus } from '@/app/u/[slug]/settings/security/status'
 import { WorkspaceAppChrome } from '@/components/workspace/workspace-app-chrome'
-import { WorkspaceFlowsOverlay } from '@/components/workspace/workspace-flows-overlay'
 import { WorkspaceSettingsDialog } from '@/components/workspace/workspace-settings-dialog'
 import { WorkspaceRuntimeProvider } from '@/contexts/workspace-runtime-context'
 import { WorkspaceThemeProvider } from '@/contexts/workspace-theme-context'
@@ -151,12 +150,6 @@ export default async function WorkspaceLayout({
           slackIntegrationSummary={slackIntegrationSummary}
           googleWorkspaceSummary={googleWorkspaceSummary}
           kbGithubRemoteSummary={kbGithubRemoteSummary}
-        />
-        <WorkspaceFlowsOverlay
-          slug={slug}
-          macDesktopWindowInset={macDesktopWindowInset}
-          slackIntegrationAvailable={caps.slackIntegration}
-          teamVisibilityAvailable={caps.teamManagement}
         />
       </WorkspaceRuntimeProvider>
     </WorkspaceThemeProvider>

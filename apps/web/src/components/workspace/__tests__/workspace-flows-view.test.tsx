@@ -1,21 +1,20 @@
 /** @vitest-environment jsdom */
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { WorkspaceFlowsOverlay } from '@/components/workspace/workspace-flows-overlay'
+import { WorkspaceFlowsView } from '@/components/workspace/workspace-flows-view'
 import { FLOW_TEMPLATE_FORMAT, type FlowTemplate } from '@/lib/flows/import-export'
 import { storeFlowTemplateDraft } from '@/lib/flows/template-session'
 import { createDefaultFlowDefinition } from '@/lib/flows/validation'
 
 const navigation = vi.hoisted(() => ({
-  replace: vi.fn(),
   search: new URLSearchParams('flows=list'),
 }))
 
 vi.mock('next/navigation', () => ({
   usePathname: () => '/w/alice',
-  useRouter: () => ({ replace: navigation.replace }),
+  useRouter: () => ({ replace: vi.fn() }),
   useSearchParams: () => navigation.search,
 }))
 
@@ -88,9 +87,8 @@ function createTemplate(): FlowTemplate {
   }
 }
 
-describe('WorkspaceFlowsOverlay', () => {
+describe('WorkspaceFlowsView', () => {
   beforeEach(() => {
-    navigation.replace.mockReset()
     navigation.search = new URLSearchParams('flows=list')
     window.sessionStorage.clear()
   })
@@ -100,7 +98,7 @@ describe('WorkspaceFlowsOverlay', () => {
   })
 
   it('renders the list view with workspace flow href builders', () => {
-    render(<WorkspaceFlowsOverlay slug="alice" />)
+    render(<WorkspaceFlowsView slug="alice" />)
 
     expect(screen.getByTestId('flows-page').dataset.slug).toBe('alice')
     expect(screen.getByRole('link', { name: 'Create href' }).getAttribute('href')).toBe('/w/alice?flows=new')
@@ -111,26 +109,17 @@ describe('WorkspaceFlowsOverlay', () => {
   it('preserves the session parameter in flow hrefs', () => {
     navigation.search = new URLSearchParams('flows=list&session=session-1')
 
-    render(<WorkspaceFlowsOverlay slug="alice" />)
+    render(<WorkspaceFlowsView slug="alice" />)
 
     expect(screen.getByRole('link', { name: 'Create href' }).getAttribute('href')).toBe('/w/alice?session=session-1&flows=new')
     expect(screen.getByRole('link', { name: 'Edit href' }).getAttribute('href')).toBe('/w/alice?session=session-1&flows=edit&flowId=flow-1')
-  })
-
-  it('removes flow query state when closed', () => {
-    navigation.search = new URLSearchParams('mode=knowledge&flows=runs&flowId=flow-1&run=run-1')
-
-    render(<WorkspaceFlowsOverlay slug="alice" />)
-    fireEvent.click(screen.getByRole('button', { name: 'Close flows' }))
-
-    expect(navigation.replace).toHaveBeenCalledWith('/w/alice?mode=knowledge')
   })
 
   it('renders create view with list and created-flow hrefs', () => {
     navigation.search = new URLSearchParams('flows=new')
 
     render(
-      <WorkspaceFlowsOverlay
+      <WorkspaceFlowsView
         slug="alice"
         slackIntegrationAvailable
         teamVisibilityAvailable
@@ -149,7 +138,7 @@ describe('WorkspaceFlowsOverlay', () => {
     storeFlowTemplateDraft(createTemplate())
     navigation.search = new URLSearchParams('flows=new')
 
-    render(<WorkspaceFlowsOverlay slug="alice" />)
+    render(<WorkspaceFlowsView slug="alice" />)
 
     await waitFor(() => expect(screen.getByTestId('flow-editor').dataset.templateName).toBe('Imported flow'))
     expect(window.sessionStorage.getItem('arche:flow-template')).toBeNull()
@@ -158,7 +147,7 @@ describe('WorkspaceFlowsOverlay', () => {
   it('renders edit view with a run history link', () => {
     navigation.search = new URLSearchParams('flows=edit&flowId=flow-1')
 
-    render(<WorkspaceFlowsOverlay slug="alice" />)
+    render(<WorkspaceFlowsView slug="alice" />)
 
     const editor = screen.getByTestId('flow-editor')
     expect(editor.dataset.mode).toBe('edit')
@@ -169,7 +158,7 @@ describe('WorkspaceFlowsOverlay', () => {
   it('shows a missing-flow fallback for detail views without a flow id', () => {
     navigation.search = new URLSearchParams('flows=edit')
 
-    render(<WorkspaceFlowsOverlay slug="alice" />)
+    render(<WorkspaceFlowsView slug="alice" />)
 
     expect(screen.getByText('Missing flow')).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Back to flows' }).getAttribute('href')).toBe('/w/alice?flows=list')
@@ -178,7 +167,7 @@ describe('WorkspaceFlowsOverlay', () => {
   it('renders run history with an edit href', () => {
     navigation.search = new URLSearchParams('flows=runs&flowId=flow-1')
 
-    render(<WorkspaceFlowsOverlay slug="alice" />)
+    render(<WorkspaceFlowsView slug="alice" />)
 
     const history = screen.getByTestId('flow-run-history-view')
     expect(history.dataset.slug).toBe('alice')

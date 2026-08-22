@@ -40,6 +40,8 @@ export function getWorkspaceHref(slug: string, options: WorkspaceHrefOptions = {
 
 export type WorkspaceFlowsView = "list" | "new" | "edit" | "runs";
 
+export const WORKSPACE_FLOWS_VIEWS: readonly WorkspaceFlowsView[] = ["list", "new", "edit", "runs"];
+
 export function getWorkspaceFlowsHref(
   slug: string,
   view: WorkspaceFlowsView,
