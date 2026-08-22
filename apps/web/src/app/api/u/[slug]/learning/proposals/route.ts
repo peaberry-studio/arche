@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 
+import type { PublishKbResult } from '@/lib/learning/publish-kb'
 import {
   applyAndPublishKnowledgeReviewChange,
   regenerateKnowledgeReviewChangeForUser,
@@ -7,7 +8,6 @@ import {
   rejectKnowledgeReviewChangeForUser,
   saveKnowledgeReviewChangeDraft,
 } from '@/lib/learning/service'
-import type { PublishKbResult } from '@/lib/learning/publish-kb'
 import { parseProposalActionRequest } from '@/lib/learning/validation'
 import { withAuth } from '@/lib/runtime/with-auth'
 import { findIdBySlug } from '@/lib/services/user'

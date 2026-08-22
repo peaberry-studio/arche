@@ -1,4 +1,5 @@
 import { auditEvent } from '@/lib/auth'
+import { publishKnowledgeBasePaths, type PublishKbResult } from '@/lib/learning/publish-kb'
 import {
   findKnowledgeReviewChange,
   markKnowledgeReviewChangeApplied,
@@ -9,7 +10,6 @@ import {
   saveKnowledgeReviewDraft,
   startLearningRunForKnowledgeReviewRegeneration,
 } from '@/lib/learning/repository'
-import { publishKnowledgeBasePaths, type PublishKbResult } from '@/lib/learning/publish-kb'
 import { dispatchLearningRunExecution } from '@/lib/learning/run-executor'
 import { createWorkspaceAgentClient } from '@/lib/workspace-agent/client'
 import { workspaceAgentFetch } from '@/lib/workspace-agent-client'
