@@ -1,19 +1,20 @@
 import { NextResponse } from 'next/server'
 
 import {
-  applyKnowledgeReviewChange,
+  applyAndPublishKnowledgeReviewChange,
   regenerateKnowledgeReviewChangeForUser,
   rebaseKnowledgeReviewChangeForUser,
   rejectKnowledgeReviewChangeForUser,
   saveKnowledgeReviewChangeDraft,
 } from '@/lib/learning/service'
+import type { PublishKbResult } from '@/lib/learning/publish-kb'
 import { parseProposalActionRequest } from '@/lib/learning/validation'
 import { withAuth } from '@/lib/runtime/with-auth'
 import { findIdBySlug } from '@/lib/services/user'
 import type { KnowledgeReviewChange, LearningProposalAction, LearningRun } from '@/types/learning'
 
 type KnowledgeReviewActionResult =
-  | { ok: true; change: KnowledgeReviewChange }
+  | { ok: true; change: KnowledgeReviewChange; publish?: PublishKbResult }
   | { ok: true; run: LearningRun }
   | { ok: false; error: string }
 
@@ -35,7 +36,7 @@ async function dispatchKnowledgeReviewAction(args: {
     case 'regenerate':
       return regenerateKnowledgeReviewChangeForUser({ actor: args.actor, userId: args.userId, changeId: args.changeId, slug: args.slug })
     case 'apply':
-      return applyKnowledgeReviewChange({
+      return applyAndPublishKnowledgeReviewChange({
         actor: args.actor,
         userId: args.userId,
         slug: args.slug,
@@ -45,7 +46,9 @@ async function dispatchKnowledgeReviewAction(args: {
   }
 }
 
-export const POST = withAuth<{ proposal: KnowledgeReviewChange } | { run: LearningRun } | { error: string }>(
+export const POST = withAuth<
+  { proposal: KnowledgeReviewChange; publish?: PublishKbResult } | { run: LearningRun } | { error: string }
+>(
   { csrf: true },
   async (request, context) => {
     const body = await request.json().catch(() => null)
@@ -82,7 +85,10 @@ export const POST = withAuth<{ proposal: KnowledgeReviewChange } | { run: Learni
 
     return 'run' in result
       ? NextResponse.json({ run: result.run })
-      : NextResponse.json({ proposal: result.change })
+      : NextResponse.json({
+          proposal: result.change,
+          ...(result.publish !== undefined ? { publish: result.publish } : {}),
+        })
   }
 )
 

@@ -15,6 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { PublishKbButton } from "@/components/workspace/publish-kb-button";
 import type { WorkspaceDiff } from "@/hooks/use-workspace";
 import { cn } from "@/lib/utils";
 
@@ -28,6 +29,8 @@ type ReviewPanelProps = {
   onOpenFile: (path: string) => void;
   onDiscardFileChanges?: (path: string) => Promise<{ ok: true } | { ok: false; error: string }>;
   onResolveConflict?: (path: string) => void | Promise<void>;
+  /** Per-file publish. Fires after a per-file publish attempt completes. */
+  onPublishFile?: (path: string) => void;
 };
 
 const DIFF_PREVIEW_LINES = 120;
@@ -40,6 +43,7 @@ export function ReviewPanel({
   onOpenFile,
   onDiscardFileChanges,
   onResolveConflict,
+  onPublishFile,
 }: ReviewPanelProps) {
   const [expandedDiffs, setExpandedDiffs] = useState<Record<string, boolean>>({});
   const [resolvingConflict, setResolvingConflict] = useState<{
@@ -110,10 +114,10 @@ export function ReviewPanel({
       ) : diffs.length === 0 ? (
         <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
           <GitDiff size={28} className="text-muted-foreground/30" />
-          <p className="text-xs text-muted-foreground">{isLoading ? 'Loading changes…' : 'No pending changes to publish'}</p>
+          <p className="text-xs text-muted-foreground">{isLoading ? 'Loading changes…' : 'No manual edits to publish'}</p>
           {isLoading ? null : (
             <p className="max-w-[320px] text-[11px] leading-relaxed text-muted-foreground/70">
-              Applied proposals and your Knowledge Base edits show up here. Chat agents cannot write the Knowledge Base.
+              Edits you make in the Knowledge Base show up here. Applied proposals publish immediately.
             </p>
           )}
         </div>
@@ -194,6 +198,13 @@ export function ReviewPanel({
                       >
                         <Trash size={13} weight="regular" />
                       </Button>
+                    ) : null}
+                    {onPublishFile && !diff.conflicted ? (
+                      <PublishKbButton
+                        slug={slug}
+                        paths={[diff.path]}
+                        onComplete={() => onPublishFile(diff.path)}
+                      />
                     ) : null}
                     {isLong ? (
                       <Button

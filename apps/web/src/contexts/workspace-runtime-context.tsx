@@ -154,7 +154,7 @@ function WorkspaceRuntimeStateProvider({
   // and the page shells (dialog) share one source of truth.
   const [curatorOpen, setCuratorOpen] = useState(false);
   const [knowledgePendingCount, setKnowledgePendingCount] = useState(0);
-  // Pending publish count is pushed by the shells (from their diffs), since
+  // Manual edits count is pushed by the shells (from their diffs), since
   // only they know when the workspace file list has changed.
   const [knowledgePublishCount, setKnowledgePublishCount] = useState(0);
 

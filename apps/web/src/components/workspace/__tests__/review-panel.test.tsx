@@ -14,13 +14,25 @@ vi.mock('@/actions/workspace-agent', () => ({
   resolveWorkspaceConflictAction: mocks.resolveWorkspaceConflictAction,
 }))
 
+const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>()
+
+function jsonResponse(body: unknown, init?: ResponseInit) {
+  return new Response(JSON.stringify(body), {
+    headers: { 'content-type': 'application/json' },
+    ...init,
+  })
+}
+
 beforeEach(() => {
+  vi.stubGlobal('fetch', fetchMock)
+  fetchMock.mockReset()
   mocks.resolveWorkspaceConflictAction.mockResolvedValue({ ok: true })
 })
 
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
+  vi.unstubAllGlobals()
 })
 
 function makeDiff(overrides: Partial<WorkspaceDiff> = {}): WorkspaceDiff {
@@ -50,8 +62,45 @@ describe('ReviewPanel', () => {
     expect(screen.getByText('Loading changes…')).toBeDefined()
 
     rerender(<ReviewPanel diffs={[]} onOpenFile={onOpenFile} slug="alice" />)
-    expect(screen.getByText('No pending changes to publish')).toBeDefined()
-    expect(screen.getByText('Applied proposals and your Knowledge Base edits show up here. Chat agents cannot write the Knowledge Base.')).toBeDefined()
+    expect(screen.getByText('No manual edits to publish')).toBeDefined()
+    expect(screen.getByText('Edits you make in the Knowledge Base show up here. Applied proposals publish immediately.')).toBeDefined()
+  })
+
+  it('renders a per-file publish button for non-conflicted diffs', async () => {
+    const onPublishFile = vi.fn()
+    fetchMock.mockResolvedValueOnce(jsonResponse({ status: 'published' }))
+
+    render(
+      <ReviewPanel
+        diffs={[makeDiff()]}
+        onOpenFile={vi.fn()}
+        onPublishFile={onPublishFile}
+        slug="alice"
+      />
+    )
+
+    const publish = screen.getByRole('button', { name: 'Publish' })
+    expect(publish).toBeDefined()
+
+    fireEvent.click(publish)
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      '/api/instances/alice/publish-kb',
+      expect.objectContaining({ body: JSON.stringify({ paths: ['Notes/A.md'] }) })
+    ))
+    await waitFor(() => expect(onPublishFile).toHaveBeenCalledWith('Notes/A.md'))
+  })
+
+  it('hides the per-file publish button for conflicted diffs', () => {
+    render(
+      <ReviewPanel
+        diffs={[makeDiff({ conflicted: true, path: 'Notes/Conflict.md' })]}
+        onOpenFile={vi.fn()}
+        slug="alice"
+      />
+    )
+
+    expect(screen.queryByRole('button', { name: 'Publish' })).toBeNull()
   })
 
   it('opens diffs, toggles long previews, and discards changes', async () => {

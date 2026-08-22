@@ -12,6 +12,8 @@ type PublishKbButtonProps = {
   disabled?: boolean
   disabledReason?: string
   onComplete?: () => void
+  /** When provided, publishes only these files; otherwise publishes everything. */
+  paths?: string[]
 }
 
 type PublishState =
@@ -23,7 +25,7 @@ type PublishState =
   | 'no_remote'
   | 'error'
 
-export function PublishKbButton({ slug, disabled, disabledReason, onComplete }: PublishKbButtonProps) {
+export function PublishKbButton({ slug, disabled, disabledReason, onComplete, paths }: PublishKbButtonProps) {
   const [state, setState] = useState<PublishState>('idle')
   const [message, setMessage] = useState<string | null>(null)
   const [files, setFiles] = useState<string[]>([])
@@ -38,6 +40,7 @@ export function PublishKbButton({ slug, disabled, disabledReason, onComplete }: 
     try {
       const response = await fetch(`/api/instances/${slug}/publish-kb`, {
         method: 'POST',
+        ...(paths ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paths }) } : {}),
       })
 
       if (!response.ok) {
@@ -90,7 +93,7 @@ export function PublishKbButton({ slug, disabled, disabledReason, onComplete }: 
       setMessage(err instanceof Error ? err.message : 'Unknown error')
       onComplete?.()
     }
-  }, [slug, state, onComplete])
+  }, [slug, state, onComplete, paths])
 
   const handleDismiss = useCallback(() => {
     setState('idle')
@@ -150,7 +153,9 @@ export function PublishKbButton({ slug, disabled, disabledReason, onComplete }: 
     },
   }
 
-  const config = stateConfig[state]
+  const config = state === 'idle'
+    ? { ...stateConfig.idle, label: paths ? 'Publish' : 'Publish all' }
+    : stateConfig[state]
   const Icon = config.icon
   const showPopover = state === 'push_rejected' || state === 'no_remote' || state === 'error'
 

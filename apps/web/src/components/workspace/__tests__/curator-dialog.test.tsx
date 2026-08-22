@@ -6,10 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CuratorDialog } from "@/components/workspace/curator-dialog";
 
 vi.mock("@/components/workspace/publish-kb-button", () => ({
-  PublishKbButton: ({ onComplete }: { onComplete?: () => void }) => (
-    <button type="button" onClick={onComplete}>
-      Publish changes
-    </button>
+  PublishKbButton: ({ paths }: { paths?: string[] }) => (
+    <button type="button">{paths ? "Publish" : "Publish all"}</button>
   ),
 }));
 
@@ -56,15 +54,30 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
+function makeDiff(path: string) {
+  return {
+    path,
+    status: "modified",
+    additions: 1,
+    deletions: 0,
+    diff: "@@\n",
+    conflicted: false,
+  } as const;
+}
+
+const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>();
+
 describe("CuratorDialog", () => {
   beforeEach(() => {
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockReset();
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
       const url = input.toString();
       if (url.endsWith("/learning")) {
         return jsonResponse({ runs: [], proposals: [proposalFixture] });
       }
       return jsonResponse({ ok: true });
-    }));
+    });
   });
 
   afterEach(() => {
@@ -116,15 +129,26 @@ describe("CuratorDialog", () => {
     expect(screen.getAllByText("Durable user preference.").length).toBeGreaterThan(1);
   });
 
-  it("clears the viewer when switching to the pending publish tab", async () => {
+  it("shows the tab selector in the dialog header", async () => {
+    renderDialog();
+
+    await screen.findByText("Remember preference");
+
+    const header = screen.getByTestId("curator-dialog-header");
+    expect(header).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Proposals/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Manual edits/ })).toBeTruthy();
+  });
+
+  it("clears the viewer when switching to the manual edits tab", async () => {
     renderDialog();
 
     fireEvent.click(await screen.findByText("Remember preference"));
     expect(await screen.findByRole("heading", { name: "Preference" })).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: /Pending publish/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Manual edits/ }));
 
-    expect(await screen.findByText("Select a proposal to preview and edit it.")).toBeTruthy();
+    expect(await screen.findByText("No manual edits to publish")).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Preference" })).toBeNull();
     expect(screen.queryByText("Reason")).toBeNull();
   });
@@ -151,7 +175,7 @@ describe("CuratorDialog", () => {
     fireEvent.change(editor, { target: { value: "# Edited content" } });
 
     await waitFor(() => {
-      expect(vi.mocked(fetch)).toHaveBeenCalledWith("/api/u/alice/learning/proposals", {
+      expect(fetchMock).toHaveBeenCalledWith("/api/u/alice/learning/proposals", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "save_draft", proposalId: "review-1", content: "# Edited content" }),
@@ -159,48 +183,34 @@ describe("CuratorDialog", () => {
     }, { timeout: 2000 });
   });
 
-  it("shows the publish action only when there are changes to publish", async () => {
-    const { unmount } = renderDialog();
-
-    expect(screen.queryByRole("button", { name: "Publish changes" })).toBeNull();
-    unmount();
+  it("shows the Publish all action only in manual edits mode with changes to publish", async () => {
+    renderDialog();
+    await screen.findByText("Remember preference");
+    expect(screen.queryByRole("button", { name: "Publish all" })).toBeNull();
 
     renderDialog({
-      diffs: [
-        {
-          path: "docs/a.md",
-          status: "modified",
-          additions: 1,
-          deletions: 1,
-          diff: "@@ -1 +1 @@\n-old\n+new\n",
-          conflicted: false,
-        },
-      ],
+      diffs: [makeDiff("docs/a.md")],
       onPublish: vi.fn(),
     });
+    await screen.findByText("Remember preference");
 
-    expect(await screen.findByRole("button", { name: "Publish changes" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Publish all" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Manual edits/ }));
+    expect(await screen.findByRole("button", { name: "Publish all" })).toBeTruthy();
   });
 
-  it("hides the publish action when the workspace agent is disabled", async () => {
+  it("hides the Publish all action when the workspace agent is disabled", async () => {
     renderDialog({
       workspaceAgentEnabled: false,
-      diffs: [
-        {
-          path: "docs/a.md",
-          status: "modified",
-          additions: 1,
-          deletions: 0,
-          diff: "@@\n",
-          conflicted: false,
-        },
-      ],
+      diffs: [makeDiff("docs/a.md")],
       onPublish: vi.fn(),
     });
 
-    await screen.findByText("Curator");
+    await screen.findByText("Remember preference");
+    fireEvent.click(screen.getByRole("button", { name: /Manual edits/ }));
+    await screen.findByText("docs/a.md");
 
-    expect(screen.queryByRole("button", { name: "Publish changes" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Publish all" })).toBeNull();
   });
 
   it("closes through the header close button", async () => {
@@ -212,61 +222,59 @@ describe("CuratorDialog", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it("lists pending workspace changes in the changes tab", async () => {
+  it("lists workspace diffs in the manual edits tab", async () => {
     renderDialog({
-      diffs: [
-        {
-          path: "docs/a.md",
-          status: "modified",
-          additions: 1,
-          deletions: 0,
-          diff: "@@\n",
-          conflicted: false,
-        },
-      ],
+      diffs: [makeDiff("docs/a.md")],
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /Pending publish/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Manual edits/ }));
 
     expect(await screen.findByText("docs/a.md")).toBeTruthy();
   });
 
+  it("renders per-file publish buttons in manual edits mode", async () => {
+    renderDialog({
+      diffs: [makeDiff("docs/a.md"), makeDiff("docs/b.md")],
+      onPublish: vi.fn(),
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: /Proposals/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Manual edits/ }));
+
+    const publishButtons = await screen.findAllByRole("button", { name: "Publish" });
+    expect(publishButtons.length).toBe(2);
+  });
+
+  it("hides the per-file publish button for conflicted diffs", async () => {
+    renderDialog({
+      diffs: [{ ...makeDiff("docs/a.md"), conflicted: true }],
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: /Manual edits/ }));
+    await screen.findByText("docs/a.md", undefined, { timeout: 2000 });
+
+    expect(screen.queryByRole("button", { name: "Publish" })).toBeNull();
+  });
+
   it("badges each tab with its pending item count", async () => {
     renderDialog({
-      diffs: [
-        {
-          path: "docs/a.md",
-          status: "modified",
-          additions: 1,
-          deletions: 0,
-          diff: "@@\n",
-          conflicted: false,
-        },
-        {
-          path: "docs/b.md",
-          status: "added",
-          additions: 3,
-          deletions: 0,
-          diff: "@@\n",
-          conflicted: false,
-        },
-      ],
+      diffs: [makeDiff("docs/a.md"), makeDiff("docs/b.md")],
     });
 
     await screen.findByText("Remember preference");
 
     const proposalsTab = screen.getByRole("button", { name: /Proposals/ });
-    expect(proposalsTab.textContent).toContain("1");
-    const changesTab = screen.getByRole("button", { name: /Pending publish/ });
-    expect(changesTab.textContent).toContain("2");
+    await waitFor(() => expect(proposalsTab.textContent).toContain("1"));
+    const editsTab = screen.getByRole("button", { name: /Manual edits/ });
+    expect(editsTab.textContent).toContain("2");
   });
 
-  it("keeps the pending publish badge hidden with nothing to publish", async () => {
+  it("keeps the manual edits badge hidden with nothing to publish", async () => {
     renderDialog();
 
     await screen.findByText("Remember preference");
 
-    const changesTab = screen.getByRole("button", { name: /Pending publish/ });
-    expect(changesTab.textContent).not.toContain("1");
+    const editsTab = screen.getByRole("button", { name: /Manual edits/ });
+    expect(editsTab.textContent).not.toContain("1");
   });
 });

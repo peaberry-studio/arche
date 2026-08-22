@@ -37,11 +37,11 @@ type CuratorDialogProps = {
   knowledgeReviewRefreshKey?: number;
 };
 
-type CuratorTab = "proposals" | "changes";
+type CuratorTab = "proposals" | "manual-edits";
 
 const TABS: SegmentedControlOption<CuratorTab>[] = [
   { value: "proposals", label: "Proposals" },
-  { value: "changes", label: "Pending publish" },
+  { value: "manual-edits", label: "Manual edits" },
 ];
 
 type ViewerTab = "preview" | "edit" | "diff";
@@ -136,6 +136,8 @@ export function CuratorDialog({
     ? drafts.getDraft(selected.id, selected.proposedContent)
     : null;
 
+  const hasConflictedDiffs = diffs.some((diff) => diff.conflicted);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -148,8 +150,11 @@ export function CuratorDialog({
           contentRef.current?.focus();
         }}
       >
-        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border/40 px-4 py-3">
-          <div className="min-w-0">
+        <div
+          data-testid="curator-dialog-header"
+          className="flex shrink-0 items-center border-b border-border/40 px-4 py-3"
+        >
+          <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
               <DialogTitle className="text-base">Curator</DialogTitle>
               <TooltipProvider delayDuration={150}>
@@ -175,17 +180,22 @@ export function CuratorDialog({
               Review agent and curator proposals, then publish workspace changes to the Knowledge Base.
             </DialogDescription>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
-            {workspaceAgentEnabled && diffs.length > 0 ? (
+
+          <SegmentedControl
+            variant="outline"
+            size="sm"
+            value={tab}
+            onValueChange={handleTabChange}
+            options={tabOptions}
+          />
+
+          <div className="flex shrink-0 items-center justify-end gap-2 flex-1">
+            {tab === "manual-edits" && workspaceAgentEnabled && diffs.length > 0 ? (
               <PublishKbButton
                 slug={slug}
                 onComplete={onPublish}
-                disabled={diffs.some((diff) => diff.conflicted)}
-                disabledReason={
-                  diffs.some((diff) => diff.conflicted)
-                    ? "Resolve conflicts before publishing"
-                    : undefined
-                }
+                disabled={hasConflictedDiffs}
+                disabledReason={hasConflictedDiffs ? "Resolve conflicts before publishing" : undefined}
               />
             ) : null}
             <Button
@@ -200,19 +210,23 @@ export function CuratorDialog({
           </div>
         </div>
 
-        <div className="flex min-h-0 flex-1">
-          <div className="flex w-[40%] min-w-[22rem] flex-col border-r border-border/30">
-            <div className="flex h-12 shrink-0 items-center border-b border-border/30 px-4">
-              <SegmentedControl
-                variant="outline"
-                size="sm"
-                value={tab}
-                onValueChange={handleTabChange}
-                options={tabOptions}
-              />
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto scrollbar-custom p-4">
-              {tab === "proposals" ? (
+        {tab === "manual-edits" ? (
+          <div className="min-h-0 flex-1 overflow-y-auto scrollbar-custom p-4">
+            <ReviewPanel
+              slug={slug}
+              diffs={diffs}
+              isLoading={isLoadingDiffs}
+              error={diffsError ?? undefined}
+              onOpenFile={onOpenFile}
+              onDiscardFileChanges={onDiscardFileChanges}
+              onResolveConflict={onResolveConflict}
+              onPublishFile={onPublish}
+            />
+          </div>
+        ) : (
+          <div className="flex min-h-0 flex-1">
+            <div className="flex w-[40%] min-w-[22rem] flex-col border-r border-border/30">
+              <div className="min-h-0 flex-1 overflow-y-auto scrollbar-custom p-4">
                 <KnowledgeReviewList
                   slug={slug}
                   refreshKey={knowledgeReviewRefreshKey}
@@ -221,102 +235,92 @@ export function CuratorDialog({
                   onOpenCountChange={handleProposalCountChange}
                   onOpenProposal={handleOpenProposal}
                 />
+              </div>
+            </div>
+
+            <div className="flex min-w-0 flex-1 flex-col">
+              {selected ? (
+                <>
+                  <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border/30 px-4">
+                    <Badge
+                      variant={OPERATION_BADGE_VARIANTS[selected.operation]}
+                      className="shrink-0 px-1.5 py-0 text-[10px] capitalize"
+                    >
+                      {selected.operation}
+                    </Badge>
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium" title={selected.title}>
+                      {selected.title}
+                    </span>
+                    <SegmentedControl
+                      variant="outline"
+                      size="sm"
+                      value={viewerTab}
+                      onValueChange={setViewerTab}
+                      options={VIEWER_TABS}
+                    />
+                  </div>
+                  {viewerTab === "preview" ? (
+                    <div className="min-h-0 flex-1 overflow-y-auto scrollbar-custom">
+                      {selected.reason ? (
+                        <div className="px-4 pt-4">
+                          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                            Reason
+                          </p>
+                          <p className="mt-1 text-xs text-muted-foreground">{selected.reason}</p>
+                          <div className="my-4 border-t border-border/30" />
+                        </div>
+                      ) : null}
+                      <div className="px-4 pb-4">
+                        <MarkdownPreview content={selectedContent || "_Delete this file_"} />
+                      </div>
+                    </div>
+                  ) : viewerTab === "edit" ? (
+                    <div className="min-h-0 flex-1">
+                      <MarkdownEditor
+                        key={selected.id}
+                        value={selectedContent ?? ""}
+                        onChange={(next) => drafts.handleChange(selected.id, next, selected.proposedContent)}
+                        saveState={drafts.getSaveState(selected.id)}
+                        saveError={drafts.getSaveError(selected.id)}
+                        internalLinkPaths={internalLinkPaths}
+                        onOpenInternalLink={onOpenFile}
+                      />
+                    </div>
+                  ) : (
+                    <div className="min-h-0 flex-1 overflow-y-auto scrollbar-custom p-4">
+                      <div className="overflow-hidden rounded-md border border-border/30 bg-foreground/[0.015]">
+                        <DiffViewer
+                          diff={createUnifiedDiff({
+                            oldText:
+                              selected.status === "needs_rebase"
+                                ? selected.actualContent ?? selected.baseContent ?? ""
+                                : selected.baseContent ?? "",
+                            newText: selectedContent ?? "",
+                            path: selected.kbPath,
+                            operation: selected.operation,
+                          })}
+                        />
+                        <div className="border-t border-border/30 px-3 py-1.5 text-[11px] text-muted-foreground">
+                          <span className="font-mono" title={selected.kbPath}>
+                            {selected.kbPath}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </>
               ) : (
-                <ReviewPanel
-                  slug={slug}
-                  diffs={diffs}
-                  isLoading={isLoadingDiffs}
-                  error={diffsError ?? undefined}
-                  onOpenFile={onOpenFile}
-                  onDiscardFileChanges={onDiscardFileChanges}
-                  onResolveConflict={onResolveConflict}
-                />
+                <div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center">
+                  <FileMagnifyingGlass size={28} className="text-muted-foreground/30" />
+                  <p className="text-xs text-muted-foreground">Select a proposal to preview and edit it.</p>
+                  <p className="max-w-[320px] text-[11px] leading-relaxed text-muted-foreground/70">
+                    Adjust a proposal in the Edit tab, then apply it from the list.
+                  </p>
+                </div>
               )}
             </div>
           </div>
-
-          <div className="flex min-w-0 flex-1 flex-col">
-            {selected ? (
-              <>
-                <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border/30 px-4">
-                  <Badge
-                    variant={OPERATION_BADGE_VARIANTS[selected.operation]}
-                    className="shrink-0 px-1.5 py-0 text-[10px] capitalize"
-                  >
-                    {selected.operation}
-                  </Badge>
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium" title={selected.title}>
-                    {selected.title}
-                  </span>
-                  <SegmentedControl
-                    variant="outline"
-                    size="sm"
-                    value={viewerTab}
-                    onValueChange={setViewerTab}
-                    options={VIEWER_TABS}
-                  />
-                </div>
-                {viewerTab === "preview" ? (
-                  <div className="min-h-0 flex-1 overflow-y-auto scrollbar-custom">
-                    {selected.reason ? (
-                      <div className="px-4 pt-4">
-                        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                          Reason
-                        </p>
-                        <p className="mt-1 text-xs text-muted-foreground">{selected.reason}</p>
-                        <div className="my-4 border-t border-border/30" />
-                      </div>
-                    ) : null}
-                    <div className="px-4 pb-4">
-                      <MarkdownPreview content={selectedContent || "_Delete this file_"} />
-                    </div>
-                  </div>
-                ) : viewerTab === "edit" ? (
-                  <div className="min-h-0 flex-1">
-                    <MarkdownEditor
-                      key={selected.id}
-                      value={selectedContent ?? ""}
-                      onChange={(next) => drafts.handleChange(selected.id, next, selected.proposedContent)}
-                      saveState={drafts.getSaveState(selected.id)}
-                      saveError={drafts.getSaveError(selected.id)}
-                      internalLinkPaths={internalLinkPaths}
-                      onOpenInternalLink={onOpenFile}
-                    />
-                  </div>
-                ) : (
-                  <div className="min-h-0 flex-1 overflow-y-auto scrollbar-custom p-4">
-                    <div className="overflow-hidden rounded-md border border-border/30 bg-foreground/[0.015]">
-                      <DiffViewer
-                        diff={createUnifiedDiff({
-                          oldText:
-                            selected.status === "needs_rebase"
-                              ? selected.actualContent ?? selected.baseContent ?? ""
-                              : selected.baseContent ?? "",
-                          newText: selectedContent ?? "",
-                          path: selected.kbPath,
-                          operation: selected.operation,
-                        })}
-                      />
-                      <div className="border-t border-border/30 px-3 py-1.5 text-[11px] text-muted-foreground">
-                        <span className="font-mono" title={selected.kbPath}>
-                          {selected.kbPath}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center">
-                <FileMagnifyingGlass size={28} className="text-muted-foreground/30" />
-                <p className="text-xs text-muted-foreground">Select a proposal to preview and edit it.</p>
-                <p className="max-w-[320px] text-[11px] leading-relaxed text-muted-foreground/70">
-                  Adjust a proposal in the Edit tab, then apply it from the list.
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
+        )}
       </DialogContent>
     </Dialog>
   );

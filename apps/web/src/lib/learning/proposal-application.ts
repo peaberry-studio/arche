@@ -9,6 +9,7 @@ import {
   saveKnowledgeReviewDraft,
   startLearningRunForKnowledgeReviewRegeneration,
 } from '@/lib/learning/repository'
+import { publishKnowledgeBasePaths, type PublishKbResult } from '@/lib/learning/publish-kb'
 import { dispatchLearningRunExecution } from '@/lib/learning/run-executor'
 import { createWorkspaceAgentClient } from '@/lib/workspace-agent/client'
 import { workspaceAgentFetch } from '@/lib/workspace-agent-client'
@@ -321,4 +322,29 @@ export async function applyKnowledgeReviewChange(args: {
     metadata: { changeId: change.id, kbPath: change.kbPath, appliedHash: current.hash ?? 'deleted' },
   })
   return { ok: true, change: updated }
+}
+
+export async function applyAndPublishKnowledgeReviewChange(args: {
+  actor: string
+  changeId: string
+  content?: string
+  slug: string
+  userId: string
+}): Promise<
+  | { ok: true; change: KnowledgeReviewChange; publish: PublishKbResult }
+  | { ok: false; error: string }
+> {
+  const applied = await applyKnowledgeReviewChange(args)
+  if (!applied.ok) return applied
+
+  // Applying validates the proposal, so publish exactly that file right away.
+  // If the publish step fails the change stays applied and its diff remains
+  // visible under Manual edits as the natural fallback; the publish result
+  // lets the UI surface the reason.
+  const publish = await publishKnowledgeBasePaths({
+    slug: args.slug,
+    actorUserId: args.userId,
+    paths: [applied.change.kbPath],
+  })
+  return { ok: true, change: applied.change, publish }
 }

@@ -43,6 +43,16 @@ function responseError(value: unknown, fallback: string): string {
   return isRecord(value) && typeof value.error === 'string' ? value.error : fallback
 }
 
+function getPublishResult(value: unknown): { ok: boolean; message?: string } | null {
+  if (!isRecord(value) || !isRecord(value.publish)) return null
+  const publish = value.publish
+  if (typeof publish.ok !== 'boolean') return null
+  return {
+    ok: publish.ok,
+    ...(typeof publish.message === 'string' ? { message: publish.message } : {}),
+  }
+}
+
 const ERROR_LABELS: Record<string, string> = {
   needs_rebase: 'The target file changed. Rebase the proposal before applying it.',
   not_found: 'Knowledge proposal not found.',
@@ -218,6 +228,21 @@ export function KnowledgeReviewList({
         setError(responseError(data, 'knowledge_review_action_failed'))
         return
       }
+
+      // Apply now also publishes the proposal's file in the same action. If the
+      // publish step fails the proposal stays applied (its diff lands under
+      // Manual edits), so surface the publish reason instead of a clear success.
+      if (action === 'apply') {
+        const publish = getPublishResult(data)
+        if (publish && !publish.ok) {
+          setError(typeof publish.message === 'string' ? publish.message : 'knowledge_review_action_failed')
+          clearDraft(changeId)
+          await onApplied?.()
+          await refresh()
+          return
+        }
+      }
+
       setError(null)
       clearDraft(changeId)
       if (action === 'apply') await onApplied?.()

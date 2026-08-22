@@ -632,4 +632,71 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     })
     expect(mocks.listAppliedKnowledgeReviewChanges).not.toHaveBeenCalled()
   })
+
+  it('accepts an optional paths array in the body and publishes only those', async () => {
+    mocks.listAppliedKnowledgeReviewChanges.mockResolvedValue([
+      { kbPath: 'Notes/Reviewed.md', operation: 'update', appliedHash: 'sha256:reviewed' },
+      { kbPath: 'Notes/Other.md', operation: 'update', appliedHash: 'sha256:other' },
+    ])
+    const spy = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        ok: true,
+        diffs: [{ path: 'Notes/Reviewed.md' }, { path: 'Notes/Other.md' }],
+      }), {
+        headers: { 'Content-Type': 'application/json' },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, hash: 'sha256:reviewed' }), {
+        headers: { 'Content-Type': 'application/json' },
+      }))
+      .mockResolvedValue(new Response(JSON.stringify({ ok: true, status: 'published', commitHash: 'abc123' }), {
+        headers: { 'Content-Type': 'application/json' },
+      }))
+
+    const request = new NextRequest('http://localhost/api/instances/alice/publish-kb', {
+      method: 'POST',
+      headers: { Origin: 'http://localhost', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paths: ['Notes/Reviewed.md'] }),
+    })
+    const res = await POST(request, params('alice'))
+    const body = await res.json()
+
+    expect(body.ok).toBe(true)
+    expect(spy).toHaveBeenLastCalledWith('http://agent:8080/kb/publish', expect.objectContaining({
+      body: JSON.stringify({
+        paths: ['Notes/Reviewed.md'],
+        pathHashes: { 'Notes/Reviewed.md': 'sha256:reviewed' },
+      }),
+    }))
+    expect(mocks.listAppliedKnowledgeReviewChanges).toHaveBeenCalledWith(expect.objectContaining({
+      paths: ['Notes/Reviewed.md'],
+    }))
+    spy.mockRestore()
+  })
+
+  it('returns an error for a requested path absent from the current diffs', async () => {
+    const spy = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(JSON.stringify({
+        ok: true,
+        diffs: [{ path: 'Notes/Reviewed.md' }],
+      }), {
+        headers: { 'Content-Type': 'application/json' },
+      }))
+
+    const request = new NextRequest('http://localhost/api/instances/alice/publish-kb', {
+      method: 'POST',
+      headers: { Origin: 'http://localhost', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paths: ['Notes/Missing.md'] }),
+    })
+    const res = await POST(request, params('alice'))
+    const body = await res.json()
+
+    expect(body).toEqual({
+      ok: false,
+      status: 'error',
+      message: 'One of the selected files has no pending changes to publish.',
+    })
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect(spy).not.toHaveBeenCalledWith('http://agent:8080/kb/publish', expect.anything())
+    spy.mockRestore()
+  })
 })

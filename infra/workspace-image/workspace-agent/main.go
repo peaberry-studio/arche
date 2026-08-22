@@ -1546,15 +1546,6 @@ func (s *server) handleKbPublish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	files := s.changedFilesToPublish(r.Context(), kbBranch)
-	if len(req.Paths) > 0 && !pathsAreWithinManifest(files, req.Paths) {
-		writeJSON(w, http.StatusOK, publishKbResponse{
-			Ok:      false,
-			Status:  "error",
-			Files:   files,
-			Message: "unreviewed_changes_present",
-		})
-		return
-	}
 	if hasGithubRemote {
 		githubResult := s.syncGithubRemote(r.Context(), githubRemote)
 		if !githubResult.Ok {
@@ -1756,27 +1747,6 @@ func (s *server) commitWorkspacePathsIfNeeded(ctx context.Context, paths []strin
 	}
 	if len(manifest) == 0 {
 		return false, nil, "reviewed_path_manifest_required"
-	}
-
-	// The manifest is a snapshot the BFF computed from /git/diffs. A reviewable
-	// working-tree file that went dirty after that snapshot is absent from the
-	// manifest; committing the listed subset would silently ship its siblings
-	// while stranding that path locally. Compare the live reviewable index
-	// against the manifest before any byte is staged, applying the same
-	// unreviewed_changes_present contract the post-commit history check
-	// enforces — but against the working tree, not just HEAD.
-	liveEntries, liveErr := s.gitStatusEntries(ctx)
-	if liveErr != nil {
-		return false, nil, liveErr.Error()
-	}
-	var liveReviewable []string
-	for _, entry := range liveEntries {
-		if isReviewableKbPath(entry.Path) {
-			liveReviewable = append(liveReviewable, entry.Path)
-		}
-	}
-	if !pathsAreWithinManifest(liveReviewable, manifest) {
-		return false, nil, "unreviewed_changes_present"
 	}
 
 	// Hashes authorize matching applied content when the BFF sends them. Paths
