@@ -1,12 +1,6 @@
-import Link from 'next/link'
 import { redirect } from 'next/navigation'
 
-import { KbGithubRemotePanel } from '@/components/settings/kb-github-remote-panel'
-import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
-import { isDesktop } from '@/lib/runtime/mode'
-import { getSession } from '@/lib/runtime/session'
-import { kbGithubRemoteService } from '@/lib/services'
-import { get2FAStatus } from '../../security/actions'
+import { getWorkspaceIntegrationHref } from '@/lib/workspace-hrefs'
 
 export default async function KbGithubRemoteSettingsPage({
   params,
@@ -14,55 +8,5 @@ export default async function KbGithubRemoteSettingsPage({
   params: Promise<{ slug: string }>
 }) {
   const { slug } = await params
-
-  if (isDesktop()) {
-    redirect(`/u/${slug}/settings?section=integrations`)
-  }
-
-  const session = await getSession()
-  if (!session) {
-    redirect('/login')
-  }
-
-  const caps = getRuntimeCapabilities()
-  const status = caps.twoFactor ? await get2FAStatus() : null
-  if (caps.twoFactor && (!status || !status.ok)) {
-    redirect('/login')
-  }
-
-  if (!caps.kbGithubRemoteIntegration || session.user.role !== 'ADMIN') {
-    redirect(`/u/${slug}/settings?section=integrations`)
-  }
-
-  const integration = await kbGithubRemoteService.findIntegration()
-  const initialIntegration = kbGithubRemoteService.toSummary(
-    integration,
-    kbGithubRemoteService.decryptIntegrationConfig(integration),
-  )
-
-  return (
-    <main className="relative mx-auto max-w-6xl px-6 py-10">
-      <div className="space-y-8">
-        <div>
-          <div className="mb-5">
-            <Link
-              href={`/u/${slug}/settings?section=integrations`}
-              className="inline-flex text-sm text-muted-foreground transition-colors hover:text-foreground"
-            >
-              &larr; Back to integrations
-            </Link>
-          </div>
-
-          <div className="space-y-2">
-            <h1 className="type-display text-3xl font-semibold tracking-tight">GitHub KB sync</h1>
-            <p className="text-muted-foreground">
-              Configure the deployment-wide GitHub repository used to back up and sync the shared knowledge base.
-            </p>
-          </div>
-        </div>
-
-        <KbGithubRemotePanel initialIntegration={initialIntegration} slug={slug} />
-      </div>
-    </main>
-  )
+  redirect(getWorkspaceIntegrationHref(slug, 'kb-github-remote'))
 }

@@ -4,12 +4,16 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { stubBrowserStorage } from "@/__tests__/storage";
+import { WorkspaceRuntimeProvider } from "@/contexts/workspace-runtime-context";
 import { WorkspaceShell } from "@/components/workspace/workspace-shell";
 import { setWorkspaceStartPrompt } from "@/lib/workspace-start-prompt";
 
 const { ensureInstanceRunningActionMock } = vi.hoisted(() => ({
   ensureInstanceRunningActionMock: vi.fn().mockResolvedValue({ status: "running" }),
 }));
+
+const instanceStartupMock = vi.hoisted(() => vi.fn())
+const connectionMock = vi.hoisted(() => vi.fn())
 
 const desktopBridgeMocks = vi.hoisted(() => ({
   getOptionalDesktopBridge: vi.fn(),
@@ -38,10 +42,23 @@ vi.mock("next/navigation", () => ({
     push: routerPushMock,
     replace: routerReplaceMock,
   }),
+  useSearchParams: () => new URLSearchParams(window.location.search),
 }));
 
 vi.mock("@/actions/spawner", () => ({
   ensureInstanceRunningAction: ensureInstanceRunningActionMock,
+}));
+
+vi.mock("@/hooks/use-instance-startup", () => ({
+  useInstanceStartup: () => instanceStartupMock(),
+}));
+
+vi.mock("@/hooks/use-workspace-connection", () => ({
+  useWorkspaceConnection: () => connectionMock(),
+}));
+
+vi.mock("@/hooks/use-instance-heartbeat", () => ({
+  useInstanceHeartbeat: () => undefined,
 }));
 
 vi.mock("@/contexts/workspace-theme-context", () => ({
@@ -266,6 +283,27 @@ vi.mock("@/components/workspace/knowledge-graph-panel", () => ({
   KnowledgeGraphPanel: () => <div>Knowledge Graph Panel</div>,
 }));
 
+function renderWorkspaceShell(props: Parameters<typeof WorkspaceShell>[0]) {
+  return render(
+    <WorkspaceRuntimeProvider slug={props.slug ?? "alice"} persistenceScope={props.persistenceScope ?? props.slug ?? "alice"}>
+      <WorkspaceShell {...props} />
+    </WorkspaceRuntimeProvider>
+  )
+}
+
+async function openCuratorFromCommandPalette() {
+  window.dispatchEvent(
+    new KeyboardEvent("keydown", {
+      key: "k",
+      metaKey: true,
+      bubbles: true,
+    })
+  )
+  await screen.findByRole("dialog", { name: "Workspace command palette" })
+  fireEvent.click(screen.getByText("Open Curator"))
+  await screen.findByTestId("curator-dialog")
+}
+
 function clearCookies() {
   document.cookie.split(';').forEach((cookie) => {
     const [name] = cookie.trim().split('=');
@@ -344,6 +382,11 @@ describe("WorkspaceShell", () => {
     });
     ensureInstanceRunningActionMock.mockReset();
     ensureInstanceRunningActionMock.mockResolvedValue({ status: "running" });
+    instanceStartupMock.mockReturnValue({ instanceStatus: "running", instanceError: null });
+    connectionMock.mockReturnValue({
+      connection: { status: "connected" },
+      isConnected: true,
+    });
     window.history.replaceState(null, "", "/w/alice");
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();
@@ -423,58 +466,44 @@ describe("WorkspaceShell", () => {
     vi.unstubAllGlobals();
   });
 
-  it("shows an error when startup never leaves starting", async () => {
-    vi.useFakeTimers();
-    ensureInstanceRunningActionMock.mockResolvedValue({ status: "starting" });
-
-    render(<WorkspaceShell slug="alice" />);
-
-    await act(async () => {
-      await Promise.resolve();
-      await vi.advanceTimersByTimeAsync(125_000);
+  it("shows an in-pane banner while the instance is starting", async () => {
+    instanceStartupMock.mockReturnValue({ instanceStatus: "starting", instanceError: null });
+    connectionMock.mockReturnValue({
+      connection: { status: "connecting" },
+      isConnected: false,
     });
 
-    expect(
-      screen.getByText("Workspace startup timed out. Try restarting again.")
-    ).toBeTruthy();
+    renderWorkspaceShell({ slug: "alice" });
+
+    expect(await screen.findByText("Starting workspace")).toBeTruthy();
   });
 
-  it("shows a startup status check error when startup polling rejects", async () => {
-    ensureInstanceRunningActionMock.mockRejectedValueOnce(new Error("boom"));
+  it("shows a startup failure banner when the instance failed to start", async () => {
+    instanceStartupMock.mockReturnValue({ instanceStatus: "error", instanceError: "start_timeout" });
 
-    render(<WorkspaceShell slug="alice" />);
+    renderWorkspaceShell({ slug: "alice" });
 
     expect(await screen.findByText("Failed to start")).toBeTruthy();
-    expect(screen.getByText("Unable to verify workspace startup status.")).toBeTruthy();
   });
 
-  it("shows an OpenCode connection error after the instance is running", async () => {
-    workspaceMockOverrides = {
-      isConnected: false,
+  it("shows an in-pane OpenCode connection error banner", async () => {
+    instanceStartupMock.mockReturnValue({ instanceStatus: "running", instanceError: null });
+    connectionMock.mockReturnValue({
       connection: { status: "error", error: "socket down" },
-    };
+      isConnected: false,
+    });
 
-    render(<WorkspaceShell slug="alice" />);
+    renderWorkspaceShell({ slug: "alice" });
 
     expect(await screen.findByText("Connecting to OpenCode")).toBeTruthy();
     expect(screen.getByText("Error: socket down")).toBeTruthy();
   });
 
-  it("redirects to setup when the instance requires setup", async () => {
-    ensureInstanceRunningActionMock.mockResolvedValueOnce({ status: "error", error: "setup_required" });
-
-    render(<WorkspaceShell slug="alice" />);
-
-    await waitFor(() => {
-      expect(routerReplaceMock).toHaveBeenCalledWith("/u/alice?setup=required");
-    });
-  });
-
   it("creates a new session with Command+Period", async () => {
-    render(<WorkspaceShell slug="alice" />);
+    renderWorkspaceShell({ slug: "alice" });
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "New chat" })).toBeTruthy();
+      expect(screen.getByText("Chat Panel")).toBeTruthy();
     });
 
     window.dispatchEvent(
@@ -496,7 +525,7 @@ describe("WorkspaceShell", () => {
       contextPaths: ["docs/plan.md"],
     });
 
-    render(<WorkspaceShell slug="alice" />);
+    renderWorkspaceShell({ slug: "alice" });
 
     await waitFor(() => {
       expect(sendMessageMock).toHaveBeenCalledWith("Review the plan", undefined, {
@@ -506,137 +535,20 @@ describe("WorkspaceShell", () => {
     });
   });
 
-  it("renders the sidebar chrome with nav and account menu instead of a top nav", async () => {
-    render(<WorkspaceShell slug="alice" />);
-
-    expect(await screen.findByRole("button", { name: "New chat" })).toBeTruthy();
-    expect(screen.getByText("Arche")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Knowledge Base" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Curator" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Flows" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Sessions" })).toBeNull();
-
-    const accountMenuButton = screen.getByRole("button", { name: "Workspace account menu" });
-    expect(accountMenuButton.textContent).toContain("alice");
-
-    fireEvent.pointerDown(accountMenuButton, {
-      button: 0,
-      ctrlKey: false,
-    });
-
-    expect(await screen.findByText("Settings")).toBeTruthy();
-    expect(await screen.findAllByText("1 active")).toHaveLength(2);
-    expect(screen.getByText("Appearance")).toBeTruthy();
-    expect(screen.queryByText("Current vault")).toBeNull();
-  });
-
-  it("shows the desktop vault name and vault section in the sidebar account menu", async () => {
-    desktopBridgeMocks.listRecentVaults.mockResolvedValue([
-      { id: "current", name: "Personal Vault", path: "/vaults/personal" },
-      { id: "team", name: "Team Vault", path: "/vaults/team" },
-    ]);
-
-    render(
-      <WorkspaceShell
-        slug="local"
-        currentVault={{ id: "current", name: "Personal Vault", path: "/vaults/personal" }}
-      />
-    );
-
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "New chat" })).toBeTruthy();
-    });
-
-    const accountMenuButton = screen.getByRole("button", { name: "Workspace account menu" });
-    expect(accountMenuButton.textContent).toContain("Personal Vault");
-    expect(accountMenuButton.textContent).not.toContain("local");
-
-    fireEvent.pointerDown(accountMenuButton, {
-      button: 0,
-      ctrlKey: false,
-    });
-
-    expect(await screen.findByText("Current vault")).toBeTruthy();
-    expect(screen.getByText("/vaults/personal")).toBeTruthy();
-    expect(await screen.findByText("Team Vault")).toBeTruthy();
-    expect(desktopBridgeMocks.listRecentVaults).toHaveBeenCalledTimes(1);
-  });
-
-  it("shows a Knowledge badge that combines proposals and workspace changes", async () => {
-    workspaceMockOverrides = {
-      sessions: [
-        {
-          id: "root-session",
-          title: "Root session",
-          status: "idle",
-          updatedAt: "now",
-          updatedAtRaw: 1,
-        },
-        {
-          id: "unread-session-1",
-          title: "Unread session 1",
-          status: "idle",
-          updatedAt: "now",
-          updatedAtRaw: 2,
-        },
-        {
-          id: "unread-session-2",
-          title: "Unread session 2",
-          status: "idle",
-          updatedAt: "now",
-          updatedAtRaw: 3,
-        },
-        {
-          id: "flow-session",
-          title: "Flow | Daily brief",
-          status: "idle",
-          updatedAt: "now",
-          updatedAtRaw: 4,
-          flow: {
-            runId: "run-1",
-            flowId: "flow-1",
-            flowName: "Daily brief",
-            status: "succeeded",
-            trigger: "manual",
-            hasUnseenResult: true,
-          },
-        },
-      ],
-      unseenCompletedSessions: new Set(["unread-session-1", "unread-session-2", "flow-session"]),
-      diffs: [{ path: "docs/a.md" }, { path: "docs/b.md" }, { path: "docs/c.md" }],
-    };
-
-    learningApiResponse = { runs: [], proposals: [{ status: "open" }] };
-
-    render(<WorkspaceShell slug="alice" />);
-
-    expect(await screen.findByLabelText("4 pending")).toBeTruthy();
-  });
-
   it("auto-syncs the KB after the workspace connects", async () => {
-    render(<WorkspaceShell slug="alice" />);
+    renderWorkspaceShell({ slug: "alice" });
 
     await waitFor(() => {
       expect(fetch).toHaveBeenCalledWith("/api/instances/alice/sync-kb", { method: "POST" });
     });
   });
 
-  it("navigates to the flows manager from the sidebar nav", async () => {
-    render(<WorkspaceShell slug="alice" />);
-
-    fireEvent.click(await screen.findByRole("button", { name: "Flows" }));
-
-    await waitFor(() => {
-      expect(routerPushMock).toHaveBeenCalledWith("/u/alice/flows");
-    });
-  });
-
   it("passes disabled workspace-agent capabilities into chat and curator", async () => {
-    render(<WorkspaceShell slug="alice" workspaceAgentEnabled={false} />);
+    renderWorkspaceShell({ slug: "alice", workspaceAgentEnabled: false });
 
     expect((await screen.findByTestId("chat-panel")).dataset.attachmentsEnabled).toBe("false");
 
-    fireEvent.click(screen.getByRole("button", { name: "Curator" }));
+    await openCuratorFromCommandPalette();
 
     const curator = await screen.findByTestId("curator-dialog");
     expect(curator.dataset.open).toBe("true");
@@ -669,7 +581,7 @@ describe("WorkspaceShell", () => {
       selectSession,
     };
 
-    render(<WorkspaceShell slug="alice" />);
+    renderWorkspaceShell({ slug: "alice" });
 
     expect((await screen.findByTestId("chat-panel")).dataset.readOnly).toBe("true");
     fireEvent.click(screen.getByRole("button", { name: "Return to main conversation" }));
@@ -699,7 +611,7 @@ describe("WorkspaceShell", () => {
       activeSessionId: "flow-session",
     };
 
-    render(<WorkspaceShell slug="alice" />);
+    renderWorkspaceShell({ slug: "alice" });
 
     expect((await screen.findByTestId("chat-panel")).dataset.readOnly).toBe("true");
     expect(screen.getByTestId("chat-panel").dataset.flowHumanResponseRunId).toBe("");
@@ -731,7 +643,7 @@ describe("WorkspaceShell", () => {
       activeSessionId: "flow-session",
     };
 
-    render(<WorkspaceShell slug="alice" />);
+    renderWorkspaceShell({ slug: "alice" });
 
     const chatPanel = await screen.findByTestId("chat-panel");
     expect(chatPanel.dataset.readOnly).toBe("true");
@@ -746,7 +658,7 @@ describe("WorkspaceShell", () => {
   });
 
   it("promotes a quickview file into Explore editing", async () => {
-    render(<WorkspaceShell slug="alice" />);
+    renderWorkspaceShell({ slug: "alice" });
 
     fireEvent.click(await screen.findByRole("button", { name: "Open plan preview" }));
 
@@ -760,43 +672,13 @@ describe("WorkspaceShell", () => {
     expect(readFileMock).toHaveBeenCalledWith("docs/plan.md");
   });
 
-  it("opens the Knowledge Base page from the sidebar nav", async () => {
-    render(<WorkspaceShell slug="alice" />);
+it("opens the Curator modal over the chat workspace", async () => {
+    renderWorkspaceShell({ slug: "alice" });
 
-    fireEvent.click(await screen.findByRole("button", { name: "Knowledge Base" }));
-
-    await waitFor(() => {
-      expect(routerPushMock).toHaveBeenCalledWith("/w/alice/explore");
-    });
-  });
-
-  it("toggles the sidebar with Command+B", async () => {
-    render(<WorkspaceShell slug="alice" />);
-
-    expect(await screen.findByRole("button", { name: "Collapse sessions panel" })).toBeTruthy();
-
-    window.dispatchEvent(
-      new KeyboardEvent("keydown", {
-        key: "b",
-        code: "KeyB",
-        metaKey: true,
-        bubbles: true,
-      })
-    );
-
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Expand sessions panel" })).toBeTruthy();
-    });
-  });
-
-  it("opens the Curator modal over the chat workspace", async () => {
-    render(<WorkspaceShell slug="alice" />);
-
-    fireEvent.click(await screen.findByRole("button", { name: "Curator" }));
+    await openCuratorFromCommandPalette();
 
     const curator = await screen.findByTestId("curator-dialog");
     expect(curator.dataset.open).toBe("true");
-    expect(screen.getByRole("button", { name: "Collapse sessions panel" })).toBeTruthy();
     expect(screen.getByText("Chat Panel")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Close curator" }));
@@ -809,7 +691,7 @@ describe("WorkspaceShell", () => {
   it("shows fallback quickview content when preview file loading fails", async () => {
     readFileMock.mockResolvedValueOnce(null);
 
-    render(<WorkspaceShell slug="alice" />);
+    renderWorkspaceShell({ slug: "alice" });
 
     fireEvent.click(await screen.findByRole("button", { name: "Open plan preview" }));
 
@@ -818,7 +700,7 @@ describe("WorkspaceShell", () => {
   });
 
   it("closes the quickview panel after its exit timer", async () => {
-    render(<WorkspaceShell slug="alice" />);
+    renderWorkspaceShell({ slug: "alice" });
 
     fireEvent.click(await screen.findByRole("button", { name: "Open plan preview" }));
     expect(await screen.findByText("Quickview")).toBeTruthy();
@@ -833,26 +715,8 @@ describe("WorkspaceShell", () => {
     expect(screen.queryByText("Quickview")).toBeNull();
   });
 
-  it("caps the Curator badge label at 99 plus", async () => {
-    workspaceMockOverrides = {
-      diffs: Array.from({ length: 120 }, (_, index) => ({
-        additions: 1,
-        conflicted: false,
-        deletions: 0,
-        diff: "",
-        path: `note-${index}.md`,
-        status: "modified",
-      })),
-    };
-
-    render(<WorkspaceShell slug="alice" />);
-
-    expect(await screen.findByLabelText("120 pending")).toBeTruthy();
-    expect(screen.getAllByText("99+")).toHaveLength(1);
-  });
-
   it("opens the command palette with Command+K", async () => {
-    render(<WorkspaceShell slug="alice" />);
+    renderWorkspaceShell({ slug: "alice" });
 
     window.dispatchEvent(
       new KeyboardEvent("keydown", {
@@ -867,121 +731,4 @@ describe("WorkspaceShell", () => {
     });
   });
 
-  it("hydrates layout from the cookie when localStorage is empty", async () => {
-    document.cookie = `arche-workspace-layout-alice=${encodeURIComponent(JSON.stringify({
-      leftWidth: 264,
-      rightWidth: 418,
-      leftCollapsed: false,
-      rightCollapsed: true,
-      rightTab: "preview",
-    }))}; Path=/`;
-
-    render(<WorkspaceShell slug="alice" />);
-
-    await waitFor(() => {
-      expect(window.localStorage.getItem("arche.workspace.alice.layout")).toContain('"rightCollapsed":true');
-    });
-
-    const leftPanelWrapper = screen.getByTestId("panes-left");
-
-    expect(leftPanelWrapper.style.width).toBe("264px");
-  });
-
-  it("hydrates layout from the initial server state", async () => {
-    render(
-      <WorkspaceShell
-        slug="alice"
-        initialLayoutState={{
-          leftWidth: 288,
-          rightWidth: 410,
-          leftCollapsed: true,
-          rightCollapsed: true,
-          rightTab: "preview",
-        }}
-      />
-    );
-
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Expand sessions panel" })).toBeTruthy();
-    });
-  });
-
-  it("persists layout changes to localStorage and cookies", async () => {
-    render(<WorkspaceShell slug="alice" />);
-
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Collapse sessions panel" })).toBeTruthy();
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "Collapse sessions panel" }));
-
-    await waitFor(() => {
-      expect(window.localStorage.getItem("arche.workspace.alice.layout")).toContain('"leftCollapsed":true');
-    });
-
-    expect(readCookieValue("arche-workspace-layout-alice")).toContain('"leftCollapsed":true');
-  });
-
-  it("takes the Curator badge count from the dialog without refetching it", async () => {
-    render(<WorkspaceShell slug="alice" />);
-
-    fireEvent.click(await screen.findByRole("button", { name: "Curator" }));
-    await screen.findByTestId("curator-dialog");
-
-    const learningCalls = () => (globalThis.fetch as unknown as { mock: { calls: unknown[][] } })
-      .mock.calls.filter(([input]) => String(input).endsWith("/learning")).length;
-    await waitFor(() => expect(learningCalls()).toBeGreaterThan(0));
-    const callsBefore = learningCalls();
-
-    fireEvent.click(screen.getByRole("button", { name: "Report proposal count" }));
-
-    expect(await screen.findByLabelText("3 pending")).toBeTruthy();
-    expect(learningCalls()).toBe(callsBefore);
-  });
-
-  it("refetches the knowledge pending count when entering Curator", async () => {
-    render(<WorkspaceShell slug="alice" />);
-
-    await screen.findByRole("button", { name: "New chat" });
-    const learningCalls = () => (globalThis.fetch as unknown as { mock: { calls: unknown[][] } })
-      .mock.calls.filter(([input]) => String(input).endsWith("/learning")).length;
-    await waitFor(() => expect(learningCalls()).toBeGreaterThan(0));
-    const callsBefore = learningCalls();
-
-    fireEvent.click(screen.getByRole("button", { name: "Curator" }));
-
-    await waitFor(() => expect(learningCalls()).toBeGreaterThan(callsBefore));
-    expect(screen.getByTestId("curator-dialog").dataset.open).toBe("true");
-  });
-
-  it("shows chat as default view in compact layout", async () => {
-    setViewportWidth(720);
-    render(<WorkspaceShell slug="alice" />);
-
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Open navigate panel" })).toBeTruthy();
-    });
-
-    expect(screen.getByText("Chat Panel")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Open review panel" })).toBeNull();
-  });
-
-  it("switches to full-screen left panel and back in compact layout", async () => {
-    setViewportWidth(720);
-    render(<WorkspaceShell slug="alice" />);
-
-    fireEvent.click(await screen.findByRole("button", { name: "Open navigate panel" }));
-
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "New chat" })).toBeTruthy();
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "Show chat" }));
-
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Show chat" }).getAttribute("aria-pressed")).toBe("true");
-    });
-
-    expect(screen.getByText("Chat Panel")).toBeTruthy();
-  });
 });

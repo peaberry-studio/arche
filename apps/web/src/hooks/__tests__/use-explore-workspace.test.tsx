@@ -4,6 +4,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { stubBrowserStorage } from "@/__tests__/storage";
+import { WorkspaceRuntimeProvider } from "@/contexts/workspace-runtime-context";
 import { useExploreWorkspace } from "@/hooks/use-explore-workspace";
 
 const connectionMock = {
@@ -24,6 +25,22 @@ vi.mock("@/hooks/use-workspace-connection", () => ({
 vi.mock("@/hooks/use-instance-heartbeat", () => ({
   useInstanceHeartbeat: () => undefined,
 }));
+
+vi.mock("@/hooks/use-instance-startup", () => ({
+  useInstanceStartup: () => ({ instanceStatus: "running", instanceError: null }),
+}));
+
+function renderExploreHook(
+  callback: () => ReturnType<typeof useExploreWorkspace>,
+) {
+  return renderHook(callback, {
+    wrapper: ({ children }) => (
+      <WorkspaceRuntimeProvider slug="alice" persistenceScope="alice">
+        {children}
+      </WorkspaceRuntimeProvider>
+    ),
+  })
+}
 
 const opencodeMocks = vi.hoisted(() => ({
   loadFileTreeAction: vi.fn(),
@@ -80,7 +97,7 @@ describe("useExploreWorkspace", () => {
   });
 
   it("loads the file tree once connected", async () => {
-    const { result } = renderHook(() =>
+    const { result } = renderExploreHook(() =>
       useExploreWorkspace({ slug: "alice", storageScope: "alice" })
     );
 
@@ -96,7 +113,7 @@ describe("useExploreWorkspace", () => {
   });
 
   it("opens a file into the multi-file tabs and loads its content", async () => {
-    const { result } = renderHook(() =>
+    const { result } = renderExploreHook(() =>
       useExploreWorkspace({ slug: "alice", storageScope: "alice" })
     );
 
@@ -117,7 +134,7 @@ describe("useExploreWorkspace", () => {
   });
 
   it("seeds the active file from the initial file path", async () => {
-    const { result } = renderHook(() =>
+    const { result } = renderExploreHook(() =>
       useExploreWorkspace({
         slug: "alice",
         storageScope: "alice",
@@ -132,7 +149,7 @@ describe("useExploreWorkspace", () => {
   });
 
   it("saves file edits through the workspace agent and refreshes diffs", async () => {
-    const { result } = renderHook(() =>
+    const { result } = renderExploreHook(() =>
       useExploreWorkspace({ slug: "alice", storageScope: "alice", initialFilePath: "docs/plan.md" })
     );
 
@@ -161,7 +178,7 @@ describe("useExploreWorkspace", () => {
     workspaceAgentMocks.readWorkspaceFileAction.mockResolvedValue({ ok: false, error: "not_found" });
     opencodeMocks.readFileAction.mockResolvedValue({ ok: false, error: "not_found" });
 
-    const { result } = renderHook(() =>
+    const { result } = renderExploreHook(() =>
       useExploreWorkspace({ slug: "alice", storageScope: "alice", initialFilePath: "docs/plan.md" })
     );
 
@@ -178,7 +195,7 @@ describe("useExploreWorkspace", () => {
   });
 
   it("persists and restores open files across remounts", async () => {
-    const first = renderHook(() =>
+    const first = renderExploreHook(() =>
       useExploreWorkspace({ slug: "alice", storageScope: "alice", initialFilePath: "docs/plan.md" })
     );
     await waitFor(() => {
@@ -190,7 +207,7 @@ describe("useExploreWorkspace", () => {
     });
     first.unmount();
 
-    const second = renderHook(() => useExploreWorkspace({ slug: "alice", storageScope: "alice" }));
+    const second = renderExploreHook(() => useExploreWorkspace({ slug: "alice", storageScope: "alice" }));
     await waitFor(() => {
       expect(second.result.current.openFilePaths).toEqual(["docs/plan.md", "docs/linked.md"]);
     });
@@ -198,7 +215,7 @@ describe("useExploreWorkspace", () => {
   });
 
   it("ignores protected initial file paths", async () => {
-    const { result } = renderHook(() =>
+    const { result } = renderExploreHook(() =>
       useExploreWorkspace({
         slug: "alice",
         storageScope: "alice",
@@ -217,7 +234,7 @@ describe("useExploreWorkspace", () => {
   });
 
   it("refuses to open protected paths from the file tree", async () => {
-    const { result } = renderHook(() =>
+    const { result } = renderExploreHook(() =>
       useExploreWorkspace({ slug: "alice", storageScope: "alice" })
     );
 
@@ -241,7 +258,7 @@ describe("useExploreWorkspace", () => {
       error: "write_conflict",
     });
 
-    const { result } = renderHook(() =>
+    const { result } = renderExploreHook(() =>
       useExploreWorkspace({ slug: "alice", storageScope: "alice", initialFilePath: "docs/plan.md" })
     );
 
@@ -259,7 +276,7 @@ describe("useExploreWorkspace", () => {
   });
 
   it("falls back to the last remaining tab when the active file is closed", async () => {
-    const { result } = renderHook(() =>
+    const { result } = renderExploreHook(() =>
       useExploreWorkspace({ slug: "alice", storageScope: "alice", initialFilePath: "docs/plan.md" })
     );
 
@@ -286,7 +303,7 @@ describe("useExploreWorkspace", () => {
   });
 
   it("downloads files with the workspace slug", async () => {
-    const { result } = renderHook(() =>
+    const { result } = renderExploreHook(() =>
       useExploreWorkspace({ slug: "alice", storageScope: "alice", initialFilePath: "docs/plan.md" })
     );
 

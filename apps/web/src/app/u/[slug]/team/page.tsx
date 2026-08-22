@@ -1,7 +1,6 @@
 import { redirect } from 'next/navigation'
 
-import { getCurrentDesktopVault, getDesktopWorkspaceHref } from '@/lib/runtime/desktop/current-vault'
-import { isDesktop } from '@/lib/runtime/mode'
+import { getWorkspaceHref } from '@/lib/workspace-hrefs'
 
 export default async function TeamPage({
   params
@@ -9,15 +8,5 @@ export default async function TeamPage({
   params: Promise<{ slug: string }>
 }) {
   const { slug } = await params
-
-  if (isDesktop()) {
-    const vault = getCurrentDesktopVault()
-    if (!vault) {
-      redirect('/')
-    }
-
-    redirect(getDesktopWorkspaceHref('local', 'providers'))
-  }
-
-  redirect(`/u/${slug}/settings?section=team`)
+  redirect(getWorkspaceHref(slug, { settings: 'team' }))
 }

@@ -75,7 +75,7 @@ describe('LoginPage', () => {
     expect(await screen.findByText('alice@example.com')).toBeTruthy()
 
     await waitFor(() => {
-      expect(pushMock).toHaveBeenCalledWith('/u/alice')
+      expect(pushMock).toHaveBeenCalledWith('/w/alice')
     })
   })
 

@@ -1,7 +1,6 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import {
   BookOpenText,
   Check,
@@ -11,44 +10,35 @@ import {
 } from '@phosphor-icons/react'
 
 import { Button } from '@/components/ui/button'
+import type { AgentCatalogItem } from '@/hooks/use-workspace'
+import type { SkillListItem } from '@/hooks/use-skills-catalog'
 import { cn } from '@/lib/utils'
-import { setWorkspaceStartPrompt } from '@/lib/workspace-start-prompt'
 
 type RecentUpdate = {
   fileName: string
   filePath: string
 }
 
-type AgentItem = {
-  id: string
-  displayName: string
-  description?: string
-  isPrimary?: boolean
-}
-
-type SkillItem = {
-  name: string
-  description?: string
-}
-
-type DashboardHeroProps = {
-  slug: string
-  agents: AgentItem[]
-  recentUpdates: RecentUpdate[]
-  skills?: SkillItem[]
+type WorkspaceChatEmptyComposerProps = {
+  agents: AgentCatalogItem[]
+  onSendMessage: (
+    text: string,
+    model?: { providerId: string; modelId: string },
+    options?: { forceNewSession?: boolean; contextPaths?: string[] }
+  ) => Promise<boolean> | boolean
+  recentUpdates?: RecentUpdate[]
+  skills?: SkillListItem[]
 }
 
 type ToggleId = 'knowledge' | 'experts' | 'skills'
 
-export function DashboardHero({
-  slug,
+export function WorkspaceChatEmptyComposer({
   agents,
-  recentUpdates,
+  onSendMessage,
+  recentUpdates = [],
   skills = [],
-}: DashboardHeroProps) {
-  const router = useRouter()
+}: WorkspaceChatEmptyComposerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const [inputValue, setInputValue] = useState('')
   const [openToggle, setOpenToggle] = useState<ToggleId | null>(null)
@@ -56,7 +46,6 @@ export function DashboardHero({
   const [selectedExpert, setSelectedExpert] = useState<string | null>(null)
   const [selectedSkills, setSelectedSkills] = useState<Set<string>>(() => new Set())
 
-  // Close any open toggle on outside click and on Escape.
   useEffect(() => {
     if (!openToggle) return
 
@@ -104,15 +93,10 @@ export function DashboardHero({
     const prompt = composePrompt()
     if (!prompt) return
 
-    try {
-      setWorkspaceStartPrompt(window.sessionStorage, slug, {
-        text: prompt,
-        contextPaths: Array.from(selectedFiles),
-      })
-    } catch {
-      // ignore — if storage is unavailable, fallback is just navigation
-    }
-    router.push(`/w/${slug}`)
+    void onSendMessage(prompt, undefined, {
+      forceNewSession: true,
+      contextPaths: Array.from(selectedFiles),
+    })
   }
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -159,7 +143,6 @@ export function DashboardHero({
         className="relative rounded-3xl border border-border/60 bg-card/70 px-4 pb-4 pt-3.5 shadow-subtle backdrop-blur-md transition-shadow focus-within:border-border/80 focus-within:shadow-md sm:px-5 sm:pb-5 sm:pt-4"
       >
         <textarea
-          ref={textareaRef}
           value={inputValue}
           onChange={handleInputChange}
           onKeyDown={handleKeyDown}
@@ -364,7 +347,7 @@ function ExpertsPanel({
   selected,
   onSelect,
 }: {
-  agents: AgentItem[]
+  agents: AgentCatalogItem[]
   selected: string | null
   onSelect: (id: string) => void
 }) {
@@ -417,11 +400,7 @@ function ExpertsPanel({
                 >
                   {agent.displayName}
                 </span>
-                {agent.description ? (
-                  <span className="block truncate text-xs text-muted-foreground">
-                    {agent.description}
-                  </span>
-                ) : (
+                {agent.displayName !== agent.id && (
                   <span className="block truncate text-xs text-muted-foreground/70">
                     @{agent.id}
                   </span>
@@ -448,7 +427,7 @@ function SkillsPanel({
   selected,
   onToggle,
 }: {
-  skills: SkillItem[]
+  skills: SkillListItem[]
   selected: Set<string>
   onToggle: (name: string) => void
 }) {

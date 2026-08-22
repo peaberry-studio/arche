@@ -141,7 +141,7 @@ describe('GET /api/connectors/oauth/callback', () => {
     } as never)
 
     expect(response.headers.get('location')).toBe(
-      'https://arche.example.com/u/slack-bot/connectors?oauth=success'
+      'https://arche.example.com/w/slack-bot?settings=connectors&oauth=success'
     )
   })
 

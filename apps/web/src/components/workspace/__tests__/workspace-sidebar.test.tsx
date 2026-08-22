@@ -6,6 +6,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WorkspaceSidebar } from "@/components/workspace/workspace-sidebar";
 import type { WorkspaceSession } from "@/lib/opencode/types";
 
+const navigation = vi.hoisted(() => ({
+  pathname: null as string | null,
+  searchParams: null as URLSearchParams | null,
+}));
+
+vi.mock("next/navigation", () => ({
+  usePathname: () => navigation.pathname,
+  useSearchParams: () => navigation.searchParams,
+}));
+
 const sessionFixtures: WorkspaceSession[] = [
   {
     id: "chat-1",
@@ -74,6 +84,8 @@ describe("WorkspaceSidebar", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    navigation.pathname = null;
+    navigation.searchParams = null;
   });
 
   it("renders the brand/header with Arche", () => {
@@ -130,6 +142,44 @@ describe("WorkspaceSidebar", () => {
     expect(onNavAgents).toHaveBeenCalledTimes(1);
     expect(onNavSkills).toHaveBeenCalledTimes(1);
     expect(onNavFlows).toHaveBeenCalledTimes(1);
+  });
+
+  it("marks Knowledge Base as the active nav on the explore route", () => {
+    navigation.pathname = "/w/alice/explore";
+    renderSidebar();
+
+    const knowledgeBase = screen.getByRole("button", { name: "Knowledge Base" });
+    expect(knowledgeBase.getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Agents" }).getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByRole("button", { name: "Skills" }).getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByRole("button", { name: "Flows" }).getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("marks Agents and Skills active from the catalog query param", () => {
+    navigation.searchParams = new URLSearchParams("catalog=agents");
+    renderSidebar();
+
+    expect(screen.getByRole("button", { name: "Agents" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Skills" }).getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByRole("button", { name: "Knowledge Base" }).getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("marks Flows active from the flows query param", () => {
+    navigation.searchParams = new URLSearchParams("flows=list");
+    renderSidebar();
+
+    expect(screen.getByRole("button", { name: "Flows" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Agents" }).getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("prefers flows over catalog and explore for the active nav", () => {
+    navigation.pathname = "/w/alice/explore";
+    navigation.searchParams = new URLSearchParams("flows=list&catalog=agents");
+    renderSidebar();
+
+    expect(screen.getByRole("button", { name: "Flows" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Agents" }).getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByRole("button", { name: "Knowledge Base" }).getAttribute("aria-pressed")).toBe("false");
   });
 
   it("renders the unified sessions list with chats and flow badges", () => {

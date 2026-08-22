@@ -10,16 +10,20 @@ import { SkillsList } from '@/components/skills/skills-list'
 import { Button } from '@/components/ui/button'
 import { useAgentsCatalog } from '@/hooks/use-agents-catalog'
 import { useSkillsCatalog } from '@/hooks/use-skills-catalog'
+import { getWorkspaceCatalogHref } from '@/lib/workspace-hrefs'
 
 type SkillsPageClientProps = {
+  createHref?: string
   isAdmin: boolean
+  onEdit?: (skillName: string) => void
   slug: string
 }
 
-export function SkillsPageClient({ slug, isAdmin }: SkillsPageClientProps) {
+export function SkillsPageClient({ slug, isAdmin, createHref, onEdit }: SkillsPageClientProps) {
   const { skills, hash, isLoading, loadError, reload } = useSkillsCatalog(slug)
   const { agents } = useAgentsCatalog(slug)
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false)
+  const createSkillHref = createHref ?? getWorkspaceCatalogHref(slug, 'skills', 'new')
 
   const agentOptions = useMemo(
     () => agents.map((agent) => ({ id: agent.id, displayName: agent.displayName, isPrimary: agent.isPrimary })),
@@ -42,7 +46,7 @@ export function SkillsPageClient({ slug, isAdmin }: SkillsPageClientProps) {
               Import skill
             </Button>
             <Button type="button" variant="outline" asChild>
-              <Link href={`/u/${slug}/skills/new`}>Create skill</Link>
+              <Link href={createSkillHref}>Create skill</Link>
             </Button>
           </div>
         ) : null}
@@ -73,7 +77,7 @@ export function SkillsPageClient({ slug, isAdmin }: SkillsPageClientProps) {
             title="No skills configured yet"
             description="Skills are reusable instructions and resources you can attach to agents. Create one from scratch or import a bundle to get started."
             primaryAction={
-              isAdmin ? { label: 'Create your first skill', href: `/u/${slug}/skills/new` } : undefined
+              isAdmin ? { label: 'Create your first skill', href: createSkillHref } : undefined
             }
             secondaryAction={
               isAdmin ? { label: 'Import skill', onClick: () => setIsImportDialogOpen(true) } : undefined
@@ -84,6 +88,7 @@ export function SkillsPageClient({ slug, isAdmin }: SkillsPageClientProps) {
             slug={slug}
             skills={skills}
             isAdmin={isAdmin}
+            onEdit={onEdit}
             emptyMessage="No skills configured yet."
           />
         )

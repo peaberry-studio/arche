@@ -4,7 +4,16 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { stubBrowserStorage } from "@/__tests__/storage";
+import { WorkspaceRuntimeProvider } from "@/contexts/workspace-runtime-context";
 import { ExploreShell } from "@/components/workspace/explore-shell";
+
+function renderExploreShell(props: Parameters<typeof ExploreShell>[0]) {
+  return render(
+    <WorkspaceRuntimeProvider slug={props.slug ?? "alice"} persistenceScope={props.persistenceScope ?? props.slug ?? "alice"}>
+      <ExploreShell {...props} />
+    </WorkspaceRuntimeProvider>
+  )
+}
 
 const { ensureInstanceRunningActionMock } = vi.hoisted(() => ({
   ensureInstanceRunningActionMock: vi.fn().mockResolvedValue({ status: "running" }),
@@ -23,10 +32,26 @@ const workspaceOverrides = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: routerPushMock, replace: vi.fn() }),
+  useSearchParams: () => null,
 }));
 
 vi.mock("@/actions/spawner", () => ({
   ensureInstanceRunningAction: ensureInstanceRunningActionMock,
+}));
+
+const instanceStartupMock = vi.hoisted(() => vi.fn())
+const connectionMock = vi.hoisted(() => vi.fn())
+
+vi.mock("@/hooks/use-instance-startup", () => ({
+  useInstanceStartup: () => instanceStartupMock(),
+}));
+
+vi.mock("@/hooks/use-workspace-connection", () => ({
+  useWorkspaceConnection: () => connectionMock(),
+}));
+
+vi.mock("@/hooks/use-instance-heartbeat", () => ({
+  useInstanceHeartbeat: () => undefined,
 }));
 
 vi.mock("@/contexts/workspace-theme-context", () => ({
@@ -129,6 +154,11 @@ describe("ExploreShell", () => {
     workspaceOverrides.current = { openFiles: [], openFilePaths: [], activeFilePath: null };
     ensureInstanceRunningActionMock.mockReset();
     ensureInstanceRunningActionMock.mockResolvedValue({ status: "running" });
+    instanceStartupMock.mockReturnValue({ instanceStatus: "running", instanceError: null });
+    connectionMock.mockReturnValue({
+      connection: { status: "connected" },
+      isConnected: true,
+    });
     vi.spyOn(HTMLDivElement.prototype, "getBoundingClientRect").mockReturnValue({
       x: 0,
       y: 0,
@@ -156,21 +186,17 @@ describe("ExploreShell", () => {
   });
 
   it("shows a startup failure when the instance errors", async () => {
-    ensureInstanceRunningActionMock.mockResolvedValueOnce({
-      status: "error",
-      error: "start_timeout",
-    });
+    instanceStartupMock.mockReturnValue({ instanceStatus: "error", instanceError: "Workspace startup timed out. Try restarting again." });
 
-    render(<ExploreShell slug="alice" persistenceScope="alice" />);
+    renderExploreShell({ slug: "alice", persistenceScope: "alice" });
 
     expect(await screen.findByText("Failed to start")).toBeTruthy();
     expect(screen.getByText("Workspace startup timed out. Try restarting again.")).toBeTruthy();
   });
 
-  it("renders the explore header, tree, and empty state once running", async () => {
-    render(<ExploreShell slug="alice" persistenceScope="alice" />);
+  it("renders the explore tree and empty state once running", async () => {
+    renderExploreShell({ slug: "alice", persistenceScope: "alice" });
 
-    expect(await screen.findByText("Back to Sessions")).toBeTruthy();
     expect(await screen.findByRole("button", { name: "Open from tree" })).toBeTruthy();
     expect(await screen.findByText("Browse your knowledge base")).toBeTruthy();
   });
@@ -182,7 +208,7 @@ describe("ExploreShell", () => {
       openFiles: [{ path: "docs/plan.md" }],
     };
 
-    render(<ExploreShell slug="alice" persistenceScope="alice" />);
+    renderExploreShell({ slug: "alice", persistenceScope: "alice" });
 
     const filesPanel = await screen.findByRole("button", { name: "Files Panel" });
     expect(filesPanel.dataset.panelMode).toBe("files");
@@ -190,18 +216,15 @@ describe("ExploreShell", () => {
     expect(screen.queryByText("Browse your knowledge base")).toBeNull();
   });
 
-  it("navigates back to sessions with the Explore header button", async () => {
-    render(<ExploreShell slug="alice" persistenceScope="alice" />);
+  it("does not render a Back to Sessions header (sidebar handles navigation)", async () => {
+    renderExploreShell({ slug: "alice", persistenceScope: "alice" });
 
-    fireEvent.click(await screen.findByRole("button", { name: "Back to Sessions" }));
-
-    await waitFor(() => {
-      expect(routerPushMock).toHaveBeenCalledWith("/w/alice");
-    });
+    await screen.findByRole("button", { name: "Open from tree" });
+    expect(screen.queryByRole("button", { name: "Back to Sessions" })).toBeNull();
   });
 
   it("opens a file from the tree panel into the editor", async () => {
-    render(<ExploreShell slug="alice" persistenceScope="alice" />);
+    renderExploreShell({ slug: "alice", persistenceScope: "alice" });
 
     fireEvent.click(await screen.findByRole("button", { name: "Open from tree" }));
 
@@ -211,7 +234,7 @@ describe("ExploreShell", () => {
   });
 
   it("switches the nav panel between Tree and Graph views", async () => {
-    render(<ExploreShell slug="alice" persistenceScope="alice" />);
+    renderExploreShell({ slug: "alice", persistenceScope: "alice" });
 
     expect(await screen.findByRole("button", { name: "Show Graph" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Show Graph" }));
@@ -223,7 +246,7 @@ describe("ExploreShell", () => {
 
   it("toggles between tree and viewer on compact layouts", async () => {
     setViewportWidth(700);
-    render(<ExploreShell slug="alice" persistenceScope="alice" />);
+    renderExploreShell({ slug: "alice", persistenceScope: "alice" });
 
     expect(await screen.findByRole("button", { name: "Close file tree" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Close file tree" }).getAttribute("aria-pressed")).toBe("true");

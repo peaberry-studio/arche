@@ -4,29 +4,32 @@ import { useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 
 import { SkillForm } from '@/components/skills/skill-form'
+import { getWorkspaceCatalogHref } from '@/lib/workspace-hrefs'
 
 type WebSkillFormProps = {
+  backHref?: string
   mode: 'create' | 'edit'
   skillName?: string
   slug: string
 }
 
-export function WebSkillForm({ slug, mode, skillName }: WebSkillFormProps) {
+export function WebSkillForm({ slug, mode, skillName, backHref }: WebSkillFormProps) {
   const router = useRouter()
+  const listHref = backHref ?? getWorkspaceCatalogHref(slug, 'skills')
 
   const handleCancel = useCallback(() => {
-    router.push(`/u/${slug}/skills`)
-  }, [router, slug])
+    router.push(listHref)
+  }, [listHref, router])
 
   const handleDelete = useCallback(() => {
-    router.push(`/u/${slug}/skills`)
-  }, [router, slug])
+    router.push(listHref)
+  }, [listHref, router])
 
   const handleSave = useCallback(async ({ mode: currentMode }: { mode: 'create' | 'edit'; name: string }) => {
     if (currentMode === 'create') {
-      router.push(`/u/${slug}/skills`)
+      router.push(listHref)
     }
-  }, [router, slug])
+  }, [listHref, router])
 
   return (
     <SkillForm

@@ -224,7 +224,6 @@ export function selectVisiblePermissions(
 export type UseWorkspaceOptions = {
   slug: string;
   storageScope?: string;
-  initialSessionId?: string | null;
   /** Poll interval in ms for session status updates */
   pollInterval?: number;
   /** Skip connection attempts when false */

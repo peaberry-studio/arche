@@ -1,12 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
-import { ArrowLineLeft, File, TreeStructure } from "@phosphor-icons/react";
+import { File, TreeStructure } from "@phosphor-icons/react";
 
 import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
+import { useWorkspaceRuntime } from "@/contexts/workspace-runtime-context";
 import { useExploreWorkspace } from "@/hooks/use-explore-workspace";
-import { useInstanceStartup } from "@/hooks/use-instance-startup";
 import type { KnowledgeGraphAgentSource } from "@/lib/kb-graph";
 import { cn } from "@/lib/utils";
 import {
@@ -15,6 +14,7 @@ import {
   readWorkspacePanelState,
 } from "@/lib/workspace-panel-state";
 
+import { CuratorDialog } from "./curator-dialog";
 import { InspectorPanel } from "./inspector-panel";
 import { KnowledgeEmptyState } from "./knowledge-empty-state";
 import {
@@ -22,10 +22,7 @@ import {
   type KnowledgeNavigationView,
 } from "./knowledge-navigation-panel";
 import { MIN_LEFT_PX, MIN_RIGHT_PX, WorkspacePanes } from "./workspace-panes";
-import {
-  WorkspaceConnectingScreen,
-  WorkspaceStartupScreen,
-} from "./workspace-startup-screens";
+import { WorkspaceConnectingBanner } from "./workspace-startup-screens";
 
 type ExploreShellProps = {
   slug: string;
@@ -54,10 +51,17 @@ export function ExploreShell({
   workspaceAgentEnabled = true,
   reaperEnabled = true,
 }: ExploreShellProps) {
-  const router = useRouter();
-
-  // Instance startup state
-  const { instanceStatus, instanceError } = useInstanceStartup(slug);
+  // Instance startup state comes from the layout-level runtime provider so
+  // chat ↔ explore navigation does not re-run the startup waterfall.
+  const {
+    connection,
+    curatorOpen,
+    instanceStatus,
+    instanceError,
+    isConnected,
+    setCuratorOpen,
+    setKnowledgePendingCount,
+  } = useWorkspaceRuntime();
 
   const workspace = useExploreWorkspace({
     slug,
@@ -164,27 +168,17 @@ export function ExploreShell({
   const themeClassName = `theme-${themeId}`;
 
   // Loading screen while instance is starting
-  if (instanceStatus !== "running") {
-    return (
-      <WorkspaceStartupScreen
-        slug={slug}
-        instanceStatus={instanceStatus}
-        instanceError={instanceError}
-        macDesktopWindowInset={macDesktopWindowInset}
-      />
-    );
-  }
+  // The chrome stays mounted while the instance is starting / connecting; the
+  // editor center shows an in-pane banner instead of a full-viewport gate.
+  const isReady = instanceStatus === "running" && isConnected;
 
-  // Connecting to OpenCode screen
-  if (!workspace.isConnected) {
-    return (
-      <WorkspaceConnectingScreen
-        slug={slug}
-        connection={workspace.connection}
-        macDesktopWindowInset={macDesktopWindowInset}
-      />
-    );
-  }
+  const connectingBanner = (
+    <WorkspaceConnectingBanner
+      connection={connection}
+      instanceError={instanceError}
+      instanceStatus={instanceStatus}
+    />
+  );
 
   const navigationPanelElement = (
     <KnowledgeNavigationPanel
@@ -207,7 +201,7 @@ export function ExploreShell({
     />
   );
 
-  const editorPanelElement = workspace.openFiles.length === 0 ? (
+  const editorPanelElement = !isReady ? connectingBanner : workspace.openFiles.length === 0 ? (
     <KnowledgeEmptyState />
   ) : (
     <InspectorPanel
@@ -240,6 +234,11 @@ export function ExploreShell({
   const isTreeActive = mobileView === "tree";
   const isEditorActive = mobileView === "editor";
 
+  const handleKnowledgeReviewApplied = useCallback(() => {
+    void workspace.refreshDiffs();
+    void workspace.refreshFiles();
+  }, [workspace]);
+
   return (
     <div
       className={cn(
@@ -249,30 +248,24 @@ export function ExploreShell({
         themeClassName,
       )}
     >
-      <header
-        className={cn(
-          "flex h-12 shrink-0 items-center justify-between gap-2 border-b border-border/40 px-3",
-          macDesktopWindowInset && "desktop-titlebar-drag pl-[88px]"
-        )}
-      >
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="type-display truncate text-base font-semibold tracking-tight">Arche</span>
-          <span className="text-sm text-muted-foreground">/</span>
-          <span className="truncate text-sm font-medium text-card-foreground">Knowledge Base</span>
-        </div>
-        <button
-          type="button"
-          onClick={() => router.push(`/w/${slug}`)}
-          className={cn(
-            "flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground",
-            macDesktopWindowInset && "desktop-titlebar-no-drag"
-          )}
-        >
-          <ArrowLineLeft size={13} weight="bold" />
-          Back to Sessions
-        </button>
-      </header>
-
+      <CuratorDialog
+        open={curatorOpen}
+        onOpenChange={setCuratorOpen}
+        slug={slug}
+        workspaceAgentEnabled={workspaceAgentEnabled}
+        diffs={workspace.diffs}
+        isLoadingDiffs={workspace.isLoadingDiffs}
+        diffsError={workspace.diffsError}
+        onOpenFile={(path) => {
+          void workspace.onOpenFile(path)
+        }}
+        internalLinkPaths={workspace.markdownFilePaths}
+        onDiscardFileChanges={workspaceAgentEnabled ? workspace.onDiscardFileChanges : undefined}
+        onPublish={workspaceAgentEnabled ? workspace.onPublish : undefined}
+        onResolveConflict={workspaceAgentEnabled ? workspace.onResolveConflict : undefined}
+        onKnowledgeReviewApplied={handleKnowledgeReviewApplied}
+        onProposalCountChange={setKnowledgePendingCount}
+      />
       <div className="flex min-h-0 flex-1">
         {isCompactLayout ? (
           <>

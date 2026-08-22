@@ -14,14 +14,6 @@ type WorkspaceThemeProviderProps = {
   storageScope: string
 }
 
-type DashboardNavProps = {
-  desktopMode: boolean
-  displayLabel?: string
-  hasWindowInset: boolean
-  initialExpanded: boolean
-  slug: string
-}
-
 const redirectMock = vi.hoisted(() => vi.fn((path: string) => {
   throw new Error(`REDIRECT:${path}`)
 }))
@@ -31,7 +23,6 @@ const getWorkspacePersistenceScopeMock = vi.hoisted(() => vi.fn())
 const shouldUseCurrentMacOsInsetTitleBarMock = vi.hoisted(() => vi.fn())
 const isDesktopMock = vi.hoisted(() => vi.fn())
 const getSessionMock = vi.hoisted(() => vi.fn())
-const dashboardNavProps = vi.hoisted(() => ({ current: null as DashboardNavProps | null }))
 const themeProviderProps = vi.hoisted(() => ({ current: null as WorkspaceThemeProviderProps | null }))
 
 vi.mock('next/headers', () => ({
@@ -40,17 +31,6 @@ vi.mock('next/headers', () => ({
 
 vi.mock('next/navigation', () => ({
   redirect: (path: string) => redirectMock(path),
-}))
-
-vi.mock('@/components/dashboard/dashboard-nav', () => ({
-  DashboardNav: (props: DashboardNavProps) => {
-    dashboardNavProps.current = props
-    return <nav>Dashboard nav for {props.slug}</nav>
-  },
-}))
-
-vi.mock('@/components/dashboard/dashboard-theme-shell', () => ({
-  DashboardThemeShell: ({ children }: { children: React.ReactNode }) => <section>{children}</section>,
 }))
 
 vi.mock('@/contexts/workspace-theme-context', () => ({
@@ -96,7 +76,6 @@ function mockCookies(values: Record<string, string>) {
 describe('DashboardLayout', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    dashboardNavProps.current = null
     themeProviderProps.current = null
     isDesktopMock.mockReturnValue(false)
     getCurrentDesktopVaultMock.mockReturnValue(null)
@@ -124,10 +103,9 @@ describe('DashboardLayout', () => {
     await expect(renderDashboardLayout()).rejects.toThrow('REDIRECT:/u/bob')
   })
 
-  it('renders with persisted theme cookies and desktop chrome state', async () => {
+  it('renders with persisted theme cookies', async () => {
     isDesktopMock.mockReturnValue(true)
     getCurrentDesktopVaultMock.mockReturnValue({ vaultName: 'Client Vault' })
-    shouldUseCurrentMacOsInsetTitleBarMock.mockReturnValue(true)
     getSessionMock.mockResolvedValue({ user: { role: 'ADMIN', slug: 'admin' } })
     mockCookies({
       'arche-workspace-chat-font-family-scope-alice': 'serif',
@@ -138,7 +116,6 @@ describe('DashboardLayout', () => {
 
     render(await renderDashboardLayout())
 
-    expect(screen.getByText('Dashboard nav for alice')).toBeTruthy()
     expect(screen.getByText('Dashboard child')).toBeTruthy()
     expect(themeProviderProps.current).toMatchObject({
       initialChatFontFamily: 'serif',
@@ -146,26 +123,6 @@ describe('DashboardLayout', () => {
       initialIsDark: true,
       initialThemeId: 'ocean-mist',
       storageScope: 'scope-alice',
-    })
-    expect(dashboardNavProps.current).toMatchObject({
-      desktopMode: true,
-      displayLabel: 'Client Vault',
-      hasWindowInset: true,
-      initialExpanded: true,
-      slug: 'alice',
-    })
-  })
-
-  it('restores the collapsed nav state from the persisted cookie', async () => {
-    mockCookies({
-      'arche-dashboard-nav-expanded-alice': 'false',
-    })
-
-    render(await renderDashboardLayout())
-
-    expect(dashboardNavProps.current).toMatchObject({
-      initialExpanded: false,
-      slug: 'alice',
     })
   })
 
@@ -184,13 +141,6 @@ describe('DashboardLayout', () => {
       initialChatFontSize: 15,
       initialIsDark: false,
       initialThemeId: 'warm-sand',
-    })
-    expect(dashboardNavProps.current).toMatchObject({
-      desktopMode: false,
-      displayLabel: undefined,
-      hasWindowInset: false,
-      initialExpanded: true,
-      slug: 'alice',
     })
   })
 })

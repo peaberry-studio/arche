@@ -1,15 +1,5 @@
 import { isDesktop } from '@/lib/runtime/mode'
-import { getWorkspaceHref } from '@/lib/workspace-hrefs'
-
-export const DESKTOP_SETTINGS_SECTIONS = [
-  'providers',
-  'connectors',
-  'agents',
-  'flows',
-  'skills',
-  'appearance',
-  'advanced',
-] as const
+import { getWorkspaceFlowsHref } from '@/lib/workspace-hrefs'
 
 export const DESKTOP_FLOWS_VIEWS = [
   'list',
@@ -18,7 +8,6 @@ export const DESKTOP_FLOWS_VIEWS = [
   'runs',
 ] as const
 
-export type DesktopSettingsSection = (typeof DESKTOP_SETTINGS_SECTIONS)[number]
 export type DesktopFlowsView = (typeof DESKTOP_FLOWS_VIEWS)[number]
 
 export type CurrentDesktopVault = {
@@ -30,10 +19,6 @@ export type CurrentDesktopVault = {
 function readDesktopEnv(name: string): string | null {
   const value = process.env[name]?.trim()
   return value ? value : null
-}
-
-export function isDesktopSettingsSection(value: string | null | undefined): value is DesktopSettingsSection {
-  return DESKTOP_SETTINGS_SECTIONS.includes(value as DesktopSettingsSection)
 }
 
 export function isDesktopFlowsView(value: string | null | undefined): value is DesktopFlowsView {
@@ -65,19 +50,11 @@ export function getWorkspacePersistenceScope(slug: string): string {
   return vault ? `vault:${vault.vaultId}` : slug
 }
 
-export function getDesktopWorkspaceHref(
-  slug: string,
-  section?: DesktopSettingsSection | null,
-): string {
-  return getWorkspaceHref(slug, { settings: section })
-}
-
 export function getDesktopFlowsHref(
   slug: string,
   view: DesktopFlowsView,
   flowId?: string | null,
+  sessionId?: string | null,
 ): string {
-  const params = new URLSearchParams({ flows: view })
-  if (flowId) params.set('flowId', flowId)
-  return `/w/${slug}?${params.toString()}`
+  return getWorkspaceFlowsHref(slug, view, flowId ?? null, sessionId)
 }

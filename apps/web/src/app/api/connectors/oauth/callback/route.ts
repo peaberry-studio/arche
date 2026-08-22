@@ -11,7 +11,6 @@ import {
 import { buildConfigWithOAuth } from '@/lib/connectors/oauth-config'
 import { validateConnectorType } from '@/lib/connectors/validators'
 import { getPublicBaseUrl } from '@/lib/http'
-import { getCurrentDesktopVault, getDesktopWorkspaceHref } from '@/lib/runtime/desktop/current-vault'
 import { getSession } from '@/lib/runtime/session'
 import { connectorService } from '@/lib/services'
 
@@ -37,13 +36,10 @@ function buildRedirect(
   message?: string,
   returnTo?: string,
 ): URL {
-  const desktopVault = getCurrentDesktopVault()
   const returnToPath = normalizeConnectorOAuthReturnTo(returnTo)
-  const targetPath = desktopVault
-    ? getDesktopWorkspaceHref('local', 'connectors')
-    : returnToPath
-      ? returnToPath
-      : `/u/${slug}/connectors`
+  const targetPath = returnToPath
+    ? returnToPath
+    : `/w/${slug}?settings=connectors`
   const url = new URL(targetPath, baseUrl)
   url.searchParams.set('oauth', status)
   if (message) {

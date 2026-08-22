@@ -34,6 +34,7 @@ import { AgentMentionAutocomplete } from "@/components/workspace/chat-panel/agen
 import { ChatPanelMessages } from "@/components/workspace/chat-panel/messages";
 import { ChatPanelSessionHeader } from "@/components/workspace/chat-panel/session-header";
 import type { SessionTabInfo } from "@/components/workspace/chat-panel/types";
+import { WorkspaceChatEmptyComposer } from "@/components/workspace/workspace-chat-empty-composer";
 import { StatusIndicator } from "@/components/workspace/bitmap-status-indicator";
 import { Button } from "@/components/ui/button";
 import {
@@ -81,6 +82,7 @@ type ChatPanelProps = {
   agents?: AgentCatalogItem[];
   attachmentsEnabled?: boolean;
   contextFilePaths?: string[];
+  recentUpdates?: { fileName: string; filePath: string }[];
   sessions: ChatSession[];
   skills?: SkillListItem[];
   messages: ChatMessage[];
@@ -210,6 +212,7 @@ export function ChatPanel({
   agents = EMPTY_AGENTS,
   attachmentsEnabled = true,
   contextFilePaths = EMPTY_CONTEXT_FILE_PATHS,
+  recentUpdates,
   sessions,
   skills = EMPTY_SKILLS,
   messages,
@@ -1141,6 +1144,18 @@ export function ChatPanel({
       <ChatPanelMessages
         chatContentStyle={chatContentStyle}
         connectorNamesById={connectorNamesById}
+        emptyStateElement={
+          !activeSessionId && !isReadOnly && onSendMessage ? (
+            <div className="flex h-full flex-col items-center justify-center">
+              <WorkspaceChatEmptyComposer
+                agents={agents}
+                skills={skills}
+                recentUpdates={recentUpdates}
+                onSendMessage={onSendMessage}
+              />
+            </div>
+          ) : undefined
+        }
         isInitialSessionsReady={isInitialSessionsReady}
         isLoadingMessages={isLoadingMessages}
         isStartingNewSession={isStartingNewSession}

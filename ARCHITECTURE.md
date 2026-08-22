@@ -213,8 +213,8 @@ src/
 │   │   ├── w/[slug]/       # Workspace APIs (chat streaming)
 │   │   └── instances/[slug]/ # Instance control
 │   ├── auth/               # Auth flows (login, logout, 2FA)
-│   ├── u/[slug]/           # User dashboard
-│   └── w/[slug]/           # Workspace UI
+│   ├── u/[slug]/           # Kickstart + redirects into the workspace
+│   └── w/[slug]/           # Workspace app (chat, explorer, settings, flows)
 ├── components/
 │   ├── ui/                 # shadcn/ui primitives
 │   ├── workspace/          # Workspace components

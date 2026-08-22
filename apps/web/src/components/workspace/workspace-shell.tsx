@@ -1,18 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
-import { ChatCircle, Compass, File } from "@phosphor-icons/react";
+import { ChatCircle, File } from "@phosphor-icons/react";
 
-import type { SyncKbResult } from "@/app/api/instances/[slug]/sync-kb/route";
+import { useWorkspaceRuntime } from "@/contexts/workspace-runtime-context";
 import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
-import { useInstanceStartup } from "@/hooks/use-instance-startup";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { useConfigStatus } from "@/hooks/use-config-status";
 import { useSkillsCatalog } from "@/hooks/use-skills-catalog";
 import type { WorkspaceSession } from "@/lib/opencode/types";
-import { getDesktopFlowsHref, getDesktopWorkspaceHref } from "@/lib/runtime/desktop/current-vault";
+import { getWorkspaceFlowsHref, getWorkspaceHref } from "@/lib/workspace-hrefs";
 import {
   isProtectedWorkspacePath,
   normalizeWorkspacePath,
@@ -40,14 +39,10 @@ import { ChatPanel } from "./chat-panel";
 import { ConfigChangeBanner } from "./config-change-banner";
 import { CuratorDialog } from "./curator-dialog";
 import { FilePreviewPanel } from "./file-preview-panel";
-import { WorkspaceAccountMenu } from "./workspace-account-menu";
+import { WorkspaceCatalogView } from "./workspace-catalog-view";
 import { WorkspaceCommandPalette } from "./workspace-command-palette";
-import { COLLAPSED_PANEL_PX, MIN_LEFT_PX, MIN_RIGHT_PX, WorkspacePanes } from "./workspace-panes";
-import { WorkspaceSidebar } from "./workspace-sidebar";
-import {
-  WorkspaceConnectingScreen,
-  WorkspaceStartupScreen,
-} from "./workspace-startup-screens";
+import { COLLAPSED_PANEL_PX, MIN_LEFT_PX, MIN_RIGHT_PX } from "./workspace-panes";
+import { WorkspaceConnectingBanner } from "./workspace-startup-screens";
 
 type WorkspaceShellProps = {
   slug: string;
@@ -57,11 +52,12 @@ type WorkspaceShellProps = {
     name: string;
     path: string;
   } | null;
-  initialSessionId?: string | null;
   initialLayoutState?: StoredLayoutState | null;
+  isAdmin?: boolean;
   macDesktopWindowInset?: boolean;
   workspaceAgentEnabled?: boolean;
   reaperEnabled?: boolean;
+  recentUpdates?: { fileName: string; filePath: string }[];
 };
 
 const MIN_CENTER_PX = 360;
@@ -70,7 +66,7 @@ const DEFAULT_RIGHT_RATIO = 0.3;
 const PANEL_GAP = 0; // Gap between floating panels in pixels
 const MOBILE_LAYOUT_BREAKPOINT =
   MIN_LEFT_PX + MIN_RIGHT_PX + MIN_CENTER_PX + 2 * PANEL_GAP + 48;
-type MobileWorkspaceView = "chat" | "left" | "right";
+type MobileWorkspaceView = "chat" | "right";
 const EMPTY_OPEN_FILE_PATHS: string[] = [];
 
 const clamp = (value: number, min: number, max: number) =>
@@ -174,41 +170,40 @@ function getSessionDepth(
   return depth;
 }
 
-function countActionableKnowledgeProposals(value: unknown): number {
-  if (!value || typeof value !== "object" || !("proposals" in value) || !Array.isArray(value.proposals)) {
-    return 0;
-  }
-
-  return value.proposals.filter((proposal) => (
-    proposal &&
-    typeof proposal === "object" &&
-    "status" in proposal &&
-    (proposal.status === "open" || proposal.status === "needs_rebase")
-  )).length;
-}
-
 export function WorkspaceShell({
   slug,
   persistenceScope,
   currentVault = null,
-  initialSessionId = null,
   initialLayoutState = null,
+  isAdmin = false,
   macDesktopWindowInset = false,
   workspaceAgentEnabled = true,
   reaperEnabled = true,
+  recentUpdates = [],
 }: WorkspaceShellProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const catalogParam = searchParams.get("catalog");
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const [isDragging, setIsDragging] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const resolvedPersistenceScope = persistenceScope ?? slug;
   const layoutCookieName = getWorkspaceLayoutCookieName(resolvedPersistenceScope);
   const layoutStorageKey = getWorkspaceLayoutStorageKey(resolvedPersistenceScope);
-  const [curatorOpen, setCuratorOpen] = useState(false);
 
-  // Instance startup state
-  const { instanceStatus, instanceError } = useInstanceStartup(slug);
+  // Instance startup state comes from the layout-level runtime provider so
+  // chat ↔ explore navigation does not re-run the startup waterfall.
+  const {
+    connection,
+    curatorOpen,
+    instanceStatus,
+    instanceError,
+    isConnected,
+    refreshKnowledgePendingCount,
+    setCuratorOpen,
+    setKnowledgePendingCount,
+    setSidebarCollapsed,
+  } = useWorkspaceRuntime();
   const [rightTab, setRightTab] = useState<"preview" | "review">("preview");
   const effectiveRightTab = workspaceAgentEnabled ? rightTab : "preview";
 
@@ -219,7 +214,6 @@ export function WorkspaceShell({
   const workspace = useWorkspace({
     slug,
     storageScope: resolvedPersistenceScope,
-    initialSessionId,
     pollInterval: 20000,
     enabled: instanceStatus === 'running',
     workspaceAgentEnabled,
@@ -239,17 +233,6 @@ export function WorkspaceShell({
   const previewOpenFrameRef = useRef<number | null>(null);
   const previewCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [learningRefreshKey, setLearningRefreshKey] = useState(0);
-  const [knowledgeProposalCount, setKnowledgeProposalCount] = useState(0);
-  const refreshKnowledgePendingCount = useCallback(async () => {
-    try {
-      const response = await fetch(`/api/u/${slug}/learning`, { cache: "no-store" });
-      const data: unknown = await response.json().catch(() => null);
-      if (!response.ok) return;
-      setKnowledgeProposalCount(countActionableKnowledgeProposals(data));
-    } catch {
-      // Keep the last known count when learning data is temporarily unavailable.
-    }
-  }, [slug]);
   const refreshKnowledgeWorkspace = useCallback(() => {
     workspace.refreshDiffs();
     workspace.refreshFiles();
@@ -361,7 +344,6 @@ export function WorkspaceShell({
   }, [resolvedPersistenceScope, workspace, workspace.isConnected]);
 
   // Layout state (global, not per-mode)
-  const [minCenterWidth, setMinCenterWidth] = useState(MIN_CENTER_PX);
   const [leftCollapsed, setLeftCollapsedState] = useState<boolean>(false);
   const [rightCollapsed, setRightCollapsedState] = useState<boolean>(false);
   const [leftWidth, setLeftWidth] = useState<number>(MIN_LEFT_PX);
@@ -404,13 +386,8 @@ export function WorkspaceShell({
   }, []);
 
   const handleToggleLeft = useCallback(() => {
-    if (isCompactLayout) {
-      setMobileView((prev) => (prev === "left" ? "chat" : "left"));
-      return;
-    }
-
-    setLeftCollapsed((prev) => !prev);
-  }, [isCompactLayout, setLeftCollapsed]);
+    setSidebarCollapsed((prev) => !prev);
+  }, [setSidebarCollapsed]);
 
   const toggleRightPanel = useCallback(() => {
     if (isCompactLayout) {
@@ -434,7 +411,6 @@ export function WorkspaceShell({
         );
 
         setRightWidth(clamp(nextRightWidth, MIN_RIGHT_PX, maxRight));
-        setMinCenterWidth(minCenter);
 
         return false;
       }
@@ -442,7 +418,6 @@ export function WorkspaceShell({
       const fitted = fitWidths(containerWidth, leftWidth, nextRightWidth);
       setLeftWidth(fitted.left);
       setRightWidth(fitted.right);
-      setMinCenterWidth(fitted.minCenter);
 
       return false;
     });
@@ -461,36 +436,20 @@ export function WorkspaceShell({
   }, [isCompactLayout]);
 
   const navigateSettings = useCallback(() => {
-    router.push(
-      currentVault ? getDesktopWorkspaceHref(slug, 'providers') : `/u/${slug}/settings`,
-    );
-  }, [currentVault, router, slug]);
-
-  const navigateConnectors = useCallback(() => {
-    router.push(
-      currentVault ? getDesktopWorkspaceHref(slug, 'connectors') : `/u/${slug}/connectors`,
-    );
-  }, [currentVault, router, slug]);
-
-  const navigateProviders = useCallback(() => {
-    router.push(
-      currentVault ? getDesktopWorkspaceHref(slug, 'providers') : `/u/${slug}/settings`,
-    );
-  }, [currentVault, router, slug]);
-
-  const handleOpenFlowsManager = useCallback(() => {
-    router.push(currentVault ? getDesktopFlowsHref(slug, 'list') : `/u/${slug}/flows`);
-  }, [currentVault, router, slug]);
-
-  const navigateAgents = useCallback(() => {
-    router.push(`/u/${slug}/agents`);
+    router.push(getWorkspaceHref(slug, { settings: 'general' }));
   }, [router, slug]);
 
-  const navigateSkills = useCallback(() => {
-    router.push(
-      currentVault ? getDesktopWorkspaceHref(slug, 'skills') : `/u/${slug}/skills`,
-    );
-  }, [currentVault, router, slug]);
+  const navigateConnectors = useCallback(() => {
+    router.push(getWorkspaceHref(slug, { settings: 'connectors' }));
+  }, [router, slug]);
+
+  const navigateProviders = useCallback(() => {
+    router.push(getWorkspaceHref(slug, { settings: 'providers' }));
+  }, [router, slug]);
+
+  const handleOpenFlowsManager = useCallback(() => {
+    router.push(getWorkspaceFlowsHref(slug, 'list'));
+  }, [router, slug]);
 
   const flattenedFilePaths = useMemo(() => {
     return flattenWorkspaceFileNodes(workspace.fileTree).map((file) => file.path);
@@ -563,11 +522,7 @@ export function WorkspaceShell({
           return;
         }
 
-        if (isCompactLayout) {
-          setMobileView((prev) => (prev === "left" ? "chat" : "left"));
-        } else {
-          setLeftCollapsed((prev) => !prev);
-        }
+        setSidebarCollapsed((prev) => !prev);
         return;
       }
 
@@ -589,15 +544,7 @@ export function WorkspaceShell({
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [handleCreateSession, isCompactLayout, setLeftCollapsed, toggleRightPanel]);
-
-  const handleSyncComplete = useCallback((status: SyncKbResult["status"]) => {
-    refreshKnowledgeReview();
-
-    if (status === "synced") {
-      void workspace.refreshFiles();
-    }
-  }, [refreshKnowledgeReview, workspace]);
+  }, [handleCreateSession, setSidebarCollapsed, toggleRightPanel]);
 
   const handlePublishComplete = useCallback(() => {
     refreshKnowledgeReview();
@@ -715,11 +662,6 @@ export function WorkspaceShell({
   }, []);
 
   // Session handlers
-  const handleSelectSession = useCallback((sessionId: string) => {
-    switchToChatOnMobile();
-    workspace.selectSession(sessionId);
-  }, [switchToChatOnMobile, workspace]);
-
   const handleCommandPaletteSelectSession = useCallback(
     (sessionId: string) => {
       switchToChatOnMobile();
@@ -731,7 +673,7 @@ export function WorkspaceShell({
   const openCurator = useCallback(() => {
     setCuratorOpen(true);
     void refreshKnowledgePendingCount();
-  }, [refreshKnowledgePendingCount]);
+  }, [refreshKnowledgePendingCount, setCuratorOpen]);
 
   const handleSelectSessionTab = useCallback((sessionId: string) => {
     workspace.selectSession(sessionId);
@@ -786,75 +728,6 @@ export function WorkspaceShell({
     ]);
   }, [workspace]);
 
-  // Resize handlers - now work via the gap area between panels
-  const handleResizeLeft = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    const container = containerRef.current;
-    if (!container) return;
-    const rect = container.getBoundingClientRect();
-    const handle = event.currentTarget;
-
-    setIsDragging(true);
-    handle.setPointerCapture(event.pointerId);
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-
-    const onMove = (moveEvent: PointerEvent) => {
-      const minCenter = getMinCenter(rect.width);
-      const effectiveRight = rightCollapsed ? COLLAPSED_PANEL_PX + PANEL_GAP : rightWidth + PANEL_GAP;
-      const maxLeft = Math.max(MIN_LEFT_PX, rect.width - effectiveRight - minCenter - PANEL_GAP);
-      const nextWidth = clamp(moveEvent.clientX - rect.left, MIN_LEFT_PX, maxLeft);
-      setLeftWidth(nextWidth);
-      setMinCenterWidth(minCenter);
-    };
-
-    const onUp = () => {
-      setIsDragging(false);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      handle.releasePointerCapture(event.pointerId);
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-    };
-
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-  }, [rightCollapsed, rightWidth]);
-
-  const handleResizeRight = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    const container = containerRef.current;
-    if (!container) return;
-    const rect = container.getBoundingClientRect();
-    const handle = event.currentTarget;
-
-    setIsDragging(true);
-    handle.setPointerCapture(event.pointerId);
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-
-    const onMove = (moveEvent: PointerEvent) => {
-      const minCenter = getMinCenter(rect.width);
-      const effectiveLeft = leftCollapsed ? COLLAPSED_PANEL_PX + PANEL_GAP : leftWidth + PANEL_GAP;
-      const maxRight = Math.max(MIN_RIGHT_PX, rect.width - effectiveLeft - minCenter - PANEL_GAP);
-      const nextWidth = clamp(rect.right - moveEvent.clientX, MIN_RIGHT_PX, maxRight);
-      setRightWidth(nextWidth);
-      setMinCenterWidth(minCenter);
-    };
-
-    const onUp = () => {
-      setIsDragging(false);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      handle.releasePointerCapture(event.pointerId);
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-    };
-
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-  }, [leftCollapsed, leftWidth]);
-
   // Load layout from localStorage (global values, ignoring legacy per-mode maps)
   useEffect(() => {
     const stored = loadStoredLayout(layoutStorageKey, layoutCookieName) ?? initialLayoutState;
@@ -865,7 +738,6 @@ export function WorkspaceShell({
     const fitted = fitWidths(containerWidth, defaultLeft, defaultRight);
     setLeftWidth(fitted.left);
     setRightWidth(fitted.right);
-    setMinCenterWidth(fitted.minCenter);
 
     if (typeof stored?.leftCollapsed === "boolean") {
       setLeftCollapsed(stored.leftCollapsed);
@@ -948,28 +820,11 @@ export function WorkspaceShell({
   const darkModeClasses = isDark ? "dark" : "";
   const themeClassName = `theme-${themeId}`;
 
-  // Loading screen while instance is starting
-  if (instanceStatus !== 'running') {
-    return (
-      <WorkspaceStartupScreen
-        slug={slug}
-        instanceStatus={instanceStatus}
-        instanceError={instanceError}
-        macDesktopWindowInset={macDesktopWindowInset}
-      />
-    );
-  }
-
-  // Connecting to OpenCode screen
-  if (!workspace.isConnected) {
-    return (
-      <WorkspaceConnectingScreen
-        slug={slug}
-        connection={workspace.connection}
-        macDesktopWindowInset={macDesktopWindowInset}
-      />
-    );
-  }
+  // The chrome (sidebar) always renders. While the instance is starting or the
+  // connection is not yet established, the center shows an in-pane banner
+  // instead of the chat panel. This keeps the sidebar mounted across
+  // chat ↔ explorer navigation.
+  const isReady = instanceStatus === 'running' && isConnected;
 
   const activeSessionRecord = workspace.activeSessionId
     ? sessionsById.get(workspace.activeSessionId) ?? null
@@ -982,6 +837,7 @@ export function WorkspaceShell({
       key={workspace.activeSessionId ?? "no-session"}
       slug={slug}
       agents={workspace.agentCatalog}
+      recentUpdates={recentUpdates}
       attachmentsEnabled={workspaceAgentEnabled}
       contextFilePaths={markdownFilePaths}
       sessions={uiSessions}
@@ -1030,7 +886,16 @@ export function WorkspaceShell({
     />
   );
 
-  const centerPanelElement = chatPanelElement;
+  const catalogActive = catalogParam === "agents" || catalogParam === "skills";
+  const centerPanelElement = catalogActive ? (
+    <WorkspaceCatalogView slug={slug} isAdmin={isAdmin} />
+  ) : isReady ? chatPanelElement : (
+    <WorkspaceConnectingBanner
+      connection={connection}
+      instanceError={instanceError}
+      instanceStatus={instanceStatus}
+    />
+  );
   const previewCacheEntry = previewFilePath && previewFile?.path === previewFilePath
     ? previewFile
     : null;
@@ -1048,53 +913,16 @@ export function WorkspaceShell({
   const hasRightPanel = hasPreviewPanel;
   const rightPanelContent = previewPanelElement;
 
-  const sidebarElement = (
-    <WorkspaceSidebar
-      activeSessionId={activeRootSessionId}
-      accountMenu={(collapsed) => (
-        <WorkspaceAccountMenu
-          slug={slug}
-          currentVault={currentVault}
-          status="active"
-          collapsed={collapsed}
-          onNavigateConnectors={navigateConnectors}
-          onNavigateProviders={navigateProviders}
-          onNavigateSettings={navigateSettings}
-          onSyncComplete={handleSyncComplete}
-        />
-      )}
-      curatorOpen={curatorOpen}
-      hasMoreSessions={workspace.hasMoreSessions}
-      isCollapsed={leftCollapsed}
-      isInitialSessionsReady={workspace.isInitialSessionsReady}
-      isLoadingMoreSessions={workspace.isLoadingMoreSessions}
-      knowledgePendingCount={workspace.diffs.length + knowledgeProposalCount}
-      macDesktopWindowInset={macDesktopWindowInset}
-      onCreateSession={handleCreateSession}
-      onLoadMoreSessions={workspace.loadMoreSessions}
-      onMarkFlowRunSeen={workspace.markFlowRunSeen}
-      onNavAgents={navigateAgents}
-      onNavCurator={openCurator}
-      onNavExplore={handleOpenExplore}
-      onNavFlows={handleOpenFlowsManager}
-      onNavSkills={navigateSkills}
-      onSelectSession={handleSelectSession}
-      onToggleCollapsed={handleToggleLeft}
-      sessions={rootSessions}
-      sessionsError={workspace.sessionsError}
-      unseenCompletedSessions={workspace.unseenCompletedSessions}
-    />
-  );
-
-  const isLeftPanelActive = mobileView === "left";
+  // The sidebar lives in WorkspaceAppChrome (layout level) so it stays mounted
+  // across chat ↔ explore navigation. The shell renders only the chat main.
   const isChatActive = mobileView === "chat";
   const isRightPanelActive = mobileView === "right";
-  const mobileLeftLabel = "Navigate";
   const mobileCenterLabel = "Chat";
   const mobileCenterAriaLabel = "Show chat";
 
   return (
     <div
+      ref={containerRef}
       className={cn(
         'flex h-dvh flex-col overflow-hidden bg-background text-foreground',
         macDesktopWindowInset && 'desktop-no-select',
@@ -1134,7 +962,7 @@ export function WorkspaceShell({
         onPublish={workspaceAgentEnabled ? handlePublishComplete : undefined}
         onResolveConflict={workspaceAgentEnabled ? handleResolveConflict : undefined}
         onKnowledgeReviewApplied={handleLearningProposalSentToReview}
-        onProposalCountChange={setKnowledgeProposalCount}
+        onProposalCountChange={setKnowledgePendingCount}
         knowledgeReviewRefreshKey={learningRefreshKey}
       />
       {!currentVault ? (
@@ -1150,15 +978,6 @@ export function WorkspaceShell({
         {isCompactLayout ? (
           <>
             <div className="relative min-h-0 flex-1">
-              <div
-                className="absolute inset-0 min-h-0 overflow-hidden px-3 pb-3"
-                style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
-                hidden={!isLeftPanelActive}
-                aria-hidden={!isLeftPanelActive}
-              >
-                {sidebarElement}
-              </div>
-
               <div
                 className="absolute inset-0 min-h-0 overflow-hidden"
                 style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
@@ -1185,7 +1004,7 @@ export function WorkspaceShell({
             <nav
               className={cn(
                 "grid shrink-0 border-t border-border/40 bg-background",
-                hasRightPanel ? "grid-cols-3" : "grid-cols-2"
+                hasRightPanel ? "grid-cols-2" : "grid-cols-1"
               )}
               style={{
                 minHeight: "calc(3.5rem + env(safe-area-inset-bottom, 0px))",
@@ -1193,22 +1012,6 @@ export function WorkspaceShell({
               }}
               aria-label="Workspace sections"
             >
-              <button
-                type="button"
-                onClick={handleToggleLeft}
-                className={cn(
-                  "flex flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] font-medium transition-colors",
-                  isLeftPanelActive
-                    ? "text-foreground"
-                    : "text-muted-foreground active:text-foreground"
-                )}
-                aria-label={isLeftPanelActive ? "Close navigate panel" : "Open navigate panel"}
-                aria-pressed={isLeftPanelActive}
-              >
-                <Compass size={22} weight={isLeftPanelActive ? "fill" : "regular"} />
-                <span>{mobileLeftLabel}</span>
-              </button>
-
               <button
                 type="button"
                 onClick={handleShowChat}
@@ -1247,23 +1050,29 @@ export function WorkspaceShell({
             </nav>
           </>
         ) : (
-          <WorkspacePanes
-            leftCollapsed={leftCollapsed}
-            leftWidth={leftWidth}
-            rightCollapsed={!previewExpanded}
-            rightCollapsedWidth={0}
-            rightWidth={rightWidth}
-            minCenterWidth={minCenterWidth}
-            isDragging={isDragging}
-            hasRightPanel={hasRightPanel}
-            macDesktopWindowInset={macDesktopWindowInset}
-            containerRef={containerRef}
-            leftElement={sidebarElement}
-            centerElement={centerPanelElement}
-            rightElement={rightPanelContent}
-            onResizeLeft={handleResizeLeft}
-            onResizeRight={handleResizeRight}
-          />
+          <div className="flex h-full min-h-0 w-full">
+            <div className="flex min-w-0 flex-1 items-stretch justify-center">
+              <div
+                data-testid="panes-center"
+                className={cn('h-full w-full min-w-0 overflow-hidden', hasRightPanel && 'border-r border-border/30')}
+              >
+                {centerPanelElement}
+              </div>
+            </div>
+
+            {hasRightPanel ? (
+              <div
+                data-testid="panes-right"
+                className="box-border shrink-0 overflow-hidden"
+                style={{
+                  width: rightCollapsed ? 0 : rightWidth,
+                  minWidth: rightCollapsed ? 0 : MIN_RIGHT_PX,
+                }}
+              >
+                {rightPanelContent}
+              </div>
+            ) : null}
+          </div>
         )}
       </div>
     </div>

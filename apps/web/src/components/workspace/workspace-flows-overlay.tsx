@@ -16,25 +16,23 @@ import {
   DialogDescription,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { getDesktopFlowsHref, type DesktopFlowsView } from '@/lib/runtime/desktop/current-vault'
+import { getWorkspaceFlowsHref, type WorkspaceFlowsView } from '@/lib/workspace-hrefs'
 import { cn } from '@/lib/utils'
 
-type DesktopFlowsDialogProps = {
-  currentView: DesktopFlowsView | null
-  flowId: string | null
+type WorkspaceFlowsOverlayProps = {
   macDesktopWindowInset?: boolean
   slackIntegrationAvailable?: boolean
   slug: string
   teamVisibilityAvailable?: boolean
 }
 
-const VIEW_LABELS: Record<DesktopFlowsView, { description: string; title: string }> = {
+const VIEW_LABELS: Record<WorkspaceFlowsView, { description: string; title: string }> = {
   edit: {
     description: 'Adjust nodes, routing, sharing, and schedule.',
     title: 'Edit flow',
   },
   list: {
-    description: 'Create, run, and manage desktop automations.',
+    description: 'Create, run, and manage automations.',
     title: 'Flows',
   },
   new: {
@@ -47,21 +45,26 @@ const VIEW_LABELS: Record<DesktopFlowsView, { description: string; title: string
   },
 }
 
-export function DesktopFlowsDialog({
-  currentView,
-  flowId,
+const VIEWS: WorkspaceFlowsView[] = ['list', 'new', 'edit', 'runs']
+
+export function WorkspaceFlowsOverlay({
   macDesktopWindowInset = false,
   slackIntegrationAvailable = false,
   slug,
   teamVisibilityAvailable = false,
-}: DesktopFlowsDialogProps) {
+}: WorkspaceFlowsOverlayProps) {
   const pathname = usePathname()
   const router = useRouter()
   const searchParams = useSearchParams()
+  const flowsParam = searchParams.get('flows')
+  const currentView: WorkspaceFlowsView | null =
+    flowsParam && (VIEWS as string[]).includes(flowsParam) ? (flowsParam as WorkspaceFlowsView) : null
+  const flowId = searchParams.get('flowId')
+  const sessionId = searchParams.get('session')
   const activeLabel = currentView ? VIEW_LABELS[currentView] : VIEW_LABELS.list
 
   const updateView = useCallback(
-    (view: DesktopFlowsView | null, nextFlowId?: string | null) => {
+    (view: WorkspaceFlowsView | null, nextFlowId?: string | null) => {
       const params = new URLSearchParams(searchParams.toString())
 
       if (view) {
@@ -85,10 +88,10 @@ export function DesktopFlowsDialog({
     [pathname, router, searchParams],
   )
 
-  const buildCreateHref = useCallback(() => getDesktopFlowsHref(slug, 'new'), [slug])
-  const buildEditHref = useCallback((id: string) => getDesktopFlowsHref(slug, 'edit', id), [slug])
-  const buildHistoryHref = useCallback((id: string) => getDesktopFlowsHref(slug, 'runs', id), [slug])
-  const listHref = getDesktopFlowsHref(slug, 'list')
+  const buildCreateHref = useCallback(() => getWorkspaceFlowsHref(slug, 'new', null, sessionId), [sessionId, slug])
+  const buildEditHref = useCallback((id: string) => getWorkspaceFlowsHref(slug, 'edit', id, sessionId), [sessionId, slug])
+  const buildHistoryHref = useCallback((id: string) => getWorkspaceFlowsHref(slug, 'runs', id, sessionId), [sessionId, slug])
+  const listHref = getWorkspaceFlowsHref(slug, 'list', null, sessionId)
 
   function renderMissingFlow() {
     return (
@@ -180,9 +183,9 @@ export function DesktopFlowsDialog({
         showCloseButton={false}
         className="inset-0 left-0 top-0 h-screen w-screen max-w-none translate-x-0 translate-y-0 overflow-hidden rounded-none border-0 p-0 sm:rounded-none"
       >
-        <DialogTitle className="sr-only">Desktop flows</DialogTitle>
+        <DialogTitle className="sr-only">Workspace flows</DialogTitle>
         <DialogDescription className="sr-only">
-          Create, run, and manage desktop workspace flows.
+          Create, run, and manage workspace flows.
         </DialogDescription>
 
         <div className="flex h-full min-h-0 flex-col">

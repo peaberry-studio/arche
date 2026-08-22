@@ -3,11 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { useWorkspaceConnection } from "@/hooks/use-workspace-connection";
+import { useWorkspaceRuntime } from "@/contexts/workspace-runtime-context";
 import type { WorkspaceDiff } from "@/hooks/use-workspace-diffs";
 import { useWorkspaceDiffs } from "@/hooks/use-workspace-diffs";
 import { useWorkspaceFiles } from "@/hooks/use-workspace-files";
-import { useInstanceHeartbeat } from "@/hooks/use-instance-heartbeat";
+import type { WorkspaceConnectionState } from "@/lib/opencode/types";
 import { downloadWorkspaceFile } from "@/lib/workspace-file-download";
 import {
   exportWorkspaceFile,
@@ -56,7 +56,7 @@ export type UseExploreWorkspaceOptions = {
 };
 
 export type UseExploreWorkspaceReturn = {
-  connection: ReturnType<typeof useWorkspaceConnection>["connection"];
+  connection: WorkspaceConnectionState;
   isConnected: boolean;
   fileTree: ReturnType<typeof useWorkspaceFiles>["fileTree"];
   isLoadingFiles: boolean;
@@ -175,9 +175,8 @@ export function useExploreWorkspace({
   initialFilePath = null,
   workspaceAgentEnabled = true,
   enabled = true,
-  reaperEnabled = true,
 }: UseExploreWorkspaceOptions): UseExploreWorkspaceReturn {
-  const { connection, isConnected } = useWorkspaceConnection(slug, enabled);
+  const { connection, isConnected } = useWorkspaceRuntime();
   const files = useWorkspaceFiles(slug, workspaceAgentEnabled);
   const { refreshFiles } = files;
   const { diffs, isLoadingDiffs, diffsError, refreshDiffs } = useWorkspaceDiffs(
@@ -185,7 +184,6 @@ export function useExploreWorkspace({
     enabled && workspaceAgentEnabled,
     isConnected
   );
-  useInstanceHeartbeat(slug, enabled && reaperEnabled);
 
   useEffect(() => {
     if (!isConnected) return;

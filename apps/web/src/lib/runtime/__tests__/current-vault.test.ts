@@ -38,15 +38,13 @@ describe('current desktop vault helpers', () => {
     expect(getWorkspacePersistenceScope('local')).toBe('vault:vault-1')
   })
 
-  it('validates desktop settings sections', async () => {
-    const { isDesktopSettingsSection } = await import('../desktop/current-vault')
+  it('validates unified workspace settings sections', async () => {
+    const { isWorkspaceSettingsSection } = await import('@/lib/workspace-settings')
 
-    expect(isDesktopSettingsSection('providers')).toBe(true)
-    expect(isDesktopSettingsSection('connectors')).toBe(true)
-    expect(isDesktopSettingsSection('agents')).toBe(true)
-    expect(isDesktopSettingsSection('skills')).toBe(true)
-    expect(isDesktopSettingsSection('appearance')).toBe(true)
-    expect(isDesktopSettingsSection('advanced')).toBe(true)
-    expect(isDesktopSettingsSection('security')).toBe(false)
+    expect(isWorkspaceSettingsSection('general')).toBe(true)
+    expect(isWorkspaceSettingsSection('providers')).toBe(true)
+    expect(isWorkspaceSettingsSection('connectors')).toBe(true)
+    expect(isWorkspaceSettingsSection('appearance')).toBe(false)
+    expect(isWorkspaceSettingsSection('agents')).toBe(false)
   })
 })

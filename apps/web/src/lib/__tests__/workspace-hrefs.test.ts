@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { getWorkspaceHref } from "@/lib/workspace-hrefs";
+import {
+  getWorkspaceCatalogHref,
+  getWorkspaceFlowsHref,
+  getWorkspaceHref,
+  getWorkspaceIntegrationHref,
+} from "@/lib/workspace-hrefs";
 
 describe("getWorkspaceHref", () => {
   it("builds workspace paths with normalized query parameters", () => {
@@ -20,3 +25,40 @@ describe("getWorkspaceHref", () => {
     );
   });
 });
+
+describe("getWorkspaceFlowsHref", () => {
+  it("builds flows overlay hrefs on the workspace route", () => {
+    expect(getWorkspaceFlowsHref("alice", "list")).toBe("/w/alice?flows=list");
+    expect(getWorkspaceFlowsHref("alice", "new")).toBe("/w/alice?flows=new");
+    expect(getWorkspaceFlowsHref("alice", "edit", "flow-1")).toBe("/w/alice?flows=edit&flowId=flow-1");
+    expect(getWorkspaceFlowsHref("alice", "runs", "flow-1")).toBe("/w/alice?flows=runs&flowId=flow-1");
+  })
+
+  it("preserves a session query parameter so closing an overlay keeps the chat", () => {
+    expect(getWorkspaceFlowsHref("alice", "list", null, "session-1")).toBe(
+      "/w/alice?session=session-1&flows=list"
+    )
+  })
+})
+
+describe("getWorkspaceCatalogHref", () => {
+  it("builds agents and skills catalog hrefs", () => {
+    expect(getWorkspaceCatalogHref("alice", "agents")).toBe("/w/alice?catalog=agents");
+    expect(getWorkspaceCatalogHref("alice", "agents", "new")).toBe("/w/alice?catalog=agents&agent=new");
+    expect(getWorkspaceCatalogHref("alice", "agents", "helper")).toBe("/w/alice?catalog=agents&agent=helper");
+    expect(getWorkspaceCatalogHref("alice", "skills")).toBe("/w/alice?catalog=skills");
+    expect(getWorkspaceCatalogHref("alice", "skills", "new")).toBe("/w/alice?catalog=skills&skill=new");
+    expect(getWorkspaceCatalogHref("alice", "skills", "writer")).toBe("/w/alice?catalog=skills&skill=writer");
+  })
+})
+
+describe("getWorkspaceIntegrationHref", () => {
+  it("builds integration detail inside the settings modal", () => {
+    expect(getWorkspaceIntegrationHref("alice", "slack")).toBe(
+      "/w/alice?settings=integrations&integration=slack"
+    )
+    expect(getWorkspaceIntegrationHref("alice", "mcp")).toBe(
+      "/w/alice?settings=integrations&integration=mcp"
+    )
+  })
+})

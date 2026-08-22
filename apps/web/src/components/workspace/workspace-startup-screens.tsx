@@ -163,3 +163,53 @@ export function WorkspaceConnectingScreen({
     </StatusScreenFrame>
   );
 }
+
+type WorkspaceConnectingBannerProps = {
+  connection: WorkspaceConnectionState;
+  instanceStatus: InstanceStartupStatus;
+  instanceError: string | null;
+};
+
+/**
+ * In-pane connecting state rendered inside the chrome (sidebar stays visible).
+ * Never replaces the full viewport — the sidebar and page remain mounted.
+ */
+export function WorkspaceConnectingBanner({
+  connection,
+  instanceStatus,
+  instanceError,
+}: WorkspaceConnectingBannerProps) {
+  const starting = instanceStatus === "starting" || instanceStatus === null;
+
+  return (
+    <div className="flex h-full min-h-0 flex-col items-center justify-center gap-3 px-6 text-center">
+      <ArcLoader />
+      <div className="space-y-1">
+        {starting ? (
+          <>
+            <h2 className="type-display text-base font-semibold">Starting workspace</h2>
+            <p className="text-sm text-muted-foreground">
+              Preparing your development environment...
+            </p>
+          </>
+        ) : instanceStatus === "error" ? (
+          <>
+            <h2 className="type-display text-base font-semibold text-destructive">Failed to start</h2>
+            <p className="text-sm text-muted-foreground">
+              {instanceError ?? "Unable to start the workspace"}
+            </p>
+          </>
+        ) : (
+          <>
+            <h2 className="type-display text-base font-semibold">Connecting to OpenCode</h2>
+            <p className="text-sm text-muted-foreground">
+              {connection.status === "error"
+                ? getConnectionErrorText(connection.error)
+                : "Establishing connection..."}
+            </p>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}

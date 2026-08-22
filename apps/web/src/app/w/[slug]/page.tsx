@@ -1,16 +1,13 @@
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 
-import { DesktopFlowsDialog } from '@/components/desktop/desktop-flows-dialog'
-import { DesktopSettingsDialog } from '@/components/desktop/desktop-settings-dialog'
 import { WorkspaceShell } from '@/components/workspace/workspace-shell'
+import { listRecentKbFileUpdates } from '@/lib/common-workspace-config-store'
 import { ensureFlowSchedulerStarted } from '@/lib/flows/scheduler-bootstrap'
 import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 import {
   getCurrentDesktopVault,
   getWorkspacePersistenceScope,
-  isDesktopFlowsView,
-  isDesktopSettingsSection,
 } from '@/lib/runtime/desktop/current-vault'
 import { shouldUseCurrentMacOsInsetTitleBar } from '@/lib/runtime/desktop-window-chrome'
 import { isDesktop } from '@/lib/runtime/mode'
@@ -54,7 +51,7 @@ export default async function WorkspaceHostPage({
       if (search.flows) params.set('flows', search.flows)
       redirect(`/w/${slug}?${params.toString()}`)
     }
-    redirect(`/u/${slug}/flows`)
+    redirect(`/w/${slug}?flows=list`)
   }
 
   if (search?.mode === 'explore' || (search?.path && search?.mode !== 'flows')) {
@@ -89,41 +86,31 @@ export default async function WorkspaceHostPage({
   const persistenceScope = getWorkspacePersistenceScope(slug)
   const initialLayoutCookie = cookieStore.get(getWorkspaceLayoutCookieName(persistenceScope))?.value
   const initialLayoutState = initialLayoutCookie ? parseWorkspaceLayoutState(initialLayoutCookie) : null
-  const initialFlowsView = desktopVault && isDesktopFlowsView(search?.flows)
-    ? search.flows
-    : null
-  const initialFlowId = desktopVault && search?.flowId
-    ? search.flowId
-    : null
-  const initialSettingsSection = desktopVault && !initialFlowsView && isDesktopSettingsSection(search?.settings)
-    ? search.settings
-    : null
+
+  // Recent KB updates feed the empty-chat composer; they are best-effort and
+  // must never block the workspace page (e.g. desktop vault root misconfigured).
+  const recentUpdates = await listRecentKbFileUpdates(10)
+    .then((result) =>
+      result.ok
+        ? result.updates.map((update) => ({
+            fileName: update.fileName,
+            filePath: update.filePath,
+          }))
+        : []
+    )
+    .catch(() => [])
 
   return (
-    <>
-      <WorkspaceShell
-        slug={slug}
-        persistenceScope={persistenceScope}
-        currentVault={desktopVault ? { id: desktopVault.vaultId, name: desktopVault.vaultName, path: desktopVault.vaultPath } : null}
-        initialSessionId={search?.session ?? null}
-        initialLayoutState={initialLayoutState}
-        macDesktopWindowInset={macDesktopWindowInset}
-        workspaceAgentEnabled={caps.workspaceAgent}
-        reaperEnabled={caps.reaper}
-      />
-      {desktopVault ? (
-        <>
-          <DesktopSettingsDialog slug={slug} currentSection={initialSettingsSection} />
-          <DesktopFlowsDialog
-            slug={slug}
-            currentView={initialFlowsView}
-            flowId={initialFlowId}
-            macDesktopWindowInset={macDesktopWindowInset}
-            slackIntegrationAvailable={caps.slackIntegration}
-            teamVisibilityAvailable={caps.teamManagement}
-          />
-        </>
-      ) : null}
-    </>
+    <WorkspaceShell
+      slug={slug}
+      persistenceScope={persistenceScope}
+      currentVault={desktopVault ? { id: desktopVault.vaultId, name: desktopVault.vaultName, path: desktopVault.vaultPath } : null}
+      initialLayoutState={initialLayoutState}
+      isAdmin={session.user.role === 'ADMIN'}
+      macDesktopWindowInset={macDesktopWindowInset}
+      workspaceAgentEnabled={caps.workspaceAgent}
+      reaperEnabled={caps.reaper}
+      recentUpdates={recentUpdates}
+    />
   )
 }

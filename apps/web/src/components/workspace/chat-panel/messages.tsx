@@ -36,6 +36,7 @@ import type { ChatMessage } from "@/types/workspace";
 type ChatPanelMessagesProps = {
   chatContentStyle: CSSProperties;
   connectorNamesById: Record<string, string>;
+  emptyStateElement?: React.ReactNode;
   isInitialSessionsReady?: boolean;
   isLoadingMessages: boolean;
   isStartingNewSession: boolean;
@@ -388,6 +389,7 @@ function groupMessageParts(parts: MessagePart[]): PartGroup[] {
 export function ChatPanelMessages({
   chatContentStyle,
   connectorNamesById,
+  emptyStateElement,
   isInitialSessionsReady = true,
   isLoadingMessages,
   isStartingNewSession,
@@ -455,17 +457,19 @@ export function ChatPanelMessages({
               <p className="mt-4 max-w-[280px] text-sm font-medium text-foreground/80">Couldn&apos;t load sessions.</p>
             </div>
           ) : messages.length === 0 ? (
-            <div className="flex h-full flex-col items-center justify-center px-6 text-center text-card-foreground">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-foreground/[0.04] text-muted-foreground/50">
-                <ChatCircle size={22} weight="regular" />
+            emptyStateElement ?? (
+              <div className="flex h-full flex-col items-center justify-center px-6 text-center text-card-foreground">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-foreground/[0.04] text-muted-foreground/50">
+                  <ChatCircle size={22} weight="regular" />
+                </div>
+                <p className="mt-4 max-w-[280px] text-sm font-medium text-foreground/80">
+                  Start a new conversation
+                </p>
+                <p className="mt-1 max-w-[320px] text-xs leading-relaxed text-muted-foreground">
+                  Describe what you need and the agent will start working, or pick a previous session from the sidebar.
+                </p>
               </div>
-              <p className="mt-4 max-w-[280px] text-sm font-medium text-foreground/80">
-                Start a new conversation
-              </p>
-              <p className="mt-1 max-w-[320px] text-xs leading-relaxed text-muted-foreground">
-                Describe what you need and the agent will start working, or pick a previous session from the sidebar.
-              </p>
-            </div>
+            )
           ) : (
             <div className="space-y-6">
               {messages.filter(isRenderableChatMessage).map((message, index, visibleMessages) => {

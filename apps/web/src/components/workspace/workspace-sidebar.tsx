@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, type ComponentType, type ReactNode } from 'react'
+import { usePathname, useSearchParams } from 'next/navigation'
 import { CaretLineLeft, CaretLineRight, Database, GitBranch, GraduationCap, Lightning, Plus, Robot } from '@phosphor-icons/react'
 
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -121,6 +122,21 @@ export function WorkspaceSidebar({
   sessionsError,
   unseenCompletedSessions,
 }: WorkspaceSidebarProps) {
+  // Active destination follows the URL contract: flows > catalog > explore.
+  // Both hooks return null when no router is mounted (unit tests).
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const catalogParam = searchParams?.get('catalog')
+  const activeNav: 'agents' | 'explore' | 'flows' | 'skills' | null = searchParams?.get('flows')
+    ? 'flows'
+    : catalogParam === 'agents'
+      ? 'agents'
+      : catalogParam === 'skills'
+        ? 'skills'
+        : pathname?.endsWith('/explore')
+          ? 'explore'
+          : null
+
   const handleSelectSession = useCallback(
     (sessionId: string) => {
       onSelectSession(sessionId)
@@ -154,6 +170,7 @@ export function WorkspaceSidebar({
 
           <nav aria-label="Workspace navigation" className="flex w-full flex-col items-center gap-1">
             <NavButton
+              active={activeNav === 'explore'}
               icon={Database}
               iconOnly
               label="Knowledge Base"
@@ -167,9 +184,9 @@ export function WorkspaceSidebar({
               label="Curator"
               onClick={onNavCurator}
             />
-            <NavButton icon={Robot} iconOnly label="Agents" onClick={onNavAgents} />
-            <NavButton icon={Lightning} iconOnly label="Skills" onClick={onNavSkills} />
-            <NavButton icon={GitBranch} iconOnly label="Flows" onClick={onNavFlows} />
+            <NavButton active={activeNav === 'agents'} icon={Robot} iconOnly label="Agents" onClick={onNavAgents} />
+            <NavButton active={activeNav === 'skills'} icon={Lightning} iconOnly label="Skills" onClick={onNavSkills} />
+            <NavButton active={activeNav === 'flows'} icon={GitBranch} iconOnly label="Flows" onClick={onNavFlows} />
           </nav>
 
           <div className="my-2 h-px w-6 bg-border/40" />
@@ -218,6 +235,7 @@ export function WorkspaceSidebar({
 
       <nav aria-label="Workspace navigation" className="flex flex-col gap-0.5 px-1.5 pt-1">
         <NavButton
+          active={activeNav === 'explore'}
           icon={Database}
           label="Knowledge Base"
           onClick={onNavExplore}
@@ -229,9 +247,9 @@ export function WorkspaceSidebar({
           label="Curator"
           onClick={onNavCurator}
         />
-        <NavButton icon={Robot} label="Agents" onClick={onNavAgents} />
-        <NavButton icon={Lightning} label="Skills" onClick={onNavSkills} />
-        <NavButton icon={GitBranch} label="Flows" onClick={onNavFlows} />
+        <NavButton active={activeNav === 'agents'} icon={Robot} label="Agents" onClick={onNavAgents} />
+        <NavButton active={activeNav === 'skills'} icon={Lightning} label="Skills" onClick={onNavSkills} />
+        <NavButton active={activeNav === 'flows'} icon={GitBranch} label="Flows" onClick={onNavFlows} />
       </nav>
 
       <div className="mt-1 px-1.5 pb-1.5">

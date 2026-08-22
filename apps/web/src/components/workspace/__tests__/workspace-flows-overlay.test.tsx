@@ -3,20 +3,20 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { DesktopFlowsDialog } from '@/components/desktop/desktop-flows-dialog'
+import { WorkspaceFlowsOverlay } from '@/components/workspace/workspace-flows-overlay'
 import { FLOW_TEMPLATE_FORMAT, type FlowTemplate } from '@/lib/flows/import-export'
 import { storeFlowTemplateDraft } from '@/lib/flows/template-session'
 import { createDefaultFlowDefinition } from '@/lib/flows/validation'
 
 const navigation = vi.hoisted(() => ({
   replace: vi.fn(),
-  search: 'flows=list',
+  search: new URLSearchParams('flows=list'),
 }))
 
 vi.mock('next/navigation', () => ({
-  usePathname: () => '/w/local',
+  usePathname: () => '/w/alice',
   useRouter: () => ({ replace: navigation.replace }),
-  useSearchParams: () => new URLSearchParams(navigation.search),
+  useSearchParams: () => navigation.search,
 }))
 
 vi.mock('@/components/flows/flows-page', () => ({
@@ -80,18 +80,18 @@ function createTemplate(): FlowTemplate {
   return {
     cronExpression: null,
     definition: createDefaultFlowDefinition(),
-    description: 'Imported desktop template',
+    description: 'Imported template',
     enabled: false,
     format: FLOW_TEMPLATE_FORMAT,
-    name: 'Imported desktop flow',
+    name: 'Imported flow',
     timezone: 'UTC',
   }
 }
 
-describe('DesktopFlowsDialog', () => {
+describe('WorkspaceFlowsOverlay', () => {
   beforeEach(() => {
     navigation.replace.mockReset()
-    navigation.search = 'flows=list'
+    navigation.search = new URLSearchParams('flows=list')
     window.sessionStorage.clear()
   })
 
@@ -99,30 +99,39 @@ describe('DesktopFlowsDialog', () => {
     cleanup()
   })
 
-  it('renders the list view with desktop flow href builders', () => {
-    render(<DesktopFlowsDialog slug="local" currentView="list" flowId={null} />)
+  it('renders the list view with workspace flow href builders', () => {
+    render(<WorkspaceFlowsOverlay slug="alice" />)
 
-    expect(screen.getByTestId('flows-page').dataset.slug).toBe('local')
-    expect(screen.getByRole('link', { name: 'Create href' }).getAttribute('href')).toBe('/w/local?flows=new')
-    expect(screen.getByRole('link', { name: 'Edit href' }).getAttribute('href')).toBe('/w/local?flows=edit&flowId=flow-1')
-    expect(screen.getByRole('link', { name: 'History href' }).getAttribute('href')).toBe('/w/local?flows=runs&flowId=flow-1')
+    expect(screen.getByTestId('flows-page').dataset.slug).toBe('alice')
+    expect(screen.getByRole('link', { name: 'Create href' }).getAttribute('href')).toBe('/w/alice?flows=new')
+    expect(screen.getByRole('link', { name: 'Edit href' }).getAttribute('href')).toBe('/w/alice?flows=edit&flowId=flow-1')
+    expect(screen.getByRole('link', { name: 'History href' }).getAttribute('href')).toBe('/w/alice?flows=runs&flowId=flow-1')
+  })
+
+  it('preserves the session parameter in flow hrefs', () => {
+    navigation.search = new URLSearchParams('flows=list&session=session-1')
+
+    render(<WorkspaceFlowsOverlay slug="alice" />)
+
+    expect(screen.getByRole('link', { name: 'Create href' }).getAttribute('href')).toBe('/w/alice?session=session-1&flows=new')
+    expect(screen.getByRole('link', { name: 'Edit href' }).getAttribute('href')).toBe('/w/alice?session=session-1&flows=edit&flowId=flow-1')
   })
 
   it('removes flow query state when closed', () => {
-    navigation.search = 'mode=knowledge&flows=runs&flowId=flow-1&run=run-1'
+    navigation.search = new URLSearchParams('mode=knowledge&flows=runs&flowId=flow-1&run=run-1')
 
-    render(<DesktopFlowsDialog slug="local" currentView="runs" flowId="flow-1" />)
+    render(<WorkspaceFlowsOverlay slug="alice" />)
     fireEvent.click(screen.getByRole('button', { name: 'Close flows' }))
 
-    expect(navigation.replace).toHaveBeenCalledWith('/w/local?mode=knowledge')
+    expect(navigation.replace).toHaveBeenCalledWith('/w/alice?mode=knowledge')
   })
 
   it('renders create view with list and created-flow hrefs', () => {
+    navigation.search = new URLSearchParams('flows=new')
+
     render(
-      <DesktopFlowsDialog
-        slug="local"
-        currentView="new"
-        flowId={null}
+      <WorkspaceFlowsOverlay
+        slug="alice"
         slackIntegrationAvailable
         teamVisibilityAvailable
       />,
@@ -130,43 +139,50 @@ describe('DesktopFlowsDialog', () => {
 
     const editor = screen.getByTestId('flow-editor')
     expect(editor.dataset.mode).toBe('create')
-    expect(editor.dataset.flowListHref).toBe('/w/local?flows=list')
-    expect(editor.dataset.buildFlowHref).toBe('/w/local?flows=edit&flowId=created-flow')
+    expect(editor.dataset.flowListHref).toBe('/w/alice?flows=list')
+    expect(editor.dataset.buildFlowHref).toBe('/w/alice?flows=edit&flowId=created-flow')
     expect(editor.dataset.slack).toBe('true')
     expect(editor.dataset.team).toBe('true')
   })
 
-  it('consumes stored template drafts when rendering the desktop create view', async () => {
+  it('consumes stored template drafts when rendering the create view', async () => {
     storeFlowTemplateDraft(createTemplate())
+    navigation.search = new URLSearchParams('flows=new')
 
-    render(<DesktopFlowsDialog slug="local" currentView="new" flowId={null} />)
+    render(<WorkspaceFlowsOverlay slug="alice" />)
 
-    await waitFor(() => expect(screen.getByTestId('flow-editor').dataset.templateName).toBe('Imported desktop flow'))
+    await waitFor(() => expect(screen.getByTestId('flow-editor').dataset.templateName).toBe('Imported flow'))
     expect(window.sessionStorage.getItem('arche:flow-template')).toBeNull()
   })
 
   it('renders edit view with a run history link', () => {
-    render(<DesktopFlowsDialog slug="local" currentView="edit" flowId="flow-1" />)
+    navigation.search = new URLSearchParams('flows=edit&flowId=flow-1')
+
+    render(<WorkspaceFlowsOverlay slug="alice" />)
 
     const editor = screen.getByTestId('flow-editor')
     expect(editor.dataset.mode).toBe('edit')
     expect(editor.dataset.flowId).toBe('flow-1')
-    expect(screen.getByRole('link', { name: /run history/i }).getAttribute('href')).toBe('/w/local?flows=runs&flowId=flow-1')
+    expect(screen.getByRole('link', { name: /run history/i }).getAttribute('href')).toBe('/w/alice?flows=runs&flowId=flow-1')
   })
 
   it('shows a missing-flow fallback for detail views without a flow id', () => {
-    render(<DesktopFlowsDialog slug="local" currentView="edit" flowId={null} />)
+    navigation.search = new URLSearchParams('flows=edit')
+
+    render(<WorkspaceFlowsOverlay slug="alice" />)
 
     expect(screen.getByText('Missing flow')).toBeTruthy()
-    expect(screen.getByRole('link', { name: 'Back to flows' }).getAttribute('href')).toBe('/w/local?flows=list')
+    expect(screen.getByRole('link', { name: 'Back to flows' }).getAttribute('href')).toBe('/w/alice?flows=list')
   })
 
-  it('renders run history with a desktop edit href', () => {
-    render(<DesktopFlowsDialog slug="local" currentView="runs" flowId="flow-1" />)
+  it('renders run history with an edit href', () => {
+    navigation.search = new URLSearchParams('flows=runs&flowId=flow-1')
+
+    render(<WorkspaceFlowsOverlay slug="alice" />)
 
     const history = screen.getByTestId('flow-run-history-view')
-    expect(history.dataset.slug).toBe('local')
+    expect(history.dataset.slug).toBe('alice')
     expect(history.dataset.flowId).toBe('flow-1')
-    expect(history.dataset.editHref).toBe('/w/local?flows=edit&flowId=flow-1')
+    expect(history.dataset.editHref).toBe('/w/alice?flows=edit&flowId=flow-1')
   })
 })

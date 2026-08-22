@@ -7,6 +7,7 @@ import type { FlowTemplate } from '@/lib/flows/import-export'
 import { FLOW_TEMPLATE_FORMAT } from '@/lib/flows/template-format'
 import { storeFlowTemplateDraft } from '@/lib/flows/template-session'
 import { isRecord } from '@/lib/records'
+import { getWorkspaceFlowsHref } from '@/lib/workspace-hrefs'
 
 export type FlowProposalOutput = {
   template: FlowTemplate
@@ -121,7 +122,7 @@ export function FlowProposalCard({ isRunning, proposal, slug }: FlowProposalCard
         {slug ? (
           <Button size="sm" asChild>
             <a
-              href={`/u/${slug}/flows/new`}
+              href={getWorkspaceFlowsHref(slug, 'new')}
               onClick={() => storeFlowTemplateDraft(template)}
             >
               Review &amp; create
