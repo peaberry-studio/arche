@@ -37,6 +37,8 @@ type WorkspaceRuntimeContextValue = Omit<UseInstanceStartupReturn, "instanceStat
   knowledgePendingCount: number;
   setKnowledgePendingCount: (count: number) => void;
   refreshKnowledgePendingCount: () => Promise<void>;
+  knowledgePublishCount: number;
+  setKnowledgePublishCount: (count: number) => void;
   sidebarCollapsed: boolean;
   setSidebarCollapsed: Dispatch<SetStateAction<boolean>>;
 };
@@ -152,6 +154,9 @@ function WorkspaceRuntimeStateProvider({
   // and the page shells (dialog) share one source of truth.
   const [curatorOpen, setCuratorOpen] = useState(false);
   const [knowledgePendingCount, setKnowledgePendingCount] = useState(0);
+  // Pending publish count is pushed by the shells (from their diffs), since
+  // only they know when the workspace file list has changed.
+  const [knowledgePublishCount, setKnowledgePublishCount] = useState(0);
 
   const refreshKnowledgePendingCount = useCallback(async () => {
     try {
@@ -186,11 +191,13 @@ function WorkspaceRuntimeStateProvider({
       instanceStatus,
       isConnected,
       knowledgePendingCount,
+      knowledgePublishCount,
       persistenceScope,
       refreshKnowledgePendingCount,
       sessionsHook,
       setCuratorOpen,
       setKnowledgePendingCount,
+      setKnowledgePublishCount,
       setSidebarCollapsed,
       sidebarCollapsed,
       slug,
@@ -202,6 +209,7 @@ function WorkspaceRuntimeStateProvider({
       instanceStatus,
       isConnected,
       knowledgePendingCount,
+      knowledgePublishCount,
       persistenceScope,
       refreshKnowledgePendingCount,
       sessionsHook,

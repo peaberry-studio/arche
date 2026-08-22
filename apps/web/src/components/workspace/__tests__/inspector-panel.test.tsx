@@ -41,17 +41,6 @@ vi.mock("@/components/workspace/markdown-preview", () => ({
   MarkdownPreview: ({ content }: { content: string }) => <div>{content}</div>,
 }));
 
-vi.mock("@/components/workspace/review-panel", () => ({
-  ReviewPanel: ({ onProposalCountChange }: { onProposalCountChange?: (count: number) => void }) => (
-    <div>
-      Review panel
-      <button type="button" onClick={() => onProposalCountChange?.(3)}>
-        Report proposal count
-      </button>
-    </div>
-  ),
-}));
-
 describe("InspectorPanel", () => {
   beforeEach(() => {
     markdownEditorMock.mockClear();
@@ -72,8 +61,6 @@ describe("InspectorPanel", () => {
   });
 
   const defaultProps = {
-    slug: "alice",
-    onTabChange: vi.fn(),
     openFiles: [
       {
         path: "docs/notes.md",
@@ -97,18 +84,6 @@ describe("InspectorPanel", () => {
     render(<InspectorPanel {...defaultProps} />);
 
     expect(screen.queryByRole("button", { name: /download/i })).toBeNull();
-  });
-
-  it("hides review features when workspace agent support is disabled", () => {
-    render(
-      <InspectorPanel
-        {...defaultProps}
-        workspaceAgentEnabled={false}
-      />
-    );
-
-    expect(screen.queryByText("Review")).toBeNull();
-    expect(screen.queryByText("Review panel")).toBeNull();
   });
 
   it("renders markdown preview instead of the editor when workspace agent support is disabled", () => {
@@ -255,15 +230,13 @@ describe("InspectorPanel", () => {
     expect(markdownEditorMock).not.toHaveBeenCalled()
   })
 
-  it('expands minified panels without a Review shortcut', () => {
+  it('expands minified panels through the files shortcut', () => {
     const onToggleRight = vi.fn()
-    const onTabChange = vi.fn()
     render(
       <InspectorPanel
         {...defaultProps}
         rightCollapsed
         onToggleRight={onToggleRight}
-        onTabChange={onTabChange}
       />
     )
 
@@ -274,13 +247,11 @@ describe("InspectorPanel", () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Files' }))
     expect(onToggleRight).toHaveBeenCalledTimes(2)
-    expect(onTabChange).toHaveBeenLastCalledWith('preview')
   })
 
   it('handles the expanded inspector, file tabs, and close buttons', () => {
     const onCloseFile = vi.fn()
     const onSelectFile = vi.fn()
-    const onTabChange = vi.fn()
     const onToggleRight = vi.fn()
 
     render(
@@ -311,18 +282,12 @@ describe("InspectorPanel", () => {
         ]}
         onCloseFile={onCloseFile}
         onSelectFile={onSelectFile}
-        onTabChange={onTabChange}
         onToggleRight={onToggleRight}
       />
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'Collapse panel' }))
     expect(onToggleRight).toHaveBeenCalledTimes(1)
-
-    fireEvent.click(screen.getByRole('button', { name: /Inspect/ }))
-    expect(onTabChange).toHaveBeenCalledWith('preview')
-
-    expect(screen.queryByRole('button', { name: /Review/ })).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: 'second.md' }))
     expect(onSelectFile).toHaveBeenCalledWith('second.md')
@@ -331,32 +296,11 @@ describe("InspectorPanel", () => {
     expect(onCloseFile).toHaveBeenCalledWith('first.md')
   })
 
-  it('renders Knowledge mode with publish disabled by conflicts', () => {
+  it('renders without the collapse header when the button is hidden', () => {
     render(
       <InspectorPanel
         {...defaultProps}
-        panelMode="knowledge"
-        diffs={[
-          { path: 'conflict.md', status: 'modified', additions: 1, deletions: 1, diff: 'diff', conflicted: true },
-        ]}
-      />
-    )
-
-    const proposalsTab = screen.getByRole('button', { name: /Proposals/ })
-    expect(proposalsTab.getAttribute('aria-pressed')).toBe('true')
-    const changesTab = screen.getByRole('button', { name: /Pending publish/ })
-    expect(changesTab.textContent).toContain('1')
-    expect(screen.getByText('Review panel')).toBeTruthy()
-    const publishButton = screen.getByRole('button', { name: 'Publish' })
-    expect(publishButton.hasAttribute('disabled')).toBe(true)
-    expect(publishButton.getAttribute('title')).toBe('Resolve conflicts before publishing')
-  })
-
-  it('renders files-only mode without the combined header', () => {
-    render(
-      <InspectorPanel
-        {...defaultProps}
-        panelMode="files"
+        hideCollapseButton
         openFiles={[
           {
             path: 'notes.txt',
@@ -372,32 +316,7 @@ describe("InspectorPanel", () => {
     )
 
     expect(screen.queryByRole('button', { name: 'Collapse panel' })).toBeNull()
-    expect(screen.queryByRole('button', { name: /Review/ })).toBeNull()
     expect(screen.getAllByText('notes.txt').length).toBe(2)
     expect(screen.getByText('Plain text note')).toBeTruthy()
-  })
-
-  it('forwards the open-proposal count so the shell need not refetch it', () => {
-    const onProposalCountChange = vi.fn()
-
-    render(
-      <InspectorPanel
-        {...defaultProps}
-        panelMode="knowledge"
-        onProposalCountChange={onProposalCountChange}
-      />
-    )
-
-    fireEvent.click(screen.getByRole('button', { name: 'Report proposal count' }))
-
-    expect(onProposalCountChange).toHaveBeenCalledWith(3)
-  })
-
-  it('still drives its own tab badge from the review list count', () => {
-    render(<InspectorPanel {...defaultProps} panelMode="knowledge" />)
-
-    fireEvent.click(screen.getByRole('button', { name: 'Report proposal count' }))
-
-    expect(screen.getByText('3')).toBeTruthy()
   })
 });

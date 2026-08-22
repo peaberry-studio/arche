@@ -117,17 +117,14 @@ vi.mock("@/components/workspace/knowledge-navigation-panel", () => ({
 
 vi.mock("@/components/workspace/inspector-panel", () => ({
   InspectorPanel: ({
-    panelMode = "combined",
     openFiles = [],
     activeFilePath,
   }: {
-    panelMode?: string;
     openFiles?: Array<{ path: string }>;
     activeFilePath?: string | null;
   }) => (
     <button
       type="button"
-      data-panel-mode={panelMode}
       data-open-files={openFiles.map((file) => file.path).join(",")}
       data-active-path={activeFilePath ?? ""}
     >
@@ -211,7 +208,6 @@ describe("ExploreShell", () => {
     renderExploreShell({ slug: "alice", persistenceScope: "alice" });
 
     const filesPanel = await screen.findByRole("button", { name: "Files Panel" });
-    expect(filesPanel.dataset.panelMode).toBe("files");
     expect(filesPanel.dataset.openFiles).toBe("docs/plan.md");
     expect(screen.queryByText("Browse your knowledge base")).toBeNull();
   });

@@ -5,17 +5,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CuratorDialog } from "@/components/workspace/curator-dialog";
 
-const routerPushMock = vi.fn();
-
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: routerPushMock }),
-}));
-
 vi.mock("@/components/workspace/publish-kb-button", () => ({
   PublishKbButton: ({ onComplete }: { onComplete?: () => void }) => (
     <button type="button" onClick={onComplete}>
       Publish changes
     </button>
+  ),
+}));
+
+vi.mock("@/components/workspace/markdown-editor", () => ({
+  MarkdownEditor: ({ value, onChange }: { value: string; onChange: (next: string) => void }) => (
+    <textarea
+      aria-label="Edit proposal content"
+      value={value}
+      onChange={(event) => onChange(event.currentTarget.value)}
+    />
   ),
 }));
 
@@ -54,7 +58,6 @@ function jsonResponse(body: unknown, status = 200) {
 
 describe("CuratorDialog", () => {
   beforeEach(() => {
-    routerPushMock.mockClear();
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();
       if (url.endsWith("/learning")) {
@@ -91,20 +94,69 @@ describe("CuratorDialog", () => {
     expect(screen.getByRole("button", { name: "Apply" })).toBeTruthy();
   });
 
-  it("previews a proposal diff and opens it in the Knowledge Base", async () => {
+  it("opens a proposal in the viewer with preview, edit, and diff tabs", async () => {
     renderDialog();
 
     fireEvent.click(await screen.findByText("Remember preference"));
 
-    expect(await screen.findByRole("button", { name: "Open in Knowledge Base" })).toBeTruthy();
-    expect(screen.getAllByText("Reason").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Preview" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Edit" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Diff" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Open in Knowledge Base" })).toBeNull();
     expect(screen.getAllByText("Durable user preference.").length).toBeGreaterThan(0);
+  });
 
-    fireEvent.click(screen.getByRole("button", { name: "Open in Knowledge Base" }));
+  it("shows the proposed content in the preview tab with the reason above it", async () => {
+    renderDialog();
+
+    fireEvent.click(await screen.findByText("Remember preference"));
+
+    expect(await screen.findByRole("heading", { name: "Preference" })).toBeTruthy();
+    expect(screen.getByText("Reason")).toBeTruthy();
+    expect(screen.getAllByText("Durable user preference.").length).toBeGreaterThan(1);
+  });
+
+  it("clears the viewer when switching to the pending publish tab", async () => {
+    renderDialog();
+
+    fireEvent.click(await screen.findByText("Remember preference"));
+    expect(await screen.findByRole("heading", { name: "Preference" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /Pending publish/ }));
+
+    expect(await screen.findByText("Select a proposal to preview and edit it.")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Preference" })).toBeNull();
+    expect(screen.queryByText("Reason")).toBeNull();
+  });
+
+  it("shows a unified diff in the diff tab", async () => {
+    renderDialog();
+
+    fireEvent.click(await screen.findByText("Remember preference"));
+    fireEvent.click(screen.getByRole("button", { name: "Diff" }));
+
+    expect(await screen.findByText("+Use concise answers.")).toBeTruthy();
+    expect(screen.getAllByText("Preferences/Answers.md").length).toBeGreaterThan(0);
+  });
+
+  it("edits a proposal from the viewer and persists the draft", async () => {
+    renderDialog();
+
+    fireEvent.click(await screen.findByText("Remember preference"));
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    const editor = await screen.findByRole("textbox", { name: "Edit proposal content" });
+    expect((editor as HTMLTextAreaElement).value).toContain("Use concise answers");
+
+    fireEvent.change(editor, { target: { value: "# Edited content" } });
 
     await waitFor(() => {
-      expect(routerPushMock).toHaveBeenCalledWith("/w/alice/explore?path=Preferences%2FAnswers.md");
-    });
+      expect(vi.mocked(fetch)).toHaveBeenCalledWith("/api/u/alice/learning/proposals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "save_draft", proposalId: "review-1", content: "# Edited content" }),
+      });
+    }, { timeout: 2000 });
   });
 
   it("shows the publish action only when there are changes to publish", async () => {
@@ -174,8 +226,47 @@ describe("CuratorDialog", () => {
       ],
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Pending publish" }));
+    fireEvent.click(screen.getByRole("button", { name: /Pending publish/ }));
 
     expect(await screen.findByText("docs/a.md")).toBeTruthy();
+  });
+
+  it("badges each tab with its pending item count", async () => {
+    renderDialog({
+      diffs: [
+        {
+          path: "docs/a.md",
+          status: "modified",
+          additions: 1,
+          deletions: 0,
+          diff: "@@\n",
+          conflicted: false,
+        },
+        {
+          path: "docs/b.md",
+          status: "added",
+          additions: 3,
+          deletions: 0,
+          diff: "@@\n",
+          conflicted: false,
+        },
+      ],
+    });
+
+    await screen.findByText("Remember preference");
+
+    const proposalsTab = screen.getByRole("button", { name: /Proposals/ });
+    expect(proposalsTab.textContent).toContain("1");
+    const changesTab = screen.getByRole("button", { name: /Pending publish/ });
+    expect(changesTab.textContent).toContain("2");
+  });
+
+  it("keeps the pending publish badge hidden with nothing to publish", async () => {
+    renderDialog();
+
+    await screen.findByText("Remember preference");
+
+    const changesTab = screen.getByRole("button", { name: /Pending publish/ });
+    expect(changesTab.textContent).not.toContain("1");
   });
 });

@@ -61,6 +61,7 @@ export function ExploreShell({
     isConnected,
     setCuratorOpen,
     setKnowledgePendingCount,
+    setKnowledgePublishCount,
   } = useWorkspaceRuntime();
 
   const workspace = useExploreWorkspace({
@@ -206,10 +207,7 @@ export function ExploreShell({
     <KnowledgeEmptyState />
   ) : (
     <InspectorPanel
-      slug={slug}
-      panelMode="files"
       workspaceAgentEnabled={workspaceAgentEnabled}
-      onTabChange={() => undefined}
       rightCollapsed={false}
       onToggleRight={() => undefined}
       hideCollapseButton
@@ -218,17 +216,12 @@ export function ExploreShell({
       onSelectFile={workspace.onSelectFile}
       onCloseFile={workspace.onCloseFile}
       diffs={workspace.diffs}
-      isLoadingDiffs={workspace.isLoadingDiffs}
-      diffsError={workspace.diffsError}
       onOpenFile={(path) => {
         void workspace.onOpenFile(path)
       }}
       internalLinkPaths={workspace.markdownFilePaths}
       onReloadFile={workspace.onReloadFile}
       onSaveFile={workspaceAgentEnabled ? workspace.onSaveFile : undefined}
-      onDiscardFileChanges={workspaceAgentEnabled ? workspace.onDiscardFileChanges : undefined}
-      onPublish={workspaceAgentEnabled ? workspace.onPublish : undefined}
-      onResolveConflict={workspaceAgentEnabled ? workspace.onResolveConflict : undefined}
     />
   );
 
@@ -239,6 +232,12 @@ export function ExploreShell({
     void workspace.refreshDiffs();
     void workspace.refreshFiles();
   }, [workspace]);
+
+  // Pending publish count feeds the sidebar badge, so it must track every
+  // diffs refresh (apply, publish, discard, conflict resolution).
+  useEffect(() => {
+    setKnowledgePublishCount(workspace.diffs.length);
+  }, [setKnowledgePublishCount, workspace.diffs]);
 
   return (
     <div

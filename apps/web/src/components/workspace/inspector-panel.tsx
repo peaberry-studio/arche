@@ -23,9 +23,6 @@ import { cn } from "@/lib/utils";
 
 import { MarkdownPreview } from "./markdown-preview";
 import { MarkdownEditor } from "./markdown-editor";
-import { PublishKbButton } from "./publish-kb-button";
-import { ReviewPanel, type ReviewTab } from "./review-panel";
-import { SegmentedControl, type SegmentedControlOption } from "./segmented-control";
 
 type WorkspaceFile = {
   path: string;
@@ -46,16 +43,8 @@ type ConflictMarkerTextEditorProps = {
   modifiedAt?: string;
 };
 
-const KNOWLEDGE_REVIEW_TAB_OPTIONS: SegmentedControlOption<ReviewTab>[] = [
-  { value: "proposals", label: "Proposals" },
-  { value: "changes", label: "Pending publish" },
-];
-
 type InspectorPanelProps = {
-  slug: string;
-  panelMode?: "combined" | "files" | "knowledge";
   workspaceAgentEnabled?: boolean;
-  onTabChange: (tab: "preview" | "review") => void;
   rightCollapsed: boolean;
   onToggleRight: () => void;
   openFiles: WorkspaceFile[];
@@ -63,8 +52,6 @@ type InspectorPanelProps = {
   onSelectFile: (path: string) => void;
   onCloseFile: (path: string) => void;
   diffs: WorkspaceDiff[];
-  isLoadingDiffs?: boolean;
-  diffsError?: string | null;
   onOpenFile: (path: string) => void;
   internalLinkPaths?: string[];
   onReloadFile?: (path: string) => Promise<void>;
@@ -73,12 +60,6 @@ type InspectorPanelProps = {
     content: string,
     expectedHash?: string
   ) => Promise<{ ok: true; hash?: string } | { ok: false; error: string }>;
-  onDiscardFileChanges?: (path: string) => Promise<{ ok: true } | { ok: false; error: string }>;
-  onPublish?: () => void;
-  onResolveConflict?: (path: string) => void | Promise<void>;
-  onKnowledgeReviewApplied?: () => void | Promise<void>;
-  onProposalCountChange?: (count: number) => void;
-  knowledgeReviewRefreshKey?: number;
   hideCollapseButton?: boolean;
 };
 
@@ -86,10 +67,8 @@ type InspectorPanelProps = {
 
 function MinifiedInspectorPanel({
   onToggleRight,
-  onTabChange,
 }: {
   onToggleRight: () => void;
-  onTabChange: (tab: "preview" | "review") => void;
 }) {
   return (
     <TooltipProvider delayDuration={400}>
@@ -115,7 +94,7 @@ function MinifiedInspectorPanel({
           <TooltipTrigger asChild>
             <button
               type="button"
-              onClick={() => { onToggleRight(); onTabChange("preview"); }}
+              onClick={onToggleRight}
               className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
               aria-label="Files"
             >
@@ -205,10 +184,7 @@ function ConflictMarkerTextEditor({
 // --- Expanded panel ---
 
 export function InspectorPanel({
-  slug,
-  panelMode = "combined",
   workspaceAgentEnabled = true,
-  onTabChange,
   rightCollapsed,
   onToggleRight,
   openFiles,
@@ -216,18 +192,10 @@ export function InspectorPanel({
   onSelectFile,
   onCloseFile,
   diffs,
-  isLoadingDiffs,
-  diffsError,
   onOpenFile,
-  onKnowledgeReviewApplied,
-  onProposalCountChange,
-  knowledgeReviewRefreshKey,
-  internalLinkPaths,
+  internalLinkPaths = [],
   onReloadFile,
   onSaveFile,
-  onDiscardFileChanges,
-  onPublish,
-  onResolveConflict,
   hideCollapseButton = false,
 }: InspectorPanelProps) {
   // Minified state
@@ -235,7 +203,6 @@ export function InspectorPanel({
     return (
       <MinifiedInspectorPanel
         onToggleRight={onToggleRight}
-        onTabChange={onTabChange}
       />
     );
   }
@@ -243,74 +210,40 @@ export function InspectorPanel({
   // Expanded state
   return (
     <ExpandedInspectorPanel
-      slug={slug}
-      panelMode={panelMode}
       workspaceAgentEnabled={workspaceAgentEnabled}
-      onTabChange={onTabChange}
       onToggleRight={onToggleRight}
       openFiles={openFiles}
       activeFilePath={activeFilePath}
       onSelectFile={onSelectFile}
       onCloseFile={onCloseFile}
       diffs={diffs}
-      isLoadingDiffs={isLoadingDiffs}
-      diffsError={diffsError}
       onOpenFile={onOpenFile}
-      onKnowledgeReviewApplied={onKnowledgeReviewApplied}
-      onProposalCountChange={onProposalCountChange}
-      knowledgeReviewRefreshKey={knowledgeReviewRefreshKey}
       internalLinkPaths={internalLinkPaths}
       onReloadFile={onReloadFile}
       onSaveFile={onSaveFile}
-      onDiscardFileChanges={onDiscardFileChanges}
-      onPublish={onPublish}
-      onResolveConflict={onResolveConflict}
       hideCollapseButton={hideCollapseButton}
     />
   );
 }
 
 function ExpandedInspectorPanel({
-  slug,
-  panelMode = "combined",
   workspaceAgentEnabled = true,
-  onTabChange,
   onToggleRight,
   openFiles,
   activeFilePath,
   onSelectFile,
   onCloseFile,
   diffs,
-  isLoadingDiffs,
-  diffsError,
   onOpenFile,
-  onKnowledgeReviewApplied,
-  onProposalCountChange,
-  knowledgeReviewRefreshKey,
   internalLinkPaths = [],
   onReloadFile,
   onSaveFile,
-  onDiscardFileChanges,
-  onPublish,
-  onResolveConflict,
   hideCollapseButton = false,
 }: Omit<InspectorPanelProps, "rightCollapsed">) {
-  const pendingDiffs = diffs.length;
-  const effectiveActiveTab = panelMode === "files" || panelMode === "combined"
-    ? "preview"
-    : "review";
   const activeFile = openFiles.find((f) => f.path === activeFilePath) ?? null;
   const tabsRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
-  const [reviewTab, setReviewTab] = useState<ReviewTab>("proposals");
-  const [reviewProposalCount, setReviewProposalCount] = useState(0);
-  // The review list already refetches after every action, so it is the source
-  // of the open-proposal count for both the tab badge and the shell.
-  const handleProposalCountChange = useCallback((count: number) => {
-    setReviewProposalCount(count);
-    onProposalCountChange?.(count);
-  }, [onProposalCountChange]);
   const { clearDraft, getDraft, getSaveError, getSaveState, handleChange } = useEditorDrafts({
     onSave: onSaveFile,
   });
@@ -396,84 +329,29 @@ function ExpandedInspectorPanel({
     });
   };
 
-  const showHeader = panelMode !== "files";
-
   return (
     <TooltipProvider delayDuration={200}>
       <div className="flex h-full flex-col pr-0 text-card-foreground">
       {/* Main container — header now lives inside */}
       <div className="flex flex-1 min-h-0 flex-col overflow-hidden rounded-none">
 
-      {/* In-container header (combined: tabs; review: collapse + label + publish) */}
-      {showHeader ? (
+      {/* In-container header (collapse control) */}
+      {!hideCollapseButton && (
         <div className="flex shrink-0 items-center gap-2 px-4 py-3">
-          {/* Collapse panel — placed on the side opposite to where the panel docks */}
-          {!hideCollapseButton && (
-            <button
-              type="button"
-              onClick={onToggleRight}
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/80 transition-colors hover:bg-foreground/5 hover:text-foreground"
-              aria-label="Collapse panel"
-              title="Collapse panel"
-            >
-              <ArrowLineRight size={13} weight="bold" />
-            </button>
-          )}
-
-          {workspaceAgentEnabled && panelMode === "combined" ? (
-            <div className="flex flex-1 justify-start">
-              <div className="inline-flex items-center gap-0.5 rounded-lg bg-foreground/[0.05] p-1 text-[11px]">
-                <button
-                  type="button"
-                  onClick={() => onTabChange("preview")}
-                  className={cn(
-                    "relative flex h-7 items-center gap-1.5 rounded-md px-3 font-medium transition-colors",
-                    "bg-background text-foreground/85"
-                  )}
-                  aria-pressed
-                >
-                  <File size={12} weight="fill" />
-                  Inspect
-                </button>
-              </div>
-            </div>
-          ) : panelMode === "knowledge" ? (
-            <div className="flex h-8 min-w-0 flex-1 items-center">
-              <SegmentedControl
-                variant="outline"
-                value={reviewTab}
-                onValueChange={setReviewTab}
-                options={KNOWLEDGE_REVIEW_TAB_OPTIONS.map((option) => ({
-                  ...option,
-                  badge: option.value === "proposals" ? reviewProposalCount : pendingDiffs,
-                }))}
-              />
-            </div>
-          ) : (
-            <div className="flex h-8 min-w-0 flex-1 items-center">
-              <p className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                <span>Inspect</span>
-              </p>
-            </div>
-          )}
-
-          {/* Publish action — knowledge mode only, shown when there is something to publish */}
-          {panelMode === "knowledge" && workspaceAgentEnabled && diffs.length > 0 ? (
-            <PublishKbButton
-              slug={slug}
-              onComplete={onPublish}
-              disabled={diffs.some((diff) => diff.conflicted)}
-              disabledReason={
-                diffs.some((diff) => diff.conflicted)
-                  ? "Resolve conflicts before publishing"
-                  : undefined
-              }
-            />
-          ) : null}
+          <button
+            type="button"
+            onClick={onToggleRight}
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/80 transition-colors hover:bg-foreground/5 hover:text-foreground"
+            aria-label="Collapse panel"
+            title="Collapse panel"
+          >
+            <ArrowLineRight size={13} weight="bold" />
+          </button>
         </div>
-      ) : null}
-      {/* File tabs row — only in Files mode with open files */}
-      {effectiveActiveTab === "preview" && openFiles.length > 0 && (
+      )}
+
+      {/* File tabs row — only with open files */}
+      {openFiles.length > 0 && (
         <div className="flex min-h-9 shrink-0 items-center border-b border-border/30 py-2">
           <div className="flex min-w-0 flex-1 items-center">
             {canScrollLeft && (
@@ -548,10 +426,7 @@ function ExpandedInspectorPanel({
 
       {/* Content area */}
       <div className="relative flex-1 min-h-0">
-        <div
-          className={cn("absolute inset-0", effectiveActiveTab !== "preview" && "hidden")}
-          aria-hidden={effectiveActiveTab !== "preview"}
-        >
+        <div className="absolute inset-0">
           {openFiles.length > 0 ? (
             <div className="flex h-full min-h-0 flex-col">
               {/* File content */}
@@ -604,30 +479,6 @@ function ExpandedInspectorPanel({
             </div>
           ) : null}
         </div>
-
-        {(workspaceAgentEnabled || panelMode === "knowledge") && (
-          <div
-            className={cn(
-              "absolute inset-0 overflow-y-auto scrollbar-custom px-4 pb-8 pt-2",
-              effectiveActiveTab !== "review" && "hidden"
-            )}
-          >
-            <ReviewPanel
-              slug={slug}
-              diffs={diffs}
-              activeTab={reviewTab}
-              isLoading={Boolean(isLoadingDiffs)}
-              error={diffsError ?? undefined}
-              onOpenFile={onOpenFile}
-              internalLinkPaths={internalLinkPaths}
-              onProposalCountChange={handleProposalCountChange}
-              onDiscardFileChanges={onDiscardFileChanges}
-              onKnowledgeReviewApplied={onKnowledgeReviewApplied}
-              knowledgeReviewRefreshKey={knowledgeReviewRefreshKey}
-              onResolveConflict={onResolveConflict}
-            />
-          </div>
-        )}
       </div>
       </div>
       </div>

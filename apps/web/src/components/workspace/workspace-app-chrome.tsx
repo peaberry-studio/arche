@@ -41,6 +41,7 @@ export function WorkspaceAppChrome({
   const {
     curatorOpen,
     knowledgePendingCount,
+    knowledgePublishCount,
     refreshKnowledgePendingCount,
     sessionsHook,
     setCuratorOpen,
@@ -122,7 +123,7 @@ export function WorkspaceAppChrome({
       isCollapsed={sidebarCollapsed}
       isInitialSessionsReady={sessionsHook.isInitialSessionsReady}
       isLoadingMoreSessions={sessionsHook.isLoadingMoreSessions}
-      knowledgePendingCount={knowledgePendingCount}
+      knowledgePendingCount={knowledgePendingCount + knowledgePublishCount}
       macDesktopWindowInset={macDesktopWindowInset}
       onCreateSession={handleCreateSession}
       onLoadMoreSessions={sessionsHook.loadMoreSessions}

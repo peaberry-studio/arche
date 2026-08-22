@@ -212,6 +212,7 @@ export function WorkspaceShell({
     refreshKnowledgePendingCount,
     setCuratorOpen,
     setKnowledgePendingCount,
+    setKnowledgePublishCount,
     setSidebarCollapsed,
   } = useWorkspaceRuntime();
   const [rightTab, setRightTab] = useState<"preview" | "review">("preview");
@@ -254,6 +255,12 @@ export function WorkspaceShell({
     refreshKnowledgeWorkspace();
     void refreshKnowledgePendingCount();
   }, [refreshKnowledgePendingCount, refreshKnowledgeWorkspace]);
+
+  // Pending publish count feeds the sidebar badge, so it must track every
+  // diffs refresh (apply, publish, discard, conflict resolution).
+  useEffect(() => {
+    setKnowledgePublishCount(workspace.diffs.length);
+  }, [setKnowledgePublishCount, workspace.diffs]);
 
   const sessionsById = useMemo(() => {
     const map = new Map<string, WorkspaceSession>();
