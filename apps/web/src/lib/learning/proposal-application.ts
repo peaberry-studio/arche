@@ -341,9 +341,11 @@ export async function applyAndPublishKnowledgeReviewChange(args: {
   // If the publish step fails the change stays applied and its diff remains
   // visible under Manual edits as the natural fallback; the publish result
   // lets the UI surface the reason.
+  // Audit the acting user (e.g. an ADMIN applying on another user's
+  // workspace), matching the standalone publish route's attribution.
   const publish = await publishKnowledgeBasePaths({
     slug: args.slug,
-    actorUserId: args.userId,
+    actorUserId: args.actor,
     paths: [applied.change.kbPath],
   })
   return { ok: true, change: applied.change, publish }
