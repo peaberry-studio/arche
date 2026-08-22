@@ -4,8 +4,8 @@ import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
 import {
-  ArrowLineLeft,
-  ArrowLineRight,
+  CaretLineLeft,
+  CaretLineRight,
   ChatCircle,
   Cpu,
   Database,
@@ -27,9 +27,15 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { ArcheMark } from '@/components/workspace/arche-mark'
+import {
+  getDashboardNavExpandedCookieName,
+  getDashboardNavExpandedStorageKey,
+} from '@/lib/dashboard-nav-state'
 import { getDesktopFlowsHref } from '@/lib/runtime/desktop/current-vault'
 import { cn } from '@/lib/utils'
 import { getWorkspaceHref } from '@/lib/workspace-hrefs'
+import { persistWorkspacePanelState } from '@/lib/workspace-panel-state'
 
 type DashboardNavItem = {
   label: string
@@ -40,10 +46,10 @@ type DashboardNavItem = {
 }
 
 const DASHBOARD_NAV_OFFSET_PROPERTY = '--dashboard-nav-offset'
-const DASHBOARD_NAV_COLLAPSED_OFFSET = '5rem'
-const DASHBOARD_NAV_EXPANDED_OFFSET = '13.5rem'
-const DASHBOARD_NAV_COLLAPSED_WIDTH_CLASS = 'w-10'
-const DASHBOARD_NAV_EXPANDED_WIDTH_CLASS = 'w-44'
+const DASHBOARD_NAV_COLLAPSED_OFFSET = '3rem'
+const DASHBOARD_NAV_EXPANDED_OFFSET = '12.5rem'
+const DASHBOARD_NAV_COLLAPSED_WIDTH_CLASS = 'w-12'
+const DASHBOARD_NAV_EXPANDED_WIDTH_CLASS = 'w-50'
 
 function getWebNavItems(slug: string): DashboardNavItem[] {
   const base = `/u/${slug}`
@@ -94,17 +100,19 @@ export function DashboardNav({
   desktopMode = false,
   displayLabel,
   hasWindowInset = false,
+  initialExpanded = true,
 }: {
   slug: string
   desktopMode?: boolean
   displayLabel?: string
   hasWindowInset?: boolean
+  initialExpanded?: boolean
 }) {
   const pathname = usePathname()
   const search = useSearchParams()
   const workspaceHref = getWorkspaceHref(slug)
   const navItems = desktopMode ? getDesktopNavItems(slug) : getWebNavItems(slug)
-  const [isExpanded, setIsExpanded] = useState(false)
+  const [isExpanded, setIsExpanded] = useState(initialExpanded)
   const [menuState, setMenuState] = useState<{ open: boolean; pathname: string }>({
     open: false,
     pathname,
@@ -121,11 +129,16 @@ export function DashboardNav({
       DASHBOARD_NAV_OFFSET_PROPERTY,
       isExpanded ? DASHBOARD_NAV_EXPANDED_OFFSET : DASHBOARD_NAV_COLLAPSED_OFFSET,
     )
+    persistWorkspacePanelState(
+      getDashboardNavExpandedStorageKey(slug),
+      getDashboardNavExpandedCookieName(slug),
+      isExpanded,
+    )
 
     return () => {
       root.style.removeProperty(DASHBOARD_NAV_OFFSET_PROPERTY)
     }
-  }, [isExpanded])
+  }, [isExpanded, slug])
 
   useEffect(() => {
     if (!mobileMenuOpen) return
@@ -143,46 +156,111 @@ export function DashboardNav({
     }
   }, [mobileMenuOpen])
 
-  function handleExpandedChange(nextExpanded: boolean) {
-    setIsExpanded(nextExpanded)
+  const openWorkspaceItem: DashboardNavItem = {
+    label: 'Open Workspace',
+    href: workspaceHref,
+    icon: SquaresFour,
   }
 
   return (
     <div ref={menuRef} className="relative">
-      <TooltipProvider delayDuration={350}>
+      <TooltipProvider delayDuration={150}>
         <aside
           className={cn(
-            'fixed bottom-6 left-5 z-40 hidden flex-col text-card-foreground transition-[width] duration-200 md:flex',
-            hasWindowInset ? 'top-10' : 'top-6',
+            'fixed inset-y-0 left-0 z-40 hidden flex-col border-r border-border/30 bg-background text-card-foreground transition-[width] duration-200 md:flex',
             isExpanded ? DASHBOARD_NAV_EXPANDED_WIDTH_CLASS : DASHBOARD_NAV_COLLAPSED_WIDTH_CLASS,
           )}
         >
-          <div className="flex flex-col items-start gap-2">
-            <DashboardNavToggle
-              isExpanded={isExpanded}
-              onToggle={() => handleExpandedChange(!isExpanded)}
-            />
-          </div>
+          {isExpanded ? (
+            <>
+              <div
+                className={cn(
+                  'flex h-11 shrink-0 items-center justify-between gap-2 pl-4 pr-1.5',
+                  hasWindowInset && 'desktop-titlebar-drag',
+                )}
+              >
+                <div className="flex min-w-0 items-center gap-1.5">
+                  {hasWindowInset ? (
+                    <div aria-label="macOS traffic lights" className="desktop-titlebar-drag pl-[88px]" />
+                  ) : null}
+                  <span className="type-display shrink-0 text-base font-semibold tracking-tight">Arche</span>
+                  <span className="truncate text-[12px] text-muted-foreground">
+                    /&nbsp;{displayLabel ?? slug}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsExpanded(false)}
+                  className={cn(
+                    'flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground',
+                    hasWindowInset && 'desktop-titlebar-no-drag',
+                  )}
+                  aria-label="Collapse navigation"
+                  title="Collapse navigation"
+                >
+                  <CaretLineLeft size={14} weight="bold" />
+                </button>
+              </div>
 
-          <nav aria-label="Dashboard" className="mt-6 flex flex-1 flex-col gap-1.5">
-            {navItems.map((item) => (
-              <DashboardNavLink
-                key={item.label}
-                item={item}
-                isActive={isNavItemActive(pathname, search, item)}
-                isExpanded={isExpanded}
-              />
-            ))}
-          </nav>
+              <nav aria-label="Dashboard navigation" className="flex flex-col gap-0.5 px-1.5 pt-1">
+                {navItems.map((item) => (
+                  <DashboardNavLink
+                    key={item.label}
+                    item={item}
+                    isActive={isNavItemActive(pathname, search, item)}
+                    isExpanded
+                  />
+                ))}
+              </nav>
 
-          <div className="mt-4">
-            <DashboardNavLink
-              item={{ label: 'Open Workspace', href: workspaceHref, icon: SquaresFour }}
-              isActive={pathname.startsWith(workspaceHref)}
-              isExpanded={isExpanded}
-              isPrimary
-            />
-          </div>
+              <div className="mt-auto shrink-0 border-t border-border/40 p-1.5">
+                <DashboardNavLink
+                  item={openWorkspaceItem}
+                  isActive={pathname.startsWith(workspaceHref)}
+                  isExpanded
+                  isPrimary
+                />
+              </div>
+            </>
+          ) : (
+            <div className="flex h-full min-h-0 flex-col items-center py-2">
+              <div className="flex h-7 w-7 items-center justify-center">
+                <ArcheMark className="text-primary" size={16} />
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsExpanded(true)}
+                className="mt-1 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+                aria-label="Expand navigation"
+                title="Expand navigation"
+              >
+                <CaretLineRight size={14} weight="bold" />
+              </button>
+
+              <div className="my-2 h-px w-6 bg-border/40" />
+
+              <nav aria-label="Dashboard navigation" className="flex w-full flex-col items-center gap-1">
+                {navItems.map((item) => (
+                  <DashboardNavLink
+                    key={item.label}
+                    item={item}
+                    isActive={isNavItemActive(pathname, search, item)}
+                    isExpanded={false}
+                  />
+                ))}
+              </nav>
+
+              <div className="mt-auto pt-2">
+                <DashboardNavLink
+                  item={openWorkspaceItem}
+                  isActive={pathname.startsWith(workspaceHref)}
+                  isExpanded={false}
+                  isPrimary
+                />
+              </div>
+            </div>
+          )}
         </aside>
       </TooltipProvider>
 
@@ -242,45 +320,6 @@ export function DashboardNav({
   )
 }
 
-function DashboardNavToggle({
-  isExpanded,
-  onToggle,
-}: {
-  isExpanded: boolean
-  onToggle: () => void
-}) {
-  const button = (
-    <button
-      type="button"
-      onClick={onToggle}
-      className={cn(
-        'flex h-10 items-center rounded-xl text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground',
-        isExpanded ? 'w-full gap-3 px-3' : `${DASHBOARD_NAV_COLLAPSED_WIDTH_CLASS} justify-center`,
-      )}
-      aria-label={isExpanded ? 'Collapse navigation' : 'Expand navigation'}
-      aria-expanded={isExpanded}
-    >
-      {isExpanded ? (
-        <ArrowLineLeft size={18} weight="bold" />
-      ) : (
-        <ArrowLineRight size={18} weight="bold" />
-      )}
-      <span className={cn('min-w-0 truncate text-sm', !isExpanded && 'sr-only')}>
-        Collapse
-      </span>
-    </button>
-  )
-
-  if (isExpanded) return button
-
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>{button}</TooltipTrigger>
-      <TooltipContent side="right">Expand navigation</TooltipContent>
-    </Tooltip>
-  )
-}
-
 function DashboardNavLink({
   item,
   isActive,
@@ -296,25 +335,28 @@ function DashboardNavLink({
   const link = (
     <Link
       href={item.href}
+      aria-current={isActive ? 'page' : undefined}
       className={cn(
-        'group flex h-10 items-center rounded-xl text-sm transition-colors',
-        isExpanded ? 'gap-3 px-3' : 'justify-center',
+        'group flex h-8 items-center rounded-md text-[12px] font-medium transition-colors',
+        isExpanded ? 'w-full gap-2 px-2.5' : 'relative w-8 justify-center px-2',
         isPrimary
-          ? 'bg-foreground/10 font-medium text-foreground hover:bg-foreground/15'
+          ? 'bg-foreground/10 text-foreground hover:bg-foreground/15'
           : isActive
-            ? 'bg-primary/10 font-medium text-primary'
+            ? 'bg-primary/10 text-primary'
             : 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground',
       )}
     >
       <Icon
-        size={18}
-        weight={isActive || isPrimary ? 'fill' : 'regular'}
+        size={15}
+        weight={isActive || isPrimary ? 'fill' : 'bold'}
         className="shrink-0"
         aria-hidden="true"
       />
-      <span className={cn('min-w-0 truncate', !isExpanded && 'sr-only')}>
-        {item.label}
-      </span>
+      {isExpanded ? (
+        <span className="flex-1 truncate text-left leading-none">{item.label}</span>
+      ) : (
+        <span className="sr-only">{item.label}</span>
+      )}
     </Link>
   )
 
@@ -323,7 +365,9 @@ function DashboardNavLink({
   return (
     <Tooltip>
       <TooltipTrigger asChild>{link}</TooltipTrigger>
-      <TooltipContent side="right">{item.label}</TooltipContent>
+      <TooltipContent side="right" sideOffset={10}>
+        {item.label}
+      </TooltipContent>
     </Tooltip>
   )
 }

@@ -14,6 +14,7 @@ describe('DashboardNav', () => {
   afterEach(() => {
     cleanup()
     document.documentElement.style.removeProperty('--dashboard-nav-offset')
+    window.localStorage.clear()
   })
 
   it('keeps logout out of the dashboard nav', () => {
@@ -38,15 +39,30 @@ describe('DashboardNav', () => {
   it('updates and cleans the dashboard nav offset', () => {
     const { unmount } = render(<DashboardNav slug="admin" />)
 
-    expect(document.documentElement.style.getPropertyValue('--dashboard-nav-offset')).toBe('5rem')
+    expect(document.documentElement.style.getPropertyValue('--dashboard-nav-offset')).toBe('12.5rem')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Expand navigation' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse navigation' }))
 
-    expect(document.documentElement.style.getPropertyValue('--dashboard-nav-offset')).toBe('13.5rem')
-    expect(screen.getByRole('button', { name: 'Collapse navigation' })).toBeTruthy()
+    expect(document.documentElement.style.getPropertyValue('--dashboard-nav-offset')).toBe('3rem')
+    expect(screen.getByRole('button', { name: 'Expand navigation' })).toBeTruthy()
 
     unmount()
 
     expect(document.documentElement.style.getPropertyValue('--dashboard-nav-offset')).toBe('')
+  })
+
+  it('restores the collapsed state from initialExpanded', () => {
+    render(<DashboardNav slug="admin" initialExpanded={false} />)
+
+    expect(document.documentElement.style.getPropertyValue('--dashboard-nav-offset')).toBe('3rem')
+    expect(screen.getByRole('button', { name: 'Expand navigation' })).toBeTruthy()
+  })
+
+  it('persists the expanded state', () => {
+    render(<DashboardNav slug="admin" />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse navigation' }))
+
+    expect(window.localStorage.getItem('dashboard-nav-expanded:admin')).toBe('false')
   })
 })

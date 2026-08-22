@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation'
 import { DashboardNav } from '@/components/dashboard/dashboard-nav'
 import { DashboardThemeShell } from '@/components/dashboard/dashboard-theme-shell'
 import { WorkspaceThemeProvider } from '@/contexts/workspace-theme-context'
+import { getDashboardNavExpandedCookieName } from '@/lib/dashboard-nav-state'
 import { getCurrentDesktopVault, getWorkspacePersistenceScope } from '@/lib/runtime/desktop/current-vault'
 import { shouldUseCurrentMacOsInsetTitleBar } from '@/lib/runtime/desktop-window-chrome'
 import { isDesktop } from '@/lib/runtime/mode'
@@ -54,6 +55,7 @@ export default async function DashboardLayout({
 
   const storedThemeId = cookieStore.get(getWorkspaceThemeCookieName(persistenceScope))?.value
   const storedDarkMode = cookieStore.get(getWorkspaceDarkModeCookieName(persistenceScope))?.value
+  const storedNavExpanded = cookieStore.get(getDashboardNavExpandedCookieName(slug))?.value
   const initialChatFontFamily = storedChatFontFamily && isWorkspaceChatFontFamily(storedChatFontFamily)
     ? storedChatFontFamily
     : DEFAULT_CHAT_FONT_FAMILY
@@ -88,10 +90,11 @@ export default async function DashboardLayout({
             desktopMode={Boolean(desktopVault)}
             displayLabel={desktopVault?.vaultName}
             hasWindowInset={macDesktopWindowInset}
+            initialExpanded={storedNavExpanded !== 'false'}
           />
         </div>
 
-        <div className="transition-[margin] duration-200 md:ml-[var(--dashboard-nav-offset,5rem)]">
+        <div className="transition-[margin] duration-200 md:ml-[var(--dashboard-nav-offset,12.5rem)]">
           {children}
         </div>
       </DashboardThemeShell>

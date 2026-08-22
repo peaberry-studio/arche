@@ -18,6 +18,7 @@ type DashboardNavProps = {
   desktopMode: boolean
   displayLabel?: string
   hasWindowInset: boolean
+  initialExpanded: boolean
   slug: string
 }
 
@@ -150,6 +151,20 @@ describe('DashboardLayout', () => {
       desktopMode: true,
       displayLabel: 'Client Vault',
       hasWindowInset: true,
+      initialExpanded: true,
+      slug: 'alice',
+    })
+  })
+
+  it('restores the collapsed nav state from the persisted cookie', async () => {
+    mockCookies({
+      'arche-dashboard-nav-expanded-alice': 'false',
+    })
+
+    render(await renderDashboardLayout())
+
+    expect(dashboardNavProps.current).toMatchObject({
+      initialExpanded: false,
       slug: 'alice',
     })
   })
@@ -174,6 +189,7 @@ describe('DashboardLayout', () => {
       desktopMode: false,
       displayLabel: undefined,
       hasWindowInset: false,
+      initialExpanded: true,
       slug: 'alice',
     })
   })
