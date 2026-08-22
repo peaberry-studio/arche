@@ -122,7 +122,7 @@ export function ReviewPanel({
           )}
         </div>
       ) : (
-        <>
+        <div className="space-y-3">
           {hasConflicts ? (
             <div className="rounded-md border-[0.5px] border-amber-500/25 bg-amber-500/5 px-2.5 py-1.5 text-[11px] text-amber-700 dark:text-amber-300">
               Detected {conflictCount} conflict{conflictCount !== 1 ? "s" : ""}. Keep one version, or open the
@@ -162,61 +162,63 @@ export function ReviewPanel({
                         <span className="text-red-500">-{diff.deletions}</span>
                       </span>
                     </button>
-                    {diff.conflicted ? (
-                      <div className="flex shrink-0 items-center gap-1">
+                    <div className="flex shrink-0 items-center gap-1">
+                      {diff.conflicted ? (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-[11px]"
+                            onClick={() => void resolveConflict(diff.path, "ours")}
+                            disabled={Boolean(resolvingConflict)}
+                          >
+                            {resolvingStrategy === "ours" ? "Keeping…" : "Keep local"}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-[11px]"
+                            onClick={() => void resolveConflict(diff.path, "theirs")}
+                            disabled={Boolean(resolvingConflict)}
+                          >
+                            {resolvingStrategy === "theirs" ? "Keeping…" : "Keep remote"}
+                          </Button>
+                        </>
+                      ) : null}
+                      {onDiscardFileChanges ? (
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7 text-muted-foreground/40 hover:text-muted-foreground"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openDiscardConfirm(diff.path);
+                          }}
+                          aria-label="Discard changes"
+                          title="Discard changes"
+                        >
+                          <Trash size={12} weight="regular" />
+                        </Button>
+                      ) : null}
+                      {onPublishFile && !diff.conflicted ? (
+                        <PublishKbButton
+                          slug={slug}
+                          paths={[diff.path]}
+                          onComplete={() => onPublishFile(diff.path)}
+                        />
+                      ) : null}
+                      {isLong ? (
                         <Button
                           size="sm"
-                          variant="outline"
-                          className="h-7 px-2 text-[11px]"
-                          onClick={() => void resolveConflict(diff.path, "ours")}
-                          disabled={Boolean(resolvingConflict)}
+                          variant="ghost"
+                          className="h-7 gap-1 px-2 text-[11px]"
+                          onClick={() => toggleDiff(diff.path)}
                         >
-                          {resolvingStrategy === "ours" ? "Keeping…" : "Keep local"}
+                          {isExpanded ? <CaretDown size={12} /> : <CaretRight size={12} />}
+                          {isExpanded ? "Collapse" : "View diff"}
                         </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-7 px-2 text-[11px]"
-                          onClick={() => void resolveConflict(diff.path, "theirs")}
-                          disabled={Boolean(resolvingConflict)}
-                        >
-                          {resolvingStrategy === "theirs" ? "Keeping…" : "Keep remote"}
-                        </Button>
-                      </div>
-                    ) : null}
-                    {onDiscardFileChanges ? (
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-7 w-7 shrink-0 text-muted-foreground/40 hover:text-muted-foreground"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          openDiscardConfirm(diff.path);
-                        }}
-                        aria-label="Discard changes"
-                        title="Discard changes"
-                      >
-                        <Trash size={13} weight="regular" />
-                      </Button>
-                    ) : null}
-                    {onPublishFile && !diff.conflicted ? (
-                      <PublishKbButton
-                        slug={slug}
-                        paths={[diff.path]}
-                        onComplete={() => onPublishFile(diff.path)}
-                      />
-                    ) : null}
-                    {isLong ? (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-7 gap-1 px-2 text-[11px]"
-                        onClick={() => toggleDiff(diff.path)}
-                      >
-                        {isExpanded ? <CaretDown size={12} /> : <CaretRight size={12} />}
-                        {isExpanded ? "Collapse" : "View diff"}
-                      </Button>
-                    ) : null}
+                      ) : null}
+                    </div>
                   </div>
                   {conflictError ? (
                     <div className="border-t border-border/20 px-3 py-2 text-[11px] text-destructive">
@@ -240,7 +242,7 @@ export function ReviewPanel({
               );
             })}
           </div>
-        </>
+        </div>
       )}
 
       <Dialog open={discardOpen} onOpenChange={handleDiscardOpenChange}>

@@ -158,16 +158,18 @@ export function PublishKbButton({ slug, disabled, disabledReason, onComplete, pa
     : stateConfig[state]
   const Icon = config.icon
   const showPopover = state === 'push_rejected' || state === 'no_remote' || state === 'error'
+  const idleTitle = paths ? 'Publish this file' : 'Publish all changes'
 
   return (
-    <div className="relative">
-      <span className="inline-flex" title={message || disabledReason || 'Publish changes'}>
+    <div className="relative shrink-0">
+      <span className="inline-flex" title={message || disabledReason || idleTitle}>
         <Button
           size="sm"
+          variant={paths ? 'outline' : 'default'}
           className={cn("h-7 gap-1.5 px-2.5 text-xs", config.buttonClassName)}
           onClick={handlePublish}
           disabled={disabled || state === 'publishing'}
-          title={message || disabledReason || 'Publish changes'}
+          title={message || disabledReason || idleTitle}
         >
           <Icon size={12} weight={config.weight} className={cn(config.className)} />
           {config.label}
