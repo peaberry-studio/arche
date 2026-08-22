@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type Dispatch,
   type ReactNode,
@@ -63,6 +64,17 @@ function countActionableKnowledgeProposals(value: unknown): number {
   )).length;
 }
 
+type WorkspaceRuntimeStateProviderProps = {
+  children: ReactNode;
+  connection: WorkspaceConnectionState;
+  initialSessionId: string | null;
+  instanceError: string | null;
+  instanceStatus: "starting" | "running" | "error" | null;
+  isConnected: boolean;
+  persistenceScope: string;
+  slug: string;
+};
+
 export function WorkspaceRuntimeProvider({
   children,
   initialSessionId = null,
@@ -70,24 +82,71 @@ export function WorkspaceRuntimeProvider({
   reaperEnabled = true,
   slug,
 }: WorkspaceRuntimeProviderProps) {
+  // Instance startup must stay in a component that does not read search
+  // params. `useSearchParams()` + `router.replace(?session=)` can remount
+  // the caller or abort the in-flight `ensureInstanceRunningAction`, which
+  // leaves the workspace stuck on "Starting workspace".
   const { instanceStatus, instanceError } = useInstanceStartup(slug);
   const running = instanceStatus === "running";
 
   const { connection, isConnected } = useWorkspaceConnection(slug, running);
   useInstanceHeartbeat(slug, running && reaperEnabled);
 
+  return (
+    <WorkspaceRuntimeStateProvider
+      connection={connection}
+      initialSessionId={initialSessionId}
+      instanceError={instanceError}
+      instanceStatus={instanceStatus}
+      isConnected={isConnected}
+      persistenceScope={persistenceScope}
+      slug={slug}
+    >
+      {children}
+    </WorkspaceRuntimeStateProvider>
+  );
+}
+
+function WorkspaceRuntimeStateProvider({
+  children,
+  connection,
+  initialSessionId,
+  instanceError,
+  instanceStatus,
+  isConnected,
+  persistenceScope,
+  slug,
+}: WorkspaceRuntimeStateProviderProps) {
+  const running = instanceStatus === "running";
+
   // Next.js never passes searchParams to layouts, so the deep-linked
   // ?session= is read here on the client. The sessions hook captures it once
-  // at mount; later param changes go through selectSession state instead.
+  // at mount; the effect below keeps later param changes (back/forward,
+  // shared links) in sync.
   const searchParams = useSearchParams();
   const urlSessionId = searchParams?.get("session") ?? null;
 
   const sessionsHook = useWorkspaceSessions({
     slug,
-    storageScope: persistenceScope,
     initialSessionId: initialSessionId ?? urlSessionId,
     isConnected: running && isConnected,
   });
+
+  // The ?session= param is the source of truth for the active conversation.
+  // The initial mount is handled by the sessions hook (which validates the
+  // session against the loaded list); every later param change selects the
+  // session so shared links and history navigation restore conversations.
+  const didApplyUrlSessionRef = useRef(false);
+  const selectSession = sessionsHook.selectSession;
+  useEffect(() => {
+    if (!didApplyUrlSessionRef.current) {
+      didApplyUrlSessionRef.current = true;
+      return;
+    }
+    if (urlSessionId) {
+      selectSession(urlSessionId);
+    }
+  }, [urlSessionId, selectSession]);
 
   // Curator dialog + sidebar badge state lives here so the chrome (sidebar)
   // and the page shells (dialog) share one source of truth.

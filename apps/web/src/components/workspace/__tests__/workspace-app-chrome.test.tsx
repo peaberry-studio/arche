@@ -171,12 +171,23 @@ describe("WorkspaceAppChrome", () => {
     expect(navigation.replace).not.toHaveBeenCalled()
   })
 
-  it("routes a new chat back to the workspace root from explore", async () => {
+  it("opens the empty composer instead of creating a session", async () => {
+    const selectSession = vi.fn()
+    const createSession = vi.fn(async () => ({ id: "new-session" }))
+    sessionsMock.mockReturnValue({
+      sessions: [],
+      activeSessionId: "session-1",
+      createSession,
+      selectSession,
+      sessionActions: {},
+    })
     navigation.pathname = "/w/alice/explore"
     renderChrome(<div>Explore</div>)
 
     fireEvent.click(screen.getByRole("button", { name: "New chat" }))
 
+    expect(selectSession).toHaveBeenCalledWith(null)
+    expect(createSession).not.toHaveBeenCalled()
     await waitFor(() => expect(navigation.push).toHaveBeenCalledWith("/w/alice"))
   })
 })

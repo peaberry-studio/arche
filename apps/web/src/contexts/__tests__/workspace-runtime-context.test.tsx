@@ -30,12 +30,13 @@ vi.mock("@/hooks/use-instance-heartbeat", () => ({
   useInstanceHeartbeat: (...args: unknown[]) => heartbeatMock(...args),
 }));
 
-const sessionsMock = vi.hoisted(() => vi.fn(() => ({ activeSessionId: null })));
+const sessionsMock = vi.hoisted(() => vi.fn());
+const selectSessionMock = vi.hoisted(() => vi.fn());
 vi.mock("@/hooks/workspace/use-workspace-sessions", () => ({
   useWorkspaceSessions: (...args: unknown[]) => sessionsMock(...args),
 }));
 
-const searchParamsMock = vi.hoisted(() => vi.fn(() => null));
+const searchParamsMock = vi.hoisted(() => vi.fn((): URLSearchParams | null => null));
 vi.mock("next/navigation", () => ({
   useSearchParams: () => searchParamsMock(),
 }));
@@ -73,6 +74,7 @@ describe("WorkspaceRuntimeProvider", () => {
     })
     heartbeatMock.mockReturnValue(undefined)
     searchParamsMock.mockReturnValue(null)
+    sessionsMock.mockReturnValue({ activeSessionId: null, selectSession: selectSessionMock })
   })
 
   it("exposes running status and wires the three runtime hooks to slug", () => {
@@ -140,5 +142,47 @@ describe("WorkspaceRuntimeProvider", () => {
     expect(sessionsMock).toHaveBeenCalledWith(
       expect.objectContaining({ initialSessionId: "from-prop" })
     )
+  })
+
+  it("keeps instance startup running when the ?session= param changes", () => {
+    const { rerender } = render(
+      <WorkspaceRuntimeProvider slug="alice" persistenceScope="alice">
+        <RuntimeView />
+      </WorkspaceRuntimeProvider>
+    )
+
+    expect(screen.getByTestId("runtime-view").dataset.status).toBe("running")
+    const startupCallsAfterMount = instanceStartupMock.mock.calls.length
+
+    searchParamsMock.mockReturnValue(new URLSearchParams("session=abc-123"))
+    rerender(
+      <WorkspaceRuntimeProvider slug="alice" persistenceScope="alice">
+        <RuntimeView />
+      </WorkspaceRuntimeProvider>
+    )
+
+    expect(screen.getByTestId("runtime-view").dataset.status).toBe("running")
+    // Search-param updates re-render the session layer, not a new startup hook.
+    expect(instanceStartupMock).toHaveBeenCalledTimes(startupCallsAfterMount + 1)
+  })
+
+  it("selects the session when the ?session= param changes after mount", () => {
+    const { rerender } = render(
+      <WorkspaceRuntimeProvider slug="alice" persistenceScope="alice">
+        <RuntimeView />
+      </WorkspaceRuntimeProvider>
+    )
+
+    // The initial mount is handled by the sessions hook, not the sync effect.
+    expect(selectSessionMock).not.toHaveBeenCalled()
+
+    searchParamsMock.mockReturnValue(new URLSearchParams("session=abc-123"))
+    rerender(
+      <WorkspaceRuntimeProvider slug="alice" persistenceScope="alice">
+        <RuntimeView />
+      </WorkspaceRuntimeProvider>
+    )
+
+    expect(selectSessionMock).toHaveBeenCalledWith("abc-123")
   })
 })

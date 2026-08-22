@@ -126,11 +126,7 @@ export function ChatPanelSessionHeader({
                   <p className="truncate text-sm font-medium text-destructive">
                     Couldn&apos;t load sessions.
                   </p>
-                ) : (
-                  <p className="truncate text-sm font-medium text-foreground">
-                    No active session
-                  </p>
-                )
+                ) : null
               )}
               {activeSession ? (
                 <DropdownMenu>

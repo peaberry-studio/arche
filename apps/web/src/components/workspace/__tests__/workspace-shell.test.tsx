@@ -499,7 +499,7 @@ describe("WorkspaceShell", () => {
     expect(screen.getByText("Error: socket down")).toBeTruthy();
   });
 
-  it("creates a new session with Command+Period", async () => {
+  it("opens the empty composer with Command+Period", async () => {
     renderWorkspaceShell({ slug: "alice" });
 
     await waitFor(() => {
@@ -515,8 +515,10 @@ describe("WorkspaceShell", () => {
     );
 
     await waitFor(() => {
-      expect(createSessionMock).toHaveBeenCalledWith();
+      expect(selectSessionMock).toHaveBeenCalledWith(null);
     });
+    expect(createSessionMock).not.toHaveBeenCalled();
+    expect(routerPushMock).toHaveBeenCalledWith("/w/alice");
   });
 
   it("auto-starts a dashboard prompt with selected context paths", async () => {
@@ -587,6 +589,39 @@ describe("WorkspaceShell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Return to main conversation" }));
 
     expect(selectSession).toHaveBeenCalledWith("root-session");
+  });
+
+  it("mirrors the active session into the ?session= URL param", async () => {
+    window.history.replaceState(null, "", "/w/alice?session=stale-session");
+    renderWorkspaceShell({ slug: "alice" });
+
+    await screen.findByTestId("chat-panel");
+
+    await waitFor(() => {
+      expect(routerReplaceMock).toHaveBeenCalledWith("/w/alice?session=root-session");
+    });
+  });
+
+  it("removes the ?session= param when no conversation is active", async () => {
+    window.history.replaceState(null, "", "/w/alice?session=deleted-session");
+    workspaceMockOverrides = { activeSessionId: null };
+    renderWorkspaceShell({ slug: "alice" });
+
+    await screen.findByTestId("chat-panel");
+
+    await waitFor(() => {
+      expect(routerReplaceMock).toHaveBeenCalledWith("/w/alice");
+    });
+  });
+
+  it("does not rewrite the session param until sessions are ready", async () => {
+    window.history.replaceState(null, "", "/w/alice?session=pending-session");
+    workspaceMockOverrides = { activeSessionId: null, isInitialSessionsReady: false };
+    renderWorkspaceShell({ slug: "alice" });
+
+    await screen.findByTestId("chat-panel");
+
+    expect(routerReplaceMock).not.toHaveBeenCalled();
   });
 
   it("marks busy flow sessions read-only", async () => {

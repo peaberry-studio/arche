@@ -81,10 +81,11 @@ export function WorkspaceAppChrome({
     router.push(getWorkspaceHref(slug, { mode: 'explore' }))
   }, [router, slug])
 
-  const handleCreateSession = useCallback(async () => {
-    await sessionsHook.createSession()
-    // New chat always lands on the workspace root so catalog/flows state
-    // and the explore route are cleared.
+  const handleCreateSession = useCallback(() => {
+    sessionsHook.selectSession(null)
+    // New chat is the empty composer, not an OpenCode session. The session
+    // is created when the first message is sent. Always land on the workspace
+    // root so catalog/flows/explore state is cleared and ?session= is dropped.
     router.push(getWorkspaceHref(slug))
   }, [router, sessionsHook, slug])
 

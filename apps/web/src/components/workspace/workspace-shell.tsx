@@ -263,6 +263,30 @@ export function WorkspaceShell({
     return map;
   }, [workspace.sessions]);
 
+  // Keep the ?session= param in sync with the active conversation so the chat
+  // URL is restorable and shareable. Management overlays (catalog, flows) own
+  // their navigation, so their params are left untouched.
+  //
+  // Do not rewrite the URL until the session list is validated. Replacing
+  // `?session=` during startup aborts the in-flight ensureInstanceRunningAction
+  // and leaves the workspace on "Starting workspace".
+  useEffect(() => {
+    if (catalogParam || flowsParam) return;
+    if (!workspace.isInitialSessionsReady) return;
+
+    const urlSessionId = searchParams.get("session");
+    if (workspace.activeSessionId === urlSessionId) return;
+
+    const params = new URLSearchParams(searchParams.toString());
+    if (workspace.activeSessionId) {
+      params.set("session", workspace.activeSessionId);
+    } else {
+      params.delete("session");
+    }
+    const query = params.toString();
+    router.replace(query ? `/w/${slug}?${query}` : `/w/${slug}`);
+  }, [catalogParam, flowsParam, router, searchParams, slug, workspace.activeSessionId, workspace.isInitialSessionsReady]);
+
   const rootSessions = useMemo(
     () => excludeSubagentSessions(workspace.sessions),
     [workspace.sessions]
@@ -510,10 +534,11 @@ export function WorkspaceShell({
     router.push(`/w/${slug}/explore`);
   }, [router, slug]);
 
-  const handleCreateSession = useCallback(async () => {
+  const handleCreateSession = useCallback(() => {
     switchToChatOnMobile();
-    await workspace.createSession();
-  }, [switchToChatOnMobile, workspace]);
+    workspace.selectSession(null);
+    router.push(getWorkspaceHref(slug));
+  }, [router, slug, switchToChatOnMobile, workspace]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {

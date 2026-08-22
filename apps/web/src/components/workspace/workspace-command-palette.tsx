@@ -217,7 +217,7 @@ export function WorkspaceCommandPalette({
       {
         id: "new-chat",
         title: "New chat",
-        subtitle: "Start a fresh workspace session",
+        subtitle: "Open the empty composer",
         section: "Actions",
         icon: Sparkle,
         keywords: "session conversation",

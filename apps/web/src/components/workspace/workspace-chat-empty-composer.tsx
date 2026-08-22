@@ -3,15 +3,27 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   BookOpenText,
+  CaretDown,
   Check,
   Lightning,
+  MagnifyingGlass,
   PaperPlaneTilt,
   Robot,
 } from '@phosphor-icons/react'
 
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { BitmapGlyph } from '@/components/workspace/bitmap-glyph'
+import { getEmptyComposerGlyph } from '@/components/workspace/empty-composer-glyphs'
+import { pickEmptyComposerIntent } from '@/components/workspace/empty-composer-intents'
 import type { AgentCatalogItem } from '@/hooks/use-workspace'
 import type { SkillListItem } from '@/hooks/use-skills-catalog'
+import type { AvailableModel } from '@/lib/opencode/types'
 import { cn } from '@/lib/utils'
 
 type RecentUpdate = {
@@ -21,12 +33,16 @@ type RecentUpdate = {
 
 type WorkspaceChatEmptyComposerProps = {
   agents: AgentCatalogItem[]
+  agentDefaultModel?: AvailableModel | null
+  models?: AvailableModel[]
   onSendMessage: (
     text: string,
     model?: { providerId: string; modelId: string },
     options?: { forceNewSession?: boolean; contextPaths?: string[] }
   ) => Promise<boolean> | boolean
+  onSelectModel?: (model: AvailableModel | null) => void
   recentUpdates?: RecentUpdate[]
+  selectedModel?: AvailableModel | null
   skills?: SkillListItem[]
 }
 
@@ -34,14 +50,19 @@ type ToggleId = 'knowledge' | 'experts' | 'skills'
 
 export function WorkspaceChatEmptyComposer({
   agents,
+  agentDefaultModel = null,
+  models = [],
   onSendMessage,
+  onSelectModel,
   recentUpdates = [],
+  selectedModel = null,
   skills = [],
 }: WorkspaceChatEmptyComposerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
-
+  const [intent] = useState(() => pickEmptyComposerIntent())
   const [inputValue, setInputValue] = useState('')
   const [openToggle, setOpenToggle] = useState<ToggleId | null>(null)
+  const [modelSearch, setModelSearch] = useState('')
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(() => new Set())
   const [selectedExpert, setSelectedExpert] = useState<string | null>(null)
   const [selectedSkills, setSelectedSkills] = useState<Set<string>>(() => new Set())
@@ -81,6 +102,7 @@ export function WorkspaceChatEmptyComposer({
   }, [inputValue, selectedExpert, selectedFiles, selectedSkills])
 
   const isSendDisabled = composePrompt().length === 0
+  const glyph = getEmptyComposerGlyph(intent)
 
   function handleInputChange(event: React.ChangeEvent<HTMLTextAreaElement>) {
     setInputValue(event.target.value)
@@ -134,9 +156,23 @@ export function WorkspaceChatEmptyComposer({
 
   return (
     <section className="w-full max-w-3xl">
-      <h1 className="type-serif mb-7 text-center text-3xl leading-tight italic text-foreground/90 sm:mb-10 sm:text-4xl md:text-5xl">
-        What do you want to work on today?
-      </h1>
+      <div className="mb-7 flex flex-col items-center gap-3 sm:mb-10 sm:gap-4">
+        <span data-testid="empty-composer-glyph" className="text-primary">
+          <BitmapGlyph
+            dotGapPx={2}
+            dotSizePx={4}
+            frames={glyph.frames}
+            intervalMs={glyph.intervalMs}
+          />
+        </span>
+        <h1
+          suppressHydrationWarning
+          data-testid="empty-composer-heading"
+          className="type-display text-center text-3xl font-semibold leading-tight tracking-tight text-foreground sm:text-4xl md:text-5xl"
+        >
+          {intent}
+        </h1>
+      </div>
 
       <div
         ref={containerRef}
@@ -147,7 +183,7 @@ export function WorkspaceChatEmptyComposer({
           onChange={handleInputChange}
           onKeyDown={handleKeyDown}
           rows={1}
-          className="block min-h-[38px] w-full resize-none bg-transparent pr-12 text-base leading-6 text-foreground outline-none placeholder:text-muted-foreground/60 sm:min-h-[44px] sm:pr-0 sm:text-lg sm:leading-relaxed"
+          className="block min-h-[38px] w-full resize-none bg-transparent text-base leading-6 text-foreground outline-none placeholder:text-muted-foreground/60 sm:min-h-[44px] sm:text-lg sm:leading-relaxed"
           placeholder="Describe what you want to work on..."
         />
 
@@ -200,7 +236,72 @@ export function WorkspaceChatEmptyComposer({
             />
           </div>
 
-          <div className="absolute right-4 top-3.5 shrink-0 sm:static sm:ml-auto">
+          <div className="flex shrink-0 items-end gap-2">
+            {models.length > 0 ? (
+              <DropdownMenu onOpenChange={(open) => { if (!open) setModelSearch('') }}>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex items-center gap-1 rounded-md px-1 py-0.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    <span className="max-w-[160px] truncate">
+                      {selectedModel?.modelName ?? 'Select model'}
+                    </span>
+                    <CaretDown size={11} weight="bold" aria-hidden="true" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" side="top" sideOffset={8} className="w-72 p-0">
+                  <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+                    <MagnifyingGlass size={14} className="shrink-0 text-muted-foreground" />
+                    <input
+                      type="text"
+                      placeholder="Search models..."
+                      value={modelSearch}
+                      onChange={(event) => setModelSearch(event.target.value)}
+                      onKeyDown={(event) => event.stopPropagation()}
+                      className="w-full bg-transparent text-xs text-foreground placeholder:text-muted-foreground focus:outline-none"
+                    />
+                  </div>
+                  <div className="scrollbar-custom max-h-64 overflow-y-auto p-1">
+                    {models
+                      .filter((model) => {
+                        if (!modelSearch) return true
+                        const query = modelSearch.toLowerCase()
+                        return (
+                          model.modelName.toLowerCase().includes(query) ||
+                          model.providerName.toLowerCase().includes(query) ||
+                          model.modelId.toLowerCase().includes(query)
+                        )
+                      })
+                      .map((model) => {
+                        const isAgentDefault =
+                          agentDefaultModel?.providerId === model.providerId &&
+                          agentDefaultModel?.modelId === model.modelId
+                        const isSelected =
+                          selectedModel?.modelId === model.modelId &&
+                          selectedModel?.providerId === model.providerId
+                        return (
+                          <DropdownMenuItem
+                            key={`${model.providerId}-${model.modelId}`}
+                            onSelect={() => onSelectModel?.(model)}
+                            className={cn(isSelected && 'bg-primary/10')}
+                          >
+                            <div className="flex flex-col">
+                              <span className="font-medium">{model.modelName}</span>
+                              <span className="text-xs text-muted-foreground">{model.providerName}</span>
+                            </div>
+                            {isAgentDefault ? (
+                              <span className="ml-auto text-[10px] text-primary">Agent default</span>
+                            ) : model.isDefault ? (
+                              <span className="ml-auto text-[10px] text-muted-foreground">Provider default</span>
+                            ) : null}
+                          </DropdownMenuItem>
+                        )
+                      })}
+                  </div>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
             <Button
               size="icon"
               className="h-10 w-10 rounded-lg"

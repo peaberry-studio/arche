@@ -10,7 +10,7 @@ async function signIn(page: Page, email: string, password: string, slug: string)
   await page.getByLabel('Password').fill(password)
   await page.getByRole('button', { name: 'Sign in' }).click()
   await expect(page).toHaveURL(new RegExp(`/u/${slug}$`))
-  await expect(page.getByRole('heading', { name: 'What do you want to work on today?' })).toBeVisible()
+  await expect(page.getByTestId('empty-composer-heading')).toBeVisible()
 }
 
 test('logs out from settings', async ({ page }) => {

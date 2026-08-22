@@ -117,7 +117,7 @@ describe("useWorkspaceSessions", () => {
     expect(result.current.sessions).toEqual([]);
   });
 
-  it("keeps the initial state pending until the stored session family resolves", async () => {
+  it("keeps the initial state pending until the requested session family resolves", async () => {
     let resolveFamily!: (value: {
       ok: boolean;
       rootSessionId: string;
@@ -133,9 +133,12 @@ describe("useWorkspaceSessions", () => {
     vi.mocked(opencodeMocks.listSessionFamilyAction).mockReturnValue(familyResult);
 
     const { result } = renderHook(() =>
-      useWorkspaceSessions({ slug: "alice", isConnected: true })
+      useWorkspaceSessions({
+        slug: "alice",
+        initialSessionId: "child",
+        isConnected: true,
+      })
     );
-    sessionStorage.setItem("arche.workspace.alice.active-session", "child");
     let loadSessions!: Promise<void>;
 
     act(() => {
@@ -377,20 +380,39 @@ describe("useWorkspaceSessions", () => {
     expect(result.current.activeSessionIdRef.current).toBe("root");
   });
 
-  it("prefers sessionStorage over localStorage for the stored active session", async () => {
+  it("keeps no session selected when nothing is explicitly requested", async () => {
     const { result } = renderHook(() =>
       useWorkspaceSessions({ slug: "alice", isConnected: true })
     );
-
-    localStorage.setItem("arche.workspace.alice.active-session", "root");
-    sessionStorage.setItem("arche.workspace.alice.active-session", "child");
 
     await act(async () => {
       await result.current.loadSessions();
     });
 
-    await waitFor(() => {
-      expect(result.current.activeSessionId).toBe("child");
+    expect(result.current.isInitialSessionsReady).toBe(true);
+    expect(result.current.sessions.map((session) => session.id)).toEqual(["root"]);
+    expect(result.current.activeSessionId).toBeNull();
+  });
+
+  it("returns to no selection when the active session is deleted", async () => {
+    const { result } = renderHook(() =>
+      useWorkspaceSessions({
+        slug: "alice",
+        initialSessionId: "root",
+        isConnected: true,
+      })
+    );
+
+    await act(async () => {
+      await result.current.loadSessions();
     });
+
+    expect(result.current.activeSessionId).toBe("root");
+
+    await act(async () => {
+      await result.current.deleteSession("root");
+    });
+
+    expect(result.current.activeSessionId).toBeNull();
   });
 });

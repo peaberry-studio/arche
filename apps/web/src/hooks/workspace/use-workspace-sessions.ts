@@ -18,10 +18,7 @@ import {
   collectLoadedFamilyIds,
   createSessionStore,
   deriveVisibleSessions,
-  getActiveSessionStorageKey,
-  loadStoredActiveSessionId,
   mergeSessionFamily,
-  persistActiveSessionId,
   prependSession,
   removeSessionFamily,
   replaceRootSessions,
@@ -31,7 +28,6 @@ import {
 
 type UseWorkspaceSessionsOptions = {
   slug: string;
-  storageScope?: string;
   initialSessionId?: string | null;
   isConnected: boolean;
 };
@@ -42,11 +38,9 @@ export type DeleteWorkspaceSessionResult = {
 
 export function useWorkspaceSessions({
   slug,
-  storageScope,
   initialSessionId = null,
   isConnected,
 }: UseWorkspaceSessionsOptions) {
-  const activeSessionStorageKey = getActiveSessionStorageKey(storageScope ?? slug);
   const initialSessionIdRef = useRef(initialSessionId);
 
   const [sessionStore, setSessionStore] = useState<WorkspaceSessionStore>(() => createSessionStore());
@@ -112,9 +106,11 @@ export function useWorkspaceSessions({
         const mutationVersionAtStart = sessionMutationVersionRef.current;
         const currentSessionId = activeSessionIdRef.current;
         const requestedSessionId = initialSessionIdRef.current;
-        const storedSessionId = loadStoredActiveSessionId(activeSessionStorageKey);
-        const preferredSessionId =
-          currentSessionId ?? requestedSessionId ?? storedSessionId ?? null;
+        // The active conversation is only ever an explicit selection: the
+        // current state, or the requested deep link. Sessions never
+        // auto-select; without an explicit selection the workspace shows the
+        // empty state.
+        const preferredSessionId = currentSessionId ?? requestedSessionId ?? null;
         const rootSessionLimit = Math.max(
           ROOT_SESSION_LIMIT_STEP,
           rootSessionLimitRef.current,
@@ -182,28 +178,13 @@ export function useWorkspaceSessions({
 
         const sessionIds = new Set(visibleSessions.map((session) => session.id));
 
-        const firstManualRootSession = visibleSessions.find(
-          (session) =>
-            (!session.parentId || !sessionIds.has(session.parentId)) &&
-            !session.flow
-        );
-        const firstRootSession = visibleSessions.find(
-          (session) => !session.parentId || !sessionIds.has(session.parentId)
-        );
         const nextActiveSessionId =
           (currentSessionId && sessionIds.has(currentSessionId)
             ? currentSessionId
             : null) ??
           (requestedSessionId && sessionIds.has(requestedSessionId)
             ? requestedSessionId
-            : null) ??
-          (storedSessionId && sessionIds.has(storedSessionId)
-            ? storedSessionId
-            : null) ??
-          firstManualRootSession?.id ??
-          firstRootSession?.id ??
-          visibleSessions[0]?.id ??
-          null;
+            : null);
 
         initialSessionIdRef.current = null;
 
@@ -237,7 +218,7 @@ export function useWorkspaceSessions({
     })();
 
     return loadPromise;
-  }, [activeSessionStorageKey, slug]);
+  }, [slug]);
 
   useEffect(() => {
     loadSessionsRef.current = loadSessions;
@@ -397,13 +378,15 @@ export function useWorkspaceSessions({
         markSessionsMutated();
         const sessionIdsToRemove = collectLoadedFamilyIds(sessionStoreRef.current, id);
         const nextStore = removeSessionFamily(sessionStoreRef.current, id);
-        const nextVisibleSessions = deriveVisibleSessions(nextStore);
 
         setSessionStore(nextStore);
         sessionStoreRef.current = nextStore;
 
+        // Deleting the active conversation leaves nothing selected; the
+        // workspace returns to the empty state instead of auto-opening a
+        // neighbor.
         const nextActiveSessionId = activeSessionIdRef.current && sessionIdsToRemove.has(activeSessionIdRef.current)
-          ? nextVisibleSessions[0]?.id ?? null
+          ? null
           : activeSessionIdRef.current;
         activeSessionIdRef.current = nextActiveSessionId;
         setActiveSessionId(nextActiveSessionId);
@@ -445,11 +428,6 @@ export function useWorkspaceSessions({
     },
     [loadSessions, markSessionsMutated, slug, updateVisibleSessions]
   );
-
-  // Persist active session to storage
-  useEffect(() => {
-    persistActiveSessionId(activeSessionStorageKey, activeSessionId);
-  }, [activeSessionId, activeSessionStorageKey]);
 
   return {
     sessionStore,

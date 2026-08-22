@@ -3,11 +3,14 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { EMPTY_COMPOSER_INTENTS } from '@/components/workspace/empty-composer-intents'
 import { WorkspaceChatEmptyComposer } from '@/components/workspace/workspace-chat-empty-composer'
 import { AgentCatalogItem } from '@/hooks/use-workspace'
 import { SkillListItem } from '@/hooks/use-skills-catalog'
+import type { AvailableModel } from '@/lib/opencode/types'
 
 const sendMessageMock = vi.fn().mockResolvedValue(true)
+const selectModelMock = vi.fn()
 
 const agents: AgentCatalogItem[] = [
   { id: 'assistant', displayName: 'Assistant', isPrimary: true },
@@ -17,6 +20,23 @@ const agents: AgentCatalogItem[] = [
 const skills: SkillListItem[] = [
   { name: 'writer', description: 'Write copy' },
   { name: 'researcher', description: 'Find sources' },
+]
+
+const models: AvailableModel[] = [
+  {
+    providerId: 'openai',
+    providerName: 'OpenAI',
+    modelId: 'gpt-5.2',
+    modelName: 'GPT 5.2',
+    isDefault: true,
+  },
+  {
+    providerId: 'openai',
+    providerName: 'OpenAI',
+    modelId: 'gpt-5.4',
+    modelName: 'GPT 5.4',
+    isDefault: false,
+  },
 ]
 
 describe('WorkspaceChatEmptyComposer', () => {
@@ -39,7 +59,9 @@ describe('WorkspaceChatEmptyComposer', () => {
       />
     )
 
-    expect(screen.getByText('What do you want to work on today?')).toBeTruthy()
+    const heading = screen.getByTestId('empty-composer-heading')
+    expect(EMPTY_COMPOSER_INTENTS).toContain(heading.textContent)
+    expect(screen.getByTestId('empty-composer-glyph')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Knowledge' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Experts' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Skills' })).toBeTruthy()
@@ -103,5 +125,37 @@ describe('WorkspaceChatEmptyComposer', () => {
     )
 
     expect((screen.getByRole('button', { name: 'Start working' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('renders the selected model and reports model picks', async () => {
+    render(
+      <WorkspaceChatEmptyComposer
+        agents={agents}
+        models={models}
+        selectedModel={models[0]}
+        skills={skills}
+        onSendMessage={sendMessageMock}
+        onSelectModel={selectModelMock}
+      />
+    )
+
+    expect(screen.getByRole('button', { name: /GPT 5\.2/ })).toBeTruthy()
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: /GPT 5\.2/ }))
+    fireEvent.click(await screen.findByText('GPT 5.4'))
+
+    expect(selectModelMock).toHaveBeenCalledWith(models[1])
+  })
+
+  it('omits the model selector when no models are available', () => {
+    render(
+      <WorkspaceChatEmptyComposer
+        agents={agents}
+        skills={skills}
+        onSendMessage={sendMessageMock}
+      />
+    )
+
+    expect(screen.queryByRole('button', { name: /Select model/ })).toBeNull()
   })
 })
