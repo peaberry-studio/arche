@@ -233,6 +233,27 @@ describe('KnowledgeReviewList', () => {
     await waitFor(() => expect(onApplied).toHaveBeenCalledTimes(1))
   })
 
+  it('surfaces the publish failure reason after a successful apply', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(learningResponse([makeChange()])))
+      .mockResolvedValueOnce(jsonResponse({
+        proposal: { id: 'change-1', status: 'applied' },
+        publish: { ok: false, status: 'push_rejected', message: 'The remote rejected the push. Pull and retry.' },
+      }))
+      .mockResolvedValueOnce(jsonResponse(learningResponse([])))
+    const onApplied = vi.fn()
+
+    renderList({ onApplied })
+
+    expect(await screen.findByText('Remember preference')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+
+    // The refresh triggered by the action must not clear the publish reason.
+    expect(await screen.findByText('The remote rejected the push. Pull and retry.')).toBeTruthy()
+    await waitFor(() => expect(onApplied).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
+  })
+
   it('rejects a change without applying it', async () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse(learningResponse([makeChange()])))

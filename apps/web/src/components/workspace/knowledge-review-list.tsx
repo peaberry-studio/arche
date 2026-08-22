@@ -232,13 +232,15 @@ export function KnowledgeReviewList({
       // Apply now also publishes the proposal's file in the same action. If the
       // publish step fails the proposal stays applied (its diff lands under
       // Manual edits), so surface the publish reason instead of a clear success.
+      // Refresh first: a successful reload clears the error state, so setting
+      // the message afterwards is what keeps it on screen.
       if (action === 'apply') {
         const publish = getPublishResult(data)
         if (publish && !publish.ok) {
-          setError(typeof publish.message === 'string' ? publish.message : 'knowledge_review_action_failed')
           clearDraft(changeId)
           await onApplied?.()
           await refresh()
+          setError(typeof publish.message === 'string' ? publish.message : 'knowledge_review_action_failed')
           return
         }
       }
