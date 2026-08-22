@@ -65,6 +65,8 @@ describe('WorkspaceCatalogView', () => {
     const form = screen.getByTestId('web-agent-form')
     expect(form.dataset.mode).toBe('create')
     expect(form.dataset.slug).toBe('alice')
+    expect(screen.getByRole('heading', { name: 'Create agent' })).toBeTruthy()
+    expect(screen.queryByRole('link', { name: /back to agents/i })).toBeNull()
   })
 
   it('renders the agent edit form for catalog=agents&agent=helper', () => {
@@ -74,6 +76,8 @@ describe('WorkspaceCatalogView', () => {
     const form = screen.getByTestId('web-agent-form')
     expect(form.dataset.mode).toBe('edit')
     expect(form.dataset.agentId).toBe('helper')
+    expect(screen.getByRole('heading', { name: 'Edit agent' })).toBeTruthy()
+    expect(screen.queryByRole('link', { name: /back to agents/i })).toBeNull()
   })
 
   it('renders the skills list for catalog=skills', () => {
@@ -90,6 +94,8 @@ describe('WorkspaceCatalogView', () => {
     const form = screen.getByTestId('web-skill-form')
     expect(form.dataset.mode).toBe('create')
     expect(form.dataset.slug).toBe('alice')
+    expect(screen.getByRole('heading', { name: 'Create skill' })).toBeTruthy()
+    expect(screen.queryByRole('link', { name: /back to skills/i })).toBeNull()
   })
 
   it('renders the skill edit form for catalog=skills&skill=writer', () => {
@@ -99,6 +105,8 @@ describe('WorkspaceCatalogView', () => {
     const form = screen.getByTestId('web-skill-form')
     expect(form.dataset.mode).toBe('edit')
     expect(form.dataset.skillName).toBe('writer')
+    expect(screen.getByRole('heading', { name: 'Edit skill' })).toBeTruthy()
+    expect(screen.queryByRole('link', { name: /back to skills/i })).toBeNull()
   })
 
   it('passes a non-admin flag through to list views', () => {

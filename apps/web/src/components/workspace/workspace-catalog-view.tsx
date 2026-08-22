@@ -1,6 +1,5 @@
 'use client'
 
-import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 
 import { AgentsPageClient } from '@/components/agents/agents-page'
@@ -16,7 +15,6 @@ type WorkspaceCatalogViewProps = {
 
 const CATALOG_COPY = {
   agents: {
-    back: 'Back to agents',
     create: {
       title: 'Create agent',
       description: 'Define the role, model, and prompt for the new agent.',
@@ -27,7 +25,6 @@ const CATALOG_COPY = {
     },
   },
   skills: {
-    back: 'Back to skills',
     create: {
       title: 'Create skill',
       description: 'Define a new `SKILL.md` bundle and choose which agents can use it.',
@@ -47,41 +44,30 @@ export function CatalogFrame({ children }: { children: React.ReactNode }) {
   )
 }
 
-function CatalogFormFrame({
-  backHref,
-  backLabel,
-  title,
-  description,
+export function CatalogDetailFrame({
+  aside,
   children,
+  description,
+  title,
 }: {
-  backHref: string
-  backLabel: string
-  title: string
-  description: string
+  aside?: React.ReactNode
   children: React.ReactNode
+  description: string
+  title: string
 }) {
   return (
-    <div className="scrollbar-custom h-full min-h-0 overflow-y-auto">
-      <div className="mx-auto w-full max-w-3xl px-6 py-8">
-        <div className="space-y-8">
-          <div>
-            <div className="mb-5">
-              <Link
-                href={backHref}
-                className="inline-flex text-sm text-muted-foreground transition-colors hover:text-foreground"
-              >
-                &larr; {backLabel}
-              </Link>
-            </div>
-            <div className="space-y-2">
-              <h1 className="type-display text-3xl font-semibold tracking-tight">{title}</h1>
-              <p className="text-muted-foreground">{description}</p>
-            </div>
+    <CatalogFrame>
+      <div className="space-y-8">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="space-y-2">
+            <h1 className="type-display text-3xl font-semibold tracking-tight">{title}</h1>
+            <p className="text-muted-foreground">{description}</p>
           </div>
-          {children}
+          {aside}
         </div>
+        {children}
       </div>
-    </div>
+    </CatalogFrame>
   )
 }
 
@@ -97,26 +83,16 @@ export function WorkspaceCatalogView({ isAdmin, slug }: WorkspaceCatalogViewProp
     const agentParam = searchParams.get('agent')
     if (isAdmin && agentParam === 'new') {
       return (
-        <CatalogFormFrame
-          backHref={listHref}
-          backLabel={copy.back}
-          title={copy.create.title}
-          description={copy.create.description}
-        >
+        <CatalogDetailFrame title={copy.create.title} description={copy.create.description}>
           <WebAgentForm slug={slug} mode="create" backHref={listHref} />
-        </CatalogFormFrame>
+        </CatalogDetailFrame>
       )
     }
     if (isAdmin && agentParam) {
       return (
-        <CatalogFormFrame
-          backHref={listHref}
-          backLabel={copy.back}
-          title={copy.edit.title}
-          description={copy.edit.description}
-        >
+        <CatalogDetailFrame title={copy.edit.title} description={copy.edit.description}>
           <WebAgentForm slug={slug} mode="edit" agentId={agentParam} backHref={listHref} />
-        </CatalogFormFrame>
+        </CatalogDetailFrame>
       )
     }
     return (
@@ -136,26 +112,16 @@ export function WorkspaceCatalogView({ isAdmin, slug }: WorkspaceCatalogViewProp
   const skillParam = searchParams.get('skill')
   if (isAdmin && skillParam === 'new') {
     return (
-      <CatalogFormFrame
-        backHref={listHref}
-        backLabel={copy.back}
-        title={copy.create.title}
-        description={copy.create.description}
-      >
+      <CatalogDetailFrame title={copy.create.title} description={copy.create.description}>
         <WebSkillForm slug={slug} mode="create" backHref={listHref} />
-      </CatalogFormFrame>
+      </CatalogDetailFrame>
     )
   }
   if (isAdmin && skillParam) {
     return (
-      <CatalogFormFrame
-        backHref={listHref}
-        backLabel={copy.back}
-        title={copy.edit.title}
-        description={copy.edit.description}
-      >
+      <CatalogDetailFrame title={copy.edit.title} description={copy.edit.description}>
         <WebSkillForm slug={slug} mode="edit" skillName={skillParam} backHref={listHref} />
-      </CatalogFormFrame>
+      </CatalogDetailFrame>
     )
   }
   return (

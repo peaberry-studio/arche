@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import { getRequiredAgentIdsForTemplate } from '@/kickstart/required-agent-ids'
 import type {
   KickstartApplyRequestPayload,
@@ -75,9 +76,6 @@ const STEPS = [
 
 const IMPORT_TEMPLATE_ID = '__imported-template__'
 const CORE_AGENT_PROMPT_OVERRIDE_BLOCKLIST = new Set(['assistant', 'knowledge-curator'])
-
-const TEXTAREA_CLASSES =
-  'min-h-[120px] w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none transition focus-visible:ring-2 focus-visible:ring-ring/30'
 
 function unique(values: string[]): string[] {
   return Array.from(new Set(values))
@@ -703,9 +701,9 @@ export function KickstartWizard({
 
             <div className="space-y-2">
               <Label htmlFor="company-description">Short description</Label>
-              <textarea
+              <Textarea
                 id="company-description"
-                className={TEXTAREA_CLASSES}
+                className="min-h-[120px]"
                 value={companyDescription}
                 onChange={(event) => setCompanyDescription(event.target.value)}
                 placeholder="What your company does, who it serves, and what matters most."
@@ -951,8 +949,8 @@ export function KickstartWizard({
 
                       <div className="mt-3 space-y-2">
                         <Label>System prompt</Label>
-                        <textarea
-                          className={cn(TEXTAREA_CLASSES, 'min-h-[150px]')}
+                        <Textarea
+                          className="min-h-[150px]"
                           value={resolved.prompt}
                           onChange={(event) => {
                             setAgentOverride(agent.id, {

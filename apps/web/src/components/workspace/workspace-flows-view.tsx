@@ -10,13 +10,12 @@ import { FlowRunHistoryView } from '@/components/flows/flow-run-history-view'
 import { FlowsPage } from '@/components/flows/flows-page'
 import { NewFlowEditor } from '@/components/flows/new-flow-editor'
 import { Button } from '@/components/ui/button'
+import { CatalogDetailFrame, CatalogFrame } from '@/components/workspace/workspace-catalog-view'
 import {
   getWorkspaceFlowsHref,
   WORKSPACE_FLOWS_VIEWS,
   type WorkspaceFlowsView,
 } from '@/lib/workspace-hrefs'
-
-import { CatalogFrame } from './workspace-catalog-view'
 
 type WorkspaceFlowsViewProps = {
   slackIntegrationAvailable?: boolean
@@ -41,45 +40,6 @@ const VIEW_LABELS: Record<WorkspaceFlowsView, { description: string; title: stri
     description: 'Inspect every execution and active run state.',
     title: 'Run history',
   },
-}
-
-function FlowsDetailFrame({
-  aside,
-  backHref,
-  backLabel,
-  children,
-  description,
-  title,
-}: {
-  aside?: React.ReactNode
-  backHref: string
-  backLabel: string
-  children: React.ReactNode
-  description: string
-  title: string
-}) {
-  return (
-    <CatalogFrame>
-      <div className="space-y-8">
-        <div>
-          <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-            <Link
-              href={backHref}
-              className="inline-flex text-sm text-muted-foreground transition-colors hover:text-foreground"
-            >
-              &larr; {backLabel}
-            </Link>
-            {aside}
-          </div>
-          <div className="space-y-2">
-            <h1 className="type-display text-3xl font-semibold tracking-tight">{title}</h1>
-            <p className="text-muted-foreground">{description}</p>
-          </div>
-        </div>
-        {children}
-      </div>
-    </CatalogFrame>
-  )
 }
 
 export function WorkspaceFlowsView({
@@ -133,7 +93,7 @@ export function WorkspaceFlowsView({
           <p className="text-sm font-semibold text-foreground">Missing flow</p>
           <p className="mt-1 text-sm text-muted-foreground">Open a flow from the list to continue.</p>
           <Button asChild variant="outline" size="sm" className="mt-3">
-            <Link href={listHref}>Back to flows</Link>
+            <Link href={listHref}>View flows</Link>
           </Button>
         </div>
       </CatalogFrame>
@@ -144,12 +104,7 @@ export function WorkspaceFlowsView({
 
   if (currentView === 'new') {
     return (
-      <FlowsDetailFrame
-        backHref={listHref}
-        backLabel="Back to flows"
-        title={copy.title}
-        description={copy.description}
-      >
+      <CatalogDetailFrame title={copy.title} description={copy.description}>
         <NewFlowEditor
           slug={slug}
           buildFlowHref={buildEditHref}
@@ -157,15 +112,13 @@ export function WorkspaceFlowsView({
           slackIntegrationAvailable={slackIntegrationAvailable}
           teamVisibilityAvailable={teamVisibilityAvailable}
         />
-      </FlowsDetailFrame>
+      </CatalogDetailFrame>
     )
   }
 
   if (currentView === 'edit') {
     return (
-      <FlowsDetailFrame
-        backHref={listHref}
-        backLabel="Back to flows"
+      <CatalogDetailFrame
         title={copy.title}
         description={copy.description}
         aside={
@@ -187,18 +140,13 @@ export function WorkspaceFlowsView({
           slackIntegrationAvailable={slackIntegrationAvailable}
           teamVisibilityAvailable={teamVisibilityAvailable}
         />
-      </FlowsDetailFrame>
+      </CatalogDetailFrame>
     )
   }
 
   return (
-    <FlowsDetailFrame
-      backHref={listHref}
-      backLabel="Back to flows"
-      title={copy.title}
-      description={copy.description}
-    >
+    <CatalogDetailFrame title={copy.title} description={copy.description}>
       <FlowRunHistoryView slug={slug} flowId={flowId as string} editHref={buildEditHref(flowId as string)} />
-    </FlowsDetailFrame>
+    </CatalogDetailFrame>
   )
 }

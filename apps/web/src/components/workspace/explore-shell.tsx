@@ -6,6 +6,7 @@ import { File, TreeStructure } from "@phosphor-icons/react";
 import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
 import { useWorkspaceRuntime } from "@/contexts/workspace-runtime-context";
 import { useExploreWorkspace } from "@/hooks/use-explore-workspace";
+import { useViewportWidth } from "@/hooks/use-viewport-width";
 import type { KnowledgeGraphAgentSource } from "@/lib/kb-graph";
 import { cn } from "@/lib/utils";
 import {
@@ -99,35 +100,18 @@ export function ExploreShell({
           window.innerWidth - MIN_CENTER_PX
         )
   );
-  const [viewportWidth, setViewportWidth] = useState(() =>
-    typeof window === "undefined" ? MIN_LEFT_PX + MIN_RIGHT_PX + MIN_CENTER_PX : window.innerWidth
-  );
+  const viewportWidth = useViewportWidth();
   const [mobileView, setMobileView] = useState<ExploreMobileView>("tree");
   const isCompactLayout = viewportWidth < MOBILE_LAYOUT_BREAKPOINT;
   const wasCompactLayoutRef = useRef(isCompactLayout);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (!wasCompactLayoutRef.current && isCompactLayout) {
+      setMobileView("tree");
+    }
 
-    const handleResize = () => {
-      const nextWidth = window.innerWidth;
-      const nextCompactState = nextWidth < MOBILE_LAYOUT_BREAKPOINT;
-
-      setViewportWidth(nextWidth);
-
-      if (!wasCompactLayoutRef.current && nextCompactState) {
-        setMobileView("tree");
-      }
-
-      wasCompactLayoutRef.current = nextCompactState;
-    };
-
-    window.addEventListener("resize", handleResize);
-
-    return () => {
-      window.removeEventListener("resize", handleResize);
-    };
-  }, []);
+    wasCompactLayoutRef.current = isCompactLayout;
+  }, [isCompactLayout]);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);

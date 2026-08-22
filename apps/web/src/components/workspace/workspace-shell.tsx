@@ -10,6 +10,7 @@ import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { useConfigStatus } from "@/hooks/use-config-status";
 import { useSkillsCatalog } from "@/hooks/use-skills-catalog";
+import { useViewportWidth } from "@/hooks/use-viewport-width";
 import type { WorkspaceSession } from "@/lib/opencode/types";
 import {
   getWorkspaceFlowsHref,
@@ -396,35 +397,18 @@ export function WorkspaceShell({
     setRightCollapsedState((prev) => (typeof value === "function" ? value(prev) : value));
   }, []);
   const [hydratedLayoutKey, setHydratedLayoutKey] = useState<string | null>(null);
-  const [viewportWidth, setViewportWidth] = useState(() =>
-    typeof window === "undefined" ? MIN_LEFT_PX + MIN_RIGHT_PX + MIN_CENTER_PX : window.innerWidth
-  );
+  const viewportWidth = useViewportWidth();
   const [mobileView, setMobileView] = useState<MobileWorkspaceView>("chat");
   const isCompactLayout = viewportWidth < MOBILE_LAYOUT_BREAKPOINT;
   const wasCompactLayoutRef = useRef(isCompactLayout);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (!wasCompactLayoutRef.current && isCompactLayout) {
+      setMobileView("chat");
+    }
 
-    const handleResize = () => {
-      const nextWidth = window.innerWidth;
-      const nextCompactState = nextWidth < MOBILE_LAYOUT_BREAKPOINT;
-
-      setViewportWidth(nextWidth);
-
-      if (!wasCompactLayoutRef.current && nextCompactState) {
-        setMobileView("chat");
-      }
-
-      wasCompactLayoutRef.current = nextCompactState;
-    };
-
-    window.addEventListener("resize", handleResize);
-
-    return () => {
-      window.removeEventListener("resize", handleResize);
-    };
-  }, []);
+    wasCompactLayoutRef.current = isCompactLayout;
+  }, [isCompactLayout]);
 
   const handleToggleLeft = useCallback(() => {
     setSidebarCollapsed((prev) => !prev);

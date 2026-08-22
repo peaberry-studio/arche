@@ -56,7 +56,6 @@ export function SkillsSettingsPanel({ slug }: SkillsSettingsPanelProps) {
           slug={slug}
           mode={editorState.mode}
           skillName={editorState.mode === 'edit' ? editorState.skillName : undefined}
-          cancelLabel="Back to skills"
           onCancel={() => setEditorState(null)}
           onDeleted={handleEditorFinished}
           onSaved={handleEditorFinished}

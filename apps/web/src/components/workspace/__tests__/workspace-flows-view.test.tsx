@@ -132,6 +132,8 @@ describe('WorkspaceFlowsView', () => {
     expect(editor.dataset.buildFlowHref).toBe('/w/alice?flows=edit&flowId=created-flow')
     expect(editor.dataset.slack).toBe('true')
     expect(editor.dataset.team).toBe('true')
+    expect(screen.getByRole('heading', { name: 'Create flow' })).toBeTruthy()
+    expect(screen.queryByRole('link', { name: /back to flows/i })).toBeNull()
   })
 
   it('consumes stored template drafts when rendering the create view', async () => {
@@ -152,7 +154,9 @@ describe('WorkspaceFlowsView', () => {
     const editor = screen.getByTestId('flow-editor')
     expect(editor.dataset.mode).toBe('edit')
     expect(editor.dataset.flowId).toBe('flow-1')
+    expect(screen.getByRole('heading', { name: 'Edit flow' })).toBeTruthy()
     expect(screen.getByRole('link', { name: /run history/i }).getAttribute('href')).toBe('/w/alice?flows=runs&flowId=flow-1')
+    expect(screen.queryByRole('link', { name: /back to flows/i })).toBeNull()
   })
 
   it('shows a missing-flow fallback for detail views without a flow id', () => {
@@ -161,7 +165,7 @@ describe('WorkspaceFlowsView', () => {
     render(<WorkspaceFlowsView slug="alice" />)
 
     expect(screen.getByText('Missing flow')).toBeTruthy()
-    expect(screen.getByRole('link', { name: 'Back to flows' }).getAttribute('href')).toBe('/w/alice?flows=list')
+    expect(screen.getByRole('link', { name: 'View flows' }).getAttribute('href')).toBe('/w/alice?flows=list')
   })
 
   it('renders run history with an edit href', () => {

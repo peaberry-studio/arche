@@ -3,6 +3,7 @@
 import { useState, type KeyboardEvent } from 'react'
 
 import { Button } from '@/components/ui/button'
+import { Textarea } from '@/components/ui/textarea'
 import { cancelFlowRunRequest, submitHumanResponseRequest } from '@/lib/flows/client'
 import type { FlowRunListItem } from '@/lib/flows/types'
 
@@ -84,12 +85,12 @@ export function HumanStepResponseCard({ run, slug, onSubmitted }: HumanStepRespo
         <p className="mt-2 text-sm text-muted-foreground">{instructions}</p>
       ) : null}
 
-      <textarea
+      <Textarea
         value={response}
         onChange={(event) => setResponse(event.target.value)}
         onKeyDown={handleKeyDown}
         rows={3}
-        className="mt-4 min-h-[96px] w-full resize-y rounded-lg border border-border/60 bg-background/40 px-3 py-2 text-sm text-foreground transition-colors placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+        className="mt-4 min-h-[96px] resize-y"
         placeholder="Enter the human response for this step."
       />
 

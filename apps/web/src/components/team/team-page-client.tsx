@@ -9,7 +9,6 @@ import { getTeamErrorMessage } from '@/components/team/error-messages'
 import type { TeamUser } from '@/components/team/types'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
 
 type TeamPageClientProps = {
   slug: string
@@ -217,37 +216,35 @@ export function TeamPageClient({
         ) : null}
 
         {!isLoading && !loadError && sortedUsers.length > 0 ? (
-          <div className="space-y-3">
+          <div className="divide-y divide-border/60">
             {sortedUsers.map((user) => (
-              <Card key={user.id} className="border-border/60 bg-card/40">
-                <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
-                  <div className="min-w-0 space-y-1">
-                    <p className="truncate text-sm font-semibold text-foreground">{user.email}</p>
-                    <p className="text-xs text-muted-foreground">
-                      /{user.slug} - created {formatCreatedAt(user.createdAt)}
-                    </p>
-                  </div>
+              <div key={user.id} className="flex flex-wrap items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
+                <div className="min-w-0 space-y-1">
+                  <p className="truncate text-sm font-semibold text-foreground">{user.email}</p>
+                  <p className="text-xs text-muted-foreground">
+                    /{user.slug} - created {formatCreatedAt(user.createdAt)}
+                  </p>
+                </div>
 
-                  <div className="flex items-center gap-2">
-                    <Badge variant={user.role === 'ADMIN' ? 'default' : 'secondary'}>{user.role}</Badge>
-                    {user.id === currentUserId ? <Badge variant="outline">You</Badge> : null}
-                    {isAdmin ? (
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                        onClick={() => {
-                          setEditingUser(user)
-                          setIsEditDialogOpen(true)
-                        }}
-                        aria-label={`Edit ${user.email}`}
-                      >
-                        <PencilSimple size={16} weight="bold" />
-                      </Button>
-                    ) : null}
-                  </div>
-                </CardContent>
-              </Card>
+                <div className="flex items-center gap-2">
+                  <Badge variant={user.role === 'ADMIN' ? 'default' : 'secondary'}>{user.role}</Badge>
+                  {user.id === currentUserId ? <Badge variant="outline">You</Badge> : null}
+                  {isAdmin ? (
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                      onClick={() => {
+                        setEditingUser(user)
+                        setIsEditDialogOpen(true)
+                      }}
+                      aria-label={`Edit ${user.email}`}
+                    >
+                      <PencilSimple size={16} weight="bold" />
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
             ))}
           </div>
         ) : null}
@@ -276,11 +273,7 @@ export function TeamPageClient({
   )
 
   if (embedded) {
-    return (
-      <section className="space-y-4 rounded-lg border border-border/60 bg-card/50 p-6">
-        {content}
-      </section>
-    )
+    return content
   }
 
   return (

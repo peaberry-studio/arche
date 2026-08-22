@@ -152,7 +152,8 @@ describe('AgentsSettingsPanel', () => {
 
     render(<AgentsSettingsPanel slug="local" />)
 
-    fireEvent.change(screen.getByLabelText('Default model'), { target: { value: 'openai/gpt-6' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Edit default model' }))
+    fireEvent.change(screen.getByPlaceholderText('Select or type a model'), { target: { value: 'openai/gpt-6' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save default model' }))
 
     await waitFor(() => expect(reloadMock).toHaveBeenCalled())
@@ -178,6 +179,7 @@ describe('AgentsSettingsPanel', () => {
 
     render(<AgentsSettingsPanel slug="local" />)
 
+    fireEvent.click(screen.getByRole('button', { name: 'Edit default model' }))
     fireEvent.click(screen.getByRole('button', { name: 'Save default model' }))
 
     await waitFor(() => expect(screen.getByText('Error: hash_conflict')).toBeTruthy())
@@ -194,6 +196,7 @@ describe('AgentsSettingsPanel', () => {
 
     render(<AgentsSettingsPanel slug="local" />)
 
+    fireEvent.click(screen.getByRole('button', { name: 'Edit default model' }))
     fireEvent.click(screen.getByRole('button', { name: 'Save default model' }))
 
     await waitFor(() => expect(screen.getByText('Error: network_error')).toBeTruthy())

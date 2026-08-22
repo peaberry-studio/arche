@@ -7,6 +7,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 
 export default function SignupPage() {
   const [submitted, setSubmitted] = useState(false);
@@ -118,12 +119,11 @@ export default function SignupPage() {
                     Processes to internalize{" "}
                     <span className="font-normal text-muted-foreground">(optional)</span>
                   </Label>
-                  <textarea
+                  <Textarea
                     id="message"
                     name="message"
                     placeholder="Briefly describe the processes you want to automate"
                     rows={3}
-                    className="flex w-full rounded-lg border border-border bg-background px-3 py-2 text-sm transition-colors placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:ring-offset-2"
                   />
                 </div>
 
