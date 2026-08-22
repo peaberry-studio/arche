@@ -77,7 +77,7 @@ describe("SessionsPanel", () => {
 
     const flowRow = screen.getByRole("button", { name: /Daily summary/i });
     expect(flowRow.textContent).toContain("Flow");
-    expect(flowRow.textContent).toContain("Flow | Daily summary");
+    expect(flowRow.textContent).not.toContain("Flow | Daily summary");
   });
 
   it("filters out subagent sessions whose parent is in the list", () => {
@@ -183,7 +183,7 @@ describe("SessionsPanel", () => {
     renderPanel([flowSession], { activeSessionId: "flow-session", query: "daily summary" });
 
     expect(screen.getByText("Daily summary")).toBeTruthy();
-    expect(screen.getByText("Flow | Daily summary")).toBeTruthy();
+    expect(screen.queryByText("Flow | Daily summary")).toBeNull();
   });
 
   it("offers chat creation in the empty chat state", () => {

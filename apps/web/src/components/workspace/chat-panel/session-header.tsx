@@ -8,6 +8,7 @@ import type {
 import {
   CaretDown,
   DownloadSimple,
+  GraduationCap,
   SpinnerGap,
   X,
 } from "@phosphor-icons/react";
@@ -99,87 +100,81 @@ export function ChatPanelSessionHeader({
         {isEditingActiveSessionTitle ? (
           renderTitleInput(cn(titleInputClassName, "w-full"))
         ) : (
-          <>
-            <div className="flex min-w-0 items-center gap-0.5">
-              {canRenameSession && activeSession ? (
-                <button
-                  type="button"
-                  onClick={onStartSessionRename}
-                  className="-ml-1.5 flex min-w-0 items-center rounded-md px-1.5 py-0.5 text-left transition-colors hover:bg-foreground/5"
-                  aria-label={`Rename session ${activeSession.title}`}
-                >
-                  <span className="truncate text-sm font-medium text-foreground">
-                    {activeSession.title}
-                  </span>
-                </button>
-              ) : (
-                activeSession ? (
-                  <p className="truncate text-sm font-medium text-foreground">
-                    {activeSession.title}
-                  </p>
-                ) : isLoadingSession ? (
-                  <p className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-                    <SpinnerGap size={14} className="animate-spin" />
-                    Loading session...
-                  </p>
-                ) : sessionLoadError ? (
-                  <p className="truncate text-sm font-medium text-destructive">
-                    Couldn&apos;t load sessions.
-                  </p>
-                ) : null
-              )}
-              {activeSession ? (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      type="button"
-                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:bg-foreground/5 hover:text-foreground"
-                      aria-label={`Session options for ${activeSession.title}`}
-                    >
-                      <CaretDown size={11} weight="bold" />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent
-                    align="start"
-                    sideOffset={4}
-                    onCloseAutoFocus={(event) => {
-                      if (!preventSessionMenuAutoFocusRef.current) return;
-
-                      event.preventDefault();
-                      preventSessionMenuAutoFocusRef.current = false;
-                    }}
+          <div className="flex min-w-0 items-center gap-0.5">
+            {canRenameSession && activeSession ? (
+              <button
+                type="button"
+                onClick={onStartSessionRename}
+                className="-ml-1.5 flex min-w-0 items-center rounded-md px-1.5 py-0.5 text-left transition-colors hover:bg-foreground/5"
+                aria-label={`Rename session ${activeSession.title}`}
+              >
+                <span className="truncate text-sm font-medium text-foreground">
+                  {activeSession.title}
+                </span>
+              </button>
+            ) : (
+              activeSession ? (
+                <p className="truncate text-sm font-medium text-foreground">
+                  {activeSession.title}
+                </p>
+              ) : isLoadingSession ? (
+                <p className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                  <SpinnerGap size={14} className="animate-spin" />
+                  Loading session...
+                </p>
+              ) : sessionLoadError ? (
+                <p className="truncate text-sm font-medium text-destructive">
+                  Couldn&apos;t load sessions.
+                </p>
+              ) : null
+            )}
+            {activeSession ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:bg-foreground/5 hover:text-foreground"
+                    aria-label={`Session options for ${activeSession.title}`}
                   >
-                    <DropdownMenuItem onSelect={onExportSessionMarkdown}>
-                      <DownloadSimple size={14} />
-                      Export to MD
+                    <CaretDown size={11} weight="bold" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="start"
+                  sideOffset={4}
+                  onCloseAutoFocus={(event) => {
+                    if (!preventSessionMenuAutoFocusRef.current) return;
+
+                    event.preventDefault();
+                    preventSessionMenuAutoFocusRef.current = false;
+                  }}
+                >
+                  <DropdownMenuItem onSelect={onExportSessionMarkdown}>
+                    <DownloadSimple size={14} />
+                    Export to MD
+                  </DropdownMenuItem>
+                  {onLearnSession ? (
+                    <DropdownMenuItem onSelect={onLearnSession}>
+                      <GraduationCap size={14} />
+                      Learn from this session
                     </DropdownMenuItem>
-                    {onLearnSession ? (
-                      <DropdownMenuItem onSelect={onLearnSession}>
-                        Learn
+                  ) : null}
+                  {canDeleteSession ? (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        onSelect={() => onCloseSession(activeSession.id)}
+                        className="text-destructive focus:text-destructive"
+                      >
+                        <X size={14} />
+                        Delete session
                       </DropdownMenuItem>
-                    ) : null}
-                    {canDeleteSession ? (
-                      <>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          onSelect={() => onCloseSession(activeSession.id)}
-                          className="text-destructive focus:text-destructive"
-                        >
-                          <X size={14} />
-                          Delete session
-                        </DropdownMenuItem>
-                      </>
-                    ) : null}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              ) : null}
-            </div>
-            {activeSession?.flow ? (
-              <p className="truncate text-xs text-muted-foreground">
-                Flow run for {activeSession.flow.flowName}
-              </p>
+                    </>
+                  ) : null}
+                </DropdownMenuContent>
+              </DropdownMenu>
             ) : null}
-          </>
+          </div>
         )}
       </div>
 

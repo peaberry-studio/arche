@@ -177,5 +177,6 @@ describe('WorkspaceFlowsView', () => {
     expect(history.dataset.slug).toBe('alice')
     expect(history.dataset.flowId).toBe('flow-1')
     expect(history.dataset.editHref).toBe('/w/alice?flows=edit&flowId=flow-1')
+    expect(screen.queryByRole('heading', { name: 'Run history' })).toBeNull()
   })
 })

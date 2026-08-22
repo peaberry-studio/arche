@@ -122,13 +122,12 @@ export function WorkspaceFlowsView({
         title={copy.title}
         description={copy.description}
         aside={
-          <Link
-            href={buildHistoryHref(flowId as string)}
-            className="inline-flex shrink-0 items-center gap-2 rounded-md border border-border/60 bg-card/40 px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          >
-            <ClockCounterClockwise size={14} weight="bold" />
-            Run history
-          </Link>
+          <Button asChild variant="outline" className="shrink-0 gap-2">
+            <Link href={buildHistoryHref(flowId as string)}>
+              <ClockCounterClockwise size={14} weight="bold" />
+              Run history
+            </Link>
+          </Button>
         }
       >
         <FlowEditor
@@ -145,8 +144,8 @@ export function WorkspaceFlowsView({
   }
 
   return (
-    <CatalogDetailFrame title={copy.title} description={copy.description}>
+    <CatalogFrame>
       <FlowRunHistoryView slug={slug} flowId={flowId as string} editHref={buildEditHref(flowId as string)} />
-    </CatalogDetailFrame>
+    </CatalogFrame>
   )
 }

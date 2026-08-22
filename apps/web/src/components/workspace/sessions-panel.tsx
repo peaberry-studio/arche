@@ -165,10 +165,6 @@ export function SessionsPanel({
               const primaryTitle = isFlow && session.flow
                 ? session.flow.flowName
                 : session.title;
-              const secondaryLabel =
-                isFlow && session.flow && session.title !== session.flow.flowName
-                  ? session.title
-                  : null;
 
               return (
                 <button
@@ -197,24 +193,19 @@ export function SessionsPanel({
                     />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="flex items-center gap-2">
+                    <span className="flex items-center gap-1.5">
                       <span className="truncate font-medium">{primaryTitle}</span>
                       {isFlow ? (
-                        <span className="shrink-0 rounded-full border border-primary/20 bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary">
+                        <span className="shrink-0 text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
                           Flow
                         </span>
                       ) : null}
                       {session.flow?.status === "waiting_for_human" ? (
-                        <span className="shrink-0 rounded-full border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-500">
+                        <span className="shrink-0 rounded-full border border-amber-400/30 bg-amber-400/10 px-1 py-1 text-[8px] font-semibold uppercase leading-none tracking-wide text-amber-500">
                           Waiting
                         </span>
                       ) : null}
                     </span>
-                    {secondaryLabel ? (
-                      <span className="block truncate text-[11px] text-muted-foreground/70">
-                        {secondaryLabel}
-                      </span>
-                    ) : null}
                   </span>
                   <span className="max-w-0 shrink-0 overflow-hidden whitespace-nowrap text-[11px] text-muted-foreground/60 opacity-0 transition-all duration-200 group-hover/session:max-w-24 group-hover/session:opacity-100">
                     {session.updatedAt}

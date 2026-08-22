@@ -15,6 +15,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { SegmentedControl } from '@/components/workspace/segmented-control'
 import { useAgentsCatalog } from '@/hooks/use-agents-catalog'
 import { copyFlowRequest, createFlowRequest, deleteFlowRequest, fetchFlowDetail, runFlowRequest, updateFlowRequest, validateFlowImportRequest } from '@/lib/flows/client'
 import { getFlowTimeZoneOptions } from '@/lib/flows/cron'
@@ -505,7 +506,7 @@ export function FlowEditor({
         </section>
 
         <section className="space-y-4">
-          <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <h2 className="text-sm font-semibold text-foreground">Sharing</h2>
               <p className="text-xs text-muted-foreground">
@@ -520,7 +521,7 @@ export function FlowEditor({
               role="radiogroup"
               aria-label="Flow visibility"
               className={cn(
-                'inline-flex h-9 items-center rounded-lg border border-border/70 bg-background/60 p-0.5 text-sm',
+                'inline-flex items-center gap-0.5 rounded-md border border-border/30 bg-foreground/[0.04] p-[2px]',
                 isReadOnly && 'pointer-events-none opacity-60',
               )}
             >
@@ -541,13 +542,13 @@ export function FlowEditor({
                       if (value === 'private') setOrganizationCanRun(false)
                     }}
                     className={cn(
-                      'inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-sm font-medium transition-colors',
+                      'flex h-6 items-center gap-1 rounded px-2 text-[11px] font-medium transition-colors',
                       active
-                        ? 'bg-primary/10 text-primary shadow-sm'
+                        ? 'bg-background text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.05)]'
                         : 'text-muted-foreground hover:text-foreground',
                     )}
                   >
-                    <Icon size={14} weight={active ? 'fill' : 'regular'} />
+                    <Icon size={11} weight={active ? 'fill' : 'bold'} />
                     {label}
                   </button>
                 )
@@ -584,9 +585,24 @@ export function FlowEditor({
           <div className="flex items-start justify-between gap-4">
             <div>
               <h2 className="text-sm font-semibold text-foreground">Schedule</h2>
-              <p className="text-xs text-muted-foreground">Run this flow automatically on a recurring schedule. Enabled flows also run once after creation.</p>
+              <p className="text-xs text-muted-foreground">
+                {enabled
+                  ? 'Run this flow automatically on a recurring schedule. Scheduled flows also run once after creation.'
+                  : 'Run this flow only when you start it.'}
+              </p>
             </div>
-            <Switch checked={enabled} onCheckedChange={setEnabled} aria-label="Enable scheduled flow" disabled={isReadOnly} />
+            <div className={cn(isReadOnly && 'pointer-events-none opacity-60')}>
+              <SegmentedControl
+                value={enabled ? 'scheduled' : 'manual'}
+                onValueChange={(next) => setEnabled(next === 'scheduled')}
+                options={[
+                  { label: 'Manual', value: 'manual' },
+                  { label: 'Scheduled', value: 'scheduled' },
+                ]}
+                size="sm"
+                variant="outline"
+              />
+            </div>
           </div>
           <div
             aria-hidden={!enabled}

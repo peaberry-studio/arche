@@ -7,8 +7,14 @@ import {
   FLOW_ADD_MENU_HEIGHT,
   FLOW_ADD_MENU_MARGIN,
   FLOW_ADD_MENU_WIDTH,
+  FLOW_CANVAS_FIT_MAX_SCALE,
+  FLOW_CANVAS_FIT_PADDING,
+  FLOW_CANVAS_NODE_HEIGHT,
+  FLOW_CANVAS_NODE_WIDTH,
   getFlowAddMenuHeight,
   getFlowAddMenuPosition,
+  getFlowCanvasContentBounds,
+  getFlowCanvasFitTransform,
 } from '@/components/flows/flow-canvas-layout'
 import { FLOW_CANVAS_NODE_TYPE_OPTIONS } from '@/lib/flows/node-types'
 import type { FlowDefinition } from '@/lib/flows/types'
@@ -39,6 +45,12 @@ vi.mock('d3-zoom', () => {
     zoomIdentity: {
       invertX: (value: number) => value,
       invertY: (value: number) => value,
+      scale() {
+        return this
+      },
+      translate() {
+        return this
+      },
     },
   }
 })
@@ -231,5 +243,46 @@ describe('FlowCanvas', () => {
     expect(position.x).toBeLessThan(0)
     expect(260 + position.x + FLOW_ADD_MENU_WIDTH).toBeLessThanOrEqual(320 - FLOW_ADD_MENU_MARGIN)
     expect(500 + position.y + FLOW_ADD_MENU_HEIGHT).toBeLessThanOrEqual(560 - FLOW_ADD_MENU_MARGIN)
+  })
+
+  it('fits content to the viewport without upscaling a small graph', () => {
+    const bounds = getFlowCanvasContentBounds([
+      { x: 120, y: 120 },
+      { x: 350, y: 120 },
+    ])
+
+    expect(bounds).toEqual({
+      height: FLOW_CANVAS_NODE_HEIGHT,
+      maxX: 350 + FLOW_CANVAS_NODE_WIDTH,
+      maxY: 120 + FLOW_CANVAS_NODE_HEIGHT,
+      minX: 120,
+      minY: 120,
+      width: 230 + FLOW_CANVAS_NODE_WIDTH,
+    })
+
+    const transform = getFlowCanvasFitTransform(bounds!, { height: 560, width: 960 })
+    expect(transform?.k).toBe(FLOW_CANVAS_FIT_MAX_SCALE)
+    expect(transform?.x).toBe(960 / 2 - ((bounds!.minX + bounds!.maxX) / 2) * FLOW_CANVAS_FIT_MAX_SCALE)
+    expect(transform?.y).toBe(560 / 2 - ((bounds!.minY + bounds!.maxY) / 2) * FLOW_CANVAS_FIT_MAX_SCALE)
+  })
+
+  it('scales a wide graph down to stay inside the viewport padding', () => {
+    const bounds = getFlowCanvasContentBounds([
+      { x: 0, y: 0 },
+      { x: 1200, y: 0 },
+    ])
+    const transform = getFlowCanvasFitTransform(bounds!, { height: 560, width: 480 })
+    const availableWidth = 480 - FLOW_CANVAS_FIT_PADDING * 2
+
+    expect(transform?.k).toBeCloseTo(availableWidth / bounds!.width)
+    expect(transform!.k).toBeLessThan(1)
+  })
+
+  it('skips fitting when the graph or viewport has no size', () => {
+    expect(getFlowCanvasContentBounds([])).toBeNull()
+    expect(getFlowCanvasFitTransform(
+      { height: 56, maxX: 156, maxY: 56, minX: 0, minY: 0, width: 156 },
+      { height: 0, width: 400 },
+    )).toBeNull()
   })
 })
