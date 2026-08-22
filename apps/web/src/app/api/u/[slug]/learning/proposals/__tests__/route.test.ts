@@ -111,4 +111,42 @@ describe('POST /api/u/[slug]/learning/proposals', () => {
     expect(body).toEqual({ proposal: { id: 'change-1' } })
     expect(body.publish).toBeUndefined()
   })
+
+  it('rejects missing or unknown actions without dispatching', async () => {
+    for (const action of [undefined, '', 'delete']) {
+      const res = await POST(makeRequest({ proposalId: 'change-1', action }), params('alice'))
+      expect(res.status).toBe(400)
+      await expect(res.json()).resolves.toEqual({ error: 'invalid_request' })
+    }
+
+    expect(mocks.applyAndPublishKnowledgeReviewChange).not.toHaveBeenCalled()
+    expect(mocks.rejectKnowledgeReviewChangeForUser).not.toHaveBeenCalled()
+  })
+
+  it('rejects invalid edited content without applying', async () => {
+    // An empty apply is valid: applying a delete change carries no content.
+    for (const content of ['   ', 'x'.repeat(200_001), 42]) {
+      const res = await POST(makeRequest({ proposalId: 'change-1', action: 'apply', content }), params('alice'))
+      expect(res.status).toBe(400)
+    }
+
+    expect(mocks.applyAndPublishKnowledgeReviewChange).not.toHaveBeenCalled()
+  })
+
+  it('rejects non-string proposal ids', async () => {
+    const res = await POST(makeRequest({ proposalId: 42, action: 'apply' }), params('alice'))
+
+    expect(res.status).toBe(400)
+    expect(mocks.applyAndPublishKnowledgeReviewChange).not.toHaveBeenCalled()
+  })
+
+  it('rejects the action when the workspace owner cannot be resolved', async () => {
+    mocks.findIdBySlug.mockResolvedValue(null)
+
+    const res = await POST(makeRequest({ proposalId: 'change-1', action: 'apply' }), params('alice'))
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ error: 'workspace_owner_not_found' })
+    expect(mocks.applyAndPublishKnowledgeReviewChange).not.toHaveBeenCalled()
+  })
 })

@@ -217,7 +217,7 @@ export function ExploreShell({
     void workspace.refreshFiles();
   }, [workspace]);
 
-  // Pending publish count feeds the sidebar badge, so it must track every
+  // Manual edits count feeds the sidebar badge, so it must track every
   // diffs refresh (apply, publish, discard, conflict resolution).
   useEffect(() => {
     setKnowledgePublishCount(workspace.diffs.length);
