@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
-import { ChatCircle, Compass, File, FileMagnifyingGlass, GearSix } from "@phosphor-icons/react";
 
 import { useWorkspaceRuntime } from "@/contexts/workspace-runtime-context";
 import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
@@ -47,7 +46,7 @@ import { FilePreviewPanel } from "./file-preview-panel";
 import { WorkspaceCatalogView } from "./workspace-catalog-view";
 import { WorkspaceCommandPalette } from "./workspace-command-palette";
 import { WorkspaceFlowsView } from "./workspace-flows-view";
-import { COLLAPSED_PANEL_PX, MIN_LEFT_PX, MIN_RIGHT_PX } from "./workspace-panes";
+import { COLLAPSED_PANEL_PX, MIN_CENTER_PX, MIN_LEFT_PX, MIN_RIGHT_PX, WORKSPACE_COMPACT_PANE_BREAKPOINT } from "./workspace-panes";
 import { WorkspaceConnectingBanner } from "./workspace-startup-screens";
 
 type WorkspaceShellProps = {
@@ -68,12 +67,10 @@ type WorkspaceShellProps = {
   recentUpdates?: { fileName: string; filePath: string }[];
 };
 
-const MIN_CENTER_PX = 360;
 const DEFAULT_LEFT_RATIO = 0.15;
 const DEFAULT_RIGHT_RATIO = 0.3;
 const PANEL_GAP = 0; // Gap between floating panels in pixels
-const MOBILE_LAYOUT_BREAKPOINT =
-  MIN_LEFT_PX + MIN_RIGHT_PX + MIN_CENTER_PX + 2 * PANEL_GAP + 48;
+const MOBILE_LAYOUT_BREAKPOINT = WORKSPACE_COMPACT_PANE_BREAKPOINT;
 type MobileWorkspaceView = "chat" | "right";
 const EMPTY_OPEN_FILE_PATHS: string[] = [];
 
@@ -447,14 +444,6 @@ export function WorkspaceShell({
       return false;
     });
   }, [isCompactLayout, leftCollapsed, leftWidth, setRightCollapsed]);
-
-  const handleToggleRight = useCallback(() => {
-    toggleRightPanel();
-  }, [toggleRightPanel]);
-
-  const handleShowChat = useCallback(() => {
-    setMobileView("chat");
-  }, []);
 
   const switchToChatOnMobile = useCallback(() => {
     if (isCompactLayout) setMobileView("chat");
@@ -955,14 +944,12 @@ export function WorkspaceShell({
   // across chat ↔ explore navigation. The shell renders only the chat main.
   const isChatActive = mobileView === "chat";
   const isRightPanelActive = mobileView === "right";
-  const mobileCenterLabel = "Chat";
-  const mobileCenterAriaLabel = "Show chat";
 
   return (
     <div
       ref={containerRef}
       className={cn(
-        'flex h-dvh flex-col overflow-hidden bg-background text-foreground',
+        'flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background text-foreground',
         macDesktopWindowInset && 'desktop-no-select',
         darkModeClasses,
         themeClassName,
@@ -1014,111 +1001,29 @@ export function WorkspaceShell({
       ) : null}
       <div className="flex min-h-0 flex-1">
         {isCompactLayout ? (
-          <>
-            <div className="relative min-h-0 flex-1">
-              <div
-                className="absolute inset-0 min-h-0 overflow-hidden"
-                style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
-                hidden={!isChatActive}
-                aria-hidden={!isChatActive}
-              >
-                <div className="h-full min-h-0 overflow-hidden">
-                  {centerPanelElement}
-                </div>
+          <div className="relative min-h-0 flex-1">
+            <div
+              className="absolute inset-0 min-h-0 overflow-hidden"
+              style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
+              hidden={!isChatActive}
+              aria-hidden={!isChatActive}
+            >
+              <div className="h-full min-h-0 overflow-hidden">
+                {centerPanelElement}
               </div>
-
-              {hasRightPanel ? (
-                <div
-                  className="absolute inset-0 min-h-0 overflow-hidden px-5 pb-4"
-                  style={{ paddingTop: "calc(0.5rem + env(safe-area-inset-top, 0px))" }}
-                  hidden={!isRightPanelActive}
-                  aria-hidden={!isRightPanelActive}
-                >
-                  {rightPanelContent}
-                </div>
-              ) : null}
             </div>
 
-            <nav
-              className={cn(
-                "grid shrink-0 border-t border-border/40 bg-background",
-                hasRightPanel ? "grid-cols-5" : "grid-cols-4"
-              )}
-              style={{
-                minHeight: "calc(3.5rem + env(safe-area-inset-bottom, 0px))",
-                paddingBottom: "env(safe-area-inset-bottom, 0px)",
-              }}
-              aria-label="Workspace sections"
-            >
-              <button
-                type="button"
-                onClick={handleShowChat}
-                className={cn(
-                  "flex flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] font-medium transition-colors",
-                  isChatActive
-                    ? "text-foreground"
-                    : "text-muted-foreground active:text-foreground"
-                )}
-                aria-label={mobileCenterAriaLabel}
-                aria-pressed={isChatActive}
+            {hasRightPanel ? (
+              <div
+                className="absolute inset-0 min-h-0 overflow-hidden bg-background"
+                style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
+                hidden={!isRightPanelActive}
+                aria-hidden={!isRightPanelActive}
               >
-                <ChatCircle size={22} weight={isChatActive ? "fill" : "regular"} />
-                <span>{mobileCenterLabel}</span>
-              </button>
-
-              {/* On phones the desktop sidebar is hidden, so the bottom nav is
-                  the only entry point to Explore, the Curator, and Settings. */}
-              <button
-                type="button"
-                onClick={handleOpenExplore}
-                className="flex flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] font-medium text-muted-foreground transition-colors active:text-foreground"
-                aria-label="Explore"
-              >
-                <Compass size={22} weight="regular" />
-                <span>Explore</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={openCurator}
-                className="flex flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] font-medium text-muted-foreground transition-colors active:text-foreground"
-                aria-label="Curator"
-              >
-                <FileMagnifyingGlass size={22} weight="regular" />
-                <span>Curator</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={navigateSettings}
-                className="flex flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] font-medium text-muted-foreground transition-colors active:text-foreground"
-                aria-label="Settings"
-              >
-                <GearSix size={22} weight="regular" />
-                <span>Settings</span>
-              </button>
-
-              {hasRightPanel ? (
-                <button
-                  type="button"
-                  onClick={handleToggleRight}
-                  className={cn(
-                    "relative flex flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] font-medium transition-colors",
-                    isRightPanelActive
-                      ? "text-foreground"
-                      : "text-muted-foreground active:text-foreground"
-                  )}
-                  aria-label={isRightPanelActive ? "Close file preview" : "Open file preview"}
-                  aria-pressed={isRightPanelActive}
-                >
-                  <div className="relative">
-                    <File size={22} weight={isRightPanelActive ? "fill" : "regular"} />
-                  </div>
-                  <span>Preview</span>
-                </button>
-              ) : null}
-            </nav>
-          </>
+                {rightPanelContent}
+              </div>
+            ) : null}
+          </div>
         ) : (
           <div className="flex h-full min-h-0 w-full">
             <div className="flex min-w-0 flex-1 items-stretch justify-center">

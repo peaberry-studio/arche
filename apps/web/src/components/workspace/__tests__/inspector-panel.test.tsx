@@ -86,6 +86,14 @@ describe("InspectorPanel", () => {
     expect(screen.queryByRole("button", { name: /download/i })).toBeNull();
   });
 
+  it("renders a back control when onBack is provided", () => {
+    const onBack = vi.fn();
+    render(<InspectorPanel {...defaultProps} hideCollapseButton onBack={onBack} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Back to files" }));
+    expect(onBack).toHaveBeenCalledTimes(1);
+  });
+
   it("renders markdown preview instead of the editor when workspace agent support is disabled", () => {
     render(
       <InspectorPanel

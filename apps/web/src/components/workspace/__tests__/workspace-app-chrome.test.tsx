@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { WorkspaceAppChrome } from "@/components/workspace/workspace-app-chrome";
@@ -191,5 +191,50 @@ describe("WorkspaceAppChrome", () => {
     expect(selectSession).toHaveBeenCalledWith(null)
     expect(createSession).not.toHaveBeenCalled()
     await waitFor(() => expect(navigation.push).toHaveBeenCalledWith("/w/alice"))
+  })
+
+  it("offers Chat, Knowledge, Curator, and Menu in the mobile nav", () => {
+    renderChrome(<div>Chat</div>)
+
+    const nav = screen.getByRole("navigation", { name: "Workspace sections" })
+    expect(within(nav).getByRole("button", { name: "Chat" })).toBeTruthy()
+    expect(within(nav).getByRole("button", { name: "Knowledge" })).toBeTruthy()
+    expect(within(nav).getByRole("button", { name: "Curator" })).toBeTruthy()
+    expect(within(nav).getByRole("button", { name: "Menu" })).toBeTruthy()
+  })
+
+  it("routes Knowledge from the mobile nav to explore", () => {
+    renderChrome(<div>Chat</div>)
+
+    fireEvent.click(within(screen.getByRole("navigation", { name: "Workspace sections" })).getByRole("button", { name: "Knowledge" }))
+
+    expect(navigation.push).toHaveBeenCalledWith("/w/alice/explore")
+  })
+
+  it("routes Chat from the mobile nav back to the workspace root", () => {
+    navigation.pathname = "/w/alice/explore"
+    renderChrome(<div>Explore</div>)
+
+    fireEvent.click(within(screen.getByRole("navigation", { name: "Workspace sections" })).getByRole("button", { name: "Chat" }))
+
+    expect(navigation.push).toHaveBeenCalledWith("/w/alice")
+  })
+
+  it("opens the curator from the mobile nav", () => {
+    renderChrome(<div>Chat</div>)
+
+    fireEvent.click(within(screen.getByRole("navigation", { name: "Workspace sections" })).getByRole("button", { name: "Curator" }))
+
+    expect(screen.getByTestId("workspace-sidebar").dataset.curator).toBe("true")
+  })
+
+  it("opens the sidebar drawer from Menu and closes it from the backdrop", () => {
+    renderChrome(<div>Chat</div>)
+
+    fireEvent.click(within(screen.getByRole("navigation", { name: "Workspace sections" })).getByRole("button", { name: "Menu" }))
+    expect(screen.getByRole("button", { name: "Close menu" })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole("button", { name: "Close menu" }))
+    expect(screen.queryByRole("button", { name: "Close menu" })).toBeNull()
   })
 })

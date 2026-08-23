@@ -158,9 +158,14 @@ export function WorkspaceSidebar({
     return (
       <TooltipProvider delayDuration={150}>
         <div className="flex h-full min-h-0 flex-col items-center py-2 text-card-foreground">
-          <div className="flex h-7 w-7 items-center justify-center">
+          <button
+            type="button"
+            onClick={onCreateSession}
+            className="flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-foreground/5"
+            title="New chat"
+          >
             <ArcheMark className="text-primary" size={16} />
-          </div>
+          </button>
 
           <button
             type="button"
@@ -223,7 +228,17 @@ export function WorkspaceSidebar({
           {macDesktopWindowInset ? (
             <div aria-label="macOS traffic lights" className="desktop-titlebar-drag pl-[88px]" />
           ) : null}
-          <span className="type-display truncate text-base font-semibold tracking-tight">Arche</span>
+          <button
+            type="button"
+            onClick={onCreateSession}
+            className={cn(
+              'type-display cursor-pointer truncate rounded-md text-base font-semibold tracking-tight transition-colors hover:text-primary',
+              macDesktopWindowInset && 'desktop-titlebar-no-drag'
+            )}
+            title="New chat"
+          >
+            Arche
+          </button>
         </div>
         <button
           type="button"

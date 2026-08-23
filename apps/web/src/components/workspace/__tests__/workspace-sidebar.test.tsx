@@ -101,6 +101,22 @@ describe("WorkspaceSidebar", () => {
     expect(onCreateSession).toHaveBeenCalledTimes(1);
   });
 
+  it("starts a new chat when clicking the brand in the header", () => {
+    const onCreateSession = vi.fn();
+    renderSidebar({ onCreateSession });
+
+    fireEvent.click(screen.getByRole("button", { name: "Arche" }));
+    expect(onCreateSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("starts a new chat when clicking the brand mark in the collapsed rail", () => {
+    const onCreateSession = vi.fn();
+    renderSidebar({ isCollapsed: true, onCreateSession });
+
+    fireEvent.click(screen.getByRole("button", { name: "Arche" }));
+    expect(onCreateSession).toHaveBeenCalledTimes(1);
+  });
+
   it("renders nav items Knowledge Base, Curator, Agents, Skills, and Flows", () => {
     renderSidebar();
 

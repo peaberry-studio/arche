@@ -6,7 +6,9 @@ import { cn } from '@/lib/utils'
 
 export const MIN_LEFT_PX = 200
 export const MIN_RIGHT_PX = 320
+export const MIN_CENTER_PX = 360
 export const COLLAPSED_PANEL_PX = 48 // Width of minified (collapsed) panels
+export const WORKSPACE_COMPACT_PANE_BREAKPOINT = MIN_LEFT_PX + MIN_RIGHT_PX + MIN_CENTER_PX + 48
 const PANEL_ANIM = '200ms ease-out'
 const PANEL_TRANSITION = `width ${PANEL_ANIM}, min-width ${PANEL_ANIM}, opacity ${PANEL_ANIM}, margin ${PANEL_ANIM}, border-width ${PANEL_ANIM}`
 

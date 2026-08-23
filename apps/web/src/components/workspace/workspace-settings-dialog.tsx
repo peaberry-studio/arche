@@ -295,13 +295,13 @@ export function WorkspaceSettingsDialog({
 
   return (
     <Dialog open={Boolean(section)} onOpenChange={(open) => !open && close()}>
-      <DialogContent showCloseButton={false} className="max-h-[90vh] overflow-hidden p-0 sm:max-w-6xl">
+      <DialogContent showCloseButton={false} className="left-0 top-0 h-[100dvh] w-screen max-h-[100dvh] max-w-none translate-x-0 translate-y-0 overflow-hidden rounded-none border-0 p-0 sm:left-[50%] sm:top-[50%] sm:h-auto sm:max-h-[90vh] sm:w-full sm:max-w-6xl sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-2xl sm:border">
         <DialogTitle className="sr-only">Settings</DialogTitle>
         <DialogDescription className="sr-only">
           Configure general, providers, connectors, team, integrations, security, and analytics settings.
         </DialogDescription>
 
-        <div className="flex h-[min(80vh,54rem)] flex-col">
+        <div className="flex h-full flex-col sm:h-[min(80vh,54rem)]">
           <div className="flex items-center justify-between gap-3 border-b border-border/60 px-4 py-3 sm:px-6">
             <p className="text-base font-semibold leading-none tracking-tight text-foreground">Settings</p>
             <Button

@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { File, TreeStructure } from "@phosphor-icons/react";
 
 import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
 import { useWorkspaceRuntime } from "@/contexts/workspace-runtime-context";
@@ -22,7 +21,7 @@ import {
   KnowledgeNavigationPanel,
   type KnowledgeNavigationView,
 } from "./knowledge-navigation-panel";
-import { MIN_LEFT_PX, MIN_RIGHT_PX, WorkspacePanes } from "./workspace-panes";
+import { MIN_CENTER_PX, MIN_LEFT_PX, WorkspacePanes, WORKSPACE_COMPACT_PANE_BREAKPOINT } from "./workspace-panes";
 import { WorkspaceConnectingBanner } from "./workspace-startup-screens";
 
 type ExploreShellProps = {
@@ -35,10 +34,7 @@ type ExploreShellProps = {
   reaperEnabled?: boolean;
 };
 
-const MIN_CENTER_PX = 360;
-const PANEL_GAP = 0;
-const MOBILE_LAYOUT_BREAKPOINT =
-  MIN_LEFT_PX + MIN_RIGHT_PX + MIN_CENTER_PX + 2 * PANEL_GAP + 48;
+const MOBILE_LAYOUT_BREAKPOINT = WORKSPACE_COMPACT_PANE_BREAKPOINT;
 const DEFAULT_LEFT_RATIO = 0.35;
 
 type ExploreMobileView = "tree" | "editor";
@@ -92,32 +88,31 @@ export function ExploreShell({
     setNavCollapsed((previous) => !previous);
   }, []);
 
-  const [navWidth, setNavWidth] = useState(MIN_LEFT_PX);
+  const [navWidth, setNavWidth] = useState<number>(() =>
+    typeof window === "undefined"
+      ? MIN_LEFT_PX
+      : Math.min(
+          Math.max(window.innerWidth * DEFAULT_LEFT_RATIO, MIN_LEFT_PX),
+          window.innerWidth - MIN_CENTER_PX,
+        )
+  );
   const viewportWidth = useViewportWidth();
-  const [mobileView, setMobileView] = useState<ExploreMobileView>("tree");
+  const [mobileView, setMobileView] = useState<ExploreMobileView>(
+    initialFilePath ? "editor" : "tree"
+  );
   const isCompactLayout = viewportWidth < MOBILE_LAYOUT_BREAKPOINT;
   const wasCompactLayoutRef = useRef(isCompactLayout);
 
   useEffect(() => {
     if (!wasCompactLayoutRef.current && isCompactLayout) {
-      setMobileView("tree");
+      setMobileView(workspace.activeFilePath ? "editor" : "tree");
     }
 
     wasCompactLayoutRef.current = isCompactLayout;
-  }, [isCompactLayout]);
+  }, [isCompactLayout, workspace.activeFilePath]);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
-
-  useEffect(() => {
-    const containerWidth = containerRef.current?.getBoundingClientRect().width ?? window.innerWidth;
-    setNavWidth(
-      Math.min(
-        Math.max(containerWidth * DEFAULT_LEFT_RATIO, MIN_LEFT_PX),
-        containerWidth - MIN_CENTER_PX
-      )
-    );
-  }, []);
 
   const handleResizeNav = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -150,6 +145,23 @@ export function ExploreShell({
     window.addEventListener("pointerup", onUp);
   }, []);
 
+  const handleOpenFile = useCallback((path: string) => {
+    void workspace.onOpenFile(path);
+    if (isCompactLayout) setMobileView("editor");
+  }, [isCompactLayout, workspace]);
+
+  const handleCloseFile = useCallback((path: string) => {
+    const remaining = workspace.openFiles.filter((file) => file.path !== path);
+    workspace.onCloseFile(path);
+    if (isCompactLayout && remaining.length === 0) {
+      setMobileView("tree");
+    }
+  }, [isCompactLayout, workspace]);
+
+  const handleBackToFiles = useCallback(() => {
+    setMobileView("tree");
+  }, []);
+
   // Get theme from context
   const { themeId, isDark } = useWorkspaceTheme();
   const darkModeClasses = isDark ? "dark" : "";
@@ -178,9 +190,7 @@ export function ExploreShell({
       onDownloadFile={workspace.onDownloadFile}
       onExportFileDocx={workspace.onExportFileDocx}
       onExportFilePdf={workspace.onExportFilePdf}
-      onOpenFile={(path) => {
-        void workspace.onOpenFile(path)
-      }}
+      onOpenFile={handleOpenFile}
       onToggleCollapsed={isCompactLayout ? undefined : handleToggleNav}
       openFiles={workspace.openFiles}
       readFile={workspace.readFile}
@@ -201,14 +211,13 @@ export function ExploreShell({
       openFiles={workspace.openFiles}
       activeFilePath={workspace.activeFilePath}
       onSelectFile={workspace.onSelectFile}
-      onCloseFile={workspace.onCloseFile}
+      onCloseFile={handleCloseFile}
       diffs={workspace.diffs}
-      onOpenFile={(path) => {
-        void workspace.onOpenFile(path)
-      }}
+      onOpenFile={handleOpenFile}
       internalLinkPaths={workspace.markdownFilePaths}
       onReloadFile={workspace.onReloadFile}
       onSaveFile={workspaceAgentEnabled ? workspace.onSaveFile : undefined}
+      onBack={isCompactLayout ? handleBackToFiles : undefined}
     />
   );
 
@@ -229,7 +238,7 @@ export function ExploreShell({
   return (
     <div
       className={cn(
-        'flex h-dvh flex-col overflow-hidden bg-background text-foreground',
+        'flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background text-foreground',
         macDesktopWindowInset && "desktop-no-select",
         darkModeClasses,
         themeClassName,
@@ -243,9 +252,7 @@ export function ExploreShell({
         diffs={workspace.diffs}
         isLoadingDiffs={workspace.isLoadingDiffs}
         diffsError={workspace.diffsError}
-        onOpenFile={(path) => {
-          void workspace.onOpenFile(path)
-        }}
+        onOpenFile={handleOpenFile}
         internalLinkPaths={workspace.markdownFilePaths}
         onDiscardFileChanges={workspaceAgentEnabled ? workspace.onDiscardFileChanges : undefined}
         onPublish={workspaceAgentEnabled ? workspace.onPublish : undefined}
@@ -255,64 +262,24 @@ export function ExploreShell({
       />
       <div className="flex min-h-0 flex-1">
         {isCompactLayout ? (
-          <>
-            <div className="relative min-h-0 flex-1">
-              <div
-                className="absolute inset-0 min-h-0 overflow-hidden px-3 pb-3 pt-2"
-                hidden={!isTreeActive}
-                aria-hidden={!isTreeActive}
-              >
-                {navigationPanelElement}
-              </div>
-              <div
-                className="absolute inset-0 min-h-0 overflow-hidden px-3 pb-3 pt-2"
-                hidden={!isEditorActive}
-                aria-hidden={!isEditorActive}
-              >
-                {editorPanelElement}
-              </div>
-            </div>
-
-            <nav
-              className="grid shrink-0 grid-cols-2 border-t border-border/40 bg-background"
-              style={{
-                minHeight: "calc(3.5rem + env(safe-area-inset-bottom, 0px))",
-                paddingBottom: "env(safe-area-inset-bottom, 0px)",
-              }}
-              aria-label="Knowledge Base sections"
+          <div className="relative min-h-0 flex-1">
+            <div
+              className="absolute inset-0 min-h-0 overflow-hidden"
+              style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
+              hidden={!isTreeActive}
+              aria-hidden={!isTreeActive}
             >
-              <button
-                type="button"
-                onClick={() => setMobileView("tree")}
-                className={cn(
-                  "flex flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] font-medium transition-colors",
-                  isTreeActive
-                    ? "text-foreground"
-                    : "text-muted-foreground active:text-foreground"
-                )}
-                aria-label={isTreeActive ? "Close file tree" : "Open file tree"}
-                aria-pressed={isTreeActive}
-              >
-                <TreeStructure size={22} weight={isTreeActive ? "fill" : "regular"} />
-                <span>Tree</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setMobileView("editor")}
-                className={cn(
-                  "flex flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] font-medium transition-colors",
-                  isEditorActive
-                    ? "text-foreground"
-                    : "text-muted-foreground active:text-foreground"
-                )}
-                aria-label={isEditorActive ? "Close file viewer" : "Open file viewer"}
-                aria-pressed={isEditorActive}
-              >
-                <File size={22} weight={isEditorActive ? "fill" : "regular"} />
-                <span>Viewer</span>
-              </button>
-            </nav>
-          </>
+              {navigationPanelElement}
+            </div>
+            <div
+              className="absolute inset-0 min-h-0 overflow-hidden"
+              style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
+              hidden={!isEditorActive}
+              aria-hidden={!isEditorActive}
+            >
+              {editorPanelElement}
+            </div>
+          </div>
         ) : (
           <WorkspacePanes
             hasLeftPanel={false}

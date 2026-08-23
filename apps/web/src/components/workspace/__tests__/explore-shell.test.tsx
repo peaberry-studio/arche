@@ -117,19 +117,28 @@ vi.mock("@/components/workspace/knowledge-navigation-panel", () => ({
 
 vi.mock("@/components/workspace/inspector-panel", () => ({
   InspectorPanel: ({
+    onBack,
     openFiles = [],
     activeFilePath,
   }: {
+    onBack?: () => void;
     openFiles?: Array<{ path: string }>;
     activeFilePath?: string | null;
   }) => (
-    <button
-      type="button"
-      data-open-files={openFiles.map((file) => file.path).join(",")}
-      data-active-path={activeFilePath ?? ""}
-    >
-      Files Panel
-    </button>
+    <div>
+      <button
+        type="button"
+        data-open-files={openFiles.map((file) => file.path).join(",")}
+        data-active-path={activeFilePath ?? ""}
+      >
+        Files Panel
+      </button>
+      {onBack ? (
+        <button type="button" onClick={onBack}>
+          Back to files
+        </button>
+      ) : null}
+    </div>
   ),
 }));
 
@@ -240,24 +249,25 @@ describe("ExploreShell", () => {
     });
   });
 
-  it("toggles between tree and viewer on compact layouts", async () => {
+  it("opens a file into the editor on compact layouts and can return to the tree", async () => {
     setViewportWidth(700);
-    renderExploreShell({ slug: "alice", persistenceScope: "alice" });
+    workspaceOverrides.current = {
+      openFilePaths: ["docs/plan.md"],
+      activeFilePath: "docs/plan.md",
+      openFiles: [{ path: "docs/plan.md" }],
+    };
 
-    expect(await screen.findByRole("button", { name: "Close file tree" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Close file tree" }).getAttribute("aria-pressed")).toBe("true");
-
-    fireEvent.click(screen.getByRole("button", { name: "Open file viewer" }));
-
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Close file viewer" }).getAttribute("aria-pressed")).toBe("true");
+    renderExploreShell({
+      slug: "alice",
+      persistenceScope: "alice",
+      initialFilePath: "docs/plan.md",
     });
-    expect(screen.getByRole("button", { name: "Open file tree" }).getAttribute("aria-pressed")).toBe("false");
 
-    fireEvent.click(screen.getByRole("button", { name: "Open file tree" }));
+    expect(await screen.findByRole("button", { name: "Files Panel" })).toBeTruthy();
+    expect(screen.queryByRole("navigation", { name: "Knowledge Base sections" })).toBeNull();
 
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Close file tree" }).getAttribute("aria-pressed")).toBe("true");
-    });
+    fireEvent.click(screen.getByRole("button", { name: "Back to files" }));
+
+    expect(await screen.findByRole("button", { name: "Open from tree" })).toBeTruthy();
   });
 });

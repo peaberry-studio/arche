@@ -61,6 +61,7 @@ type InspectorPanelProps = {
     expectedHash?: string
   ) => Promise<{ ok: true; hash?: string } | { ok: false; error: string }>;
   hideCollapseButton?: boolean;
+  onBack?: () => void;
 };
 
 // --- Minified (collapsed) panel ---
@@ -197,6 +198,7 @@ export function InspectorPanel({
   onReloadFile,
   onSaveFile,
   hideCollapseButton = false,
+  onBack,
 }: InspectorPanelProps) {
   // Minified state
   if (rightCollapsed) {
@@ -222,6 +224,7 @@ export function InspectorPanel({
       onReloadFile={onReloadFile}
       onSaveFile={onSaveFile}
       hideCollapseButton={hideCollapseButton}
+      onBack={onBack}
     />
   );
 }
@@ -239,6 +242,7 @@ function ExpandedInspectorPanel({
   onReloadFile,
   onSaveFile,
   hideCollapseButton = false,
+  onBack,
 }: Omit<InspectorPanelProps, "rightCollapsed">) {
   const activeFile = openFiles.find((f) => f.path === activeFilePath) ?? null;
   const tabsRef = useRef<HTMLDivElement>(null);
@@ -353,6 +357,17 @@ function ExpandedInspectorPanel({
       {/* File tabs row — only with open files */}
       {openFiles.length > 0 && (
         <div className="flex min-h-9 shrink-0 items-center border-b border-border/30 py-2">
+          {onBack ? (
+            <button
+              type="button"
+              onClick={onBack}
+              className="ml-2 flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+              aria-label="Back to files"
+            >
+              <CaretLeft size={12} weight="bold" />
+              Files
+            </button>
+          ) : null}
           <div className="flex min-w-0 flex-1 items-center">
             {canScrollLeft && (
               <Button

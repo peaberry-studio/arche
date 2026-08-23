@@ -1149,7 +1149,7 @@ export function ChatPanel({
         connectorNamesById={connectorNamesById}
         emptyStateElement={
           !activeSessionId && !isReadOnly && onSendMessage ? (
-            <div className="flex h-full flex-col items-center justify-center">
+            <div className="flex h-full flex-col items-center justify-center overflow-y-auto px-4">
               <WorkspaceChatEmptyComposer
                 agents={agents}
                 agentDefaultModel={agentDefaultModel}

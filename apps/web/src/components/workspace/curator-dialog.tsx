@@ -143,7 +143,7 @@ export function CuratorDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         ref={contentRef}
-        className="flex h-[min(88vh,54rem)] w-[min(96vw,84rem)] max-w-none flex-col gap-0 p-0 outline-none sm:rounded-2xl"
+        className="flex h-[100dvh] w-screen max-w-none flex-col gap-0 rounded-none border-0 p-0 outline-none sm:h-[min(88vh,54rem)] sm:w-[min(96vw,84rem)] sm:rounded-2xl sm:border"
         tabIndex={-1}
         showCloseButton={false}
         onOpenAutoFocus={(event) => {
@@ -153,7 +153,7 @@ export function CuratorDialog({
       >
         <div
           data-testid="curator-dialog-header"
-          className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 border-b border-border/40 px-4 py-3"
+          className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border/40 px-4 py-3"
         >
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">
@@ -182,15 +182,17 @@ export function CuratorDialog({
             </DialogDescription>
           </div>
 
-          <SegmentedControl
-            variant="outline"
-            size="sm"
-            value={tab}
-            onValueChange={handleTabChange}
-            options={tabOptions}
-          />
+          <div className="order-3 flex w-full justify-center sm:order-none sm:w-auto sm:flex-1">
+            <SegmentedControl
+              variant="outline"
+              size="sm"
+              value={tab}
+              onValueChange={handleTabChange}
+              options={tabOptions}
+            />
+          </div>
 
-          <div className="flex items-center justify-end gap-2">
+          <div className="ml-auto flex items-center justify-end gap-2">
             {tab === "manual-edits" && workspaceAgentEnabled && diffs.length > 0 ? (
               <PublishKbButton
                 slug={slug}

@@ -1,18 +1,19 @@
 'use client'
 
-import { useCallback, type ReactNode } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 
 import { useWorkspaceRuntime } from '@/contexts/workspace-runtime-context'
 import { useWorkspaceTheme } from '@/contexts/workspace-theme-context'
+import { cn } from '@/lib/utils'
 import {
   getWorkspaceCatalogHref,
   getWorkspaceFlowsHref,
   getWorkspaceHref,
 } from '@/lib/workspace-hrefs'
-import { cn } from '@/lib/utils'
 
 import { WorkspaceAccountMenu } from './workspace-account-menu'
+import { WorkspaceMobileNav } from './workspace-mobile-nav'
 import { WorkspaceSidebar } from './workspace-sidebar'
 
 type WorkspaceAppChromeProps = {
@@ -31,7 +32,6 @@ export function WorkspaceAppChrome({
   children,
   currentVault = null,
   macDesktopWindowInset = false,
-  persistenceScope,
   slug,
 }: WorkspaceAppChromeProps) {
   const router = useRouter()
@@ -48,6 +48,36 @@ export function WorkspaceAppChrome({
     setSidebarCollapsed,
     sidebarCollapsed,
   } = useWorkspaceRuntime()
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const catalogParam = searchParams?.get('catalog')
+  const flowsParam = searchParams?.get('flows')
+  const isExploreRoute = pathname === `/w/${slug}/explore`
+  const isChatRoute = pathname === `/w/${slug}`
+  const hasManagementParams = Boolean(catalogParam || flowsParam)
+  const isChatActive = isChatRoute && !hasManagementParams && !curatorOpen
+  const curatorBadgeCount = knowledgePendingCount + knowledgePublishCount
+
+  const closeMobileMenu = useCallback(() => {
+    setMobileMenuOpen(false)
+  }, [])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && mobileMenuOpen) {
+        setMobileMenuOpen(false)
+      }
+    }
+    const onResize = () => {
+      if (window.innerWidth >= 768) setMobileMenuOpen(false)
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('resize', onResize)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('resize', onResize)
+    }
+  }, [mobileMenuOpen])
 
   const openCurator = useCallback(() => {
     setCuratorOpen(true)
@@ -55,54 +85,98 @@ export function WorkspaceAppChrome({
   }, [refreshKnowledgePendingCount, setCuratorOpen])
 
   const navigateSettings = useCallback(() => {
+    closeMobileMenu()
     router.push(getWorkspaceHref(slug, { settings: 'general' }))
-  }, [router, slug])
+  }, [closeMobileMenu, router, slug])
 
   const navigateConnectors = useCallback(() => {
+    closeMobileMenu()
     router.push(getWorkspaceHref(slug, { settings: 'connectors' }))
-  }, [router, slug])
+  }, [closeMobileMenu, router, slug])
 
   const navigateProviders = useCallback(() => {
+    closeMobileMenu()
     router.push(getWorkspaceHref(slug, { settings: 'providers' }))
-  }, [router, slug])
+  }, [closeMobileMenu, router, slug])
 
   const handleOpenFlowsManager = useCallback(() => {
+    closeMobileMenu()
     router.push(getWorkspaceFlowsHref(slug, 'list'))
-  }, [router, slug])
+  }, [closeMobileMenu, router, slug])
 
   const navigateAgents = useCallback(() => {
+    closeMobileMenu()
     router.push(getWorkspaceCatalogHref(slug, 'agents'))
-  }, [router, slug])
+  }, [closeMobileMenu, router, slug])
 
   const navigateSkills = useCallback(() => {
+    closeMobileMenu()
     router.push(getWorkspaceCatalogHref(slug, 'skills'))
-  }, [router, slug])
+  }, [closeMobileMenu, router, slug])
 
   const handleOpenExplore = useCallback(() => {
+    closeMobileMenu()
     router.push(getWorkspaceHref(slug, { mode: 'explore' }))
-  }, [router, slug])
+  }, [closeMobileMenu, router, slug])
+
+  const handleOpenCurator = useCallback(() => {
+    closeMobileMenu()
+    openCurator()
+  }, [closeMobileMenu, openCurator])
 
   const handleCreateSession = useCallback(() => {
+    closeMobileMenu()
     sessionsHook.selectSession(null)
     // New chat is the empty composer, not an OpenCode session. The session
     // is created when the first message is sent. Always land on the workspace
     // root so catalog/flows/explore state is cleared and ?session= is dropped.
     router.push(getWorkspaceHref(slug))
-  }, [router, sessionsHook, slug])
+  }, [closeMobileMenu, router, sessionsHook, slug])
 
   const handleSelectSession = useCallback(
     (sessionId: string) => {
+      closeMobileMenu()
       sessionsHook.selectSession(sessionId)
       // Selecting a session is the way back from explore and management
       // surfaces; on the plain chat route the state-only select is enough.
-      const isChatRoute = pathname === `/w/${slug}`
-      const hasManagementParams = Boolean(searchParams?.get('catalog') || searchParams?.get('flows'))
       if (!isChatRoute || hasManagementParams) {
         router.push(getWorkspaceHref(slug, { sessionId }))
       }
     },
-    [pathname, router, searchParams, sessionsHook, slug]
+    [closeMobileMenu, hasManagementParams, isChatRoute, router, sessionsHook, slug]
   )
+
+  const handleShowChat = useCallback(() => {
+    closeMobileMenu()
+    setCuratorOpen(false)
+    if (isChatRoute && !hasManagementParams) return
+    const sessionId = sessionsHook.activeSessionId
+    router.push(getWorkspaceHref(slug, sessionId ? { sessionId } : {}))
+  }, [closeMobileMenu, hasManagementParams, isChatRoute, router, sessionsHook.activeSessionId, setCuratorOpen, slug])
+
+  const handleMobileKnowledge = useCallback(() => {
+    closeMobileMenu()
+    setCuratorOpen(false)
+    if (isExploreRoute) return
+    handleOpenExplore()
+  }, [closeMobileMenu, handleOpenExplore, isExploreRoute, setCuratorOpen])
+
+  const handleMobileCurator = useCallback(() => {
+    closeMobileMenu()
+    if (curatorOpen) {
+      setCuratorOpen(false)
+      return
+    }
+    openCurator()
+  }, [closeMobileMenu, curatorOpen, openCurator, setCuratorOpen])
+
+  const handleToggleCollapsed = useCallback(() => {
+    if (mobileMenuOpen) {
+      setMobileMenuOpen(false)
+      return
+    }
+    setSidebarCollapsed((previous) => !previous)
+  }, [mobileMenuOpen, setSidebarCollapsed])
 
   const sidebarElement = (
     <WorkspaceSidebar
@@ -120,7 +194,7 @@ export function WorkspaceAppChrome({
       )}
       curatorOpen={curatorOpen}
       hasMoreSessions={sessionsHook.hasMoreSessions}
-      isCollapsed={sidebarCollapsed}
+      isCollapsed={mobileMenuOpen ? false : sidebarCollapsed}
       isInitialSessionsReady={sessionsHook.isInitialSessionsReady}
       isLoadingMoreSessions={sessionsHook.isLoadingMoreSessions}
       knowledgePendingCount={knowledgePendingCount + knowledgePublishCount}
@@ -129,12 +203,12 @@ export function WorkspaceAppChrome({
       onLoadMoreSessions={sessionsHook.loadMoreSessions}
       onMarkFlowRunSeen={sessionsHook.markFlowRunSeen}
       onNavAgents={navigateAgents}
-      onNavCurator={openCurator}
+      onNavCurator={handleOpenCurator}
       onNavExplore={handleOpenExplore}
       onNavFlows={handleOpenFlowsManager}
       onNavSkills={navigateSkills}
       onSelectSession={handleSelectSession}
-      onToggleCollapsed={() => setSidebarCollapsed((previous) => !previous)}
+      onToggleCollapsed={handleToggleCollapsed}
       sessions={sessionsHook.sessions}
       sessionsError={sessionsHook.sessionsError}
       unseenCompletedSessions={sessionsHook.unseenCompletedSessions}
@@ -151,16 +225,37 @@ export function WorkspaceAppChrome({
       )}
     >
       <div className="flex min-h-0 flex-1">
+        {mobileMenuOpen ? (
+          <button
+            type="button"
+            className="fixed inset-0 z-40 bg-black/40 md:hidden"
+            aria-label="Close menu"
+            onClick={closeMobileMenu}
+          />
+        ) : null}
         <div
           className={cn(
-            'hidden shrink-0 overflow-hidden border-r border-border/30 transition-[width] duration-200 md:block',
-            sidebarCollapsed ? 'w-12' : 'w-60',
+            'overflow-hidden border-r border-border/30 bg-background transition-[width] duration-200',
+            mobileMenuOpen
+              ? 'fixed inset-y-0 left-0 z-50 w-[min(20rem,88vw)] shadow-xl'
+              : cn('hidden shrink-0 md:block', sidebarCollapsed ? 'w-12' : 'w-60'),
           )}
         >
           {sidebarElement}
         </div>
-        <main className="min-w-0 flex-1">{children}</main>
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">{children}</main>
       </div>
+      <WorkspaceMobileNav
+        chatActive={isChatActive}
+        curatorActive={curatorOpen}
+        curatorBadgeCount={curatorBadgeCount}
+        knowledgeActive={isExploreRoute && !curatorOpen}
+        menuActive={mobileMenuOpen || hasManagementParams}
+        onChat={handleShowChat}
+        onCurator={handleMobileCurator}
+        onKnowledge={handleMobileKnowledge}
+        onMenu={() => setMobileMenuOpen((open) => !open)}
+      />
     </div>
   )
 }
