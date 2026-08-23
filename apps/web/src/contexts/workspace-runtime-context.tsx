@@ -134,6 +134,17 @@ function WorkspaceRuntimeStateProvider({
     isConnected: running && isConnected,
   });
 
+  // The sidebar chrome renders sessions on every workspace route, so the
+  // provider owns the initial session load. Without this, a reload landing
+  // directly on a non-chat route (e.g. explore) never mounts the chat hook
+  // and the sessions rail stays empty. The chat route's own initial refresh
+  // dedupes into the same in-flight load promise.
+  const loadSessions = sessionsHook.loadSessions;
+  useEffect(() => {
+    if (!running || !isConnected) return;
+    void loadSessions();
+  }, [running, isConnected, loadSessions]);
+
   // The ?session= param is the source of truth for the active conversation.
   // The initial mount is handled by the sessions hook (which validates the
   // session against the loaded list); every later param change selects the

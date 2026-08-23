@@ -32,6 +32,7 @@ vi.mock("@/hooks/use-instance-heartbeat", () => ({
 
 const sessionsMock = vi.hoisted(() => vi.fn());
 const selectSessionMock = vi.hoisted(() => vi.fn());
+const loadSessionsMock = vi.hoisted(() => vi.fn());
 vi.mock("@/hooks/workspace/use-workspace-sessions", () => ({
   useWorkspaceSessions: (...args: unknown[]) => sessionsMock(...args),
 }));
@@ -74,7 +75,11 @@ describe("WorkspaceRuntimeProvider", () => {
     })
     heartbeatMock.mockReturnValue(undefined)
     searchParamsMock.mockReturnValue(null)
-    sessionsMock.mockReturnValue({ activeSessionId: null, selectSession: selectSessionMock })
+    sessionsMock.mockReturnValue({
+      activeSessionId: null,
+      selectSession: selectSessionMock,
+      loadSessions: loadSessionsMock,
+    })
   })
 
   it("exposes running status and wires the three runtime hooks to slug", () => {
@@ -184,5 +189,30 @@ describe("WorkspaceRuntimeProvider", () => {
     )
 
     expect(selectSessionMock).toHaveBeenCalledWith("abc-123")
+  })
+
+  it("triggers the initial sessions load once the instance is running and connected", () => {
+    render(
+      <WorkspaceRuntimeProvider slug="alice" persistenceScope="alice">
+        <RuntimeView />
+      </WorkspaceRuntimeProvider>
+    )
+
+    // The layout chrome renders the sessions sidebar on every workspace
+    // route, so the provider owns the initial load (e.g. a reload landing
+    // directly on the explore route never mounts the chat hook).
+    expect(loadSessionsMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("does not load sessions before the instance is running and connected", () => {
+    installStartupMock()
+
+    render(
+      <WorkspaceRuntimeProvider slug="alice" persistenceScope="alice">
+        <RuntimeView />
+      </WorkspaceRuntimeProvider>
+    )
+
+    expect(loadSessionsMock).not.toHaveBeenCalled()
   })
 })

@@ -4,8 +4,9 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { stubBrowserStorage } from "@/__tests__/storage";
-import { WorkspaceRuntimeProvider } from "@/contexts/workspace-runtime-context";
+import { useWorkspaceRuntime, WorkspaceRuntimeProvider } from "@/contexts/workspace-runtime-context";
 import { useExploreWorkspace } from "@/hooks/use-explore-workspace";
+import { ROOT_SESSION_LIMIT_STEP } from "@/hooks/workspace/workspace-types";
 
 const connectionMock = {
   connection: { status: "connected" as const },
@@ -46,6 +47,8 @@ const opencodeMocks = vi.hoisted(() => ({
   loadFileTreeAction: vi.fn(),
   readFileAction: vi.fn(),
   getWorkspaceDiffsAction: vi.fn(),
+  listSessionsAction: vi.fn(),
+  listSessionFamilyAction: vi.fn(),
 }));
 
 const workspaceAgentMocks = vi.hoisted(() => ({
@@ -84,6 +87,16 @@ describe("useExploreWorkspace", () => {
       content: { content: "# Plan", type: "raw" },
     });
     opencodeMocks.getWorkspaceDiffsAction.mockResolvedValue({ ok: true, diffs: [] });
+    opencodeMocks.listSessionsAction.mockResolvedValue({
+      ok: true,
+      sessions: [],
+      hasMore: false,
+    });
+    opencodeMocks.listSessionFamilyAction.mockResolvedValue({
+      ok: true,
+      rootSessionId: null,
+      sessions: [],
+    });
     workspaceAgentMocks.readWorkspaceFileAction.mockResolvedValue({
       ok: true,
       content: { content: "# Plan", type: "raw" },
@@ -348,5 +361,44 @@ describe("useExploreWorkspace", () => {
     result.current.onDownloadFile("docs/plan.md");
 
     expect(downloadWorkspaceFileMock).toHaveBeenCalledWith("alice", "docs/plan.md");
+  });
+
+  it("loads the sidebar sessions when the page is reloaded directly onto the explore route", async () => {
+    // Regression: the sidebar (layout chrome) renders sessions from the
+    // runtime provider. The initial load used to be triggered only by the
+    // chat page hook, so a hard reload landing on /w/[slug]/explore left the
+    // chats/sessions rail empty.
+    opencodeMocks.listSessionsAction.mockResolvedValue({
+      ok: true,
+      sessions: [
+        { id: "s1", title: "Existing chat", status: "idle", updatedAt: "now" },
+      ],
+      hasMore: false,
+    });
+
+    // Mirrors a reload on the explore route: only the runtime provider and
+    // the explore hook mount (the chat hook never does).
+    function useExploreRouteProbe() {
+      const runtime = useWorkspaceRuntime();
+      const explore = useExploreWorkspace({ slug: "alice", storageScope: "alice" });
+      return { runtime, explore };
+    }
+
+    const { result } = renderExploreHook(() => useExploreRouteProbe());
+
+    await waitFor(() => {
+      expect(result.current.explore.fileTree).toHaveLength(1);
+    });
+
+    await waitFor(() => {
+      expect(result.current.runtime.sessionsHook.isInitialSessionsReady).toBe(true);
+    });
+    expect(result.current.runtime.sessionsHook.sessions.map((session) => session.id)).toEqual([
+      "s1",
+    ]);
+    expect(opencodeMocks.listSessionsAction).toHaveBeenCalledWith("alice", {
+      limit: ROOT_SESSION_LIMIT_STEP,
+      rootsOnly: true,
+    });
   });
 });

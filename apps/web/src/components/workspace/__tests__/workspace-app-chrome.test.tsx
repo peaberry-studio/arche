@@ -99,6 +99,7 @@ describe("WorkspaceAppChrome", () => {
       sessions: [],
       activeSessionId: null,
       createSession: vi.fn(async () => null),
+      loadSessions: vi.fn(),
       selectSession: vi.fn(),
       sessionActions: {},
     })
@@ -178,6 +179,7 @@ describe("WorkspaceAppChrome", () => {
       sessions: [],
       activeSessionId: "session-1",
       createSession,
+      loadSessions: vi.fn(),
       selectSession,
       sessionActions: {},
     })
