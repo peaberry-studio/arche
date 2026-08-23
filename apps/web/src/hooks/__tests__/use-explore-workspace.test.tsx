@@ -112,6 +112,35 @@ describe("useExploreWorkspace", () => {
     expect(opencodeMocks.loadFileTreeAction).toHaveBeenCalledWith("alice");
   });
 
+  it("loads pending manual edits (diffs) once connected", async () => {
+    opencodeMocks.getWorkspaceDiffsAction.mockResolvedValue({
+      ok: true,
+      diffs: [
+        {
+          path: "docs/plan.md",
+          status: "modified",
+          additions: 2,
+          deletions: 1,
+          diff: "@@ -1 +1 @@",
+          conflicted: false,
+        },
+      ],
+    });
+
+    const { result } = renderExploreHook(() =>
+      useExploreWorkspace({ slug: "alice", storageScope: "alice" })
+    );
+
+    await waitFor(() => {
+      expect(result.current.diffs).toHaveLength(1);
+    });
+    expect(result.current.diffs[0]).toMatchObject({
+      path: "docs/plan.md",
+      conflicted: false,
+    });
+    expect(opencodeMocks.getWorkspaceDiffsAction).toHaveBeenCalledWith("alice");
+  });
+
   it("opens a file into the multi-file tabs and loads its content", async () => {
     const { result } = renderExploreHook(() =>
       useExploreWorkspace({ slug: "alice", storageScope: "alice" })

@@ -206,6 +206,9 @@ vi.mock("@/components/workspace/curator-dialog", () => ({
             Report proposal count
           </button>
         ) : null}
+        <button type="button" onClick={() => (props.onOpenFile as (path: string) => void)("docs/plan.md")}>
+          Open manual edit file
+        </button>
         <button type="button" onClick={() => (props.onOpenChange as (open: boolean) => void)(false)}>
           Close curator
         </button>
@@ -656,6 +659,21 @@ it("opens the Curator modal over the chat workspace", async () => {
     await waitFor(() => {
       expect(screen.getByTestId("curator-dialog").dataset.open).toBe("false");
     });
+  });
+
+  it("closes the Curator when a manual edit file is opened in Explore", async () => {
+    renderWorkspaceShell({ slug: "alice" });
+
+    await openCuratorFromCommandPalette();
+    const curator = await screen.findByTestId("curator-dialog");
+    expect(curator.dataset.open).toBe("true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Open manual edit file" }));
+
+    await waitFor(() => {
+      expect(routerPushMock).toHaveBeenCalledWith("/w/alice/explore?path=docs%2Fplan.md");
+    });
+    expect(screen.getByTestId("curator-dialog").dataset.open).toBe("false");
   });
 
   it("shows fallback quickview content when preview file loading fails", async () => {

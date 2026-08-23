@@ -190,6 +190,14 @@ export function useExploreWorkspace({
     void refreshFiles();
   }, [isConnected, refreshFiles]);
 
+  // Mirror the chat shell's initial refresh: load pending manual edits as
+  // soon as the workspace connects so the Curator's manual edits tab and the
+  // sidebar badge do not reset to empty on the chat → explore navigation.
+  useEffect(() => {
+    if (!isConnected) return;
+    void refreshDiffs({ force: true });
+  }, [isConnected, refreshDiffs]);
+
   const openFilesStorageKey = getOpenFilesStorageKey(storageScope);
 
   const safeInitialFilePath = useMemo(() => {

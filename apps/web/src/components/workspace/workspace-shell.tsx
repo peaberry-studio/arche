@@ -511,9 +511,12 @@ export function WorkspaceShell({
     (path: string) => {
       const resolvedPath = resolveFilePath(path);
       if (!resolvedPath) return;
+      // Opening a file navigates to Explore; the target screen shows the file
+      // itself, so the Curator dialog must not stay open over it.
+      setCuratorOpen(false);
       router.push(`/w/${slug}/explore?path=${encodeURIComponent(resolvedPath)}`);
     },
-    [resolveFilePath, router, slug]
+    [resolveFilePath, router, setCuratorOpen, slug]
   );
 
   const handleCommandPaletteOpenFile = useCallback(
