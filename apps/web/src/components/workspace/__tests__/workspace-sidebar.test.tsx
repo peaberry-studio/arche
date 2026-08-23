@@ -190,6 +190,40 @@ describe("WorkspaceSidebar", () => {
     expect(flowRow.textContent).toContain("Flow");
   });
 
+  it("highlights the active session on the chat route", () => {
+    navigation.pathname = "/w/alice";
+    renderSidebar({ activeSessionId: "chat-1" });
+
+    const sessionRow = screen.getByRole("button", { name: /chat one/i });
+    expect(sessionRow.className).toContain("bg-primary/10");
+  });
+
+  it("does not highlight the active session while on the explore route", () => {
+    navigation.pathname = "/w/alice/explore";
+    renderSidebar({ activeSessionId: "chat-1" });
+
+    const sessionRow = screen.getByRole("button", { name: /chat one/i });
+    expect(sessionRow.className).not.toContain("bg-primary/10");
+  });
+
+  it("does not mark the active session as current in the collapsed rail on the explore route", () => {
+    navigation.pathname = "/w/alice/explore";
+    renderSidebar({ isCollapsed: true, activeSessionId: "chat-1" });
+
+    expect(
+      screen.getByRole("button", { name: "Chat one" }).getAttribute("aria-current")
+    ).toBeNull();
+  });
+
+  it("marks the active session as current in the collapsed rail on the chat route", () => {
+    navigation.pathname = "/w/alice";
+    renderSidebar({ isCollapsed: true, activeSessionId: "chat-1" });
+
+    expect(
+      screen.getByRole("button", { name: "Chat one" }).getAttribute("aria-current")
+    ).toBe("true");
+  });
+
   it("selects a session from the list", () => {
     const onSelectSession = vi.fn();
     renderSidebar({ onSelectSession });

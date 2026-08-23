@@ -137,6 +137,12 @@ export function WorkspaceSidebar({
           ? 'explore'
           : null
 
+  // The active session only reads as open on the chat surface. Explore and
+  // management surfaces own the highlight, so while you are elsewhere the
+  // session keeps its state (returning to chat restores it) but is not
+  // rendered as selected.
+  const visibleActiveSessionId = activeNav === null ? activeSessionId : null
+
   const handleSelectSession = useCallback(
     (sessionId: string) => {
       onSelectSession(sessionId)
@@ -193,7 +199,7 @@ export function WorkspaceSidebar({
 
           <WorkspaceSessionsRail
             sessions={sessions}
-            activeSessionId={activeSessionId}
+            activeSessionId={visibleActiveSessionId}
             unseenCompletedSessions={unseenCompletedSessions}
             onSelectSession={handleSelectSession}
             onMarkFlowRunSeen={onMarkFlowRunSeen}
@@ -265,7 +271,7 @@ export function WorkspaceSidebar({
 
       <SessionsPanel
         sessions={sessions}
-        activeSessionId={activeSessionId}
+        activeSessionId={visibleActiveSessionId}
         hasMore={hasMoreSessions}
         isInitialSessionsReady={isInitialSessionsReady}
         isLoadingMore={isLoadingMoreSessions}
