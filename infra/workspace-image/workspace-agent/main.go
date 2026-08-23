@@ -207,11 +207,6 @@ type syncStatusResponse struct {
 	Conflicts    []string `json:"conflicts,omitempty"`
 }
 
-type kbOutgoingResponse struct {
-	Ok    bool     `json:"ok"`
-	Files []string `json:"files"`
-}
-
 type publishKbResponse struct {
 	Ok            bool     `json:"ok"`
 	Status        string   `json:"status"`
@@ -289,7 +284,6 @@ func main() {
 	mux.HandleFunc("/files/apply_patch", s.withAuth(s.handleApplyPatch))
 	mux.HandleFunc("/kb/sync", s.withAuth(s.handleKbSync))
 	mux.HandleFunc("/kb/status", s.withAuth(s.handleKbStatus))
-	mux.HandleFunc("/kb/outgoing", s.withAuth(s.handleKbOutgoing))
 	mux.HandleFunc("/kb/publish", s.withAuth(s.handleKbPublish))
 
 	server := &http.Server{
@@ -1435,27 +1429,6 @@ func (s *server) handleKbStatus(w http.ResponseWriter, r *http.Request) {
 		Ok:           true,
 		HasConflicts: len(conflicts) > 0,
 		Conflicts:    conflicts,
-	})
-}
-
-// handleKbOutgoing lists the files a publish would push to the KB remote:
-// committed-but-unpushed content plus the paths the caller is about to add
-// through a manifest. It lets the BFF surface ride-along commits before a
-// per-file publish ships more than the user selected.
-func (s *server) handleKbOutgoing(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed")
-		return
-	}
-
-	kbBranch := s.resolveKbBranch(r.Context())
-	files := s.changedFilesToPublish(r.Context(), kbBranch)
-	if files == nil {
-		files = []string{}
-	}
-	writeJSON(w, http.StatusOK, kbOutgoingResponse{
-		Ok:    true,
-		Files: files,
 	})
 }
 

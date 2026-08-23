@@ -53,98 +53,19 @@ describe('PublishKbButton', () => {
 
   it('posts the requested paths in the body when paths are provided', async () => {
     const onComplete = vi.fn()
-    fetchMock
-      .mockResolvedValueOnce(jsonResponse({ ok: true, files: ['Notes/A.md'] }))
-      .mockResolvedValueOnce(jsonResponse({ status: 'published' }))
+    fetchMock.mockResolvedValueOnce(jsonResponse({ status: 'published' }))
 
     render(<PublishKbButton slug="alice" paths={['Notes/A.md']} onComplete={onComplete} />)
     fireEvent.click(screen.getByRole('button', { name: 'Publish' }))
 
     await screen.findByRole('button', { name: 'Published' })
-    expect(fetchMock).toHaveBeenLastCalledWith('/api/instances/alice/publish-kb', {
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenCalledWith('/api/instances/alice/publish-kb', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ paths: ['Notes/A.md'] }),
     })
     expect(onComplete).toHaveBeenCalledTimes(1)
-  })
-
-  it('publishes without confirmation when no ride-along files are outgoing', async () => {
-    fetchMock
-      .mockResolvedValueOnce(jsonResponse({ ok: true, files: ['Notes/A.md'] }))
-      .mockResolvedValueOnce(jsonResponse({ status: 'published' }))
-
-    render(<PublishKbButton slug="alice" paths={['Notes/A.md']} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Publish' }))
-
-    await screen.findByRole('button', { name: 'Published' })
-    expect(screen.queryByText('Also shipping')).toBeNull()
-  })
-
-  it('confirms before publishing when committed files ride along the selection', async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse({
-      ok: true,
-      files: ['Notes/A.md', 'Notes/Committed.md', 'Notes/Other-Committed.md'],
-    }))
-
-    render(<PublishKbButton slug="alice" paths={['Notes/A.md']} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Publish' }))
-
-    expect(await screen.findByText('Also shipping 2 committed files')).toBeDefined()
-    expect(screen.getByText('Notes/Committed.md')).toBeDefined()
-    expect(screen.getByText('Notes/Other-Committed.md')).toBeDefined()
-    // The publish itself has not shipped yet.
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-    expect(fetchMock).toHaveBeenLastCalledWith('/api/instances/alice/publish-kb', { method: 'GET' })
-  })
-
-  it('publishes from the ride-along confirmation', async () => {
-    fetchMock
-      .mockResolvedValueOnce(jsonResponse({ ok: true, files: ['Notes/A.md', 'Notes/Committed.md'] }))
-      .mockResolvedValueOnce(jsonResponse({ status: 'published' }))
-
-    render(<PublishKbButton slug="alice" paths={['Notes/A.md']} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Publish' }))
-
-    await screen.findByText('Also shipping 1 committed file')
-    fireEvent.click(screen.getByRole('button', { name: 'Publish anyway' }))
-
-    await screen.findByRole('button', { name: 'Published' })
-    expect(fetchMock).toHaveBeenLastCalledWith('/api/instances/alice/publish-kb', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ paths: ['Notes/A.md'] }),
-    })
-  })
-
-  it('cancels the ride-along confirmation without publishing', async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse({ ok: true, files: ['Notes/A.md', 'Notes/Committed.md'] }))
-
-    render(<PublishKbButton slug="alice" paths={['Notes/A.md']} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Publish' }))
-
-    await screen.findByText('Also shipping 1 committed file')
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
-
-    await waitFor(() => expect(screen.queryByText('Also shipping 1 committed file')).toBeNull())
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-    expect(screen.getByRole('button', { name: 'Publish' })).toBeDefined()
-  })
-
-  it('publishes directly when the outgoing pre-flight fails', async () => {
-    fetchMock
-      .mockResolvedValueOnce(jsonResponse({ ok: false, files: [] }, { status: 500 }))
-      .mockResolvedValueOnce(jsonResponse({ status: 'published' }))
-
-    render(<PublishKbButton slug="alice" paths={['Notes/A.md']} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Publish' }))
-
-    await screen.findByRole('button', { name: 'Published' })
-    expect(fetchMock).toHaveBeenLastCalledWith('/api/instances/alice/publish-kb', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ paths: ['Notes/A.md'] }),
-    })
   })
 
   it('shows no changes when there is nothing to publish', async () => {

@@ -44,7 +44,7 @@ vi.mock('@/lib/learning/service', () => ({
 }))
 vi.mock('@/lib/auth', () => ({ auditEvent: mocks.auditEvent }))
 
-import { GET, POST } from '../route'
+import { POST } from '../route'
 
 const SESSION = {
   user: { id: 'u1', email: 'alice@test.com', slug: 'alice', role: 'USER' },
@@ -745,67 +745,6 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     expect(res.status).toBe(400)
     expect(await res.json()).toEqual({ error: 'invalid_paths' })
     expect(spy).not.toHaveBeenCalled()
-    spy.mockRestore()
-  })
-})
-
-describe('GET /api/instances/[slug]/publish-kb', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    mocks.getSession.mockResolvedValue(SESSION)
-    mocks.isWorkspaceReachable.mockResolvedValue(true)
-    mocks.createWorkspaceAgentClient.mockResolvedValue({
-      baseUrl: 'http://agent:8080',
-      authHeader: 'Bearer tok',
-    })
-  })
-
-  function makeGetRequest() {
-    return new NextRequest('http://localhost/api/instances/alice/publish-kb', {
-      method: 'GET',
-      headers: { Origin: 'http://localhost' },
-    })
-  }
-
-  it('returns the outgoing files from the workspace agent', async () => {
-    const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
-      ok: true,
-      files: ['Notes/Committed.md'],
-    }), {
-      headers: { 'Content-Type': 'application/json' },
-    }))
-
-    const res = await GET(makeGetRequest(), params('alice'))
-    const body = await res.json()
-
-    expect(res.status).toBe(200)
-    expect(body).toEqual({ ok: true, files: ['Notes/Committed.md'] })
-    expect(spy).toHaveBeenCalledWith('http://agent:8080/kb/outgoing', expect.objectContaining({
-      headers: expect.objectContaining({ Authorization: 'Bearer tok' }),
-    }))
-    spy.mockRestore()
-  })
-
-  it('returns 409 when the instance is not running', async () => {
-    mocks.isWorkspaceReachable.mockResolvedValue(false)
-    const res = await GET(makeGetRequest(), params('alice'))
-    expect(res.status).toBe(409)
-  })
-
-  it('returns 409 when the agent is unavailable', async () => {
-    mocks.createWorkspaceAgentClient.mockResolvedValue(null)
-    const res = await GET(makeGetRequest(), params('alice'))
-    expect(res.status).toBe(409)
-  })
-
-  it('returns an error payload when the agent fails', async () => {
-    const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response('not json', { status: 500 }),
-    )
-    const res = await GET(makeGetRequest(), params('alice'))
-    const body = await res.json()
-
-    expect(body).toEqual({ ok: false, files: [], message: 'workspace_agent_http_500' })
     spy.mockRestore()
   })
 })

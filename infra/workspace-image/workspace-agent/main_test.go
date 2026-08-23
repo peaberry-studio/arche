@@ -967,62 +967,6 @@ func TestHandleKbPublishConflictGateStaysGlobalForPublishAll(t *testing.T) {
 	}
 }
 
-func TestHandleKbOutgoingListsCommittedUnpushedFiles(t *testing.T) {
-	root := t.TempDir()
-	workspace := filepath.Join(root, "workspace")
-	remote := filepath.Join(root, "kb.git")
-	ctx := context.Background()
-
-	if err := os.MkdirAll(workspace, 0o755); err != nil {
-		t.Fatalf("create workspace: %v", err)
-	}
-	runGit(t, ctx, workspace, "init", "-b", "main")
-	runGit(t, ctx, workspace, "config", "user.email", "tests@example.com")
-	runGit(t, ctx, workspace, "config", "user.name", "Workspace Agent Tests")
-	writeWorkspaceTestFile(t, workspace, "README.md", "base\n")
-	runGit(t, ctx, workspace, "add", "README.md")
-	runGit(t, ctx, workspace, "commit", "-m", "base")
-	runGit(t, ctx, root, "init", "--bare", remote)
-	runGit(t, ctx, workspace, "remote", "add", "kb", remote)
-	runGit(t, ctx, workspace, "push", "-u", "kb", "main")
-
-	// A committed-but-unpushed file (prior publish whose push failed) plus a
-	// dirty working-tree file. Only the committed file rides along on a push.
-	writeWorkspaceTestFile(t, workspace, "Knowledge/Committed.md", "committed\n")
-	runGit(t, ctx, workspace, "add", "Knowledge/Committed.md")
-	runGit(t, ctx, workspace, "commit", "-m", "prior publish")
-	writeWorkspaceTestFile(t, workspace, "Knowledge/Dirty.md", "dirty\n")
-
-	s := &server{workspace: workspace}
-	req := httptest.NewRequest(http.MethodGet, "/kb/outgoing", nil)
-	recorder := httptest.NewRecorder()
-	s.handleKbOutgoing(recorder, req)
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("outgoing status = %d, body = %s", recorder.Code, recorder.Body.String())
-	}
-
-	var response kbOutgoingResponse
-	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
-		t.Fatalf("decode outgoing response: %v", err)
-	}
-	if !response.Ok {
-		t.Fatalf("expected ok response: %+v", response)
-	}
-	if len(response.Files) != 1 || response.Files[0] != "Knowledge/Committed.md" {
-		t.Fatalf("expected only the committed unpushed file, got %+v", response.Files)
-	}
-}
-
-func TestHandleKbOutgoingRejectsNonGet(t *testing.T) {
-	s := &server{workspace: t.TempDir()}
-	req := httptest.NewRequest(http.MethodPost, "/kb/outgoing", nil)
-	recorder := httptest.NewRecorder()
-	s.handleKbOutgoing(recorder, req)
-	if recorder.Code != http.StatusMethodNotAllowed {
-		t.Fatalf("expected method_not_allowed, got %d", recorder.Code)
-	}
-}
-
 func TestHandleFileDeleteExpectedHashConflict(t *testing.T) {
 	workspace := t.TempDir()
 	s := &server{workspace: workspace}
