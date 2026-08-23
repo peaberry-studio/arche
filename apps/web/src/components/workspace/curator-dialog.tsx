@@ -17,6 +17,7 @@ import { SegmentedControl, type SegmentedControlOption } from "@/components/work
 import { useEditorDrafts } from "@/hooks/use-editor-drafts";
 import type { WorkspaceDiff } from "@/hooks/use-workspace";
 import { createUnifiedDiff } from "@/lib/line-diff";
+import { cn } from "@/lib/utils";
 import type { KnowledgeReviewChange } from "@/types/learning";
 
 type CuratorDialogProps = {
@@ -225,13 +226,19 @@ export function CuratorDialog({
             />
           </div>
         ) : (
-          <div className="flex min-h-0 flex-1">
-            <div className="flex w-[40%] min-w-[22rem] flex-col border-r border-border/30">
+          <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+            <div
+              className={cn(
+                'flex min-h-0 w-full flex-col border-border/30 lg:w-[40%] lg:min-w-[22rem] lg:border-r',
+                selected ? 'max-h-[42%] border-b lg:max-h-none lg:border-b-0' : 'flex-1',
+              )}
+            >
               <div className="min-h-0 flex-1 overflow-y-auto scrollbar-custom p-4">
                 <KnowledgeReviewList
                   slug={slug}
                   refreshKey={knowledgeReviewRefreshKey}
                   drafts={drafts}
+                  selectedId={selected?.id}
                   onApplied={onKnowledgeReviewApplied}
                   onOpenCountChange={handleProposalCountChange}
                   onOpenProposal={handleOpenProposal}

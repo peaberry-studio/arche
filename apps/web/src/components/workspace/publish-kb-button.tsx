@@ -222,14 +222,17 @@ export function PublishKbButton({ slug, disabled, disabledReason, onComplete, pa
       {showRideAlong && (
         <div
           data-testid="publish-ride-along"
+          role="dialog"
+          aria-labelledby="publish-ride-along-title"
+          aria-describedby="publish-ride-along-copy"
           className="absolute right-0 top-full z-50 -mt-px w-72 rounded-md border border-amber-500/40 bg-popover p-3 shadow-md"
         >
-          <p className="text-sm font-medium text-amber-700 dark:text-amber-300">
+          <p id="publish-ride-along-title" className="text-sm font-medium text-amber-700 dark:text-amber-300">
             {rideAlongFiles.length === 1
               ? 'Also shipping 1 committed file'
               : `Also shipping ${rideAlongFiles.length} committed files`}
           </p>
-          <p className="mt-1 text-xs text-muted-foreground">
+          <p id="publish-ride-along-copy" className="mt-1 text-xs text-muted-foreground">
             Publishing pushes the whole workspace commit history, so these previously committed files ship too.
           </p>
           <ul className="mt-2 max-h-32 overflow-y-auto text-xs">
@@ -243,7 +246,7 @@ export function PublishKbButton({ slug, disabled, disabledReason, onComplete, pa
             <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={handleDismiss}>
               Cancel
             </Button>
-            <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={handlePublish}>
+            <Button size="sm" className="h-7 px-2 text-xs" onClick={handlePublish}>
               Publish anyway
             </Button>
           </div>

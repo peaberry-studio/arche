@@ -50,7 +50,6 @@
   "agentsMdTemplate": "# AGENTS.md\n\nWorkspace profile: **Research Group**\n\nCompany: {{companyName}}\n\nContext: {{companyDescription}}\n\nKeep research outputs explicit, traceable, and easy to reuse in future decisions.\n",
   "recommendedAgentIds": [
     "assistant",
-    "knowledge-curator",
     "requirements",
     "support"
   ],

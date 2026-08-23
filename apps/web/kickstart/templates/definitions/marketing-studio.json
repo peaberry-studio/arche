@@ -50,7 +50,6 @@
   "agentsMdTemplate": "# AGENTS.md\n\nWorkspace profile: **Marketing Studio**\n\nCompany: {{companyName}}\n\nContext: {{companyDescription}}\n\nPrioritize message clarity, campaign learning loops, and channel-specific execution.\n",
   "recommendedAgentIds": [
     "assistant",
-    "knowledge-curator",
     "copywriter",
     "ads-scripts",
     "performance-marketing",

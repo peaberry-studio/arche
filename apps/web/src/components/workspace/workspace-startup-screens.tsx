@@ -43,7 +43,7 @@ export function WorkspaceConnectingBanner({
           <>
             <h2 className="type-display text-base font-semibold">Starting workspace</h2>
             <p className="text-sm text-muted-foreground">
-              Preparing your development environment...
+              Setting up your workspace…
             </p>
           </>
         ) : instanceStatus === "error" ? (

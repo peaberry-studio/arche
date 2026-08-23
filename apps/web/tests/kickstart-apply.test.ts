@@ -46,12 +46,11 @@ const parsedInput: KickstartNormalizedApplyInput = {
     description: 'Minimal setup',
     kbSkeleton: [],
     agentsMdTemplate: '# AGENTS',
-    recommendedAgentIds: ['assistant', 'knowledge-curator'],
+    recommendedAgentIds: ['assistant'],
     agentOverrides: {},
   },
   agents: [
     { id: 'assistant' },
-    { id: 'knowledge-curator' },
   ],
 }
 

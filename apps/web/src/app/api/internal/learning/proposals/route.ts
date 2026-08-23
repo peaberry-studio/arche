@@ -7,6 +7,14 @@ import {
   findLearningRunForUser,
 } from '@/lib/learning/service'
 import { parseProposalRequest } from '@/lib/learning/validation'
+import { SYSTEM_KNOWLEDGE_CURATOR_AGENT_ID } from '@/lib/workspace-config'
+
+// A learning run is always executed by the injected system curator, so runId
+// linked proposals carry the run persona. Chat agents calling learning_propose
+// directly are attributed to the agent id the tool passed (when the runtime
+// exposes it); if neither is available, a neutral default stands in.
+const RUN_PERSONA = SYSTEM_KNOWLEDGE_CURATOR_AGENT_ID
+const FALLBACK_PERSONA = 'assistant'
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const context = await getInternalLearningContext(request)
@@ -36,11 +44,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: base.error }, { status })
   }
 
+  const persona = input.runId
+    ? RUN_PERSONA
+    : input.agent ?? FALLBACK_PERSONA
+
   const result = await createKnowledgeReviewChange(context.userId, {
     runId: input.runId ?? null,
     regeneratedFromId: run?.regenerationChangeId ?? null,
-    author: 'knowledge-curator',
-    agent: 'knowledge-curator',
+    author: persona,
+    agent: persona,
     origin: 'learning',
     title: input.title,
     reason: input.reason ?? 'Proposed by the knowledge curator.',

@@ -102,7 +102,7 @@ export function withWorkspaceKnowledgePolicy(agentsMd: string): string {
     '\n\n## Knowledge Base write policy\n\n' +
     'This block is mandatory and overrides any earlier instruction.\n\n' +
     '- Chat agents must not write, edit, or delete Knowledge Base files. Do not use `write`, `edit`, or shell redirection to change the vault.\n' +
-    '- Persist agent knowledge only with `learning_propose` or by delegating to `knowledge-curator`.\n' +
+    '- Persist agent knowledge only with `learning_propose`.\n' +
     '- User edits belong in Explore. They appear under Manual edits and are published from there. They do not go through Proposals.\n'
 
   return agentsMd + block

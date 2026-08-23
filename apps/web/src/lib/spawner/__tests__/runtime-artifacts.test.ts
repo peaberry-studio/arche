@@ -252,6 +252,47 @@ describe('runtime artifacts', () => {
     expect(config.agent?.utility?.permission).toMatchObject({ task: 'deny' })
   })
 
+  it('injects the system knowledge-curator agent into a config without one', async () => {
+    await createRuntimeRepo({
+      'CommonWorkspaceConfig.json': JSON.stringify({
+        $schema: 'https://opencode.ai/config.json',
+        default_agent: 'assistant',
+        agent: {
+          assistant: {
+            mode: 'primary',
+            tools: { read: true },
+          },
+        },
+      }),
+    })
+
+    const {
+      buildWorkspaceRuntimeArtifacts,
+      getWebProviderGatewayConfig,
+    } = await loadRuntimeArtifactsModule()
+
+    const artifacts = await buildWorkspaceRuntimeArtifacts('alice', getWebProviderGatewayConfig())
+    const config = JSON.parse(artifacts.opencodeConfigContent) as {
+      agent?: Record<string, {
+        mode?: string
+        steps?: number
+        temperature?: number
+        tools?: Record<string, boolean>
+      }>
+    }
+
+    const curator = config.agent?.['knowledge-curator']
+    expect(curator).toBeDefined()
+    expect(curator?.mode).toBe('subagent')
+    expect(curator?.steps).toBe(40)
+    expect(curator?.temperature).toBeCloseTo(0.1)
+    expect(curator?.tools?.read).toBe(true)
+    expect(curator?.tools?.learning_propose).toBe(true)
+    expect(curator?.tools?.session_history_query).toBe(true)
+    expect(curator?.tools?.write).toBe(false)
+    expect(curator?.tools?.edit).toBe(false)
+  })
+
   it('injects the built-in flow authoring skill and grants runtime agent access', async () => {
     await createRuntimeRepo({
       'CommonWorkspaceConfig.json': JSON.stringify({

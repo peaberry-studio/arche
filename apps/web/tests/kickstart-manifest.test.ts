@@ -19,19 +19,16 @@ describe('kickstart manifests', () => {
     expect(skeletonPaths.has('Company/00 - Company Profile.md')).toBe(true)
     expect(skeletonPaths.has('Company/01 - Glossary.md')).toBe(true)
 
-    expect(blank?.recommendedAgentIds).toEqual(['assistant', 'knowledge-curator'])
+    expect(blank?.recommendedAgentIds).toEqual(['assistant'])
   })
 
-  it('assistant and knowledge-curator prompts enforce memory delegation flow', () => {
+  it('assistant prompt enforces learning_propose without delegation to knowledge-curator', () => {
     const assistant = KICKSTART_AGENT_BY_ID.get('assistant')
-    const curator = KICKSTART_AGENT_BY_ID.get('knowledge-curator')
 
     expect(assistant?.systemPrompt.toLowerCase()).toContain('learn')
     expect(assistant?.systemPrompt.toLowerCase()).toContain('remember')
-    expect(assistant?.systemPrompt.toLowerCase()).toContain('knowledge-curator')
-
-    expect(curator?.systemPrompt.toLowerCase()).toContain('knowledge review')
-    expect(curator?.systemPrompt.toLowerCase()).toContain('never write')
+    expect(assistant?.systemPrompt.toLowerCase()).toContain('learning_propose')
+    expect(assistant?.systemPrompt.toLowerCase()).not.toContain('knowledge-curator')
   })
 
   it('does not give kickstart agents Knowledge Base write tools', () => {
@@ -81,7 +78,6 @@ describe('kickstart artifact generation', () => {
       templateId: 'blank',
       agents: [
         { id: 'assistant' },
-        { id: 'knowledge-curator' },
       ],
     })
 
@@ -109,15 +105,9 @@ describe('kickstart artifact generation', () => {
     expect(config.default_agent).toBe('assistant')
     expect(Object.keys(config.agent).sort()).toEqual([
       'assistant',
-      'knowledge-curator',
     ])
     expect(config.agent.assistant.steps).toBe(120)
     expect(config.agent.assistant.permission.doom_loop).toBe('deny')
-    expect(config.agent['knowledge-curator'].steps).toBe(40)
-    expect(config.agent['knowledge-curator'].permission).toMatchObject({
-      doom_loop: 'deny',
-      task: 'deny',
-    })
     expect(built.artifacts.agentsMdContent).toContain(
       'Chat agents never write the Knowledge Base. They create Knowledge Review proposals. Users apply proposals, edit files in Explore, and publish from the Curator\'s Manual edits tab.'
     )

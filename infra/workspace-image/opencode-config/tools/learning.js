@@ -35,7 +35,7 @@ const argsSchema = z.object({
 })
 
 export const propose = {
-  description: 'Create a pending Knowledge Base learning proposal in Arche. This never writes to KB files; a user must apply the proposal later.',
+  description: 'Create a pending Knowledge Base learning proposal in Arche for durable facts, preferences, processes, or corrections. Inspect the existing KB files first (use read/glob/grep or session_history) so you reuse the current structure and naming, and decide between updating an existing file and creating a new one. Check for duplicates and merge when the existing file already covers the fact. Skip transient, task-specific, or sensitive details. Do not propose when nothing durable is worth keeping. This never writes to KB files; a user must review and apply the proposal later.',
   args: {
     runId: z.string().nullable().optional().describe('Learning run id, when known.'),
     title: z.string().min(1).max(200).describe('Short proposal title.'),
@@ -54,11 +54,17 @@ export const propose = {
     internalSessionId: z.string().nullable().optional().describe('Internal learning session id, when known.'),
     trigger: z.enum(triggers).optional().describe('Learning trigger source.'),
   },
-  async execute(args) {
+  async execute(args, context) {
     const parsed = argsSchema.safeParse(args)
     if (!parsed.success) return toToolOutput({ ok: false, error: 'schema_validation_failed' })
 
-    const result = await callInternalApi('/api/internal/learning/proposals', parsed.data)
+    const body = { ...parsed.data }
+    const callerAgent = typeof context?.agent === 'string' ? context.agent : undefined
+    if (callerAgent) {
+      body.agent = callerAgent
+    }
+
+    const result = await callInternalApi('/api/internal/learning/proposals', body)
     if (!result.ok) return toToolOutput({ ok: false, error: result.error })
 
     return toToolOutput({ ok: true, ...result.data })

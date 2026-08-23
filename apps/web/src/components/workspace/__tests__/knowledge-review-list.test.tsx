@@ -175,6 +175,20 @@ describe('KnowledgeReviewList', () => {
     expect(screen.getByText('by Knowledge Curator')).toBeTruthy()
   })
 
+  it('shows the calling agent attribution for chat agent proposals', async () => {
+    // A chat agent calling learning_propose is attributed to itself, never to
+    // a hardcoded curator persona.
+    fetchMock.mockResolvedValueOnce(jsonResponse(learningResponse([
+      makeChange({ author: 'lines', agent: 'lines' }),
+    ])))
+
+    renderList()
+
+    expect(await screen.findByText('Remember preference')).toBeTruthy()
+    expect(screen.getByText('by Lines')).toBeTruthy()
+    expect(screen.queryByText('by Knowledge Curator')).toBeNull()
+  })
+
   it('shows the empty state when no open changes exist', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(learningResponse([])))
 

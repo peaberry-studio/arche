@@ -93,7 +93,7 @@ describe('kickstart routes', () => {
         id: 'blank',
         label: 'Blank',
         description: 'Minimal template',
-        recommendedAgentIds: ['assistant', 'knowledge-curator'],
+        recommendedAgentIds: ['assistant'],
         agentOverrides: {},
       },
     ])
@@ -149,7 +149,7 @@ describe('kickstart routes', () => {
       companyName: 'Acme',
       companyDescription: 'Desc',
       templateId: 'blank',
-      agents: [{ id: 'assistant' }, { id: 'knowledge-curator' }],
+      agents: [{ id: 'assistant' }],
     })
 
     expect(status).toBe(403)
@@ -171,7 +171,7 @@ describe('kickstart routes', () => {
       companyName: 'Acme',
       companyDescription: 'Desc',
       templateId: 'blank',
-      agents: [{ id: 'assistant' }, { id: 'knowledge-curator' }],
+      agents: [{ id: 'assistant' }],
     })
 
     expect(status).toBe(409)
@@ -199,7 +199,7 @@ describe('kickstart routes', () => {
       companyName: 'Acme',
       companyDescription: 'Desc',
       templateId: 'blank',
-      agents: [{ id: 'assistant' }, { id: 'knowledge-curator' }],
+      agents: [{ id: 'assistant' }],
     })
 
     expect(mockApplyKickstart).toHaveBeenCalledWith(
@@ -207,7 +207,7 @@ describe('kickstart routes', () => {
         companyName: 'Acme',
         companyDescription: 'Desc',
         templateId: 'blank',
-        agents: [{ id: 'assistant' }, { id: 'knowledge-curator' }],
+        agents: [{ id: 'assistant' }],
       },
       'user-1'
     )

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 
 
+import { SUBAGENT_STEP_LIMIT } from '@/lib/workspace-config'
 import {
   applyAgentExecutionGuards,
   applyDefaultAgentModel,
@@ -8,6 +9,7 @@ import {
   injectAlwaysOnAgentTools,
   injectCustomConnectorHints,
   injectSelfDelegationGuards,
+  injectSystemKnowledgeCuratorAgent,
   injectSystemSkillAccess,
   materializeAgentToolMaps,
   remapAgentConnectorTools,
@@ -964,5 +966,64 @@ describe('remapAgentConnectorTools', () => {
     }
     const result = remapAgentConnectorTools(config, new Set(['arche_linear_xyz']))
     expect(result).toBe(config)
+  })
+})
+
+describe('injectSystemKnowledgeCuratorAgent', () => {
+  it('injects the system curator when the config has no knowledge-curator key', () => {
+    const config = {
+      agent: {
+        assistant: { mode: 'primary', tools: { read: true } },
+      },
+    }
+
+    const result = injectSystemKnowledgeCuratorAgent(config)
+    const agents = result.agent as Record<string, Record<string, unknown>>
+    const curator = agents['knowledge-curator'] as Record<string, unknown>
+    const tools = curator.tools as Record<string, boolean>
+
+    expect(agents.assistant).toBe(config.agent.assistant)
+    expect(curator.mode).toBe('subagent')
+    expect(curator.temperature).toBeCloseTo(0.1)
+    expect(curator.steps).toBe(SUBAGENT_STEP_LIMIT)
+    expect(typeof curator.prompt).toBe('string')
+    expect(tools.read).toBe(true)
+    expect(tools.list).toBe(true)
+    expect(tools.glob).toBe(true)
+    expect(tools.grep).toBe(true)
+  })
+
+  it('does not override a user agent of a different id', () => {
+    const config = {
+      agent: {
+        assistant: { mode: 'primary', prompt: 'Keep me.', tools: { read: true } },
+      },
+    }
+
+    const result = injectSystemKnowledgeCuratorAgent(config)
+    const agents = result.agent as Record<string, Record<string, unknown>>
+
+    expect(agents.assistant).toEqual(config.agent.assistant)
+    expect(Object.keys(agents).sort()).toEqual(['assistant', 'knowledge-curator'])
+  })
+
+  it('preserves learning_propose and session_history_query in the curator tools', () => {
+    const config = { agent: {} }
+
+    const result = injectSystemKnowledgeCuratorAgent(config)
+    const curator = (result.agent as Record<string, Record<string, unknown>>)['knowledge-curator']
+    const tools = curator.tools as Record<string, boolean>
+
+    expect(tools.learning_propose).toBe(true)
+    expect(tools.session_history_query).toBe(true)
+  })
+
+  it('leaves write/edit off when the transform runs before denyAgentKnowledgeWrites', () => {
+    const result = denyAgentKnowledgeWrites(injectSystemKnowledgeCuratorAgent({ agent: {} }))
+    const curator = (result.agent as Record<string, Record<string, unknown>>)['knowledge-curator']
+    const tools = curator.tools as Record<string, boolean>
+
+    expect(tools.write).toBe(false)
+    expect(tools.edit).toBe(false)
   })
 })

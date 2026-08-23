@@ -114,7 +114,7 @@ function buildAgentsMarkdown(
   )
 
   const sharedRules = [
-    '- The primary `assistant` delegates learn/remember/store requests to `knowledge-curator`.',
+    '- The primary `assistant` captures learn/remember/store requests directly with `learning_propose`.',
     '- The `assistant` suggests saving high-value new knowledge and asks for confirmation first.',
     '- Chat agents never write the Knowledge Base. They create Knowledge Review proposals. Users apply proposals, edit files in Explore, and publish from the Curator\'s Manual edits tab.',
   ]

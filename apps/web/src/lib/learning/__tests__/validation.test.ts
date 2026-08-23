@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { parseEvidence } from '@/lib/learning/repository'
 import { isValidKbPath, parseProposalActionRequest, parseProposalRequest } from '@/lib/learning/validation'
-import { LEARNING_TITLE_MAX_LENGTH } from '@/types/learning'
+import { LEARNING_AGENT_MAX_LENGTH, LEARNING_TITLE_MAX_LENGTH } from '@/types/learning'
 
 const validPayload = {
   title: 'Remember preference',
@@ -72,6 +72,18 @@ describe('parseProposalRequest', () => {
       value: { reason: 'Durable preference' },
     })
     expect(parseProposalRequest({ ...validPayload, reason: 'x'.repeat(LEARNING_TITLE_MAX_LENGTH + 1) })).toEqual({ ok: false })
+  })
+
+  it('accepts an optional agent and rejects an oversized one', () => {
+    expect(parseProposalRequest({ ...validPayload, agent: 'lines' })).toMatchObject({
+      ok: true,
+      value: { agent: 'lines' },
+    })
+    expect(parseProposalRequest({ ...validPayload, agent: null })).toMatchObject({
+      ok: true,
+      value: { agent: null },
+    })
+    expect(parseProposalRequest({ ...validPayload, agent: 'x'.repeat(LEARNING_AGENT_MAX_LENGTH + 1) })).toEqual({ ok: false })
   })
 })
 

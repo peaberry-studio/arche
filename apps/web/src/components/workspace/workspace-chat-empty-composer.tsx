@@ -183,6 +183,7 @@ export function WorkspaceChatEmptyComposer({
           onChange={handleInputChange}
           onKeyDown={handleKeyDown}
           rows={1}
+          aria-label="Describe what you want to work on"
           className="block min-h-[38px] w-full resize-none bg-transparent text-base leading-6 text-foreground outline-none placeholder:text-muted-foreground/60 sm:min-h-[44px] sm:text-lg sm:leading-relaxed"
           placeholder="Describe what you want to work on..."
         />

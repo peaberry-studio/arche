@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useMemo } from 'react'
-import { X } from '@phosphor-icons/react'
+import { ArrowLeft, X } from '@phosphor-icons/react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 
 import { ConnectorsManager } from '@/components/connectors/connectors-manager'
@@ -149,9 +149,10 @@ export function WorkspaceSettingsDialog({
       <button
         type="button"
         onClick={() => update((params) => params.delete('integration'))}
-        className="inline-flex text-sm text-muted-foreground transition-colors hover:text-foreground"
+        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
       >
-        &larr; Back to integrations
+        <ArrowLeft size={14} weight="bold" />
+        Back to integrations
       </button>
     )
 
@@ -295,21 +296,19 @@ export function WorkspaceSettingsDialog({
   return (
     <Dialog open={Boolean(section)} onOpenChange={(open) => !open && close()}>
       <DialogContent showCloseButton={false} className="max-h-[90vh] overflow-hidden p-0 sm:max-w-6xl">
-        <DialogTitle className="sr-only">Workspace settings</DialogTitle>
+        <DialogTitle className="sr-only">Settings</DialogTitle>
         <DialogDescription className="sr-only">
           Configure general, providers, connectors, team, integrations, security, and analytics settings.
         </DialogDescription>
 
-        <div className="flex h-[80vh] min-h-[640px] flex-col">
-          <div className="flex items-center justify-between gap-3 border-b border-border/60 px-6 py-4">
-            <div>
-              <p className="text-sm font-medium text-foreground">Settings</p>
-              <p className="text-xs text-muted-foreground">Workspace</p>
-            </div>
+        <div className="flex h-[min(80vh,54rem)] flex-col">
+          <div className="flex items-center justify-between gap-3 border-b border-border/60 px-4 py-3 sm:px-6">
+            <p className="text-base font-semibold leading-none tracking-tight text-foreground">Settings</p>
             <Button
               type="button"
               variant="ghost"
               size="icon"
+              className="h-8 w-8"
               onClick={close}
               aria-label="Close settings"
             >
@@ -317,16 +316,16 @@ export function WorkspaceSettingsDialog({
             </Button>
           </div>
 
-          <div className="grid min-h-0 flex-1 grid-cols-[220px_minmax(0,1fr)]">
-            <aside className="flex flex-col border-r border-border/60 bg-muted/20 p-4">
-              <nav className="flex-1 space-y-1">
+          <div className="flex min-h-0 flex-1 flex-col md:grid md:grid-cols-[220px_minmax(0,1fr)]">
+            <aside className="flex shrink-0 flex-col border-b border-border/60 bg-muted/20 p-3 md:border-b-0 md:border-r md:p-4">
+              <nav className="flex gap-1 overflow-x-auto scrollbar-custom md:flex-1 md:flex-col md:space-y-1 md:overflow-visible">
                 {availableSections.map((candidate) => (
                   <button
                     key={candidate}
                     type="button"
                     onClick={() => selectSection(candidate)}
                     className={cn(
-                      'flex w-full items-center rounded-xl px-3 py-2 text-left text-sm transition-colors',
+                      'flex shrink-0 items-center rounded-xl px-3 py-2 text-left text-sm transition-colors md:w-full',
                       activeSection === candidate
                         ? 'bg-primary/10 font-medium text-primary'
                         : 'text-muted-foreground hover:bg-background hover:text-foreground',
@@ -337,12 +336,12 @@ export function WorkspaceSettingsDialog({
                   </button>
                 ))}
               </nav>
-              <div className="mt-4 border-t border-border/60 pt-2">
+              <div className="mt-3 border-t border-border/60 pt-2">
                 <SettingsLogoutButton />
               </div>
             </aside>
 
-            <div className="scrollbar-custom min-h-0 overflow-y-auto p-6">
+            <div className="scrollbar-custom min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
               {renderSection(activeSection)}
             </div>
           </div>

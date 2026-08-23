@@ -29,8 +29,7 @@
   ],
   "agentsMdTemplate": "# AGENTS.md\n\nWorkspace guidelines for **{{companyName}}**.\n\nCompany summary: {{companyDescription}}\n\nUse this workspace as a clean slate. Keep the KB structured, concise, and easy to extend as the team grows.\n",
   "recommendedAgentIds": [
-    "assistant",
-    "knowledge-curator"
+    "assistant"
   ],
   "agentOverrides": {},
   "order": 400

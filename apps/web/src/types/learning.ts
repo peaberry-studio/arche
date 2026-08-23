@@ -5,6 +5,7 @@ export const KNOWLEDGE_REVIEW_STATUSES = ['open', 'needs_rebase', 'applying', 'a
 export const LEARNING_PROPOSAL_ACTIONS = ['apply', 'reject', 'save_draft', 'rebase', 'regenerate'] as const
 
 export const LEARNING_TITLE_MAX_LENGTH = 200
+export const LEARNING_AGENT_MAX_LENGTH = 200
 export const LEARNING_KB_PATH_MAX_LENGTH = 500
 export const LEARNING_PROPOSED_CONTENT_MAX_LENGTH = 200_000
 export const LEARNING_EVIDENCE_QUOTE_MAX_LENGTH = 4_000

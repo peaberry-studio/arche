@@ -25,6 +25,7 @@ import {
   injectAlwaysOnAgentTools,
   injectCustomConnectorHints,
   injectSelfDelegationGuards,
+  injectSystemKnowledgeCuratorAgent,
   injectSystemSkillAccess,
   materializeAgentToolMaps,
   remapAgentConnectorTools,
@@ -228,6 +229,7 @@ async function buildBaseWorkspaceConfig(
 
   baseConfig = injectAlwaysOnAgentTools(baseConfig)
   baseConfig = injectSystemSkillAccess(baseConfig, [SYSTEM_FLOW_AUTHORING_SKILL_NAME])
+  baseConfig = injectSystemKnowledgeCuratorAgent(baseConfig)
   baseConfig = applyDefaultAgentModel(baseConfig)
   baseConfig = applyAgentExecutionGuards(baseConfig)
   baseConfig = injectSelfDelegationGuards(baseConfig)

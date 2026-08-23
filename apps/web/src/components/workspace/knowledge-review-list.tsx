@@ -23,6 +23,7 @@ type KnowledgeReviewListProps = {
   onOpenCountChange?: (count: number) => void
   onOpenProposal: (change: KnowledgeReviewChange) => void
   refreshKey?: number
+  selectedId?: string | null
   slug: string
 }
 
@@ -134,6 +135,7 @@ export function KnowledgeReviewList({
   onOpenCountChange,
   onOpenProposal,
   refreshKey = 0,
+  selectedId = null,
   slug,
 }: KnowledgeReviewListProps) {
   const [changes, setChanges] = useState<KnowledgeReviewChange[]>([])
@@ -316,13 +318,23 @@ export function KnowledgeReviewList({
       {openChanges.map((change) => {
         const content = getDraft(change.id, change.proposedContent)
         const isRebase = change.status === 'needs_rebase'
+        const isSelected = selectedId === change.id
         return (
           <article
             key={change.id}
-            className="cursor-pointer overflow-hidden rounded-md border-[0.5px] border-border/20 bg-foreground/[0.015] transition-colors hover:border-border/40 hover:bg-foreground/[0.03]"
-            onClick={() => onOpenProposal(change)}
+            className={cn(
+              'overflow-hidden rounded-md border-[0.5px] transition-colors',
+              isSelected
+                ? 'border-primary/30 bg-primary/[0.04]'
+                : 'cursor-pointer border-border/20 bg-foreground/[0.015] hover:border-border/40 hover:bg-foreground/[0.03]',
+            )}
           >
-            <div className="p-4">
+            <button
+              type="button"
+              className="w-full p-4 text-left"
+              aria-pressed={isSelected}
+              onClick={() => onOpenProposal(change)}
+            >
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
                   <span className="min-w-0 flex-1 truncate text-sm font-medium" title={change.title}>
@@ -344,12 +356,12 @@ export function KnowledgeReviewList({
                 </div>
               </div>
               {change.reason && change.reason !== GENERIC_REASON ? (
-                <p className="mt-6 text-xs text-muted-foreground">{change.reason}</p>
+                <p className="mt-3 text-xs text-muted-foreground">{change.reason}</p>
               ) : null}
               {change.evidence.quote ? (
                 <p className="mt-1.5 text-xs text-muted-foreground/80">{change.evidence.quote}</p>
               ) : null}
-            </div>
+            </button>
             <div className="flex items-center justify-between gap-2 px-4 pb-3 pt-1">
               <span className="min-w-0 truncate text-[10px] text-muted-foreground/70">
                 by {formatAuthor(change.author)}

@@ -166,6 +166,30 @@ describe('getAgentSummaries', () => {
     const summaries = getAgentSummaries({})
     expect(summaries).toEqual([])
   })
+
+  it('omits the system knowledge-curator agent from returned summaries', () => {
+    const config: CommonWorkspaceConfig = {
+      default_agent: 'a',
+      agent: {
+        a: { mode: 'primary', display_name: 'A' },
+        'knowledge-curator': { mode: 'subagent', display_name: 'Knowledge Curator' },
+      },
+    }
+    const summaries = getAgentSummaries(config)
+    expect(summaries.map((s) => s.id)).toEqual(['a'])
+  })
+
+  it('leaves summaries unchanged when the config has no knowledge-curator agent', () => {
+    const config: CommonWorkspaceConfig = {
+      default_agent: 'a',
+      agent: {
+        a: { mode: 'primary', display_name: 'A' },
+        b: { mode: 'subagent', display_name: 'B' },
+      },
+    }
+    const summaries = getAgentSummaries(config)
+    expect(summaries.map((s) => s.id)).toEqual(['a', 'b'])
+  })
 })
 
 describe('ensurePrimaryAgent', () => {

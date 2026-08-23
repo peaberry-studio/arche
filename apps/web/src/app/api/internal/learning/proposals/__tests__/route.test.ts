@@ -93,6 +93,42 @@ describe('POST /api/internal/learning/proposals', () => {
     }))
   })
 
+  it('attributes to the tool-provided agent when no run id is present', async () => {
+    const response = await POST(makeRequest({ ...validBody, agent: 'lines' }))
+
+    expect(response.status).toBe(200)
+    expect(mocks.createKnowledgeReviewChange).toHaveBeenCalledWith('user-1', expect.objectContaining({
+      author: 'lines',
+      agent: 'lines',
+    }))
+  })
+
+  it('falls back to a neutral persona when no run id or agent is provided', async () => {
+    const response = await POST(makeRequest(validBody))
+
+    expect(response.status).toBe(200)
+    expect(mocks.createKnowledgeReviewChange).toHaveBeenCalledWith('user-1', expect.objectContaining({
+      author: 'assistant',
+      agent: 'assistant',
+    }))
+  })
+
+  it('attributes a run-linked proposal to the run persona', async () => {
+    mocks.findLearningRunForUser.mockResolvedValue({
+      id: 'run-2',
+      regenerationChangeId: null,
+    })
+
+    const response = await POST(makeRequest({ ...validBody, runId: 'run-2', agent: 'lines' }))
+
+    expect(response.status).toBe(200)
+    expect(mocks.createKnowledgeReviewChange).toHaveBeenCalledWith('user-1', expect.objectContaining({
+      author: 'knowledge-curator',
+      agent: 'knowledge-curator',
+      runId: 'run-2',
+    }))
+  })
+
   it('links a curator replacement only from the authenticated regeneration run', async () => {
     mocks.findLearningRunForUser.mockResolvedValue({
       id: 'run-2',

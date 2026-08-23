@@ -75,7 +75,7 @@ const STEPS = [
 ]
 
 const IMPORT_TEMPLATE_ID = '__imported-template__'
-const CORE_AGENT_PROMPT_OVERRIDE_BLOCKLIST = new Set(['assistant', 'knowledge-curator'])
+const CORE_AGENT_PROMPT_OVERRIDE_BLOCKLIST = new Set(['assistant'])
 
 function unique(values: string[]): string[] {
   return Array.from(new Set(values))

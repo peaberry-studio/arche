@@ -9,7 +9,6 @@ function buildValidPayload() {
     templateId: 'blank',
     agents: [
       { id: 'assistant' },
-      { id: 'knowledge-curator' },
     ],
   }
 }
@@ -62,9 +61,9 @@ describe('kickstart payload validation', () => {
       name: 'missing required template agent',
       payload: {
         ...buildValidPayload(),
-        agents: [{ id: 'assistant' }],
+        agents: [{ id: 'requirements' }],
       },
-      expectedMessage: 'required agent missing: knowledge-curator',
+      expectedMessage: 'required agent missing: assistant',
     },
     {
       name: 'companyName over max length',
@@ -103,7 +102,6 @@ describe('kickstart payload validation', () => {
       ...buildValidPayload(),
       agents: [
         { id: 'assistant', temperature: value },
-        { id: 'knowledge-curator' },
       ],
     })
 
