@@ -1166,6 +1166,7 @@ export function ChatPanel({
         isInitialSessionsReady={isInitialSessionsReady}
         isLoadingMessages={isLoadingMessages}
         isStartingNewSession={isStartingNewSession}
+        isStreaming={isSending}
         messages={messages}
         permissions={permissions}
         messagesEndRef={messagesEndRef}

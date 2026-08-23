@@ -12,6 +12,7 @@ import {
 import { ChatCircle, CheckCircle, Copy, File, Info, XCircle } from "@phosphor-icons/react";
 import ReactMarkdown from "react-markdown";
 
+import { isStreamingReasoningPart } from "@/components/workspace/chat-panel/is-streaming-reasoning-part";
 import {
   FileGroup,
   MessagePartRenderer,
@@ -40,6 +41,8 @@ type ChatPanelMessagesProps = {
   isInitialSessionsReady?: boolean;
   isLoadingMessages: boolean;
   isStartingNewSession: boolean;
+  /** True while the session is generating a response (dots on the active reasoning block). */
+  isStreaming?: boolean;
   messages: ChatMessage[];
   permissions?: WorkspacePermission[];
   messagesEndRef: RefObject<HTMLDivElement | null>;
@@ -393,6 +396,7 @@ export function ChatPanelMessages({
   isInitialSessionsReady = true,
   isLoadingMessages,
   isStartingNewSession,
+  isStreaming = false,
   messages,
   permissions = [],
   messagesEndRef,
@@ -474,6 +478,7 @@ export function ChatPanelMessages({
             <div className="space-y-6">
               {messages.filter(isRenderableChatMessage).map((message, index, visibleMessages) => {
                 const nextMessage = visibleMessages[index + 1];
+                const isLastMessage = index === visibleMessages.length - 1;
                 const showTimestamp = !nextMessage || !isSameMinute(message.timestampRaw, nextMessage.timestampRaw);
                 const assistantErrorDetail =
                   message.role === "assistant" && message.statusInfo?.status === "error"
@@ -523,6 +528,12 @@ export function ChatPanelMessages({
                                 <MessagePartRenderer
                                   key={`${message.id}-part-${groupIndex}`}
                                   connectorNamesById={connectorNamesById}
+                                  isStreaming={isStreamingReasoningPart({
+                                    isSessionBusy: isStreaming,
+                                    isLastMessage,
+                                    message,
+                                    part: group.part,
+                                  })}
                                   onAnswerPermission={onAnswerPermission}
                                   part={group.part}
                                   onOpenFile={onOpenFile}
