@@ -189,6 +189,7 @@ describe("ExploreShell", () => {
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
+    window.history.replaceState(null, "", "/");
   });
 
   it("shows a startup failure when the instance errors", async () => {
@@ -236,6 +237,28 @@ describe("ExploreShell", () => {
     await waitFor(() => {
       expect(onOpenFileMock).toHaveBeenCalledWith("docs/plan.md");
     });
+  });
+
+  it("syncs the active file into the ?path= query param", async () => {
+    workspaceOverrides.current = {
+      openFilePaths: ["docs/plan.md"],
+      activeFilePath: "docs/plan.md",
+      openFiles: [{ path: "docs/plan.md" }],
+    };
+
+    renderExploreShell({ slug: "alice", persistenceScope: "alice" });
+
+    await screen.findByRole("button", { name: "Files Panel" });
+    expect(window.location.search).toBe("?path=docs%2Fplan.md");
+  });
+
+  it("removes the ?path= query param when no file is active", async () => {
+    window.history.replaceState(null, "", "/w/alice/explore?path=docs%2Fplan.md");
+
+    renderExploreShell({ slug: "alice", persistenceScope: "alice" });
+
+    await screen.findByRole("button", { name: "Open from tree" });
+    expect(window.location.search).toBe("");
   });
 
   it("switches the nav panel between Tree and Graph views", async () => {

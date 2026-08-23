@@ -84,6 +84,23 @@ export function ExploreShell({
     persistWorkspacePanelState(layoutStorageKey, layoutCookieName, { leftCollapsed: navCollapsed });
   }, [layoutCookieName, layoutStorageKey, navCollapsed]);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+
+    if (workspace.activeFilePath) {
+      params.set("path", workspace.activeFilePath);
+    } else {
+      params.delete("path");
+    }
+
+    const query = params.toString();
+    window.history.replaceState(
+      window.history.state,
+      "",
+      query ? `/w/${slug}/explore?${query}` : `/w/${slug}/explore`,
+    );
+  }, [slug, workspace.activeFilePath]);
+
   const handleToggleNav = useCallback(() => {
     setNavCollapsed((previous) => !previous);
   }, []);
