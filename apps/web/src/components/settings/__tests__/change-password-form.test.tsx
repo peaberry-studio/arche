@@ -4,12 +4,12 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mockChangePassword = vi.fn()
-vi.mock('../actions', () => ({
+vi.mock('@/actions/two-factor', () => ({
   changePassword: (currentPassword: string, newPassword: string, newPasswordConfirmation: string) =>
     mockChangePassword(currentPassword, newPassword, newPasswordConfirmation),
 }))
 
-import { ChangePasswordForm } from '../change-password-form'
+import { ChangePasswordForm } from '@/components/settings/change-password-form'
 
 describe('ChangePasswordForm', () => {
   beforeEach(() => {

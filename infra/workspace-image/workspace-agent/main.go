@@ -207,6 +207,11 @@ type syncStatusResponse struct {
 	Conflicts    []string `json:"conflicts,omitempty"`
 }
 
+type kbOutgoingResponse struct {
+	Ok    bool     `json:"ok"`
+	Files []string `json:"files"`
+}
+
 type publishKbResponse struct {
 	Ok            bool     `json:"ok"`
 	Status        string   `json:"status"`
@@ -284,6 +289,7 @@ func main() {
 	mux.HandleFunc("/files/apply_patch", s.withAuth(s.handleApplyPatch))
 	mux.HandleFunc("/kb/sync", s.withAuth(s.handleKbSync))
 	mux.HandleFunc("/kb/status", s.withAuth(s.handleKbStatus))
+	mux.HandleFunc("/kb/outgoing", s.withAuth(s.handleKbOutgoing))
 	mux.HandleFunc("/kb/publish", s.withAuth(s.handleKbPublish))
 
 	server := &http.Server{
@@ -1432,6 +1438,27 @@ func (s *server) handleKbStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleKbOutgoing lists the files a publish would push to the KB remote:
+// committed-but-unpushed content plus the paths the caller is about to add
+// through a manifest. It lets the BFF surface ride-along commits before a
+// per-file publish ships more than the user selected.
+func (s *server) handleKbOutgoing(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed")
+		return
+	}
+
+	kbBranch := s.resolveKbBranch(r.Context())
+	files := s.changedFilesToPublish(r.Context(), kbBranch)
+	if files == nil {
+		files = []string{}
+	}
+	writeJSON(w, http.StatusOK, kbOutgoingResponse{
+		Ok:    true,
+		Files: files,
+	})
+}
+
 func (s *server) handleKbPublish(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed")
@@ -1488,12 +1515,29 @@ func (s *server) handleKbPublish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The conflict gate mirrors the BFF contract: for a per-file publish
+	// only conflicts on the requested paths block, so an unselected
+	// conflicted sibling does not fail the user's publish as a global
+	// conflict listing. Publish all keeps the global gate.
 	conflicts := s.listConflictFiles(r.Context())
-	if len(conflicts) > 0 {
+	blockingConflicts := conflicts
+	if len(req.Paths) > 0 {
+		requested := make(map[string]bool, len(req.Paths))
+		for _, path := range req.Paths {
+			requested[path] = true
+		}
+		blockingConflicts = blockingConflicts[:0]
+		for _, conflict := range conflicts {
+			if requested[conflict] {
+				blockingConflicts = append(blockingConflicts, conflict)
+			}
+		}
+	}
+	if len(blockingConflicts) > 0 {
 		writeJSON(w, http.StatusOK, publishKbResponse{
 			Ok:      false,
 			Status:  "conflicts",
-			Files:   conflicts,
+			Files:   blockingConflicts,
 			Message: "Resolve conflicts before publishing.",
 		})
 		return
@@ -1786,10 +1830,24 @@ func (s *server) commitWorkspacePathsIfNeeded(ctx context.Context, paths []strin
 			return false, nil, allStatusErr.Error()
 		}
 		allPaths := make([]string, 0, len(allEntries))
+		manifestSet := make(map[string]bool, len(manifest))
+		for _, path := range manifest {
+			manifestSet[path] = true
+		}
+		conflictedOutsideManifest := false
 		for _, entry := range allEntries {
 			allPaths = append(allPaths, entry.Path)
+			if entry.Conflicted && !manifestSet[entry.Path] {
+				conflictedOutsideManifest = true
+			}
 		}
 		if !pathsAreWithinManifest(allPaths, manifest) {
+			if conflictedOutsideManifest {
+				// git cannot create a partial commit during a merge, and a
+				// full commit would sweep the unresolved conflict into the
+				// publish. The sibling conflict must be resolved first.
+				return false, nil, "resolve_conflicts_before_publishing"
+			}
 			return false, nil, "unreviewed_changes_present"
 		}
 		commitArgs = []string{"git", "commit", "-m", commitMessage}

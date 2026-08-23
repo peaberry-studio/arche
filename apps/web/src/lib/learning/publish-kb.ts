@@ -66,9 +66,11 @@ const PUBLISH_MESSAGE_LABELS: Record<string, string> = {
   invalid_reviewed_path: 'Publish includes hidden or internal files. Discard those changes before publishing.',
   reviewed_path_manifest_required: 'Unreviewed workspace changes must be reviewed or discarded before publishing.',
   unreviewed_changes_present: 'The workspace contains unreviewed changes. Review or discard them before publishing.',
+  resolve_conflicts_before_publishing: 'Resolve the conflicted files before publishing other changes.',
   reviewed_content_changed: 'A reviewed file changed after it was applied. Re-apply or discard the newer edits before publishing.',
   workspace_diffs_unavailable: 'Could not read workspace changes. Try again.',
   workspace_owner_not_found: 'Could not resolve the workspace owner. Try again.',
+  instance_unavailable: 'The workspace runtime is unavailable. Try again in a moment.',
   requested_path_not_in_diffs: 'One of the selected files has no pending changes to publish.',
   no_paths_selected: 'Select at least one file to publish.',
 }

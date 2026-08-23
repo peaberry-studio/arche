@@ -1,8 +1,7 @@
 import { cookies, headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 
-import { get2FAStatus } from '@/app/u/[slug]/settings/security/actions'
-import { normalizeTwoFactorStatus } from '@/app/u/[slug]/settings/security/status'
+import { get2FAStatus } from '@/actions/two-factor'
 import { WorkspaceAppChrome } from '@/components/workspace/workspace-app-chrome'
 import { WorkspaceSettingsDialog } from '@/components/workspace/workspace-settings-dialog'
 import { WorkspaceRuntimeProvider } from '@/contexts/workspace-runtime-context'
@@ -17,7 +16,9 @@ import { isDesktop } from '@/lib/runtime/mode'
 import { getSession } from '@/lib/runtime/session'
 import { googleWorkspaceService, kbGithubRemoteService, slackService } from '@/lib/services'
 import { serializeSlackIntegration } from '@/lib/slack/integration'
+import { ensureSlackServiceUser } from '@/lib/slack/service-user'
 import type { SlackIntegrationSummary } from '@/lib/slack/types'
+import { normalizeTwoFactorStatus } from '@/lib/two-factor-status'
 import {
   DEFAULT_CHAT_FONT_FAMILY,
   DEFAULT_CHAT_FONT_SIZE,
@@ -92,12 +93,19 @@ export default async function WorkspaceLayout({
     redirect('/login')
   }
 
+  if (session.user.slug !== slug && session.user.role !== 'ADMIN') {
+    redirect(`/w/${session.user.slug}`)
+  }
+
   const isAdmin = session.user.role === 'ADMIN'
-  const [status, slackIntegrationSummary, googleWorkspaceSummary, kbGithubRemoteSummary] = await Promise.all([
+  const [status, slackIntegrationSummary, slackServiceUser, googleWorkspaceSummary, kbGithubRemoteSummary] = await Promise.all([
     caps.twoFactor ? get2FAStatus() : Promise.resolve(null),
     caps.slackIntegration && isAdmin
       ? loadSlackIntegrationSummary()
       : Promise.resolve<SlackIntegrationSummary | null>(null),
+    caps.slackIntegration && isAdmin
+      ? ensureSlackServiceUser()
+      : Promise.resolve(null),
     caps.googleWorkspaceIntegration && isAdmin
       ? loadGoogleWorkspaceSummary()
       : Promise.resolve<GoogleWorkspaceIntegrationSummary | null>(null),
@@ -148,6 +156,7 @@ export default async function WorkspaceLayout({
           twoFactorVerifiedAt={twoFactorVerifiedAt}
           recoveryCodesRemaining={recoveryCodesRemaining}
           slackIntegrationSummary={slackIntegrationSummary}
+          slackServiceUserAvailable={Boolean(slackServiceUser?.ok)}
           googleWorkspaceSummary={googleWorkspaceSummary}
           kbGithubRemoteSummary={kbGithubRemoteSummary}
         />

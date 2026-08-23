@@ -3,13 +3,13 @@
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { SecuritySettingsPanel } from '../settings-page-content'
+import { SecuritySettingsPanel } from '@/components/settings/security-settings-panel'
 
 vi.mock('@/components/totp-setup-wizard', () => ({
   TotpSetupWizard: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }))
 
-vi.mock('../change-password-form', () => ({
+vi.mock('@/components/settings/change-password-form', () => ({
   ChangePasswordForm: () => <div>Change password form</div>,
 }))
 

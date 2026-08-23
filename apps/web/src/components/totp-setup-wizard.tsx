@@ -8,7 +8,7 @@ import {
   initiate2FASetup,
   regenerateRecoveryCodes,
   verify2FASetup,
-} from '@/app/u/[slug]/settings/security/actions'
+} from '@/actions/two-factor'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,

@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { stubBrowserStorage } from "@/__tests__/storage";
@@ -673,7 +673,31 @@ it("opens the Curator modal over the chat workspace", async () => {
     await waitFor(() => {
       expect(routerPushMock).toHaveBeenCalledWith("/w/alice/explore?path=docs%2Fplan.md");
     });
-    expect(screen.getByTestId("curator-dialog").dataset.open).toBe("false");
+    await waitFor(
+      () => {
+        expect(screen.getByTestId("curator-dialog").dataset.open).toBe("false");
+      },
+      // The dialog close is a separate state update after the navigation.
+      { timeout: 5000 }
+    );
+  });
+
+  it("offers Explore, Curator, and Settings in the mobile bottom nav", async () => {
+    setViewportWidth(390);
+    renderWorkspaceShell({ slug: "alice" });
+
+    const nav = screen.getByRole("navigation", { name: "Workspace sections" });
+
+    fireEvent.click(within(nav).getByRole("button", { name: "Explore" }));
+    expect(routerPushMock).toHaveBeenCalledWith("/w/alice/explore");
+
+    fireEvent.click(within(nav).getByRole("button", { name: "Settings" }));
+    expect(routerPushMock).toHaveBeenCalledWith("/w/alice?settings=general");
+
+    fireEvent.click(within(nav).getByRole("button", { name: "Curator" }));
+    await waitFor(() => {
+      expect(screen.getByTestId("curator-dialog").dataset.open).toBe("true");
+    });
   });
 
   it("shows fallback quickview content when preview file loading fails", async () => {

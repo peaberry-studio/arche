@@ -39,7 +39,7 @@ function mockFetch(options: {
   const publish = options.publish ?? { ok: true, status: 'published', commitHash: 'abc123' }
   const fileReads = options.fileReads ?? {}
   return vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
-    const url = typeof input === 'string' ? input : input.url
+    const url = typeof input === 'string' ? input : input instanceof Request ? input.url : input.toString()
     if (url.endsWith('/git/diffs')) {
       return Promise.resolve(new Response(JSON.stringify({ ok: true, diffs }), {
         headers: { 'Content-Type': 'application/json' },
@@ -69,6 +69,18 @@ describe('publishKnowledgeBasePaths', () => {
     mocks.updateSyncState.mockResolvedValue(undefined)
     mocks.listAppliedKnowledgeReviewChanges.mockResolvedValue([])
     mocks.markKnowledgeReviewChangesPublished.mockResolvedValue([])
+  })
+
+  it('returns a readable message when the workspace agent is unavailable', async () => {
+    mocks.createWorkspaceAgentClient.mockResolvedValue(null)
+
+    const result = await publishKnowledgeBasePaths({ slug: 'alice', actorUserId: 'u1' })
+
+    expect(result).toEqual({
+      ok: false,
+      status: 'error',
+      message: 'The workspace runtime is unavailable. Try again in a moment.',
+    })
   })
 
   it('publishes all diffs when no paths are given', async () => {
@@ -152,6 +164,14 @@ describe('publishKnowledgeBasePaths', () => {
       }),
     }))
     spy.mockRestore()
+  })
+
+  it('translates a sibling-conflict agent error into a readable message', async () => {
+    mockFetch({ publish: { ok: false, status: 'error', message: 'resolve_conflicts_before_publishing' } })
+
+    const result = await publishKnowledgeBasePaths({ slug: 'alice', actorUserId: 'u1' })
+
+    expect(result.message).toBe('Resolve the conflicted files before publishing other changes.')
   })
 
   it('marks applied changes published only for the published paths', async () => {

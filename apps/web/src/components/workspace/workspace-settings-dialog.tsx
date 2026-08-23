@@ -4,8 +4,6 @@ import { useCallback, useMemo } from 'react'
 import { X } from '@phosphor-icons/react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 
-import { WorkspaceRestartSection } from '@/app/u/[slug]/settings/security/workspace-restart-section'
-import { SecuritySettingsPanel } from '@/app/u/[slug]/settings/security/settings-page-content'
 import { ConnectorsManager } from '@/components/connectors/connectors-manager'
 import { ThemePicker } from '@/components/dashboard/theme-picker'
 import { McpIntegrationSummaryCard } from '@/components/mcp/mcp-integration-summary-card'
@@ -17,9 +15,12 @@ import { GoogleWorkspaceIntegrationPanel } from '@/components/settings/google-wo
 import { GoogleWorkspaceIntegrationSummaryCard } from '@/components/settings/google-workspace-integration-summary-card'
 import { KbGithubRemotePanel } from '@/components/settings/kb-github-remote-panel'
 import { KbGithubRemoteSummaryCard } from '@/components/settings/kb-github-remote-summary-card'
+import { SecuritySettingsPanel } from '@/components/settings/security-settings-panel'
+import { SettingsLogoutButton } from '@/components/settings/settings-logout-button'
 import { SettingsSection } from '@/components/settings/settings-section'
-import { SlackIntegrationPanel } from '@/components/settings/slack-integration-panel'
+import { SlackIntegrationSettingsContent } from '@/components/settings/slack-integration-settings-content'
 import { SlackIntegrationSummaryCard } from '@/components/settings/slack-integration-summary-card'
+import { WorkspaceRestartSection } from '@/components/settings/workspace-restart-section'
 import { TeamPageClient } from '@/components/team/team-page-client'
 import { Button } from '@/components/ui/button'
 import {
@@ -49,6 +50,7 @@ type WorkspaceSettingsDialogProps = {
   kbGithubRemoteSummary: KbGithubRemoteIntegrationSummary | null
   passwordChangeEnabled: boolean
   recoveryCodesRemaining: number
+  slackServiceUserAvailable: boolean
   slug: string
   slackIntegrationSummary: SlackIntegrationSummary | null
   twoFactorEnabled: boolean
@@ -77,6 +79,7 @@ export function WorkspaceSettingsDialog({
   kbGithubRemoteSummary,
   passwordChangeEnabled,
   recoveryCodesRemaining,
+  slackServiceUserAvailable,
   slackIntegrationSummary,
   slug,
   twoFactorEnabled,
@@ -156,7 +159,11 @@ export function WorkspaceSettingsDialog({
       return (
         <div className="space-y-4">
           {back}
-          <SlackIntegrationPanel slug={slug} />
+          <SlackIntegrationSettingsContent
+            serviceUserSlug="slack-bot"
+            slug={slug}
+            showProviderCredentials={slackServiceUserAvailable}
+          />
         </div>
       )
     }
@@ -311,8 +318,8 @@ export function WorkspaceSettingsDialog({
           </div>
 
           <div className="grid min-h-0 flex-1 grid-cols-[220px_minmax(0,1fr)]">
-            <aside className="border-r border-border/60 bg-muted/20 p-4">
-              <nav className="space-y-1">
+            <aside className="flex flex-col border-r border-border/60 bg-muted/20 p-4">
+              <nav className="flex-1 space-y-1">
                 {availableSections.map((candidate) => (
                   <button
                     key={candidate}
@@ -330,6 +337,9 @@ export function WorkspaceSettingsDialog({
                   </button>
                 ))}
               </nav>
+              <div className="mt-4 border-t border-border/60 pt-2">
+                <SettingsLogoutButton />
+              </div>
             </aside>
 
             <div className="scrollbar-custom min-h-0 overflow-y-auto p-6">

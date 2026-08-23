@@ -18,8 +18,8 @@ const agents: AgentCatalogItem[] = [
 ]
 
 const skills: SkillListItem[] = [
-  { name: 'writer', description: 'Write copy' },
-  { name: 'researcher', description: 'Find sources' },
+  { name: 'writer', description: 'Write copy', assignedAgentIds: [], hasResources: false, resourcePaths: [] },
+  { name: 'researcher', description: 'Find sources', assignedAgentIds: [], hasResources: false, resourcePaths: [] },
 ]
 
 const models: AvailableModel[] = [

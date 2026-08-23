@@ -119,7 +119,7 @@ describe('kickstart artifact generation', () => {
       task: 'deny',
     })
     expect(built.artifacts.agentsMdContent).toContain(
-      'Chat agents never write the Knowledge Base. They create Knowledge Review proposals. Users apply proposals, edit files in Explore, and publish from Pending publish.'
+      'Chat agents never write the Knowledge Base. They create Knowledge Review proposals. Users apply proposals, edit files in Explore, and publish from the Curator\'s Manual edits tab.'
     )
     expect(built.artifacts.agentsMdContent).not.toContain('before any KB write')
 

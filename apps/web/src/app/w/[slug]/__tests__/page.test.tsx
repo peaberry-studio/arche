@@ -121,12 +121,12 @@ describe('WorkspaceHostPage', () => {
     await expect(renderHostPage()).rejects.toThrow('REDIRECT:/w/bob')
   })
 
-  it('redirects legacy knowledge file links to the Explore page', async () => {
+  it('redirects legacy knowledge file links to the Explore page keeping the session', async () => {
     await expect(renderHostPage({
       mode: 'knowledge',
       path: 'Notes/Brief.md',
       session: 'session-1',
-    })).rejects.toThrow('REDIRECT:/w/alice/explore?path=Notes%2FBrief.md')
+    })).rejects.toThrow('REDIRECT:/w/alice/explore?path=Notes%2FBrief.md&session=session-1')
   })
 
   it('redirects legacy Explore mode links to the Explore page', async () => {

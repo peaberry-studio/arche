@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
-import { changePassword } from './actions'
+import { changePassword } from '@/actions/two-factor'
 
 type FeedbackState =
   | { kind: 'idle' }

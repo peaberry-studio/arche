@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { normalizeTwoFactorStatus } from '../status'
+import { normalizeTwoFactorStatus } from '@/lib/two-factor-status'
 
 describe('normalizeTwoFactorStatus', () => {
   it('returns disabled defaults for missing or failed status', () => {

@@ -180,14 +180,15 @@ describe('FlowCanvas', () => {
     const onConnectNodes = vi.fn()
     renderCanvas({ onConnectNodes })
 
-    const svg = screen.getByRole('img', { name: 'Flow diagram editor' }) as SVGSVGElement
+    const svg = screen.getByRole('img', { name: 'Flow diagram editor' })
+    const svgWithPointApi = svg as unknown as SVGSVGElement
     const point = {
       x: 0,
       y: 0,
       matrixTransform: () => ({ x: point.x, y: point.y }),
     }
-    Object.defineProperty(svg, 'createSVGPoint', { value: () => point })
-    Object.defineProperty(svg, 'getScreenCTM', { value: () => ({ inverse: () => ({}) }) })
+    Object.defineProperty(svgWithPointApi, 'createSVGPoint', { value: () => point })
+    Object.defineProperty(svgWithPointApi, 'getScreenCTM', { value: () => ({ inverse: () => ({}) }) })
 
     fireEvent.pointerDown(screen.getByRole('button', { name: 'Connect from Agent step' }), {
       clientX: 166,

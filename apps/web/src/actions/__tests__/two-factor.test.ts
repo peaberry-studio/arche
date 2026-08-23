@@ -64,7 +64,7 @@ import {
   disable2FA,
   regenerateRecoveryCodes,
   get2FAStatus,
-} from '../actions'
+} from '@/actions/two-factor'
 
 const CAPS_ALL = { auth: true, twoFactor: true }
 const TEST_USER = {

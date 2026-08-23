@@ -131,9 +131,14 @@ describe("useExploreWorkspace", () => {
       useExploreWorkspace({ slug: "alice", storageScope: "alice" })
     );
 
-    await waitFor(() => {
-      expect(result.current.diffs).toHaveLength(1);
-    });
+    await waitFor(
+      () => {
+        expect(result.current.diffs).toHaveLength(1);
+      },
+      // The diffs refresh runs after the file tree load; under full-suite load
+      // the default 1s timeout is not enough.
+      { timeout: 5000 }
+    );
     expect(result.current.diffs[0]).toMatchObject({
       path: "docs/plan.md",
       conflicted: false,

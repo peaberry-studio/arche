@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
-import { ChatCircle, File } from "@phosphor-icons/react";
+import { ChatCircle, Compass, File, FileMagnifyingGlass, GearSix } from "@phosphor-icons/react";
 
 import { useWorkspaceRuntime } from "@/contexts/workspace-runtime-context";
 import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
@@ -1042,7 +1042,7 @@ export function WorkspaceShell({
             <nav
               className={cn(
                 "grid shrink-0 border-t border-border/40 bg-background",
-                hasRightPanel ? "grid-cols-2" : "grid-cols-1"
+                hasRightPanel ? "grid-cols-5" : "grid-cols-4"
               )}
               style={{
                 minHeight: "calc(3.5rem + env(safe-area-inset-bottom, 0px))",
@@ -1064,6 +1064,38 @@ export function WorkspaceShell({
               >
                 <ChatCircle size={22} weight={isChatActive ? "fill" : "regular"} />
                 <span>{mobileCenterLabel}</span>
+              </button>
+
+              {/* On phones the desktop sidebar is hidden, so the bottom nav is
+                  the only entry point to Explore, the Curator, and Settings. */}
+              <button
+                type="button"
+                onClick={handleOpenExplore}
+                className="flex flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] font-medium text-muted-foreground transition-colors active:text-foreground"
+                aria-label="Explore"
+              >
+                <Compass size={22} weight="regular" />
+                <span>Explore</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={openCurator}
+                className="flex flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] font-medium text-muted-foreground transition-colors active:text-foreground"
+                aria-label="Curator"
+              >
+                <FileMagnifyingGlass size={22} weight="regular" />
+                <span>Curator</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={navigateSettings}
+                className="flex flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] font-medium text-muted-foreground transition-colors active:text-foreground"
+                aria-label="Settings"
+              >
+                <GearSix size={22} weight="regular" />
+                <span>Settings</span>
               </button>
 
               {hasRightPanel ? (

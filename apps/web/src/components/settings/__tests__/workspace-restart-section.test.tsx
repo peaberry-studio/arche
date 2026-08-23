@@ -3,7 +3,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { WorkspaceRestartSection } from '../workspace-restart-section'
+import { WorkspaceRestartSection } from '@/components/settings/workspace-restart-section'
 
 describe('WorkspaceRestartSection', () => {
   afterEach(() => {

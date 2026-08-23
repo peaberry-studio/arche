@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest"
 
 import { WorkspaceCommandPalette } from "@/components/workspace/workspace-command-palette"
 import type { WorkspaceFileNode, WorkspaceSession } from "@/lib/opencode/types"
@@ -49,34 +49,34 @@ vi.mock("@/hooks/use-flow-runner", () => ({
 }))
 
 type PaletteHandlers = {
-  onCreateSession: ReturnType<typeof vi.fn>
-  onOpenCurator: ReturnType<typeof vi.fn>
-  onOpenExplore: ReturnType<typeof vi.fn>
-  onNavigateFlows: ReturnType<typeof vi.fn>
-  onOpenFile: ReturnType<typeof vi.fn>
-  onNavigateConnectors: ReturnType<typeof vi.fn>
-  onNavigateProviders: ReturnType<typeof vi.fn>
-  onNavigateSettings: ReturnType<typeof vi.fn>
-  onOpenChange: ReturnType<typeof vi.fn>
-  onRefreshSessions: ReturnType<typeof vi.fn>
-  onSelectSession: ReturnType<typeof vi.fn>
-  onToggleLeftPanel: ReturnType<typeof vi.fn>
+  onCreateSession: Mock<() => Promise<void>>
+  onOpenCurator: Mock<() => void>
+  onOpenExplore: Mock<() => void>
+  onNavigateFlows: Mock<() => void>
+  onOpenFile: Mock<(path: string) => Promise<void>>
+  onNavigateConnectors: Mock<() => void>
+  onNavigateProviders: Mock<() => void>
+  onNavigateSettings: Mock<() => void>
+  onOpenChange: Mock<(open: boolean) => void>
+  onRefreshSessions: Mock<() => Promise<void>>
+  onSelectSession: Mock<(sessionId: string) => void>
+  onToggleLeftPanel: Mock<() => void>
 }
 
 function makeHandlers(): PaletteHandlers {
   return {
-    onCreateSession: vi.fn().mockResolvedValue(undefined),
-    onOpenCurator: vi.fn(),
-    onOpenExplore: vi.fn(),
-    onNavigateFlows: vi.fn(),
-    onOpenFile: vi.fn().mockResolvedValue(undefined),
-    onNavigateConnectors: vi.fn(),
-    onNavigateProviders: vi.fn(),
-    onNavigateSettings: vi.fn(),
-    onOpenChange: vi.fn(),
-    onRefreshSessions: vi.fn().mockResolvedValue(undefined),
-    onSelectSession: vi.fn(),
-    onToggleLeftPanel: vi.fn(),
+    onCreateSession: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    onOpenCurator: vi.fn<() => void>(),
+    onOpenExplore: vi.fn<() => void>(),
+    onNavigateFlows: vi.fn<() => void>(),
+    onOpenFile: vi.fn<(path: string) => Promise<void>>().mockResolvedValue(undefined),
+    onNavigateConnectors: vi.fn<() => void>(),
+    onNavigateProviders: vi.fn<() => void>(),
+    onNavigateSettings: vi.fn<() => void>(),
+    onOpenChange: vi.fn<(open: boolean) => void>(),
+    onRefreshSessions: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    onSelectSession: vi.fn<(sessionId: string) => void>(),
+    onToggleLeftPanel: vi.fn<() => void>(),
   }
 }
 

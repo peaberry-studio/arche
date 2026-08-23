@@ -4,7 +4,44 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { WorkspaceSettingsDialog } from '@/components/workspace/workspace-settings-dialog'
+import type { KbGithubRemoteIntegrationSummary } from '@/lib/kb-github-remote/types'
 import type { RuntimeCapabilities } from '@/lib/runtime/capabilities'
+import type { SlackIntegrationSummary } from '@/lib/slack/types'
+
+const slackSummaryFixture: SlackIntegrationSummary = {
+  enabled: true,
+  status: 'connected',
+  configured: true,
+  hasBotToken: true,
+  hasAppToken: true,
+  slackTeamId: 'T1',
+  slackAppId: 'A1',
+  slackBotUserId: 'U1',
+  defaultAgentId: null,
+  resolvedDefaultAgentId: null,
+  lastError: null,
+  lastSocketConnectedAt: null,
+  lastEventAt: null,
+  version: 1,
+  updatedAt: null,
+}
+
+const kbGithubRemoteSummaryFixture: KbGithubRemoteIntegrationSummary = {
+  appConfigured: true,
+  appId: 'A1',
+  appSlug: 'arche-kb',
+  hasPrivateKey: true,
+  installationAccount: 'acme',
+  installationId: 1,
+  lastError: null,
+  lastSyncAt: null,
+  lastSyncStatus: 'success',
+  ready: true,
+  repoDefaultBranch: 'main',
+  repoFullName: 'acme/kb',
+  updatedAt: null,
+  version: 1,
+}
 
 const navigation = vi.hoisted(() => ({
   replace: vi.fn(),
@@ -59,12 +96,16 @@ vi.mock('@/components/dashboard/theme-picker', () => ({
   ThemePicker: () => <div data-testid="theme-picker">Theme picker</div>,
 }))
 
-vi.mock('@/app/u/[slug]/settings/security/settings-page-content', () => ({
+vi.mock('@/components/settings/security-settings-panel', () => ({
   SecuritySettingsPanel: () => <div data-testid="security-settings-panel">Security</div>,
 }))
 
-vi.mock('@/app/u/[slug]/settings/security/workspace-restart-section', () => ({
+vi.mock('@/components/settings/workspace-restart-section', () => ({
   WorkspaceRestartSection: () => <div data-testid="workspace-restart-section">Restart</div>,
+}))
+
+vi.mock('@/components/settings/settings-logout-button', () => ({
+  SettingsLogoutButton: () => <div data-testid="settings-logout-button">Log out</div>,
 }))
 
 vi.mock('@/components/settings/slack-integration-summary-card', () => ({
@@ -87,6 +128,14 @@ vi.mock('@/components/settings/slack-integration-panel', () => ({
   SlackIntegrationPanel: () => <div data-testid="slack-integration-panel">Slack panel</div>,
 }))
 
+vi.mock('@/components/settings/slack-integration-settings-content', () => ({
+  SlackIntegrationSettingsContent: ({ showProviderCredentials }: { showProviderCredentials: boolean }) => (
+    <div data-testid="slack-integration-settings-content" data-show-provider-credentials={String(showProviderCredentials)}>
+      Slack settings content
+    </div>
+  ),
+}))
+
 vi.mock('@/components/settings/google-workspace-integration-panel', () => ({
   GoogleWorkspaceIntegrationPanel: () => <div data-testid="google-workspace-integration-panel">Google panel</div>,
 }))
@@ -106,12 +155,16 @@ function renderDialog(overrides: Partial<Parameters<typeof WorkspaceSettingsDial
       caps={caps}
       isAdmin
       currentUserId="user-1"
+      currentUserEmail="alice@example.com"
+      currentUserSlug="alice"
+      googleWorkspaceRedirectUri="http://localhost:3000/api/connectors/oauth/callback"
       passwordChangeEnabled
       twoFactorEnabled
       twoFactorEnabledStatus
       recoveryCodesRemaining={5}
       twoFactorVerifiedAt={null}
       slackIntegrationSummary={null}
+      slackServiceUserAvailable
       googleWorkspaceSummary={null}
       kbGithubRemoteSummary={null}
       {...overrides}
@@ -155,9 +208,9 @@ describe('WorkspaceSettingsDialog', () => {
     navigation.search = new URLSearchParams('settings=integrations')
 
     renderDialog({
-      slackIntegrationSummary: { status: 'connected', workspaceId: 'w-1', teamName: 'Team' },
+      slackIntegrationSummary: slackSummaryFixture,
       googleWorkspaceSummary: { clientId: 'c', configured: true, hasClientSecret: true, version: 1, updatedAt: null },
-      kbGithubRemoteSummary: { ready: true, repoFullName: 'org/repo' },
+      kbGithubRemoteSummary: kbGithubRemoteSummaryFixture,
     })
 
     expect(screen.getByTestId('slack-summary')).toBeTruthy()
@@ -180,7 +233,7 @@ describe('WorkspaceSettingsDialog', () => {
   it('renders nested integration panels from the integration query param', () => {
     navigation.search = new URLSearchParams('settings=integrations&integration=slack')
     const first = renderDialog()
-    expect(screen.getByTestId('slack-integration-panel')).toBeTruthy()
+    expect(screen.getByTestId('slack-integration-settings-content')).toBeTruthy()
     first.unmount()
 
     navigation.search = new URLSearchParams('settings=integrations&integration=mcp')
@@ -195,9 +248,35 @@ describe('WorkspaceSettingsDialog', () => {
 
     navigation.search = new URLSearchParams('settings=integrations&integration=kb-github-remote')
     renderDialog({
-      kbGithubRemoteSummary: { ready: true, repoFullName: 'org/repo' },
+      kbGithubRemoteSummary: kbGithubRemoteSummaryFixture,
     })
     expect(screen.getByTestId('kb-github-remote-panel')).toBeTruthy()
+  })
+
+  it('renders the Slack bot configuration with provider credentials when the service user is available', () => {
+    navigation.search = new URLSearchParams('settings=integrations&integration=slack')
+
+    renderDialog({ slackServiceUserAvailable: true })
+
+    const content = screen.getByTestId('slack-integration-settings-content')
+    expect(content.getAttribute('data-show-provider-credentials')).toBe('true')
+  })
+
+  it('hides the Slack bot provider credentials when the service user is unavailable', () => {
+    navigation.search = new URLSearchParams('settings=integrations&integration=slack')
+
+    renderDialog({ slackServiceUserAvailable: false })
+
+    const content = screen.getByTestId('slack-integration-settings-content')
+    expect(content.getAttribute('data-show-provider-credentials')).toBe('false')
+  })
+
+  it('mounts the log out action in the settings sidebar', () => {
+    navigation.search = new URLSearchParams('settings=general')
+
+    renderDialog()
+
+    expect(screen.getByTestId('settings-logout-button')).toBeTruthy()
   })
 
   it('filters sections by capabilities', () => {

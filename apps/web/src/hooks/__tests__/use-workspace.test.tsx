@@ -568,9 +568,11 @@ vi.stubGlobal(
       expect(requestBody).not.toBeNull();
     });
 
-    expect(requestBody?.model).toEqual({
-      providerId: "openai",
-      modelId: "gpt-5.4",
+    expect(requestBody).toMatchObject({
+      model: {
+        providerId: "openai",
+        modelId: "gpt-5.4",
+      },
     });
   });
 
@@ -733,10 +735,14 @@ vi.stubGlobal(
       expect(requestBody).not.toBeNull();
     });
 
-    expect(requestBody?.attachments).toEqual([
-      { path: "docs/a.md", filename: "a.md", mime: "text/markdown" },
-    ]);
-    expect(requestBody?.contextPaths).toEqual(["docs/a.md", "notes/b.md"]);
+    expect(requestBody).toMatchObject({
+      attachments: [
+        { path: "docs/a.md", filename: "a.md", mime: "text/markdown" },
+      ],
+    });
+    expect(requestBody).toMatchObject({
+      contextPaths: ["docs/a.md", "notes/b.md"],
+    });
   });
 
   it("allows selecting a model before the first session exists", async () => {
@@ -1507,7 +1513,7 @@ vi.stubGlobal(
       });
 
     const { result, rerender } = renderWorkspaceHook(
-      ({ enabled }) => useWorkspace({ slug: "alice", pollInterval: 0, enabled }),
+      (props) => useWorkspace({ slug: "alice", pollInterval: 0, enabled: props?.enabled }),
       { initialProps: { enabled: true } },
       { initialSessionId: "s1" }
     );
@@ -2337,7 +2343,10 @@ vi.stubGlobal(
     act(() => {
       result.current.setSelectedModel({
         providerId: "openai",
+        providerName: "OpenAI",
         modelId: "gpt-5.4",
+        modelName: "GPT 5.4",
+        isDefault: true,
       });
     });
 

@@ -9,7 +9,7 @@ async function signIn(page: Page, email: string, password: string, slug: string)
   await page.getByLabel('Email').fill(email)
   await page.getByLabel('Password').fill(password)
   await page.getByRole('button', { name: 'Sign in' }).click()
-  await expect(page).toHaveURL(new RegExp(`/u/${slug}$`))
+  await expect(page).toHaveURL(new RegExp(`/w/${slug}$`))
   await expect(page.getByTestId('empty-composer-heading')).toBeVisible()
 }
 
@@ -19,13 +19,13 @@ test('logs out from settings', async ({ page }) => {
   })
   expect(response.ok()).toBeTruthy()
 
-  await page.goto(`/u/${adminSlug}/settings`)
-  await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible()
+  await page.goto(`/w/${adminSlug}?settings=general`)
+  await expect(page.getByText('Settings')).toBeVisible()
   await page.getByRole('button', { name: 'Log out' }).click()
 
   await expect(page).toHaveURL(/\/login$/)
 
-  await page.goto(`/u/${adminSlug}`)
+  await page.goto(`/w/${adminSlug}`)
   await expect(page).toHaveURL(/\/login$/)
 })
 

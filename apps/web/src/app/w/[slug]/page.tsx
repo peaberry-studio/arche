@@ -57,6 +57,9 @@ export default async function WorkspaceHostPage({
   if (search?.mode === 'explore' || (search?.path && search?.mode !== 'flows')) {
     const params = new URLSearchParams()
     if (search.path) params.set('path', search.path)
+    // Keep the chat session across the redirect so links like
+    // ?mode=flows&session=X&path=Y do not lose it on the second hop.
+    if (search.session) params.set('session', search.session)
     const query = params.toString()
     redirect(query ? `/w/${slug}/explore?${query}` : `/w/${slug}/explore`)
   }

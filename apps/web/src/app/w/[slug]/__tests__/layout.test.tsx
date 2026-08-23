@@ -43,15 +43,19 @@ vi.mock('@/lib/runtime/session', () => ({
   getSession: () => getSessionMock(),
 }))
 
-vi.mock('@/app/u/[slug]/settings/security/actions', () => ({
+vi.mock('@/actions/two-factor', () => ({
   get2FAStatus: () => get2FAStatusMock(),
 }))
 
-vi.mock('@/app/u/[slug]/settings/security/status', () => ({
+vi.mock('@/lib/two-factor-status', () => ({
   normalizeTwoFactorStatus: (status: unknown) =>
     (status && typeof status === 'object' && 'ok' in status && (status as { ok: boolean }).ok)
       ? { enabled: false, verifiedAt: null, recoveryCodesRemaining: 0 }
       : { enabled: false, verifiedAt: null, recoveryCodesRemaining: 0 },
+}))
+
+vi.mock('@/lib/slack/service-user', () => ({
+  ensureSlackServiceUser: () => ensureSlackServiceUserMock(),
 }))
 
 vi.mock('@/lib/services', () => ({
@@ -104,6 +108,7 @@ vi.mock('@/lib/runtime/capabilities', () => ({
 
 const getSessionMock = vi.hoisted(() => vi.fn())
 const get2FAStatusMock = vi.hoisted(() => vi.fn())
+const ensureSlackServiceUserMock = vi.hoisted(() => vi.fn())
 
 function renderWorkspaceLayout() {
   return WorkspaceLayout({
@@ -143,6 +148,7 @@ describe('WorkspaceLayout', () => {
       },
     })
     get2FAStatusMock.mockResolvedValue(null)
+    ensureSlackServiceUserMock.mockResolvedValue({ ok: true, user: { id: 'svc-1', slug: 'slack-bot' } })
     mockCookies({})
   })
 
@@ -150,6 +156,36 @@ describe('WorkspaceLayout', () => {
     isDesktopMock.mockReturnValue(true)
 
     await expect(renderWorkspaceLayout()).rejects.toThrow('REDIRECT:/')
+  })
+
+  it('redirects a non-owner to their own workspace', async () => {
+    getSessionMock.mockResolvedValue({
+      user: {
+        id: 'user-2',
+        slug: 'bob',
+        role: 'USER',
+        email: 'bob@example.com',
+        name: 'Bob',
+      },
+    })
+
+    await expect(renderWorkspaceLayout()).rejects.toThrow('REDIRECT:/w/bob')
+  })
+
+  it('lets an admin open another user workspace', async () => {
+    getSessionMock.mockResolvedValue({
+      user: {
+        id: 'user-2',
+        slug: 'bob',
+        role: 'ADMIN',
+        email: 'bob@example.com',
+        name: 'Bob',
+      },
+    })
+
+    render(await renderWorkspaceLayout())
+
+    expect(screen.getByText('Workspace child')).toBeTruthy()
   })
 
   it('renders with persisted workspace theme values', async () => {

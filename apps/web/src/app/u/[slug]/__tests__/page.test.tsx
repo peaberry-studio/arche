@@ -22,27 +22,6 @@ vi.mock('next/navigation', () => ({
   redirect: (path: string) => redirectMock(path),
 }))
 
-vi.mock('@/components/dashboard/dashboard-hero', () => ({
-  DashboardHero: ({
-    agents,
-    recentUpdates,
-    skills,
-    slug,
-  }: {
-    agents: { displayName: string }[]
-    recentUpdates: { fileName: string }[]
-    skills: { name: string }[]
-    slug: string
-  }) => (
-    <div>
-      <p>Dashboard hero for {slug}</p>
-      <p>Agents: {agents.map((agent) => agent.displayName).join(', ')}</p>
-      <p>Updates: {recentUpdates.map((update) => update.fileName).join(', ')}</p>
-      <p>Skills: {skills.map((skill) => skill.name).join(', ')}</p>
-    </div>
-  ),
-}))
-
 vi.mock('@/lib/runtime/session', () => ({
   getSession: () => getSessionMock(),
 }))

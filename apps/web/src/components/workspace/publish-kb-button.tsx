@@ -18,6 +18,8 @@ type PublishKbButtonProps = {
 
 type PublishState =
   | 'idle'
+  | 'checking'
+  | 'confirming'
   | 'publishing'
   | 'published'
   | 'nothing'
@@ -29,6 +31,7 @@ export function PublishKbButton({ slug, disabled, disabledReason, onComplete, pa
   const [state, setState] = useState<PublishState>('idle')
   const [message, setMessage] = useState<string | null>(null)
   const [files, setFiles] = useState<string[]>([])
+  const [rideAlongFiles, setRideAlongFiles] = useState<string[]>([])
 
   const handlePublish = useCallback(async () => {
     if (state === 'publishing') return
@@ -95,10 +98,42 @@ export function PublishKbButton({ slug, disabled, disabledReason, onComplete, pa
     }
   }, [slug, state, onComplete, paths])
 
+  // A per-file publish pushes HEAD, so committed-but-unpushed files ride
+  // along beyond the user's selection. Surface them for confirmation before
+  // shipping; when the pre-flight cannot run, publish directly (the push is
+  // still authenticated and scoped to the caller's own workspace).
+  const handleStart = useCallback(async () => {
+    if (state !== 'idle' && state !== 'confirming') return
+    if (!paths) {
+      await handlePublish()
+      return
+    }
+
+    setState('checking')
+    setRideAlongFiles([])
+    try {
+      const response = await fetch(`/api/instances/${slug}/publish-kb`, { method: 'GET' })
+      const data = await response.json().catch(() => null) as { ok?: boolean; files?: string[] } | null
+      const rideAlong = response.ok && data?.ok && Array.isArray(data.files)
+        ? data.files.filter((file) => !paths.includes(file))
+        : []
+
+      if (rideAlong.length > 0) {
+        setRideAlongFiles(rideAlong)
+        setState('confirming')
+        return
+      }
+    } catch {
+      // Fall through and publish without the confirmation.
+    }
+    await handlePublish()
+  }, [handlePublish, paths, slug, state])
+
   const handleDismiss = useCallback(() => {
     setState('idle')
     setMessage(null)
     setFiles([])
+    setRideAlongFiles([])
   }, [])
 
   const stateConfig = {
@@ -106,6 +141,13 @@ export function PublishKbButton({ slug, disabled, disabledReason, onComplete, pa
       icon: Check,
       label: 'Publish',
       className: '',
+      buttonClassName: '',
+      weight: 'bold' as const,
+    },
+    checking: {
+      icon: ArrowsClockwise,
+      label: 'Checking...',
+      className: 'animate-spin',
       buttonClassName: '',
       weight: 'bold' as const,
     },
@@ -153,11 +195,12 @@ export function PublishKbButton({ slug, disabled, disabledReason, onComplete, pa
     },
   }
 
-  const config = state === 'idle'
+  const config = state === 'idle' || state === 'confirming'
     ? { ...stateConfig.idle, label: paths ? 'Publish' : 'Publish all' }
     : stateConfig[state]
   const Icon = config.icon
   const showPopover = state === 'push_rejected' || state === 'no_remote' || state === 'error'
+  const showRideAlong = state === 'confirming' && rideAlongFiles.length > 0
   const idleTitle = paths ? 'Publish this file' : 'Publish all changes'
 
   return (
@@ -167,14 +210,45 @@ export function PublishKbButton({ slug, disabled, disabledReason, onComplete, pa
           size="sm"
           variant={paths ? 'outline' : 'default'}
           className={cn("h-7 gap-1.5 px-2.5 text-xs", config.buttonClassName)}
-          onClick={handlePublish}
-          disabled={disabled || state === 'publishing'}
+          onClick={handleStart}
+          disabled={disabled || state === 'publishing' || state === 'checking'}
           title={message || disabledReason || idleTitle}
         >
-          <Icon size={12} weight={config.weight} className={cn(config.className)} />
-          {config.label}
+          <Icon size={12} weight={config.weight} className={cn(config.className, state === 'checking' && 'animate-spin')} />
+          {state === 'checking' ? 'Checking...' : config.label}
         </Button>
       </span>
+
+      {showRideAlong && (
+        <div
+          data-testid="publish-ride-along"
+          className="absolute right-0 top-full z-50 -mt-px w-72 rounded-md border border-amber-500/40 bg-popover p-3 shadow-md"
+        >
+          <p className="text-sm font-medium text-amber-700 dark:text-amber-300">
+            {rideAlongFiles.length === 1
+              ? 'Also shipping 1 committed file'
+              : `Also shipping ${rideAlongFiles.length} committed files`}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Publishing pushes the whole workspace commit history, so these previously committed files ship too.
+          </p>
+          <ul className="mt-2 max-h-32 overflow-y-auto text-xs">
+            {rideAlongFiles.map((file) => (
+              <li key={file} className="truncate font-mono text-muted-foreground" title={file}>
+                {file}
+              </li>
+            ))}
+          </ul>
+          <div className="mt-3 flex justify-end gap-2">
+            <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={handleDismiss}>
+              Cancel
+            </Button>
+            <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={handlePublish}>
+              Publish anyway
+            </Button>
+          </div>
+        </div>
+      )}
 
       {showPopover && (
         <div className="absolute right-0 top-full z-50 -mt-px w-64 rounded-md border border-border bg-popover p-3 shadow-md">
