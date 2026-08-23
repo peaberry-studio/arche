@@ -11,8 +11,8 @@ import { adminSlug } from './support/test-data'
 // assert the stable end states of the main user stories.
 
 async function waitForWorkspaceReady(page: import('@playwright/test').Page) {
-  // The chat composer only renders once the instance is started and connected.
-  await expect(page.getByPlaceholder('Type a message...')).toBeVisible({ timeout: 120_000 })
+  // The empty composer only renders once the instance is started and connected.
+  await expect(page.getByTestId('empty-composer-heading')).toBeVisible({ timeout: 120_000 })
 }
 
 test('lands on the workspace from the root route', async ({ page }) => {
@@ -36,7 +36,7 @@ test('keeps the shared sidebar across chat and explore without a fullscreen conn
   await expect(nav.getByRole('button', { name: 'Knowledge Base' })).toHaveAttribute('aria-pressed', 'true')
 
   // Explorer → chat via New chat returns without reconnecting.
-  await nav.getByRole('button', { name: 'New chat' }).click()
+  await page.getByRole('button', { name: 'New chat' }).first().click()
   await expect(page).toHaveURL(new RegExp(`/w/${adminSlug}$`))
   await waitForWorkspaceReady(page)
   await expect(nav).toBeVisible()
@@ -51,7 +51,9 @@ test('opens settings as a modal over the workspace and closes back to chat', asy
 
   const dialog = page.getByRole('dialog')
   await expect(dialog).toBeVisible({ timeout: 120_000 })
-  await expect(page.getByRole('navigation', { name: 'Workspace navigation' })).toBeVisible()
+  // While the modal is open Radix marks the background aria-hidden, so the
+  // sidebar is asserted through the DOM instead of the accessibility tree.
+  await expect(page.locator('nav[aria-label="Workspace navigation"]')).toBeVisible()
 
   await page.getByRole('button', { name: 'Close settings' }).click()
 

@@ -7,6 +7,6 @@ test('launches the workspace and waits for the shell', async ({ page }) => {
 
   await expect(page).toHaveURL(new RegExp(`/w/${adminSlug}$`))
 
-  // Wait for the chat composer to appear (instance started + connected)
-  await expect(page.getByPlaceholder('Type a message...')).toBeVisible({ timeout: 120_000 })
+  // Wait for the empty composer to appear (instance started + connected)
+  await expect(page.getByTestId('empty-composer-heading')).toBeVisible({ timeout: 120_000 })
 })

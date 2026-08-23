@@ -88,7 +88,10 @@ async function removeAhrefsConnectors(page: Page): Promise<void> {
 }
 
 async function openAddConnectorDialog(page: Page) {
+  // Connectors management lives in the workspace settings dialog;
+  // /u/{slug}/connectors redirects into it.
   await page.goto(`/u/${adminSlug}/connectors`)
+  await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Connectors' })).toBeVisible()
 
   const addFirstButton = page.getByRole('button', { name: 'Add your first connector' })
@@ -98,7 +101,7 @@ async function openAddConnectorDialog(page: Page) {
     await page.getByRole('button', { name: 'Add connector' }).click()
   }
 
-  const dialog = page.getByRole('dialog')
+  const dialog = page.getByRole('dialog', { name: 'Add connector' })
   await expect(dialog).toBeVisible()
   await dialog.getByRole('button', { name: 'Ahrefs' }).click()
   return dialog

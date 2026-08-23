@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 
 import { auditEvent, createSession, getCookieDomain, SESSION_COOKIE_NAME, shouldUseSecureCookies, verifyPassword } from '@/lib/auth'
+import { isE2eHooksEnabled } from '@/lib/e2e/runtime'
 import { getClientIp } from '@/lib/http'
 import { checkRateLimit } from '@/lib/rate-limit'
 import { hashSessionToken, newSessionToken } from '@/lib/security'
@@ -29,12 +30,16 @@ export async function POST(request: Request) {
   }
 
   const ip = getClientIp(request.headers) ?? 'unknown'
-  const limit = checkRateLimit(`login:${ip}:${email}`, 5, 15 * 60 * 1000)
-  if (!limit.allowed) {
-    return NextResponse.json(
-      { ok: false, error: 'rate_limited', retryAfter: Math.ceil((limit.resetAt - Date.now()) / 1000) },
-      { status: 429 }
-    )
+  // E2E suites run many successful logins from a single IP against one dev
+  // server; skip the throttle only in that non-production, opted-in mode.
+  if (!isE2eHooksEnabled()) {
+    const limit = checkRateLimit(`login:${ip}:${email}`, 5, 15 * 60 * 1000)
+    if (!limit.allowed) {
+      return NextResponse.json(
+        { ok: false, error: 'rate_limited', retryAfter: Math.ceil((limit.resetAt - Date.now()) / 1000) },
+        { status: 429 }
+      )
+    }
   }
 
   const user = await userService.findLoginByEmail(email)

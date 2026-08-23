@@ -20,7 +20,7 @@ test('logs out from settings', async ({ page }) => {
   expect(response.ok()).toBeTruthy()
 
   await page.goto(`/w/${adminSlug}?settings=general`)
-  await expect(page.getByText('Settings')).toBeVisible()
+  await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible()
   await page.getByRole('button', { name: 'Log out' }).click()
 
   await expect(page).toHaveURL(/\/login$/)
@@ -36,12 +36,15 @@ test('admin resets a team member password and revokes existing sessions', async 
   const newPassword = 'new-temporary-password'
 
   await signIn(page, adminEmail, adminPassword, adminSlug)
+  // Team management lives in the workspace settings dialog; /u/{slug}/team
+  // redirects into it.
   await page.goto(`/u/${adminSlug}/team`)
+  await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible()
   await page.getByRole('button', { name: 'Add user' }).click()
   await page.getByLabel('Email').fill(userEmail)
   await page.getByLabel('Slug').fill(userSlug)
   await page.getByLabel('Password').fill(oldPassword)
-  await page.getByRole('dialog').getByRole('button', { name: 'Add user' }).click()
+  await page.getByRole('dialog', { name: 'Add user' }).getByRole('button', { name: 'Add user' }).click()
   await expect(page.getByText(userEmail)).toBeVisible()
 
   const memberContext = await browser.newContext({ storageState: { cookies: [], origins: [] } })

@@ -41,11 +41,11 @@ test('explores Knowledge files through quickview, graph, and table controls', as
 
   await page.goto(`/w/${adminSlug}`)
 
-  const composer = page.getByPlaceholder('Type a message...')
-  await expect(composer).toBeVisible({ timeout: 120_000 })
+  // The empty composer only renders once the instance is started and connected.
+  await expect(page.getByTestId('empty-composer-heading')).toBeVisible({ timeout: 120_000 })
 
-  await composer.fill(`E2E_READ_FILE:${planPath}`)
-  await page.getByLabel('Send message').click()
+  await page.getByLabel('Describe what you want to work on').fill(`E2E_READ_FILE:${planPath}`)
+  await page.getByRole('button', { name: 'Start working' }).click()
 
   await expect(page.getByText(`E2E_FILE_READY: ${planPath}`, { exact: true })).toBeVisible({ timeout: 30_000 })
 
@@ -53,7 +53,7 @@ test('explores Knowledge files through quickview, graph, and table controls', as
   await expect(page.getByText('Quickview')).toBeVisible()
 
   await page.getByRole('button', { name: 'Edit file', exact: true }).click()
-  await expect(page.getByRole('button', { name: 'Explore', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page).toHaveURL(new RegExp(`/w/${adminSlug}/explore\\?path=`))
   await expect(page.locator('.workspace-tiptap').getByRole('heading', { name: 'E2E Plan' })).toBeVisible()
 
   await page.getByRole('button', { name: 'Graph', exact: true }).click()

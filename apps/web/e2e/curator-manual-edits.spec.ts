@@ -10,8 +10,8 @@ import { adminSlug } from './support/test-data'
 // not produce; they are covered by the Vitest component suites.
 
 async function waitForWorkspaceReady(page: import('@playwright/test').Page) {
-  // The chat composer only renders once the instance is started and connected.
-  await expect(page.getByPlaceholder('Type a message...')).toBeVisible({ timeout: 120_000 })
+  // The empty composer only renders once the instance is started and connected.
+  await expect(page.getByTestId('empty-composer-heading')).toBeVisible({ timeout: 120_000 })
 }
 
 test('opens the curator with the tab selector centered in the dialog header', async ({ page }) => {

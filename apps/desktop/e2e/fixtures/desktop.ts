@@ -70,14 +70,16 @@ export async function waitForWorkspaceReady(page: Page) {
   // once and retry. Re-throw other failures so the fixture does not hide them.
   await recoverRequestHeaderTooLargeError(page)
 
+  // The empty composer only renders once the workspace instance is started
+  // and connected.
   try {
-    await expect(page.getByPlaceholder('Type a message...')).toBeVisible({ timeout: WORKSPACE_READY_TIMEOUT_MS })
+    await expect(page.getByTestId('empty-composer-heading')).toBeVisible({ timeout: WORKSPACE_READY_TIMEOUT_MS })
   } catch (error) {
     if (!(await recoverRequestHeaderTooLargeError(page))) {
       throw error
     }
 
-    await expect(page.getByPlaceholder('Type a message...')).toBeVisible({ timeout: WORKSPACE_READY_TIMEOUT_MS })
+    await expect(page.getByTestId('empty-composer-heading')).toBeVisible({ timeout: WORKSPACE_READY_TIMEOUT_MS })
   }
   expect(page.url()).toContain('/w/local')
 }

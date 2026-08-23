@@ -15,8 +15,9 @@ test('resolves the initial session loading state once the shell is ready', async
 
   await expect(page).toHaveURL(new RegExp(`/w/${adminSlug}$`))
 
-  // The chat composer only renders once the instance is started and connected.
-  await expect(page.getByPlaceholder('Type a message...')).toBeVisible({ timeout: 120_000 })
+  // The empty composer only renders once the instance is started, connected,
+  // and the initial sessions have loaded.
+  await expect(page.getByTestId('empty-composer-heading')).toBeVisible({ timeout: 120_000 })
 
   // After the shell is ready, the initial session loaders must no longer be
   // visible — the loading state has resolved to either empty or populated.
