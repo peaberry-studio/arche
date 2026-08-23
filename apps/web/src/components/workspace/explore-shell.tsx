@@ -92,14 +92,7 @@ export function ExploreShell({
     setNavCollapsed((previous) => !previous);
   }, []);
 
-  const [navWidth, setNavWidth] = useState<number>(() =>
-    typeof window === "undefined"
-      ? MIN_LEFT_PX
-      : Math.min(
-          Math.max(window.innerWidth * DEFAULT_LEFT_RATIO, MIN_LEFT_PX),
-          window.innerWidth - MIN_CENTER_PX
-        )
-  );
+  const [navWidth, setNavWidth] = useState(MIN_LEFT_PX);
   const viewportWidth = useViewportWidth();
   const [mobileView, setMobileView] = useState<ExploreMobileView>("tree");
   const isCompactLayout = viewportWidth < MOBILE_LAYOUT_BREAKPOINT;
@@ -115,6 +108,16 @@ export function ExploreShell({
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
+
+  useEffect(() => {
+    const containerWidth = containerRef.current?.getBoundingClientRect().width ?? window.innerWidth;
+    setNavWidth(
+      Math.min(
+        Math.max(containerWidth * DEFAULT_LEFT_RATIO, MIN_LEFT_PX),
+        containerWidth - MIN_CENTER_PX
+      )
+    );
+  }, []);
 
   const handleResizeNav = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     event.preventDefault();
