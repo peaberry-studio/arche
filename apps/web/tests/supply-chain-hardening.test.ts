@@ -55,6 +55,9 @@ function getPnpmVersion(workspaceRootPath: string) {
 function isPinnedDependencySpec(dependencyName: string, value: unknown) {
   if (typeof value !== 'string') return false
   if (exactSemverPattern.test(value)) return true
+  if (dependencyName === '@arche/desktop-runtime' && value === 'link:../desktop-runtime') {
+    return true
+  }
   return dependencyName === 'xlsx' && sheetJsPinnedTarballPattern.test(value)
 }
 
@@ -111,7 +114,7 @@ describe('supply chain hardening', () => {
         for (const [dependencyName, dependencySpec] of Object.entries(dependencies)) {
           expect(
             isPinnedDependencySpec(dependencyName, dependencySpec),
-            `${manifestPath} ${dependencySection}.${dependencyName} must be an exact semver or pinned tarball`,
+            `${manifestPath} ${dependencySection}.${dependencyName} must be an exact semver, pinned tarball, or approved local link`,
           ).toBe(true)
         }
       }

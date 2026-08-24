@@ -93,10 +93,6 @@ export function getGoogleWorkspaceDefaultScope(type: GoogleWorkspaceConnectorTyp
   return GOOGLE_WORKSPACE_PRODUCT_METADATA[type].scopes.join(' ')
 }
 
-export function getGoogleWorkspaceLabel(type: GoogleWorkspaceConnectorType): string {
-  return GOOGLE_WORKSPACE_PRODUCT_METADATA[type].label
-}
-
 export function getGoogleWorkspaceDefaultName(type: GoogleWorkspaceConnectorType): string {
   return GOOGLE_WORKSPACE_PRODUCT_METADATA[type].defaultName
 }

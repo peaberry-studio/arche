@@ -1,11 +1,12 @@
 'use client'
 
-import type { ReactNode } from 'react'
-import { Graph, TreeStructure } from '@phosphor-icons/react'
+import type { ComponentType, ReactNode } from 'react'
+import { CaretLineLeft, CaretLineRight, Graph, TreeStructure } from '@phosphor-icons/react'
 
-import { cn } from '@/lib/utils'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import type { KnowledgeGraphAgentSource } from '@/lib/kb-graph'
 import type { WorkspaceFileNode } from '@/lib/opencode/types'
+import { cn } from '@/lib/utils'
 
 import { FileTreePanel } from './file-tree-panel'
 import { KnowledgeGraphPanel } from './knowledge-graph-panel'
@@ -20,12 +21,15 @@ export type KnowledgeNavigationView = 'tree' | 'graph'
 type KnowledgeNavigationPanelProps = {
   activeFilePath: string | null
   agentSources: KnowledgeGraphAgentSource[]
+  collapsed?: boolean
+  dockedSide?: 'left' | 'right'
   fileNodes: WorkspaceFileNode[]
   headerActions?: ReactNode
   onDownloadFile?: (path: string) => void
   onExportFileDocx?: (path: string) => void
   onExportFilePdf?: (path: string) => void
   onOpenFile: (path: string) => void
+  onToggleCollapsed?: () => void
   openFiles: OpenKnowledgeFile[]
   readFile: (path: string) => Promise<{ content: string; type: 'patch' | 'raw'; hash?: string } | null>
   reloadKey: number
@@ -33,15 +37,52 @@ type KnowledgeNavigationPanelProps = {
   onViewChange: (view: KnowledgeNavigationView) => void
 }
 
+type CollapsedViewButtonProps = {
+  active: boolean
+  icon: ComponentType<{ size?: number; weight?: 'regular' | 'bold' | 'fill'; className?: string }>
+  label: string
+  onClick: () => void
+  tooltipSide?: 'left' | 'right'
+}
+
+function CollapsedViewButton({ active, icon: Icon, label, onClick, tooltipSide = 'right' }: CollapsedViewButtonProps) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={onClick}
+          aria-pressed={active}
+          aria-label={label}
+          className={cn(
+            'flex h-8 w-8 items-center justify-center rounded-md transition-colors',
+            active
+              ? 'bg-primary/10 text-primary'
+              : 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground'
+          )}
+        >
+          <Icon size={15} weight={active ? 'fill' : 'bold'} className="shrink-0" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side={tooltipSide} sideOffset={10}>
+        {label}
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
 export function KnowledgeNavigationPanel({
   activeFilePath,
   agentSources,
+  collapsed = false,
+  dockedSide = 'left',
   fileNodes,
   headerActions,
   onDownloadFile,
   onExportFileDocx,
   onExportFilePdf,
   onOpenFile,
+  onToggleCollapsed,
   openFiles,
   readFile,
   reloadKey,
@@ -52,9 +93,53 @@ export function KnowledgeNavigationPanel({
     onViewChange(next)
   }
 
+  const expandToView = (next: KnowledgeNavigationView) => {
+    onViewChange(next)
+    onToggleCollapsed?.()
+  }
+
+  if (collapsed) {
+    const ExpandIcon = dockedSide === 'right' ? CaretLineLeft : CaretLineRight
+    const tooltipSide = dockedSide === 'right' ? 'left' : 'right'
+    return (
+      <TooltipProvider delayDuration={150}>
+        <div className="flex h-full min-h-0 flex-col items-center py-2 text-card-foreground">
+          <button
+            type="button"
+            onClick={onToggleCollapsed}
+            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+            aria-label="Expand navigation panel"
+            title="Expand panel"
+          >
+            <ExpandIcon size={14} weight="bold" />
+          </button>
+
+          <div className="my-2 h-px w-6 bg-border/40" />
+
+          <nav aria-label="Knowledge views" className="flex w-full flex-col items-center gap-1">
+            <CollapsedViewButton
+              active={view === 'tree'}
+              icon={TreeStructure}
+              label="Tree"
+              onClick={() => expandToView('tree')}
+              tooltipSide={tooltipSide}
+            />
+            <CollapsedViewButton
+              active={view === 'graph'}
+              icon={Graph}
+              label="Graph"
+              onClick={() => expandToView('graph')}
+              tooltipSide={tooltipSide}
+            />
+          </nav>
+        </div>
+      </TooltipProvider>
+    )
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-none text-card-foreground">
-      <div className="flex shrink-0 items-center justify-between gap-2 pl-1.5 pr-1.5 py-2">
+      <div className="flex shrink-0 items-center justify-between gap-2 pl-3 pr-1.5 py-2">
         <div className="inline-flex items-center gap-0.5 rounded-md border border-border/30 bg-foreground/[0.04] p-[2px]">
           <button
             type="button"
@@ -86,9 +171,24 @@ export function KnowledgeNavigationPanel({
           </button>
         </div>
 
-        {headerActions ? (
-          <div className="flex shrink-0 items-center">{headerActions}</div>
-        ) : null}
+        <div className="flex shrink-0 items-center gap-1">
+          {headerActions}
+          {onToggleCollapsed ? (
+            <button
+              type="button"
+              onClick={onToggleCollapsed}
+              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+              aria-label="Collapse navigation panel"
+              title="Collapse panel"
+            >
+              {dockedSide === 'right' ? (
+                <CaretLineRight size={14} weight="bold" />
+              ) : (
+                <CaretLineLeft size={14} weight="bold" />
+              )}
+            </button>
+          ) : null}
+        </div>
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">

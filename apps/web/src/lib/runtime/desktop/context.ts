@@ -5,7 +5,7 @@ import {
   setDesktopVaultRuntimeContextGetter,
   type DesktopVaultRuntimeContext,
 } from '@/lib/runtime/desktop/context-store'
-import { DESKTOP_DATABASE_FILE_NAME } from '@/lib/runtime/desktop/vault-layout-constants'
+import { DESKTOP_DATABASE_FILE_NAME } from '@arche/desktop-runtime/constants'
 
 const desktopVaultRuntimeContext = new AsyncLocalStorage<DesktopVaultRuntimeContext>()
 

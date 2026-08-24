@@ -15,6 +15,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { SegmentedControl } from '@/components/workspace/segmented-control'
 import { useAgentsCatalog } from '@/hooks/use-agents-catalog'
 import { copyFlowRequest, createFlowRequest, deleteFlowRequest, fetchFlowDetail, runFlowRequest, updateFlowRequest, validateFlowImportRequest } from '@/lib/flows/client'
 import { getFlowTimeZoneOptions } from '@/lib/flows/cron'
@@ -477,7 +478,6 @@ export function FlowEditor({
 
   return (
     <div className="space-y-8">
-      <div className="space-y-6">
         {mode === 'create' ? (
           <FlowImportTemplatePanel
             importWarnings={importWarnings}
@@ -487,11 +487,11 @@ export function FlowEditor({
           />
         ) : null}
 
-        <section className="rounded-xl border border-border/60 bg-card/40 px-5 pb-5 pt-4">
+        <section className="space-y-4">
           {isReadOnly ? (
-            <div className="mb-4 rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               This team flow is read-only. It runs in your workspace when execution is enabled by the owner.
-            </div>
+            </p>
           ) : null}
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2 md:col-span-2">
@@ -505,8 +505,8 @@ export function FlowEditor({
           </div>
         </section>
 
-        <section className="rounded-xl border border-border/60 bg-card/40 p-5">
-          <div className="flex flex-wrap items-start justify-between gap-4">
+        <section className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <h2 className="text-sm font-semibold text-foreground">Sharing</h2>
               <p className="text-xs text-muted-foreground">
@@ -521,7 +521,7 @@ export function FlowEditor({
               role="radiogroup"
               aria-label="Flow visibility"
               className={cn(
-                'inline-flex h-9 items-center rounded-lg border border-border/70 bg-background/60 p-0.5 text-sm',
+                'inline-flex items-center gap-0.5 rounded-md border border-border/30 bg-foreground/[0.04] p-[2px]',
                 isReadOnly && 'pointer-events-none opacity-60',
               )}
             >
@@ -542,13 +542,13 @@ export function FlowEditor({
                       if (value === 'private') setOrganizationCanRun(false)
                     }}
                     className={cn(
-                      'inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-sm font-medium transition-colors',
+                      'flex h-6 items-center gap-1 rounded px-2 text-[11px] font-medium transition-colors',
                       active
-                        ? 'bg-primary/10 text-primary shadow-sm'
+                        ? 'bg-background text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.05)]'
                         : 'text-muted-foreground hover:text-foreground',
                     )}
                   >
-                    <Icon size={14} weight={active ? 'fill' : 'regular'} />
+                    <Icon size={11} weight={active ? 'fill' : 'bold'} />
                     {label}
                   </button>
                 )
@@ -564,7 +564,7 @@ export function FlowEditor({
               )}
             >
               <div className="overflow-hidden">
-                <div className="flex items-center justify-between gap-4 rounded-lg border border-border/60 bg-background/40 px-4 py-3">
+                <div className="flex items-center justify-between gap-4">
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-foreground">Team can run</p>
                     <p className="text-xs text-muted-foreground">Runs use each teammate&apos;s workspace and connectors.</p>
@@ -581,13 +581,28 @@ export function FlowEditor({
           ) : null}
         </section>
 
-        <section className="rounded-xl border border-border/60 bg-card/40 p-5">
+        <section className="space-y-4">
           <div className="flex items-start justify-between gap-4">
             <div>
               <h2 className="text-sm font-semibold text-foreground">Schedule</h2>
-              <p className="text-xs text-muted-foreground">Run this flow automatically on a recurring schedule. Enabled flows also run once after creation.</p>
+              <p className="text-xs text-muted-foreground">
+                {enabled
+                  ? 'Run this flow automatically on a recurring schedule. Scheduled flows also run once after creation.'
+                  : 'Run this flow only when you start it.'}
+              </p>
             </div>
-            <Switch checked={enabled} onCheckedChange={setEnabled} aria-label="Enable scheduled flow" disabled={isReadOnly} />
+            <div className={cn(isReadOnly && 'pointer-events-none opacity-60')}>
+              <SegmentedControl
+                value={enabled ? 'scheduled' : 'manual'}
+                onValueChange={(next) => setEnabled(next === 'scheduled')}
+                options={[
+                  { label: 'Manual', value: 'manual' },
+                  { label: 'Scheduled', value: 'scheduled' },
+                ]}
+                size="sm"
+                variant="outline"
+              />
+            </div>
           </div>
           <div
             aria-hidden={!enabled}
@@ -611,8 +626,8 @@ export function FlowEditor({
           </div>
         </section>
 
-        <section className="rounded-xl border border-border/60 bg-card/40 p-5">
-          <div className="mb-4">
+        <section className="space-y-4">
+          <div>
             <h2 className="text-sm font-semibold text-foreground">Flow canvas</h2>
             <p className="text-xs text-muted-foreground">
               {isReadOnly ? 'Review the flow graph. Copy the flow to make editable changes.' : 'Hover a step to edit it, drag from its connector dot, or use + to add the next step.'}
@@ -634,21 +649,18 @@ export function FlowEditor({
             onSelectNode={setSelectedNodeId}
           />
         </section>
-      </div>
 
       {mode === 'edit' && permissions?.canManage ? (
-        <section className="rounded-xl border border-destructive/30 bg-destructive/5 p-5">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="space-y-1">
-              <h2 className="text-sm font-semibold text-destructive">Danger zone</h2>
-              <p className="text-xs text-muted-foreground">
-                Deleting a flow hides it from the list and cancels scheduled, retrying, and active runs. Existing run history remains available from linked sessions.
-              </p>
-            </div>
-            <Button variant="destructive" onClick={() => void deleteFlow()} disabled={isDeleting}>
-              {isDeleting ? 'Deleting...' : 'Delete flow'}
-            </Button>
+        <section className="flex flex-wrap items-start justify-between gap-4">
+          <div className="space-y-1">
+            <h2 className="text-sm font-semibold text-destructive">Danger zone</h2>
+            <p className="text-xs text-muted-foreground">
+              Deleting a flow hides it from the list and cancels scheduled, retrying, and active runs. Existing run history remains available from linked sessions.
+            </p>
           </div>
+          <Button variant="destructive" onClick={() => void deleteFlow()} disabled={isDeleting}>
+            {isDeleting ? 'Deleting...' : 'Delete flow'}
+          </Button>
         </section>
       ) : null}
 

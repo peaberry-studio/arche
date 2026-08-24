@@ -2,8 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { WorkspaceSession } from "@/lib/opencode/types";
 import {
-  getWorkspaceSessionMode,
-  getWorkspaceUnreadCounts,
+  excludeSubagentSessions,
   hasUnseenFlowResult,
   isBusyFlowWorkspaceSession,
   isFlowSession,
@@ -35,8 +34,6 @@ describe("workspace session utils", () => {
   it("classifies manual and flow sessions", () => {
     expect(isFlowSession(manualSession)).toBe(false);
     expect(isFlowSession(flowSession)).toBe(true);
-    expect(getWorkspaceSessionMode(manualSession)).toBe("chat");
-    expect(getWorkspaceSessionMode(flowSession)).toBe("flows");
   });
 
   it("keeps flow result state explicit", () => {
@@ -44,15 +41,24 @@ describe("workspace session utils", () => {
     expect(hasUnseenFlowResult(flowSession)).toBe(true);
   });
 
-  it("derives unread counts without mixing chat and flow ownership", () => {
+  it("excludes subagent sessions whose parent is also in the list", () => {
+    const childSession: WorkspaceSession = {
+      id: "child-session",
+      title: "Child session",
+      status: "idle",
+      updatedAt: "now",
+      parentId: manualSession.id,
+    };
+    const orphanSubagent: WorkspaceSession = {
+      id: "orphan-session",
+      title: "Orphan session",
+      status: "idle",
+      updatedAt: "now",
+      parentId: "missing-parent",
+    };
+
     expect(
-      getWorkspaceUnreadCounts(
-        [manualSession, flowSession],
-        new Set(["manual-session", "flow-session", "unknown-session"])
-      )
-    ).toEqual({
-      sessionsUnreadCount: 1,
-      flowsUnreadCount: 1,
-    });
+      excludeSubagentSessions([manualSession, flowSession, childSession, orphanSubagent])
+    ).toEqual([manualSession, flowSession, orphanSubagent]);
   });
 });

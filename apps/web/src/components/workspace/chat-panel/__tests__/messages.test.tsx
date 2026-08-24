@@ -540,6 +540,35 @@ describe("ChatPanelMessages", () => {
     await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith("Body text"));
   });
 
+  it("shows typing dots on the active reasoning block while streaming and removes them once it completes", () => {
+    const { unmount } = renderMessages({
+      isStreaming: true,
+      messages: [assistantMessage([{ type: "reasoning", id: "r-live", text: "Working through it" }])],
+    });
+    expect(screen.getByTestId("typing-dots")).toBeTruthy();
+    unmount();
+
+    // A text part follows the reasoning block: it is no longer the active one.
+    renderMessages({
+      isStreaming: true,
+      messages: [
+        assistantMessage([
+          { type: "reasoning", id: "r-done", text: "Finished thinking" },
+          { type: "text", id: "t-done", text: "Here is the answer" },
+        ]),
+      ],
+    });
+    expect(screen.queryByTestId("typing-dots")).toBeNull();
+    unmount();
+
+    // Session idle: historical reasoning never shows dots.
+    renderMessages({
+      isStreaming: false,
+      messages: [assistantMessage([{ type: "reasoning", id: "r-idle", text: "Past reasoning" }])],
+    });
+    expect(screen.queryByTestId("typing-dots")).toBeNull();
+  });
+
   it("does not render a raw epoch or a Just now timestamp on a fresh user message", () => {
     const raw = Date.now();
     renderMessages({

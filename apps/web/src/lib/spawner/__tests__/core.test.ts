@@ -36,7 +36,6 @@ vi.mock('@/lib/services', () => ({
     findIdBySlug: vi.fn(),
   },
   connectorService: {
-    findHashEntriesByUserId: vi.fn().mockResolvedValue([]),
     findEnabledMcpByUserId: vi.fn().mockResolvedValue([]),
   },
   providerService: {

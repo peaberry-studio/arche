@@ -1,7 +1,6 @@
 const DEFAULT_META_ADS_GRAPH_API_VERSION = 'v25.0'
 
 export const META_ADS_DEFAULT_OAUTH_SCOPE = 'ads_read'
-export const META_ADS_MCP_PROTOCOL_VERSION = '2025-03-26'
 
 export function getMetaAdsGraphApiVersion(): string {
   const raw = process.env.ARCHE_CONNECTOR_META_ADS_GRAPH_API_VERSION

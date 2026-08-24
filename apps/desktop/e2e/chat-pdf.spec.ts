@@ -7,6 +7,13 @@ test('uploads a PDF in desktop and gets the extracted token back', async ({ page
 
   await ensureFakeOpenAiProvider()
 
+  // Start a session from the empty composer so the chat composer (which owns
+  // the attachment input) becomes available.
+  await page.getByLabel('Describe what you want to work on').fill('Upload a PDF')
+  await page.getByRole('button', { name: 'Start working' }).click()
+
+  await expect(page.getByPlaceholder('Type a message...')).toBeVisible({ timeout: 60_000 })
+
   await page.locator('input[type="file"]').setInputFiles(samplePdfPath)
   await expect(page.getByText('sample.pdf')).toBeVisible({ timeout: 60_000 })
 

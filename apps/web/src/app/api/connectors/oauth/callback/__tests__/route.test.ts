@@ -13,8 +13,6 @@ const mocks = vi.hoisted(() => ({
   buildConfigWithOAuth: vi.fn(),
   validateConnectorType: vi.fn(() => true),
   getPublicBaseUrl: vi.fn(() => 'http://localhost'),
-  getCurrentDesktopVault: vi.fn(() => null),
-  getDesktopWorkspaceHref: vi.fn(),
   connectorService: {
     findByIdAndUserIdSelect: vi.fn(),
     updateByIdUnsafe: vi.fn(),
@@ -41,10 +39,6 @@ vi.mock('@/lib/connectors/validators', () => ({
 }))
 vi.mock('@/lib/http', () => ({
   getPublicBaseUrl: mocks.getPublicBaseUrl,
-}))
-vi.mock('@/lib/runtime/desktop/current-vault', () => ({
-  getCurrentDesktopVault: mocks.getCurrentDesktopVault,
-  getDesktopWorkspaceHref: mocks.getDesktopWorkspaceHref,
 }))
 vi.mock('@/lib/services', () => ({
   connectorService: mocks.connectorService,
@@ -187,5 +181,12 @@ describe('GET /api/connectors/oauth/callback', () => {
     const res = await GET(makeRequest({ code: 'c', state: 's' }))
     expect(res.status).toBe(307)
     expect(res.headers.get('location')).toContain('oauth_failed')
+  })
+
+  it('defaults the success return to the workspace connectors modal', async () => {
+    const res = await GET(makeRequest({ code: 'auth-code', state: 'encoded-state' }))
+    const location = res.headers.get('location')!
+    expect(location).toContain('/w/admin?settings=connectors')
+    expect(location).toContain('oauth=success')
   })
 })

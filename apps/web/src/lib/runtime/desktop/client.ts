@@ -38,11 +38,6 @@ function getArcheBridge(): ArcheBridge | null {
   return bridge ?? null
 }
 
-export function isDesktopBridgeAvailable(): boolean {
-  const bridge = getArcheBridge()
-  return Boolean(bridge?.isDesktop && bridge.desktop)
-}
-
 export function getOptionalDesktopBridge(): ArcheDesktopBridge | null {
   const bridge = getArcheBridge()
   if (!bridge?.isDesktop || !bridge.desktop) {

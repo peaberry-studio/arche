@@ -4,7 +4,8 @@ import type { WorkspaceFileNode } from '@/lib/opencode/types'
 import {
   flattenWorkspaceFileNodes,
   getWorkspacePathBasename,
-  rankWorkspaceFileSearchResults,
+  rankWorkspaceFileSearchCandidates,
+  resolveWorkspaceFilePath,
 } from '@/lib/workspace-file-search'
 
 const fileNodes: WorkspaceFileNode[] = [
@@ -45,8 +46,8 @@ describe('workspace file search', () => {
   })
 
   it('ranks fuzzy local and remote file matches', () => {
-    expect(rankWorkspaceFileSearchResults({
-      fileNodes,
+    expect(rankWorkspaceFileSearchCandidates({
+      files: flattenWorkspaceFileNodes(fileNodes),
       limit: 10,
       query: 'prd strat',
       remotePaths: ['Deep/Vault/Roadmap.md'],
@@ -56,13 +57,35 @@ describe('workspace file search', () => {
   })
 
   it('deduplicates remote paths already present locally', () => {
-    expect(rankWorkspaceFileSearchResults({
-      fileNodes,
+    expect(rankWorkspaceFileSearchCandidates({
+      files: flattenWorkspaceFileNodes(fileNodes),
       limit: 10,
       query: 'customer',
       remotePaths: ['Company/Research/Customer Interviews.md'],
     })).toEqual([
       { name: 'Customer Interviews.md', path: 'Company/Research/Customer Interviews.md' },
     ])
+  })
+
+  it('resolves workspace file paths against the known tree', () => {
+    const available = [
+      'Company/Product Strategy.md',
+      'Company/Research/Customer Interviews.md',
+    ]
+
+    expect(resolveWorkspaceFilePath('', available)).toBe('')
+    expect(resolveWorkspaceFilePath('Company/Product Strategy.md', available)).toBe(
+      'Company/Product Strategy.md',
+    )
+    expect(resolveWorkspaceFilePath('/Company/Product Strategy.md', available)).toBe(
+      'Company/Product Strategy.md',
+    )
+    expect(resolveWorkspaceFilePath('./Company/Research/Customer Interviews.md', available)).toBe(
+      'Company/Research/Customer Interviews.md',
+    )
+    expect(
+      resolveWorkspaceFilePath('/tmp/workspace/Company/Product Strategy.md', available),
+    ).toBe('Company/Product Strategy.md')
+    expect(resolveWorkspaceFilePath('missing.md', available)).toBe('missing.md')
   })
 })

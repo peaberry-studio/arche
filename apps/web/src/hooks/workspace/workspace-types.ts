@@ -135,51 +135,6 @@ export function createDefaultSessionSelectionState(
   };
 }
 
-export function mergeWorkspaceSessions(
-  primary: WorkspaceSession[],
-  secondary: WorkspaceSession[]
-): WorkspaceSession[] {
-  const merged = [...primary];
-  const seen = new Set(primary.map((session) => session.id));
-
-  for (const session of secondary) {
-    if (seen.has(session.id)) continue;
-    seen.add(session.id);
-    merged.push(session);
-  }
-
-  return merged;
-}
-
-export function areWorkspaceSessionListsEqual(
-  left: WorkspaceSession[],
-  right: WorkspaceSession[]
-): boolean {
-  if (left.length !== right.length) return false;
-
-  return left.every((session, index) => {
-    const candidate = right[index];
-    return (
-      session.id === candidate.id &&
-      session.title === candidate.title &&
-      session.status === candidate.status &&
-      session.updatedAt === candidate.updatedAt &&
-      session.updatedAtRaw === candidate.updatedAtRaw &&
-      session.parentId === candidate.parentId &&
-      session.flow?.runId === candidate.flow?.runId &&
-      session.flow?.status === candidate.flow?.status &&
-      session.flow?.hasUnseenResult === candidate.flow?.hasUnseenResult
-    );
-  });
-}
-
-export function removeWorkspaceSessions(
-  sessions: WorkspaceSession[],
-  sessionIdsToRemove: Set<string>
-): WorkspaceSession[] {
-  return sessions.filter((session) => !sessionIdsToRemove.has(session.id));
-}
-
 export function collectSessionFamilyIds(
   sessions: WorkspaceSession[],
   sessionId: string
@@ -223,15 +178,11 @@ export function selectVisiblePermissions(
 
 export type UseWorkspaceOptions = {
   slug: string;
-  storageScope?: string;
-  initialSessionId?: string | null;
   /** Poll interval in ms for session status updates */
   pollInterval?: number;
   /** Skip connection attempts when false */
   enabled?: boolean;
   workspaceAgentEnabled?: boolean;
-  /** Enable instance heartbeat for idle timeout (web mode) */
-  reaperEnabled?: boolean;
 };
 
 export type UseWorkspaceReturn = {

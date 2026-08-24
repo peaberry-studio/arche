@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import { useAgentsCatalog } from '@/hooks/use-agents-catalog'
 import { notifyWorkspaceConfigChanged } from '@/lib/runtime/config-status-events'
 import { cn } from '@/lib/utils'
@@ -34,9 +35,6 @@ type SkillDetailResponse = {
   }
   error?: string
 }
-
-const TEXTAREA_CLASS_NAME =
-  'min-h-[120px] w-full rounded-lg border border-border/60 bg-card/50 px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/30'
 
 export function SkillForm({
   slug,
@@ -245,67 +243,69 @@ export function SkillForm({
         : 'Save changes'
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
-      <div className="space-y-2">
-        <Label htmlFor="skill-name">Skill name</Label>
-        <Input
-          id="skill-name"
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          placeholder="pdf-processing"
-          disabled={mode === 'edit'}
-          required
-        />
-        <p className="text-xs text-muted-foreground">
-          Lowercase letters, numbers, and hyphens only. This identifier is immutable after creation.
-        </p>
-      </div>
-
-      <div className="space-y-2">
-        <Label htmlFor="skill-description">Description</Label>
-        <textarea
-          id="skill-description"
-          className={cn(TEXTAREA_CLASS_NAME, 'min-h-[96px]')}
-          value={description}
-          onChange={(event) => setDescription(event.target.value)}
-          placeholder="Describe what the skill does and when an agent should use it."
-          required
-        />
-      </div>
-
-      <div className="space-y-2">
-        <Label htmlFor="skill-body">SKILL.md body</Label>
-        <textarea
-          id="skill-body"
-          className={cn(TEXTAREA_CLASS_NAME, 'min-h-[320px]')}
-          value={body}
-          onChange={(event) => setBody(event.target.value)}
-          placeholder="# When to use this skill\n\nExplain the workflow and important constraints..."
-        />
-      </div>
-
-      {hasResources ? (
-        <div className="rounded-lg border border-border/60 bg-card/50 p-4 text-sm text-muted-foreground">
-          This skill includes {resourcePaths.length} bundled file{resourcePaths.length === 1 ? '' : 's'}.
-          Edit them by exporting the skill, changing the bundle locally, and importing it again.
+    <form onSubmit={handleSubmit} className="space-y-8">
+      <div className="space-y-5">
+        <div className="space-y-2">
+          <Label htmlFor="skill-name">Skill name</Label>
+          <Input
+            id="skill-name"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="pdf-processing"
+            disabled={mode === 'edit'}
+            required
+          />
+          <p className="text-xs text-muted-foreground">
+            Lowercase letters, numbers, and hyphens only. This identifier is immutable after creation.
+          </p>
         </div>
-      ) : null}
 
-      <div className="space-y-3">
-        <Label>Assigned agents</Label>
-        <p className="text-xs text-muted-foreground">
-          Choose which agents can use this skill by default.
-        </p>
+        <div className="space-y-2">
+          <Label htmlFor="skill-description">Description</Label>
+          <Textarea
+            id="skill-description"
+            className="min-h-[96px]"
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+            placeholder="Describe what the skill does and when an agent should use it."
+            required
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="skill-body">SKILL.md body</Label>
+          <Textarea
+            id="skill-body"
+            className="min-h-[320px]"
+            value={body}
+            onChange={(event) => setBody(event.target.value)}
+            placeholder="# When to use this skill\n\nExplain the workflow and important constraints..."
+          />
+        </div>
+
+        {hasResources ? (
+          <p className="text-sm text-muted-foreground">
+            This skill includes {resourcePaths.length} bundled file{resourcePaths.length === 1 ? '' : 's'}.
+            Edit them by exporting the skill, changing the bundle locally, and importing it again.
+          </p>
+        ) : null}
+      </div>
+
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-sm font-semibold text-foreground">Assigned agents</h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Choose which agents can use this skill by default.
+          </p>
+        </div>
 
         {isLoadingAgents ? (
-          <div className="flex items-center gap-2 rounded-lg border border-border/60 bg-card/50 p-3 text-sm text-muted-foreground">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <SpinnerGap size={14} className="animate-spin" />
             Loading agents...
           </div>
         ) : sortedAgents.length === 0 ? (
-          <div className="rounded-lg border border-border/60 bg-card/50 p-3 text-sm text-muted-foreground">
-            No agents available.
-          </div>
+          <p className="text-sm text-muted-foreground">No agents available.</p>
         ) : (
           <div className="grid gap-2 md:grid-cols-2">
             {sortedAgents.map((agent) => {
@@ -331,36 +331,41 @@ export function SkillForm({
             })}
           </div>
         )}
-      </div>
+      </section>
 
-      {saveError ? (
-        <div className="rounded-lg border border-border/60 bg-card/50 p-4 text-sm text-destructive">
-          Error: {saveError}
-        </div>
+      {mode === 'edit' ? (
+        <section className="flex flex-wrap items-start justify-between gap-4">
+          <div className="space-y-1">
+            <h2 className="text-sm font-semibold text-destructive">Danger zone</h2>
+            <p className="text-xs text-muted-foreground">
+              Deleting a skill removes it from this workspace. This cannot be undone.
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="destructive"
+            onClick={() => void handleDelete()}
+            disabled={isSaving}
+          >
+            Delete skill
+          </Button>
+        </section>
       ) : null}
 
-      <div className="flex items-center justify-between border-t border-border/40 pt-6">
-        <div className="flex items-center gap-3">
-          <Button type="submit" disabled={isSaving} variant={saveSuccess ? 'secondary' : 'default'}>
-            {saveLabel}
-          </Button>
+      <div className="sticky bottom-0 z-20 -mx-6 border-t border-border/60 bg-background/85 px-6 py-4 backdrop-blur-md supports-[backdrop-filter]:bg-background/70">
+        {saveError ? (
+          <p className="mb-3 text-sm text-destructive">Error: {saveError}</p>
+        ) : null}
+        <div className="flex flex-wrap items-center justify-end gap-2">
           {onCancel ? (
             <Button type="button" variant="ghost" onClick={onCancel}>
               {cancelLabel}
             </Button>
           ) : null}
+          <Button type="submit" disabled={isSaving} variant={saveSuccess ? 'secondary' : 'default'}>
+            {saveLabel}
+          </Button>
         </div>
-
-        {mode === 'edit' ? (
-          <button
-            type="button"
-            onClick={() => void handleDelete()}
-            disabled={isSaving}
-            className="text-sm text-destructive underline-offset-2 hover:underline disabled:opacity-50"
-          >
-            Delete skill
-          </button>
-        ) : null}
       </div>
     </form>
   )

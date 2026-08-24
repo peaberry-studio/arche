@@ -26,7 +26,6 @@ import {
   findContainerStatusBySlug,
   findReachableBySlug,
   findAppliedConfigShaBySlug,
-  findServerPasswordBySlug,
   findActiveInstances,
   findIdleInstances,
   upsertStarting,
@@ -142,17 +141,6 @@ describe('instanceService', () => {
       expect(mockPrisma.instance.findUnique).toHaveBeenCalledWith({
         where: { slug: 'alice' },
         select: { appliedConfigSha: true },
-      })
-    })
-  })
-
-  describe('findServerPasswordBySlug', () => {
-    it('selects serverPassword', async () => {
-      mockPrisma.instance.findUnique.mockResolvedValue({ serverPassword: 'pwd' })
-      await findServerPasswordBySlug('alice')
-      expect(mockPrisma.instance.findUnique).toHaveBeenCalledWith({
-        where: { slug: 'alice' },
-        select: { serverPassword: true },
       })
     })
   })

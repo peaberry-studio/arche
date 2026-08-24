@@ -24,12 +24,7 @@ export function SettingsSection({
   const Heading = headingLevel
 
   return (
-    <section
-      className={cn(
-        'space-y-4 rounded-lg border border-border/60 bg-card/50 p-6',
-        className,
-      )}
-    >
+    <section className={cn('space-y-4', className)}>
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="space-y-1">
           <Heading className={cn('text-lg font-medium', titleClassName)}>{title}</Heading>

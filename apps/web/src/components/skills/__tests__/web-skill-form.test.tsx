@@ -64,21 +64,21 @@ describe('WebSkillForm', () => {
     render(<WebSkillForm slug="alice" mode="create" />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
-    expect(pushMock).toHaveBeenCalledWith('/u/alice/skills')
+    expect(pushMock).toHaveBeenCalledWith('/w/alice?catalog=skills')
   })
 
   it('navigates to skills list on delete', () => {
     render(<WebSkillForm slug="alice" mode="edit" skillName="skill-1" />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
-    expect(pushMock).toHaveBeenCalledWith('/u/alice/skills')
+    expect(pushMock).toHaveBeenCalledWith('/w/alice?catalog=skills')
   })
 
   it('navigates to skills list on save when mode is create', () => {
     render(<WebSkillForm slug="alice" mode="create" />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
-    expect(pushMock).toHaveBeenCalledWith('/u/alice/skills')
+    expect(pushMock).toHaveBeenCalledWith('/w/alice?catalog=skills')
   })
 
   it('does not navigate on save when mode is edit', () => {

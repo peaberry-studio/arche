@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { DEFAULT_NEW_VAULT_NAME } from '@arche/desktop-runtime/constants'
 import {
   FolderOpen,
   Plus,
@@ -16,7 +17,6 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import type { KickstartAgentSummary, KickstartTemplateSummary } from '@/kickstart/types'
-import { DEFAULT_NEW_VAULT_NAME } from '@/lib/runtime/desktop/vault-layout-constants'
 import {
   getDesktopBridge,
   getDesktopPlatform,

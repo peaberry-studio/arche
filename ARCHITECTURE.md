@@ -107,8 +107,9 @@ Runtime behavior:
 
 - Agents persist Knowledge Base changes only as Knowledge Review proposals through `learning_propose` or MCP `kb:write`.
 - Apply is the only agent-originated write, using workspace-agent `/files/write` or `/files/delete`.
-- User edits made in Explore go directly to Pending publish and can publish without a proposal.
-- The publish manifest contains all current non-conflicted diffs that are reviewable KB paths. Hidden or dot-prefixed paths (e.g. `.obsidian/`) are excluded from the manifest: they are neither reviewable nor publishable, and a workspace whose changes are all hidden fails with `invalid_reviewed_path`. A hash is attached only while a path still matches its applied proposal's `appliedHash`.
+- User edits made in Explore go directly to the Curator's Manual edits tab and can publish without a proposal.
+- Publishing is per-file: each publish carries the manifest of the selected paths (Curator per-file publish, or apply-and-publish), each validated to be present in the current diffs. Publish all carries every current non-conflicted diff. The conflict gate mirrors the selection: a per-file publish is only blocked by a conflict on a selected path, while publish all is blocked by any conflict. Hidden or dot-prefixed paths (e.g. `.obsidian/`) are excluded from every manifest: they are neither reviewable nor publishable, and a workspace whose selected changes are all hidden fails with `invalid_reviewed_path`. A hash is attached only while a path still matches its applied proposal's `appliedHash`.
+- Publishes push the workspace HEAD to the KB remote, so previously committed-but-unpushed files ship along.
 - Spawn forces `write` and `edit` off for every agent, including existing workspace configs that have not been re-kickstarted.
 
 ### GitHub repositories as KB sources
@@ -213,8 +214,8 @@ src/
 │   │   ├── w/[slug]/       # Workspace APIs (chat streaming)
 │   │   └── instances/[slug]/ # Instance control
 │   ├── auth/               # Auth flows (login, logout, 2FA)
-│   ├── u/[slug]/           # User dashboard
-│   └── w/[slug]/           # Workspace UI
+│   ├── u/[slug]/           # Kickstart + redirects into the workspace
+│   └── w/[slug]/           # Workspace app (chat, explorer, settings, flows)
 ├── components/
 │   ├── ui/                 # shadcn/ui primitives
 │   ├── workspace/          # Workspace components

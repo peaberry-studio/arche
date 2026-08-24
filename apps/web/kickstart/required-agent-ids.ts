@@ -1,7 +1,7 @@
 const DEFAULT_REQUIRED_AGENT_IDS = ['assistant'] as const
 
 const REQUIRED_AGENT_IDS_BY_TEMPLATE: Record<string, readonly string[]> = {
-  blank: ['assistant', 'knowledge-curator'],
+  blank: ['assistant'],
 }
 
 export function getRequiredAgentIdsForTemplate(templateId: string): readonly string[] {

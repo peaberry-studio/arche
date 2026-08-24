@@ -16,10 +16,23 @@ export function useWorkspacePollingEffect({
   useEffect(() => {
     if (!enabled || !isConnected || pollInterval <= 0) return;
 
-    const interval = setInterval(() => {
-      loadSessions();
-    }, pollInterval);
+    const refreshIfVisible = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      void loadSessions();
+    };
 
-    return () => clearInterval(interval);
+    const interval = setInterval(refreshIfVisible, pollInterval);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        refreshIfVisible();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, [enabled, isConnected, loadSessions, pollInterval]);
 }

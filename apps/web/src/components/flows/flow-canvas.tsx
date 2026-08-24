@@ -13,10 +13,13 @@ import {
   FLOW_ADD_MENU_ITEM_WIDTH as ADD_MENU_ITEM_WIDTH,
   FLOW_ADD_MENU_ITEM_X as ADD_MENU_ITEM_X,
   FLOW_ADD_MENU_WIDTH as ADD_MENU_WIDTH,
+  FLOW_CANVAS_FIT_MIN_SCALE,
   FLOW_CANVAS_NODE_HEIGHT as NODE_HEIGHT,
   FLOW_CANVAS_NODE_WIDTH as NODE_WIDTH,
   getFlowAddMenuHeight,
   getFlowAddMenuPosition,
+  getFlowCanvasContentBounds,
+  getFlowCanvasFitTransform,
   type FlowCanvasVisibleBounds,
 } from '@/components/flows/flow-canvas-layout'
 import { FLOW_CANVAS_NODE_TYPE_OPTIONS } from '@/lib/flows/node-types'
@@ -98,6 +101,12 @@ export function FlowCanvas({
   }, [definition])
 
   const nodeById = useMemo(() => new Map(nodes.map((node) => [node.nodeId, node])), [nodes])
+  const nodeIdsKey = useMemo(() => nodes.map((node) => node.nodeId).join('\0'), [nodes])
+  const nodesRef = useRef(nodes)
+
+  useEffect(() => {
+    nodesRef.current = nodes
+  }, [nodes])
   const activePendingConnection = readOnly ? null : pendingConnection
   const pendingConnectionTargetId = useMemo(() => {
     if (!activePendingConnection) return null
@@ -224,7 +233,7 @@ export function FlowCanvas({
     if (!svg || !layer) return
 
     const zoomBehavior = d3zoom<SVGSVGElement, unknown>()
-      .scaleExtent([0.4, 2.5])
+      .scaleExtent([FLOW_CANVAS_FIT_MIN_SCALE, 2.5])
       .filter((event) => {
         if (event.type === 'wheel') return event.ctrlKey || event.metaKey
         return !event.button
@@ -247,13 +256,55 @@ export function FlowCanvas({
     }
   }, [updateVisibleBounds])
 
-  useEffect(() => {
-    updateVisibleBounds()
+  const fitCanvas = useCallback((animate = false) => {
+    const svg = svgRef.current
+    const zoomBehavior = zoomBehaviorRef.current
+    if (!svg || !zoomBehavior) return
 
-    const handleResize = () => updateVisibleBounds()
+    const rect = svg.getBoundingClientRect()
+    const width = svg.clientWidth || rect.width
+    const height = svg.clientHeight || rect.height
+    const bounds = getFlowCanvasContentBounds(nodesRef.current)
+    if (!bounds) {
+      updateVisibleBounds()
+      return
+    }
+
+    const fit = getFlowCanvasFitTransform(bounds, { height, width })
+    if (!fit) {
+      updateVisibleBounds()
+      return
+    }
+
+    const next = zoomIdentity.translate(fit.x, fit.y).scale(fit.k)
+    const selection = select(svg)
+    if (animate) {
+      selection.transition().duration(220).call(zoomBehavior.transform, next)
+      return
+    }
+    selection.call(zoomBehavior.transform, next)
+  }, [updateVisibleBounds])
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => fitCanvas())
+    return () => window.cancelAnimationFrame(frame)
+  }, [fitCanvas, isExpanded, nodeIdsKey])
+
+  useEffect(() => {
+    const handleResize = () => fitCanvas()
     window.addEventListener('resize', handleResize)
-    return () => window.removeEventListener('resize', handleResize)
-  }, [isExpanded, updateVisibleBounds])
+
+    const svg = svgRef.current
+    const observer = typeof ResizeObserver === 'undefined' || !svg
+      ? null
+      : new ResizeObserver(() => fitCanvas())
+    if (svg) observer?.observe(svg)
+
+    return () => {
+      window.removeEventListener('resize', handleResize)
+      observer?.disconnect()
+    }
+  }, [fitCanvas, isExpanded])
 
   const handleZoomIn = useCallback(() => {
     if (!svgRef.current || !zoomBehaviorRef.current) return
@@ -266,9 +317,8 @@ export function FlowCanvas({
   }, [])
 
   const handleZoomReset = useCallback(() => {
-    if (!svgRef.current || !zoomBehaviorRef.current) return
-    select(svgRef.current).transition().duration(220).call(zoomBehaviorRef.current.transform, zoomIdentity)
-  }, [])
+    fitCanvas(true)
+  }, [fitCanvas])
 
   useEffect(() => {
     if (!isExpanded) return

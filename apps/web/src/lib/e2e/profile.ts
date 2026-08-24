@@ -5,11 +5,3 @@ export function getE2eProfile(): E2EProfile {
   if (profile === 'real-runtime') return 'real-runtime'
   return 'smoke-fake'
 }
-
-export function isSmokeFakeProfile(): boolean {
-  return getE2eProfile() === 'smoke-fake'
-}
-
-export function isRealRuntimeProfile(): boolean {
-  return getE2eProfile() === 'real-runtime'
-}

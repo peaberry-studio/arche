@@ -343,26 +343,6 @@ describe('/api/u/[slug]/kb-github-remote/callback', () => {
   })
 })
 
-describe('/api/u/[slug]/kb-github-remote/setup-state', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    authState.user = { email: 'admin@example.com', id: 'admin-1', role: 'ADMIN', slug: 'alice' }
-    hasSession = true
-    requireCapabilityMock.mockReturnValue(null)
-  })
-
-  it('creates a setup state and stores it in a temporary cookie', async () => {
-    const { POST } = await import('./setup-state/route')
-
-    const response = await POST(request('/api/u/alice/kb-github-remote/setup-state', { method: 'POST' }), params())
-
-    expect(response.status).toBe(200)
-    const data = await response.json() as { state?: string }
-    expect(typeof data.state).toBe('string')
-    expect(response.headers.get('set-cookie')).toContain('arche_kb_github_setup=')
-  })
-})
-
 describe('/api/u/[slug]/kb-github-remote/install', () => {
   beforeEach(() => {
     vi.clearAllMocks()

@@ -22,27 +22,6 @@ vi.mock('next/navigation', () => ({
   redirect: (path: string) => redirectMock(path),
 }))
 
-vi.mock('@/components/dashboard/dashboard-hero', () => ({
-  DashboardHero: ({
-    agents,
-    recentUpdates,
-    skills,
-    slug,
-  }: {
-    agents: { displayName: string }[]
-    recentUpdates: { fileName: string }[]
-    skills: { name: string }[]
-    slug: string
-  }) => (
-    <div>
-      <p>Dashboard hero for {slug}</p>
-      <p>Agents: {agents.map((agent) => agent.displayName).join(', ')}</p>
-      <p>Updates: {recentUpdates.map((update) => update.fileName).join(', ')}</p>
-      <p>Skills: {skills.map((skill) => skill.name).join(', ')}</p>
-    </div>
-  ),
-}))
-
 vi.mock('@/lib/runtime/session', () => ({
   getSession: () => getSessionMock(),
 }))
@@ -130,14 +109,7 @@ describe('WorkspacePage', () => {
     expect(screen.getByText('Ask an administrator to complete kickstart setup for this workspace.')).toBeTruthy()
   })
 
-  it('loads dashboard data for ready workspaces', async () => {
-    render(await renderWorkspacePage('completed'))
-
-    expect(screen.getByText('Kickstart setup completed. Your workspace is now ready.')).toBeTruthy()
-    expect(screen.getByText('Dashboard hero for alice')).toBeTruthy()
-    expect(screen.getByText('Agents: Assistant, Researcher')).toBeTruthy()
-    expect(screen.getByText('Updates: Brief.md')).toBeTruthy()
-    expect(screen.getByText('Skills: writer')).toBeTruthy()
-    expect(listRecentKbFileUpdatesMock).toHaveBeenCalledWith(10)
+  it('redirects ready workspaces into the workspace app', async () => {
+    await expect(renderWorkspacePage('completed')).rejects.toThrow('REDIRECT:/w/alice')
   })
 })

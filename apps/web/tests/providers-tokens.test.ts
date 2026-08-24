@@ -59,23 +59,6 @@ describe('providers/config', () => {
     })
   })
 
-  describe('getGatewayBaseUrlForProvider', () => {
-    it('returns fallback base url when env missing', async () => {
-      delete process.env.ARCHE_GATEWAY_BASE_URL
-
-      const { getGatewayBaseUrlForProvider } = await import('@/lib/providers/config')
-
-      expect(getGatewayBaseUrlForProvider('openai')).toBe('http://web:3000/api/internal/providers/openai')
-    })
-
-    it('uses configured base url', async () => {
-      process.env.ARCHE_GATEWAY_BASE_URL = 'https://gateway.internal'
-
-      const { getGatewayBaseUrlForProvider } = await import('@/lib/providers/config')
-
-      expect(getGatewayBaseUrlForProvider('anthropic')).toBe('https://gateway.internal/anthropic')
-    })
-  })
 })
 
 describe('providers/tokens', () => {

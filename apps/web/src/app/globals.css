@@ -1067,3 +1067,32 @@
     margin-left: 100%;
   }
 }
+
+/* Chat typing indicator — a dot that pulses and lifts in sequence while a
+   reasoning block streams (see typing-dots.tsx). Held static when reduced
+   motion is set. */
+@keyframes typing-dot {
+  0%, 60%, 100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
+.typing-dot {
+  height: 3px;
+  width: 3px;
+  border-radius: 9999px;
+  background-color: currentColor;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .typing-dot {
+    /* `backwards` holds the first keyframe (0.25) during the delay, so the
+       dots don't flash at full opacity before their turn starts. */
+    animation: typing-dot 1.2s ease-in-out infinite backwards;
+  }
+}

@@ -47,27 +47,6 @@ function parseObsidianLinkTarget(rawTarget: string): ParsedObsidianLinkTarget {
   };
 }
 
-export function findObsidianLinkAt(content: string, offset: number): ObsidianLinkBounds | null {
-  if (!content) return null;
-  if (offset < 0 || offset > content.length) return null;
-
-  const start = content.lastIndexOf("[[", offset);
-  if (start < 0) return null;
-
-  const end = content.indexOf("]]", start + 2);
-  if (end < 0) return null;
-  if (offset > end + 2) return null;
-
-  const target = content.slice(start + 2, end).trim();
-  if (!target) return null;
-
-  return {
-    from: start,
-    to: end + 2,
-    target,
-  };
-}
-
 export function findObsidianLinks(content: string): ObsidianLinkBounds[] {
   if (!content) return [];
 

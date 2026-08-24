@@ -46,7 +46,7 @@ export default function LoginPage() {
   useEffect(() => {
     if (result?.data?.ok && result.data.user?.slug) {
       const timeout = setTimeout(() => {
-        router.push(`/u/${result.data!.user!.slug}`);
+        router.push(`/w/${result.data!.user!.slug}`);
       }, 500);
       return () => clearTimeout(timeout);
     }
@@ -93,7 +93,7 @@ export default function LoginPage() {
       : null;
 
   const dashboardPath = result?.data?.user?.slug
-    ? `/u/${result.data.user.slug}`
+    ? `/w/${result.data.user.slug}`
     : null;
 
   return (

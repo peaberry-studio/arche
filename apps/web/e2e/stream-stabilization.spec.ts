@@ -20,11 +20,11 @@ test('streams a text chat response through the stabilized SSE pipeline', async (
 
   await page.goto(`/w/${adminSlug}`)
 
-  // The chat composer only renders once the instance is started and connected.
-  await expect(page.getByPlaceholder('Type a message...')).toBeVisible({ timeout: 120_000 })
+  // The empty composer only renders once the instance is started and connected.
+  await expect(page.getByTestId('empty-composer-heading')).toBeVisible({ timeout: 120_000 })
 
-  await page.getByPlaceholder('Type a message...').fill('Hello stream')
-  await page.getByLabel('Send message').click()
+  await page.getByLabel('Describe what you want to work on').fill('Hello stream')
+  await page.getByRole('button', { name: 'Start working' }).click()
 
   // The fake runtime replies with `E2E_OK: <prompt>`.
   await expect(page.getByText('E2E_OK: Hello stream', { exact: true })).toBeVisible({ timeout: 30_000 })

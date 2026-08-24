@@ -10,13 +10,7 @@ vi.mock('@/lib/runtime/mode', () => ({
 
 import {
   getCurrentDesktopVault,
-  getDesktopFlowsHref,
   getWorkspacePersistenceScope,
-  getDesktopWorkspaceHref,
-  isDesktopFlowsView,
-  isDesktopSettingsSection,
-  DESKTOP_FLOWS_VIEWS,
-  DESKTOP_SETTINGS_SECTIONS,
 } from '../current-vault'
 
 describe('current-vault', () => {
@@ -29,44 +23,6 @@ describe('current-vault', () => {
 
   afterEach(() => {
     process.env = originalEnv
-  })
-
-  describe('DESKTOP_SETTINGS_SECTIONS', () => {
-    it('contains expected sections', () => {
-      expect(DESKTOP_SETTINGS_SECTIONS).toEqual([
-        'providers',
-        'connectors',
-        'agents',
-        'flows',
-        'skills',
-        'appearance',
-        'advanced',
-      ])
-    })
-  })
-
-  describe('DESKTOP_FLOWS_VIEWS', () => {
-    it('contains expected views', () => {
-      expect(DESKTOP_FLOWS_VIEWS).toEqual(['list', 'new', 'edit', 'runs'])
-    })
-  })
-
-  describe('isDesktopSettingsSection', () => {
-    it('returns true for all valid sections', () => {
-      for (const section of DESKTOP_SETTINGS_SECTIONS) {
-        expect(isDesktopSettingsSection(section)).toBe(true)
-      }
-    })
-
-    it('returns false for invalid sections', () => {
-      expect(isDesktopSettingsSection('security')).toBe(false)
-      expect(isDesktopSettingsSection('foo')).toBe(false)
-    })
-
-    it('returns false for null and undefined', () => {
-      expect(isDesktopSettingsSection(null)).toBe(false)
-      expect(isDesktopSettingsSection(undefined)).toBe(false)
-    })
   })
 
   describe('getCurrentDesktopVault', () => {
@@ -136,43 +92,6 @@ describe('current-vault', () => {
       delete process.env.ARCHE_DESKTOP_VAULT_PATH
 
       expect(getWorkspacePersistenceScope('alice')).toBe('alice')
-    })
-  })
-
-  describe('getDesktopWorkspaceHref', () => {
-    it('returns base path without section', () => {
-      expect(getDesktopWorkspaceHref('alice')).toBe('/w/alice')
-    })
-
-    it('returns base path with null section', () => {
-      expect(getDesktopWorkspaceHref('alice', null)).toBe('/w/alice')
-    })
-
-    it('returns base path with undefined section', () => {
-      expect(getDesktopWorkspaceHref('alice', undefined)).toBe('/w/alice')
-    })
-
-    it('returns path with settings query param for each section', () => {
-      for (const section of DESKTOP_SETTINGS_SECTIONS) {
-        expect(getDesktopWorkspaceHref('alice', section)).toBe(`/w/alice?settings=${section}`)
-      }
-    })
-  })
-
-  describe('getDesktopFlowsHref', () => {
-    it('returns flow dialog list path', () => {
-      expect(getDesktopFlowsHref('alice', 'list')).toBe('/w/alice?flows=list')
-    })
-
-    it('includes flow id for detail views', () => {
-      expect(getDesktopFlowsHref('alice', 'runs', 'flow-1')).toBe('/w/alice?flows=runs&flowId=flow-1')
-    })
-  })
-
-  describe('isDesktopFlowsView', () => {
-    it('accepts known views only', () => {
-      expect(isDesktopFlowsView('list')).toBe(true)
-      expect(isDesktopFlowsView('settings')).toBe(false)
     })
   })
 })

@@ -42,6 +42,7 @@ import {
 } from '@/components/workspace/chat-panel/flow-proposal'
 import { PermissionCard } from '@/components/workspace/chat-panel/permission-card'
 import type { SessionTabInfo } from '@/components/workspace/chat-panel/types'
+import { TypingDots } from '@/components/workspace/chat-panel/typing-dots'
 import { workspaceMarkdownComponents } from '@/components/workspace/markdown-components'
 import {
   workspaceRehypePlugins,
@@ -74,6 +75,8 @@ type MessagePartRendererProps = {
   ) => Promise<boolean>
   onOpenFile: (path: string) => void
   onSelectSessionTab?: (id: string) => void
+  /** True while this part is the active streaming block of the session. */
+  isStreaming?: boolean
   part: MessagePart
   sessionTabs: SessionTabInfo[]
   slug?: string
@@ -284,7 +287,7 @@ function getToolDisplay(
   }
 }
 
-function ReasoningBlock({ text }: { text: string }) {
+function ReasoningBlock({ isStreaming = false, text }: { isStreaming?: boolean; text: string }) {
   const [isOpen, setIsOpen] = useState(false)
 
   return (
@@ -297,6 +300,7 @@ function ReasoningBlock({ text }: { text: string }) {
       >
         {isOpen ? <CaretDown size={10} /> : <CaretRight size={10} />}
         <span>Reasoning</span>
+        {isStreaming ? <TypingDots /> : null}
       </button>
       {isOpen ? (
         <div className="markdown-content ml-4 border-l border-border/40 pl-3 pt-1 text-muted-foreground">
@@ -876,6 +880,7 @@ export function FileGroup({ parts, onOpenFile }: { parts: FilePart[]; onOpenFile
 
 export function MessagePartRenderer({
   connectorNamesById,
+  isStreaming = false,
   onAnswerPermission,
   onOpenFile,
   onSelectSessionTab,
@@ -896,7 +901,7 @@ export function MessagePartRenderer({
       )
 
     case 'reasoning':
-      return <ReasoningBlock text={part.text} />
+      return <ReasoningBlock isStreaming={isStreaming} text={part.text} />
 
     case 'tool':
       return (

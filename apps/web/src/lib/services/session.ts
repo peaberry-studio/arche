@@ -93,13 +93,6 @@ export function revokeByUserIdExceptSession(userId: string, sessionId: string) {
   })
 }
 
-export function revokeByUserId(userId: string) {
-  return prisma.session.updateMany({
-    where: { userId, revokedAt: null },
-    data: { revokedAt: new Date() },
-  })
-}
-
 export function touchLastSeen(id: string) {
   return prisma.session.update({
     where: { id },

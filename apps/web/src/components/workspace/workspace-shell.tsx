@@ -1,32 +1,25 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
-import { ArrowLineLeft, ArrowLineRight, ChatCircle, Circle, Compass, Database, File, Graph, SlidersHorizontal, TreeStructure } from "@phosphor-icons/react";
 
-import { ensureInstanceRunningAction } from "@/actions/spawner";
-import type { SyncKbResult } from "@/app/api/instances/[slug]/sync-kb/route";
-import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
+import { useWorkspaceRuntime } from "@/contexts/workspace-runtime-context";
 import { useWorkspace } from "@/hooks/use-workspace";
-import type { KnowledgeGraphAgentSource } from "@/lib/kb-graph";
+import { useConfigStatus } from "@/hooks/use-config-status";
+import { useSkillsCatalog } from "@/hooks/use-skills-catalog";
+import { useViewportWidth } from "@/hooks/use-viewport-width";
 import type { WorkspaceSession } from "@/lib/opencode/types";
-import { getDesktopFlowsHref, getDesktopWorkspaceHref } from "@/lib/runtime/desktop/current-vault";
-import { downloadWorkspaceFile } from "@/lib/workspace-file-download";
 import {
-  exportWorkspaceFile,
-  type WorkspaceFileExportFormat,
-} from "@/lib/workspace-file-export";
+  getWorkspaceFlowsHref,
+  getWorkspaceHref,
+  WORKSPACE_FLOWS_VIEWS,
+} from "@/lib/workspace-hrefs";
 import {
   isProtectedWorkspacePath,
   normalizeWorkspacePath,
 } from "@/lib/workspace-paths";
-import {
-  getWorkspaceSessionMode,
-  getWorkspaceUnreadCounts,
-  isBusyFlowWorkspaceSession,
-  isFlowSession,
-} from "@/lib/workspace-session-utils";
+import { isBusyFlowWorkspaceSession } from "@/lib/workspace-session-utils";
 import {
   getWorkspaceLayoutCookieName,
   getWorkspaceLayoutStorageKey,
@@ -35,29 +28,18 @@ import {
   readWorkspacePanelState,
   type StoredLayoutState,
 } from "@/lib/workspace-panel-state";
-import {
-  takeWorkspaceStartPrompt,
-  type WorkspaceStartPrompt,
-} from "@/lib/workspace-start-prompt";
 import { cn } from "@/lib/utils";
-import { flattenWorkspaceFileNodes } from "@/lib/workspace-file-search";
-
-import { useConfigStatus } from "@/hooks/use-config-status";
-import { useSkillsCatalog } from '@/hooks/use-skills-catalog'
+import { flattenWorkspaceFileNodes, resolveWorkspaceFilePath } from "@/lib/workspace-file-search";
 
 import { ChatPanel } from "./chat-panel";
 import { ConfigChangeBanner } from "./config-change-banner";
-import { ArcLoader } from "./arc-loader";
+import { CuratorDialog } from "./curator-dialog";
 import { FilePreviewPanel } from "./file-preview-panel";
-import { InspectorPanel } from "./inspector-panel";
-import { KnowledgeEmptyState } from "./knowledge-empty-state";
-import { KnowledgeNavigationPanel, type KnowledgeNavigationView } from "./knowledge-navigation-panel";
-import { FlowsEmptyState } from "./flows-empty-state";
+import { WorkspaceCatalogView } from "./workspace-catalog-view";
 import { WorkspaceCommandPalette } from "./workspace-command-palette";
-import { WorkspaceSessionsSidebar } from "./workspace-sessions-sidebar";
-import { WorkspaceSessionsRail } from "./workspace-sessions-rail";
-import { WorkspaceTopNav } from "./workspace-top-nav";
-import type { WorkspaceMode } from "./workspace-mode-toggle";
+import { WorkspaceFlowsView } from "./workspace-flows-view";
+import { COLLAPSED_PANEL_PX, MIN_CENTER_PX, MIN_LEFT_PX, MIN_RIGHT_PX, WORKSPACE_COMPACT_PANE_BREAKPOINT } from "./workspace-panes";
+import { WorkspaceConnectingBanner } from "./workspace-startup-screens";
 
 type WorkspaceShellProps = {
   slug: string;
@@ -67,42 +49,24 @@ type WorkspaceShellProps = {
     name: string;
     path: string;
   } | null;
-  initialFilePath?: string | null;
-  initialSessionId?: string | null;
-  initialWorkspaceMode?: WorkspaceMode;
-  knowledgeAgentSources?: KnowledgeGraphAgentSource[];
   initialLayoutState?: StoredLayoutState | null;
+  isAdmin?: boolean;
   macDesktopWindowInset?: boolean;
   workspaceAgentEnabled?: boolean;
-  reaperEnabled?: boolean;
+  slackIntegrationAvailable?: boolean;
+  teamVisibilityAvailable?: boolean;
+  recentUpdates?: { fileName: string; filePath: string }[];
 };
 
-const MIN_LEFT_PX = 200;
-const MIN_RIGHT_PX = 320;
-const MIN_CENTER_PX = 360;
 const DEFAULT_LEFT_RATIO = 0.15;
 const DEFAULT_RIGHT_RATIO = 0.3;
 const PANEL_GAP = 0; // Gap between floating panels in pixels
-const COLLAPSED_PANEL_PX = 48; // Width of minified (collapsed) panels
-const MOBILE_LAYOUT_BREAKPOINT =
-  MIN_LEFT_PX + MIN_RIGHT_PX + MIN_CENTER_PX + 2 * PANEL_GAP + 48;
-type MobileWorkspaceView = "chat" | "left" | "right";
+const MOBILE_LAYOUT_BREAKPOINT = WORKSPACE_COMPACT_PANE_BREAKPOINT;
+type MobileWorkspaceView = "chat" | "right";
+const EMPTY_OPEN_FILE_PATHS: string[] = [];
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
-
-const CONNECTION_ERROR_COPY: Record<string, string> = {
-  connection_check_failed: "Couldn't reach the workspace. Retrying...",
-  forbidden: "You are not allowed to access this workspace.",
-  health_check_timeout: "The workspace is taking too long to respond. Retrying...",
-  instance_unavailable: "The workspace is not ready right now. Retrying...",
-  unauthorized: "Your session has expired. Sign in again.",
-  unhealthy: "The workspace is not ready right now. Retrying...",
-  user_not_found: "This workspace could not be found.",
-};
-
-const getConnectionErrorText = (error: string | undefined) =>
-  (error && CONNECTION_ERROR_COPY[error]) || `Error: ${error ?? "unknown"}`;
 
 const getMinCenter = (containerWidth: number) =>
   Math.min(MIN_CENTER_PX, Math.max(0, containerWidth - MIN_LEFT_PX - MIN_RIGHT_PX - 2 * PANEL_GAP));
@@ -159,65 +123,6 @@ const persistLayout = (storageKey: string, cookieName: string, state: StoredLayo
   persistWorkspacePanelState(storageKey, cookieName, state);
 };
 
-type StoredOpenFilesState = {
-  openFilePaths: string[];
-  activeFilePath: string | null;
-};
-
-function getOpenFilesStorageKey(scope: string): string {
-  return `arche.workspace.${scope}.open-files`;
-}
-
-const MAX_STORED_OPEN_FILES = 50;
-
-function isValidStoredPath(value: unknown): value is string {
-  if (typeof value !== "string" || !value) return false;
-  const normalized = normalizeWorkspacePath(value);
-  if (!normalized) return false;
-  if (isProtectedWorkspacePath(normalized)) return false;
-  if (normalized.split("/").some((s) => s === "..")) return false;
-  return true;
-}
-
-function loadStoredOpenFiles(key: string): StoredOpenFilesState | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem(key);
-    if (!raw) return null;
-    const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
-    const record = parsed as Record<string, unknown>;
-    if (!Array.isArray(record.openFilePaths)) return null;
-    const seen = new Set<string>();
-    const openFilePaths: string[] = [];
-    for (const entry of record.openFilePaths) {
-      if (!isValidStoredPath(entry)) continue;
-      const normalized = normalizeWorkspacePath(entry);
-      if (seen.has(normalized)) continue;
-      seen.add(normalized);
-      openFilePaths.push(normalized);
-      if (openFilePaths.length >= MAX_STORED_OPEN_FILES) break;
-    }
-    if (openFilePaths.length === 0) return null;
-    const activeFilePath =
-      isValidStoredPath(record.activeFilePath) && openFilePaths.includes(normalizeWorkspacePath(record.activeFilePath as string))
-        ? normalizeWorkspacePath(record.activeFilePath as string)
-        : null;
-    return { openFilePaths, activeFilePath };
-  } catch {
-    return null;
-  }
-}
-
-function persistOpenFiles(key: string, state: StoredOpenFilesState): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(key, JSON.stringify(state));
-  } catch {
-    // ignore storage errors
-  }
-}
-
 function resolveRootSessionId(
   sessionId: string | null,
   sessionsById: Map<string, WorkspaceSession>
@@ -261,212 +166,69 @@ function getSessionDepth(
   return depth;
 }
 
-// File content cache for preview panel
-type FileContentCache = Record<
-  string,
-  {
-    content: string;
-    type: "raw" | "patch";
-    title: string;
-    updatedAt: string;
-    size: string;
-    hash?: string;
-  }
->;
-
-const statusConfig = {
-  active: { color: "text-emerald-500", pulse: true },
-  provisioning: { color: "text-amber-500", pulse: true },
-  offline: { color: "text-muted-foreground", pulse: false },
-};
-
-const PANEL_ANIM = "200ms ease-out";
-const PANEL_TRANSITION = `width ${PANEL_ANIM}, min-width ${PANEL_ANIM}, opacity ${PANEL_ANIM}, margin ${PANEL_ANIM}, border-width ${PANEL_ANIM}`;
-const INSTANCE_START_POLL_INTERVAL_MS = 2_000;
-const INSTANCE_START_TIMEOUT_MS = 120_000;
-
-function formatInstanceStartupError(error: string): string {
-  if (error === "start_timeout") {
-    return "Workspace startup timed out. Try restarting again.";
-  }
-  if (error === "status_check_failed") {
-    return "Unable to verify workspace startup status.";
-  }
-  return error;
-}
-
-function countActionableKnowledgeProposals(value: unknown): number {
-  if (!value || typeof value !== "object" || !("proposals" in value) || !Array.isArray(value.proposals)) {
-    return 0;
-  }
-
-  return value.proposals.filter((proposal) => (
-    proposal &&
-    typeof proposal === "object" &&
-    "status" in proposal &&
-    (proposal.status === "open" || proposal.status === "needs_rebase")
-  )).length;
-}
-
 export function WorkspaceShell({
   slug,
   persistenceScope,
   currentVault = null,
-  initialFilePath,
-  initialSessionId = null,
-  initialWorkspaceMode = "chat",
-  knowledgeAgentSources = [],
   initialLayoutState = null,
+  isAdmin = false,
   macDesktopWindowInset = false,
   workspaceAgentEnabled = true,
-  reaperEnabled = true,
+  slackIntegrationAvailable = false,
+  teamVisibilityAvailable = false,
+  recentUpdates = [],
 }: WorkspaceShellProps) {
   const router = useRouter();
-  const routerRef = useRef(router);
-
-  useEffect(() => {
-    routerRef.current = router;
-  }, [router]);
+  const searchParams = useSearchParams();
+  const catalogParam = searchParams.get("catalog");
+  const flowsParam = searchParams.get("flows");
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const [isDragging, setIsDragging] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const resolvedPersistenceScope = persistenceScope ?? slug;
   const layoutCookieName = getWorkspaceLayoutCookieName(resolvedPersistenceScope);
   const layoutStorageKey = getWorkspaceLayoutStorageKey(resolvedPersistenceScope);
-  const openFilesStorageKey = getOpenFilesStorageKey(resolvedPersistenceScope);
-  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>(initialWorkspaceMode);
-  const isExploreMode = workspaceMode === "explore";
-  const isKnowledgeMode = workspaceMode === "knowledge";
-  const isFlowsMode = workspaceMode === "flows";
-  const lastSessionByModeRef = useRef<{ chat: string | null; flows: string | null }>({
-    chat: null,
-    flows: null,
-  });
 
-  // Instance startup state
-  const [instanceStatus, setInstanceStatus] = useState<'starting' | 'running' | 'error' | null>(null);
-  const [instanceError, setInstanceError] = useState<string | null>(null);
-  const [rightTab, setRightTab] = useState<"preview" | "review">("preview");
-  const effectiveRightTab = workspaceAgentEnabled ? rightTab : "preview";
+  // Instance startup state comes from the layout-level runtime provider so
+  // chat ↔ explore navigation does not re-run the startup waterfall.
+  const {
+    connection,
+    curatorOpen,
+    instanceStatus,
+    instanceError,
+    isConnected,
+    refreshKnowledgePendingCount,
+    setCuratorOpen,
+    setKnowledgePendingCount,
+    setKnowledgePublishCount,
+    setSidebarCollapsed,
+  } = useWorkspaceRuntime();
 
   // Config change detection
   const configStatus = useConfigStatus(slug, instanceStatus === "running");
 
-  // Auto-start instance on mount
-  useEffect(() => {
-    let cancelled = false;
-    let pollingTimer: ReturnType<typeof setInterval> | null = null;
-    let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
-    let checking = false;
-
-    const clearTimers = () => {
-      if (pollingTimer) {
-        clearInterval(pollingTimer);
-        pollingTimer = null;
-      }
-      if (timeoutTimer) {
-        clearTimeout(timeoutTimer);
-        timeoutTimer = null;
-      }
-    };
-
-    const failStartup = (error: string) => {
-      clearTimers();
-      setInstanceStatus("error");
-      setInstanceError(formatInstanceStartupError(error));
-    };
-
-    const checkInstanceStatus = async () => {
-      if (checking) return;
-      checking = true;
-
-      try {
-        const result = await ensureInstanceRunningAction(slug);
-        if (cancelled) return;
-
-        if (result.status === "error") {
-          clearTimers();
-          if (result.error === "setup_required") {
-            routerRef.current.replace(`/u/${slug}?setup=required`);
-            return;
-          }
-          failStartup(result.error ?? "Unknown error");
-          return;
-        }
-
-        if (result.status === "running") {
-          clearTimers();
-          setInstanceStatus("running");
-          setInstanceError(null);
-          return;
-        }
-
-        setInstanceStatus("starting");
-
-        if (!pollingTimer) {
-          timeoutTimer = setTimeout(() => {
-            if (cancelled) return;
-            failStartup("start_timeout");
-          }, INSTANCE_START_TIMEOUT_MS);
-
-          pollingTimer = setInterval(() => {
-            void checkInstanceStatus();
-          }, INSTANCE_START_POLL_INTERVAL_MS);
-        }
-      } catch {
-        if (cancelled) return;
-        failStartup("status_check_failed");
-      } finally {
-        checking = false;
-      }
-    };
-
-    void checkInstanceStatus();
-
-    return () => {
-      cancelled = true;
-      clearTimers();
-    };
-  }, [slug]);
-
   // Use workspace hook only when instance is running
   const workspace = useWorkspace({
     slug,
-    storageScope: resolvedPersistenceScope,
-    initialSessionId,
-    pollInterval: 5000,
+    pollInterval: 20000,
     enabled: instanceStatus === 'running',
     workspaceAgentEnabled,
-    reaperEnabled,
   });
   const skillsCatalog = useSkillsCatalog(slug)
   const {
-    activeSessionId: workspaceActiveSessionId,
     readFile: readWorkspaceFile,
-    selectSession: selectWorkspaceSession,
   } = workspace;
+  const [previewFilePath, setPreviewFilePath] = useState<string | null>(null);
+  const [previewFile, setPreviewFile] = useState<{
+    path: string;
+    content: string;
+    hash?: string;
+  } | null>(null);
   const [learningRefreshKey, setLearningRefreshKey] = useState(0);
-  const [knowledgeProposalCount, setKnowledgeProposalCount] = useState(0);
-  const refreshKnowledgePendingCount = useCallback(async () => {
-    try {
-      const response = await fetch(`/api/u/${slug}/learning`, { cache: "no-store" });
-      const data: unknown = await response.json().catch(() => null);
-      if (!response.ok) return;
-      setKnowledgeProposalCount(countActionableKnowledgeProposals(data));
-    } catch {
-      // Keep the last known count when learning data is temporarily unavailable.
-    }
-  }, [slug]);
-  const [knowledgeGraphReloadKey, setKnowledgeGraphReloadKey] = useState(0);
-  const reloadKnowledgeGraph = useCallback(() => {
-    setKnowledgeGraphReloadKey((current) => current + 1);
-  }, []);
   const refreshKnowledgeWorkspace = useCallback(() => {
     workspace.refreshDiffs();
     workspace.refreshFiles();
-    reloadKnowledgeGraph();
-  }, [reloadKnowledgeGraph, workspace]);
+  }, [workspace]);
   // Only for callers that can run while the review list is unmounted (connect,
   // publish, starting a learning run). When the list is on screen it reports the
   // count itself, so refetching here would just duplicate its request.
@@ -474,6 +236,12 @@ export function WorkspaceShell({
     refreshKnowledgeWorkspace();
     void refreshKnowledgePendingCount();
   }, [refreshKnowledgePendingCount, refreshKnowledgeWorkspace]);
+
+  // Manual edits count feeds the sidebar badge, so it must track every
+  // diffs refresh (apply, publish, discard, conflict resolution).
+  useEffect(() => {
+    setKnowledgePublishCount(workspace.diffs.length);
+  }, [setKnowledgePublishCount, workspace.diffs]);
 
   const sessionsById = useMemo(() => {
     const map = new Map<string, WorkspaceSession>();
@@ -483,32 +251,34 @@ export function WorkspaceShell({
     return map;
   }, [workspace.sessions]);
 
-  const rootSessions = useMemo(() => {
-    return workspace.sessions.filter((session) => {
-      if (!session.parentId) return true;
-      return !sessionsById.has(session.parentId);
-    });
-  }, [workspace.sessions, sessionsById]);
+  // Keep the ?session= param in sync with the active conversation so the chat
+  // URL is restorable and shareable. Management overlays (catalog, flows) own
+  // their navigation, so their params are left untouched.
+  //
+  // Do not rewrite the URL until the session list is validated. Replacing
+  // `?session=` during startup aborts the in-flight ensureInstanceRunningAction
+  // and leaves the workspace on "Starting workspace".
+  useEffect(() => {
+    if (catalogParam || flowsParam) return;
+    if (!workspace.isInitialSessionsReady) return;
 
-  const { sessionsUnreadCount, flowsUnreadCount } = useMemo(
-    () => getWorkspaceUnreadCounts(workspace.sessions, workspace.unseenCompletedSessions),
-    [workspace.sessions, workspace.unseenCompletedSessions]
-  );
+    const urlSessionId = searchParams.get("session");
+    if (workspace.activeSessionId === urlSessionId) return;
+
+    const params = new URLSearchParams(searchParams.toString());
+    if (workspace.activeSessionId) {
+      params.set("session", workspace.activeSessionId);
+    } else {
+      params.delete("session");
+    }
+    const query = params.toString();
+    router.replace(query ? `/w/${slug}?${query}` : `/w/${slug}`);
+  }, [catalogParam, flowsParam, router, searchParams, slug, workspace.activeSessionId, workspace.isInitialSessionsReady]);
 
   const activeRootSessionId = useMemo(
     () => resolveRootSessionId(workspace.activeSessionId, sessionsById),
     [workspace.activeSessionId, sessionsById]
   );
-
-  // Track last active session per chat/flows mode so switching restores it
-  useEffect(() => {
-    const id = workspace.activeSessionId;
-    if (!id) return;
-    const session = sessionsById.get(id);
-    if (!session) return;
-    const sessionMode = getWorkspaceSessionMode(session);
-    lastSessionByModeRef.current[sessionMode] = id;
-  }, [workspace.activeSessionId, sessionsById]);
 
   const activeSessionTabs = useMemo(() => {
     if (!activeRootSessionId) return [];
@@ -554,9 +324,6 @@ export function WorkspaceShell({
   // Auto-sync KB on first connection
   const hasAutoSynced = useRef(false);
 
-  // Auto-start a new chat session if we have a pending prompt
-  const hasAutoStartedPrompt = useRef(false);
-
   useEffect(() => {
     if (!workspace.isConnected || hasAutoSynced.current) return;
     hasAutoSynced.current = true;
@@ -571,158 +338,34 @@ export function WorkspaceShell({
     })();
   }, [refreshKnowledgeReview, slug, workspace.isConnected]);
 
-  useEffect(() => {
-    if (!workspace.isConnected || hasAutoStartedPrompt.current) return;
-
-    let prompt: WorkspaceStartPrompt | null = null;
-    try {
-      prompt = takeWorkspaceStartPrompt(window.sessionStorage, resolvedPersistenceScope);
-    } catch {
-      prompt = null;
-    }
-
-    hasAutoStartedPrompt.current = true;
-    if (!prompt) return;
-
-    void workspace.sendMessage(prompt.text, undefined, {
-      forceNewSession: true,
-      contextPaths: prompt.contextPaths,
-    });
-  }, [resolvedPersistenceScope, workspace, workspace.isConnected]);
-
-  // Layout state
-  const [minCenterWidth, setMinCenterWidth] = useState(MIN_CENTER_PX);
-  const buildInitialCollapseByMode = useCallback(
-    (
-      legacy?: boolean,
-      byMode?: Record<string, boolean>,
-      defaults?: Partial<Record<WorkspaceMode, boolean>>
-    ): Record<WorkspaceMode, boolean> => {
-      const pickMode = (mode: WorkspaceMode) => byMode?.[mode] ?? legacy ?? defaults?.[mode] ?? false;
-      return {
-        chat: pickMode("chat"),
-        flows: pickMode("flows"),
-        explore: pickMode("explore"),
-        knowledge: pickMode("knowledge"),
-      };
-    },
-    []
-  );
-  const buildInitialWidthByMode = useCallback(
-    (legacy: number | undefined, byMode: Record<string, number> | undefined, fallback: number): Record<WorkspaceMode, number> => {
-      const baseline = typeof legacy === "number" && Number.isFinite(legacy) && legacy > 0 ? legacy : fallback;
-      const pickMode = (mode: WorkspaceMode) => {
-        const candidate = byMode?.[mode];
-        return typeof candidate === "number" && Number.isFinite(candidate) && candidate > 0
-          ? candidate
-          : baseline;
-      };
-      return {
-        chat: pickMode("chat"),
-        flows: pickMode("flows"),
-        explore: pickMode("explore"),
-        knowledge: pickMode("knowledge"),
-      };
-    },
-    []
-  );
-  const [leftCollapsedByMode, setLeftCollapsedByMode] = useState<Record<WorkspaceMode, boolean>>(() =>
-    buildInitialCollapseByMode(initialLayoutState?.leftCollapsed, initialLayoutState?.leftCollapsedByMode)
-  );
-  const [rightCollapsedByMode, setRightCollapsedByMode] = useState<Record<WorkspaceMode, boolean>>(() =>
-    buildInitialCollapseByMode(initialLayoutState?.rightCollapsed, initialLayoutState?.rightCollapsedByMode)
-  );
-  const [leftWidthByMode, setLeftWidthByMode] = useState<Record<WorkspaceMode, number>>(() =>
-    buildInitialWidthByMode(initialLayoutState?.leftWidth, initialLayoutState?.leftWidthByMode, MIN_LEFT_PX)
-  );
-  const [rightWidthByMode, setRightWidthByMode] = useState<Record<WorkspaceMode, number>>(() =>
-    buildInitialWidthByMode(initialLayoutState?.rightWidth, initialLayoutState?.rightWidthByMode, MIN_RIGHT_PX)
-  );
-  const leftCollapsed = isFlowsMode || isKnowledgeMode ? false : leftCollapsedByMode[workspaceMode];
-  const rightCollapsed = rightCollapsedByMode[workspaceMode];
-  const leftWidth = leftWidthByMode[workspaceMode];
-  const rightWidth = rightWidthByMode[workspaceMode];
-  const workspaceModeRef = useRef(workspaceMode);
-  useEffect(() => {
-    workspaceModeRef.current = workspaceMode;
-  }, [workspaceMode]);
-  const setLeftWidth = useCallback((value: number) => {
-    const mode = workspaceModeRef.current;
-    setLeftWidthByMode((prev) => {
-      if (prev[mode] === value) return prev;
-      return { ...prev, [mode]: value };
-    });
+  // Layout state (global, not per-mode)
+  const [leftCollapsed, setLeftCollapsedState] = useState<boolean>(false);
+  const [rightCollapsed, setRightCollapsedState] = useState<boolean>(false);
+  const [leftWidth, setLeftWidth] = useState<number>(MIN_LEFT_PX);
+  const [rightWidth, setRightWidth] = useState<number>(MIN_RIGHT_PX);
+  const setLeftCollapsed = useCallback((value: boolean | ((prev: boolean) => boolean)) => {
+    setLeftCollapsedState((prev) => (typeof value === "function" ? value(prev) : value));
   }, []);
-  const setRightWidth = useCallback((value: number) => {
-    const mode = workspaceModeRef.current;
-    setRightWidthByMode((prev) => {
-      if (prev[mode] === value) return prev;
-      return { ...prev, [mode]: value };
-    });
+  const setRightCollapsed = useCallback((value: boolean | ((prev: boolean) => boolean)) => {
+    setRightCollapsedState((prev) => (typeof value === "function" ? value(prev) : value));
   }, []);
-  const setLeftCollapsedForMode = useCallback(
-    (mode: WorkspaceMode, updater: boolean | ((prev: boolean) => boolean)) => {
-      setLeftCollapsedByMode((prev) => {
-        const nextValue =
-          typeof updater === "function" ? updater(prev[mode]) : updater;
-        if (prev[mode] === nextValue) return prev;
-        return { ...prev, [mode]: nextValue };
-      });
-    },
-    []
-  );
-  const setRightCollapsedForMode = useCallback(
-    (mode: WorkspaceMode, updater: boolean | ((prev: boolean) => boolean)) => {
-      setRightCollapsedByMode((prev) => {
-        const nextValue =
-          typeof updater === "function" ? updater(prev[mode]) : updater;
-        if (prev[mode] === nextValue) return prev;
-        return { ...prev, [mode]: nextValue };
-      });
-    },
-    []
-  );
-  const [knowledgeNavView, setKnowledgeNavView] = useState<KnowledgeNavigationView>("tree");
   const [hydratedLayoutKey, setHydratedLayoutKey] = useState<string | null>(null);
-  const [viewportWidth, setViewportWidth] = useState(() =>
-    typeof window === "undefined" ? MIN_LEFT_PX + MIN_RIGHT_PX + MIN_CENTER_PX : window.innerWidth
-  );
+  const viewportWidth = useViewportWidth();
   const [mobileView, setMobileView] = useState<MobileWorkspaceView>("chat");
   const isCompactLayout = viewportWidth < MOBILE_LAYOUT_BREAKPOINT;
   const wasCompactLayoutRef = useRef(isCompactLayout);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const handleResize = () => {
-      const nextWidth = window.innerWidth;
-      const nextCompactState = nextWidth < MOBILE_LAYOUT_BREAKPOINT;
-
-      setViewportWidth(nextWidth);
-
-      if (!wasCompactLayoutRef.current && nextCompactState) {
-        setMobileView("chat");
-      }
-
-      wasCompactLayoutRef.current = nextCompactState;
-    };
-
-    window.addEventListener("resize", handleResize);
-
-    return () => {
-      window.removeEventListener("resize", handleResize);
-    };
-  }, []);
-
-  const handleToggleLeft = useCallback(() => {
-    if (isCompactLayout) {
-      setMobileView((prev) => (prev === "left" ? "chat" : "left"));
-      return;
+    if (!wasCompactLayoutRef.current && isCompactLayout) {
+      setMobileView("chat");
     }
 
-    if (workspaceMode === "flows" || workspaceMode === "knowledge") return;
-    setLeftCollapsedForMode(workspaceMode, (prev) => !prev);
-  }, [isCompactLayout, setLeftCollapsedForMode, workspaceMode]);
+    wasCompactLayoutRef.current = isCompactLayout;
+  }, [isCompactLayout]);
+
+  const handleToggleLeft = useCallback(() => {
+    setSidebarCollapsed((prev) => !prev);
+  }, [setSidebarCollapsed]);
 
   const toggleRightPanel = useCallback(() => {
     if (isCompactLayout) {
@@ -730,7 +373,7 @@ export function WorkspaceShell({
       return;
     }
 
-    setRightCollapsedForMode(workspaceMode, (previous) => {
+    setRightCollapsed((previous) => {
       if (!previous) {
         return true;
       }
@@ -746,7 +389,6 @@ export function WorkspaceShell({
         );
 
         setRightWidth(clamp(nextRightWidth, MIN_RIGHT_PX, maxRight));
-        setMinCenterWidth(minCenter);
 
         return false;
       }
@@ -754,87 +396,66 @@ export function WorkspaceShell({
       const fitted = fitWidths(containerWidth, leftWidth, nextRightWidth);
       setLeftWidth(fitted.left);
       setRightWidth(fitted.right);
-      setMinCenterWidth(fitted.minCenter);
 
       return false;
     });
-  }, [isCompactLayout, leftCollapsed, leftWidth, setLeftWidth, setRightCollapsedForMode, setRightWidth, workspaceMode]);
-
-  const handleToggleRight = useCallback(() => {
-    toggleRightPanel();
-  }, [toggleRightPanel]);
-
-  const handleShowChat = useCallback(() => {
-    setMobileView("chat");
-  }, []);
+  }, [isCompactLayout, leftCollapsed, leftWidth, setRightCollapsed]);
 
   const switchToChatOnMobile = useCallback(() => {
     if (isCompactLayout) setMobileView("chat");
   }, [isCompactLayout]);
 
-  const [previewFilePath, setPreviewFilePath] = useState<string | null>(null);
-  const [previewExpanded, setPreviewExpanded] = useState(false);
-  const previewOpenFrameRef = useRef<number | null>(null);
-  const previewCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const navigateSettings = useCallback(() => {
+    router.push(getWorkspaceHref(slug, { settings: 'general' }));
+  }, [router, slug]);
 
-  const handleWorkspaceModeChange = useCallback(
-    (nextMode: WorkspaceMode) => {
-      const resolvedNextMode = nextMode;
-      const prevMode = workspaceMode;
-      setWorkspaceMode(resolvedNextMode);
+  const navigateConnectors = useCallback(() => {
+    router.push(getWorkspaceHref(slug, { settings: 'connectors' }));
+  }, [router, slug]);
 
-      if (resolvedNextMode === "explore") {
-        setPreviewFilePath(null);
-      }
+  const navigateProviders = useCallback(() => {
+    router.push(getWorkspaceHref(slug, { settings: 'providers' }));
+  }, [router, slug]);
 
-      if (prevMode !== resolvedNextMode) {
-        const currentActiveId = workspaceActiveSessionId;
-        const currentSession = currentActiveId
-          ? sessionsById.get(currentActiveId) ?? null
-          : null;
-        const currentIsFlow = isFlowSession(currentSession);
+  const handleOpenFlowsManager = useCallback(() => {
+    router.push(getWorkspaceFlowsHref(slug, 'list'));
+  }, [router, slug]);
 
-        if (resolvedNextMode === "chat" && currentIsFlow) {
-          const targetId = lastSessionByModeRef.current.chat;
-          if (targetId !== currentActiveId) {
-            selectWorkspaceSession(targetId);
-          }
-        } else if (resolvedNextMode === "flows" && !currentIsFlow) {
-          // Only switch the active session if we have a remembered flow to
-          // restore. If not, leave the session as-is so the workspace hook
-          // does not auto-reselect a chat session in the background.
-          const targetId = lastSessionByModeRef.current.flows;
-          if (targetId && targetId !== currentActiveId) {
-            selectWorkspaceSession(targetId);
-          }
-        }
-      }
+  const flattenedFilePaths = useMemo(() => {
+    return flattenWorkspaceFileNodes(workspace.fileTree).map((file) => file.path);
+  }, [workspace.fileTree]);
 
-      if (isCompactLayout) {
-        setMobileView("chat");
-      }
-
-      if (typeof window === "undefined") return;
-
-      const params = new URLSearchParams(window.location.search);
-      if (resolvedNextMode === "explore" || resolvedNextMode === "knowledge") {
-        params.set("mode", resolvedNextMode);
-      } else if (resolvedNextMode === "flows") {
-        params.set("mode", "flows");
-      } else {
-        params.delete("mode");
-      }
-
-      const query = params.toString();
-      window.history.replaceState(window.history.state, "", query ? `/w/${slug}?${query}` : `/w/${slug}`);
-    },
-    [isCompactLayout, selectWorkspaceSession, sessionsById, slug, workspaceActiveSessionId, workspaceMode]
+  const markdownFilePaths = useMemo(
+    () => flattenedFilePaths.filter((path) => path.toLowerCase().endsWith(".md")),
+    [flattenedFilePaths]
   );
 
-  const handleCreateSession = useCallback(async () => {
+  const handleOpenFileInExplore = useCallback(
+    (path: string) => {
+      const resolvedPath = resolveWorkspaceFilePath(path, flattenedFilePaths);
+      if (!resolvedPath) return;
+      // Opening a file navigates to Explore; the target screen shows the file
+      // itself, so the Curator dialog must not stay open over it.
+      setCuratorOpen(false);
+      router.push(`/w/${slug}/explore?path=${encodeURIComponent(resolvedPath)}`);
+    },
+    [flattenedFilePaths, router, setCuratorOpen, slug]
+  );
+
+  const handleCommandPaletteOpenFile = useCallback(
+    (path: string) => handleOpenFileInExplore(path),
+    [handleOpenFileInExplore]
+  );
+
+  const handleOpenExplore = useCallback(() => {
+    router.push(`/w/${slug}/explore`);
+  }, [router, slug]);
+
+  const handleCreateSession = useCallback(() => {
     switchToChatOnMobile();
-    await workspace.createSession();
-  }, [switchToChatOnMobile, workspace]);
+    workspace.selectSession(null);
+    router.push(getWorkspaceHref(slug));
+  }, [router, slug, switchToChatOnMobile, workspace]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -853,11 +474,7 @@ export function WorkspaceShell({
           return;
         }
 
-        if (isCompactLayout) {
-          setMobileView((prev) => (prev === "left" ? "chat" : "left"));
-        } else if (workspaceMode !== "flows") {
-          setLeftCollapsedForMode(workspaceMode, (prev) => !prev);
-        }
+        setSidebarCollapsed((prev) => !prev);
         return;
       }
 
@@ -879,256 +496,11 @@ export function WorkspaceShell({
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [handleCreateSession, isCompactLayout, setLeftCollapsedForMode, toggleRightPanel, workspaceMode]);
-
-  // File viewing state
-  const safeInitialFilePath = useMemo(() => {
-    if (!initialFilePath) return null;
-    if (!isValidStoredPath(initialFilePath)) return null;
-    return normalizeWorkspacePath(initialFilePath);
-  }, [initialFilePath]);
-
-  const [openFilePaths, setOpenFilePaths] = useState<string[]>(() => {
-    const stored = loadStoredOpenFiles(openFilesStorageKey);
-    const storedPaths = stored?.openFilePaths ?? [];
-    if (!safeInitialFilePath) return storedPaths;
-    if (storedPaths.includes(safeInitialFilePath)) return storedPaths;
-    return [...storedPaths, safeInitialFilePath];
-  });
-  const [activeFilePath, setActiveFilePath] = useState<string | null>(() => {
-    if (safeInitialFilePath) return safeInitialFilePath;
-    const stored = loadStoredOpenFiles(openFilesStorageKey);
-    if (!stored?.activeFilePath) return stored?.openFilePaths?.[0] ?? null;
-    return stored.openFilePaths.includes(stored.activeFilePath)
-      ? stored.activeFilePath
-      : stored.openFilePaths[0] ?? null;
-  });
-  const [fileCache, setFileCache] = useState<FileContentCache>({});
-  const fileCacheRef = useRef(fileCache);
-
-  useEffect(() => {
-    fileCacheRef.current = fileCache;
-  }, [fileCache]);
-
-  const initialOpenFilePathsRef = useRef(openFilePaths);
-  const hasRestoredFilesRef = useRef(false);
-  useEffect(() => {
-    if (hasRestoredFilesRef.current) return;
-    if (!workspace.isConnected) return;
-    const paths = initialOpenFilePathsRef.current;
-    if (paths.length === 0) {
-      hasRestoredFilesRef.current = true;
-      return;
-    }
-    hasRestoredFilesRef.current = true;
-
-    void Promise.all(
-      paths.map(async (path) => {
-        try {
-          const result = await readWorkspaceFile(path);
-          if (result) {
-            setFileCache((prev) => {
-              if (prev[path]) return prev;
-              return {
-                ...prev,
-                [path]: {
-                  content: result.content,
-                  type: result.type,
-                  title: path.split("/").pop() ?? path,
-                  updatedAt: "Just now",
-                  size: `${(result.content.length / 1024).toFixed(1)} KB`,
-                  hash: result.hash,
-                },
-              };
-            });
-          } else {
-            setFileCache((prev) => ({
-              ...prev,
-              [path]: {
-                content: "Unable to load file.",
-                type: "raw",
-                title: path.split("/").pop() ?? path,
-                updatedAt: "Error",
-                size: "0 KB",
-              },
-            }));
-          }
-        } catch {
-          setFileCache((prev) => ({
-            ...prev,
-            [path]: {
-              content: "Unable to load file.",
-              type: "raw",
-              title: path.split("/").pop() ?? path,
-              updatedAt: "Error",
-              size: "0 KB",
-            },
-          }));
-        }
-      })
-    );
-  }, [workspace.isConnected, readWorkspaceFile]);
-
-  useEffect(() => {
-    persistOpenFiles(openFilesStorageKey, { openFilePaths, activeFilePath });
-  }, [openFilesStorageKey, openFilePaths, activeFilePath]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const params = new URLSearchParams(window.location.search);
-
-    if (activeFilePath) {
-      params.set("path", activeFilePath);
-    } else {
-      params.delete("path");
-    }
-
-    const query = params.toString();
-    window.history.replaceState(window.history.state, "", query ? `/w/${slug}?${query}` : `/w/${slug}`);
-  }, [activeFilePath, slug]);
-
-  const refreshOpenFilesCache = useCallback(async () => {
-    if (openFilePaths.length === 0) return;
-
-    const updates = await Promise.all(
-      openFilePaths.map(async (path) => ({
-        path,
-        result: await workspace.readFile(path),
-      }))
-    );
-
-    setFileCache((prev) => {
-      let changed = false;
-      const next = { ...prev };
-
-      updates.forEach(({ path, result }) => {
-        if (!result) return;
-        changed = true;
-         next[path] = {
-           content: result.content,
-           type: result.type,
-           title: path.split("/").pop() ?? path,
-           updatedAt: "Just now",
-           size: `${(result.content.length / 1024).toFixed(1)} KB`,
-           hash: result.hash,
-         };
-       });
-
-      return changed ? next : prev;
-    });
-  }, [openFilePaths, workspace]);
-
-  const handleSyncComplete = useCallback((status: SyncKbResult["status"]) => {
-    refreshKnowledgeReview();
-
-    if (status === "synced") {
-      void refreshOpenFilesCache();
-    }
-  }, [refreshKnowledgeReview, refreshOpenFilesCache]);
+  }, [handleCreateSession, setSidebarCollapsed, toggleRightPanel]);
 
   const handlePublishComplete = useCallback(() => {
     refreshKnowledgeReview();
   }, [refreshKnowledgeReview]);
-
-  const handleResolveConflict = useCallback(
-    async (path: string) => {
-      refreshKnowledgeReview();
-
-      if (!fileCacheRef.current[path]) return;
-
-      const refreshed = await workspace.readFile(path);
-
-      setFileCache((prev) => {
-        const existing = prev[path];
-        if (!existing) return prev;
-        if (!refreshed) {
-          const next = { ...prev };
-          delete next[path];
-          return next;
-        }
-
-        return {
-          ...prev,
-          [path]: {
-            ...existing,
-            content: refreshed.content,
-            type: refreshed.type,
-            updatedAt: "Just now",
-            size: `${(refreshed.content.length / 1024).toFixed(1)} KB`,
-            hash: refreshed.hash,
-          },
-        };
-      });
-
-      if (!refreshed) {
-        setOpenFilePaths((prev) => {
-          const nextOpen = prev.filter((candidate) => candidate !== path);
-          setActiveFilePath((active) => {
-            if (active !== path) return active;
-            return nextOpen[0] ?? null;
-          });
-          return nextOpen;
-        });
-      }
-    },
-    [refreshKnowledgeReview, workspace]
-  );
-
-  const handleSaveFile = useCallback(
-    async (path: string, content: string, expectedHash?: string) => {
-      const hashToUse = expectedHash ?? fileCacheRef.current[path]?.hash;
-      const result = await workspace.writeFile(path, content, hashToUse);
-      if (!result.ok) {
-        return { ok: false as const, error: result.error ?? "save_failed" };
-      }
-
-      setFileCache((prev) => {
-        const existing = prev[path];
-        if (!existing) return prev;
-        const size = `${(content.length / 1024).toFixed(1)} KB`;
-        return {
-          ...prev,
-          [path]: {
-            ...existing,
-            content,
-            updatedAt: "Just now",
-            size,
-            hash: result.hash ?? existing.hash,
-          },
-        };
-      });
-
-      refreshKnowledgeReview();
-
-      return { ok: true as const, hash: result.hash };
-    },
-    [refreshKnowledgeReview, workspace]
-  );
-
-  const handleReloadFile = useCallback(
-    async (path: string) => {
-      const result = await workspace.readFile(path);
-      if (!result) return;
-
-      setFileCache((prev) => {
-        const existing = prev[path];
-        if (!existing) return prev;
-        return {
-          ...prev,
-          [path]: {
-            ...existing,
-            content: result.content,
-            type: result.type,
-            updatedAt: "Just now",
-            size: `${(result.content.length / 1024).toFixed(1)} KB`,
-            hash: result.hash,
-          },
-        };
-      });
-    },
-    [workspace]
-  );
 
   const handleDiscardFileChanges = useCallback(
     async (path: string) => {
@@ -1136,199 +508,157 @@ export function WorkspaceShell({
       if (!result.ok) {
         return { ok: false as const, error: result.error ?? "discard_failed" };
       }
-
-      const refreshed = await workspace.readFile(path);
-
-      setFileCache((prev) => {
-        const next = { ...prev };
-        if (!refreshed) {
-          delete next[path];
-          return next;
-        }
-        const existing = next[path];
-        if (!existing) return prev;
-
-        next[path] = {
-          ...existing,
-          content: refreshed.content,
-          type: refreshed.type,
-          updatedAt: "Just now",
-          size: `${(refreshed.content.length / 1024).toFixed(1)} KB`,
-          hash: refreshed.hash,
-        };
-        return next;
-      });
-
-      if (!refreshed) {
-        setOpenFilePaths((prev) => {
-          const nextOpen = prev.filter((candidate) => candidate !== path);
-          setActiveFilePath((active) => {
-            if (active !== path) return active;
-            return nextOpen[0] ?? null;
-          });
-          return nextOpen;
-        });
-      }
-
       refreshKnowledgeReview();
-
       return { ok: true as const };
     },
     [refreshKnowledgeReview, workspace]
   );
 
-  const flattenedFilePaths = useMemo(() => {
-    return flattenWorkspaceFileNodes(workspace.fileTree).map((file) => file.path);
-  }, [workspace.fileTree]);
-
-  const filePathSet = useMemo(() => new Set(flattenedFilePaths), [flattenedFilePaths]);
-  const markdownFilePaths = useMemo(
-    () => flattenedFilePaths.filter((path) => path.toLowerCase().endsWith(".md")),
-    [flattenedFilePaths]
+  const handleResolveConflict = useCallback(
+    async (_path: string) => {
+      refreshKnowledgeReview();
+    },
+    [refreshKnowledgeReview]
   );
 
-  const normalizePath = useCallback((path: string) => {
-    return path.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/+/g, "/");
-  }, []);
+  // File handlers
+  const handleOpenFile = useCallback(
+    async (path: string) => {
+      const resolvedPath = resolveWorkspaceFilePath(path, flattenedFilePaths);
+      const pathToOpen = resolvedPath || path;
+      const normalizedPath = normalizeWorkspacePath(pathToOpen);
 
-  const resolveFilePath = useCallback((path: string) => {
-    if (!path) return path;
-    const normalized = normalizePath(path);
-    if (filePathSet.has(normalized)) return normalized;
+      if (!normalizedPath || isProtectedWorkspacePath(normalizedPath)) {
+        return;
+      }
 
-    const trimmed = normalized.replace(/^\/+/, "");
-    if (filePathSet.has(trimmed)) return trimmed;
+      setPreviewFilePath(normalizedPath);
+      setRightCollapsed(false);
+      if (isCompactLayout) {
+        setMobileView("right");
+      }
 
-    const matches = flattenedFilePaths.filter((candidate) =>
-      normalized.endsWith(candidate) || trimmed.endsWith(candidate)
-    );
-    if (matches.length === 0) return normalized;
+      if (previewFile?.path !== normalizedPath) {
+        setPreviewFile(null);
+        const result = await readWorkspaceFile(normalizedPath);
+        setPreviewFile({
+          path: normalizedPath,
+          content: result?.content ?? "Unable to load file.",
+          hash: result?.hash,
+        });
+      }
+    },
+    [
+      isCompactLayout,
+      previewFile,
+      readWorkspaceFile,
+      flattenedFilePaths,
+      setRightCollapsed,
+    ]
+  );
 
-    matches.sort((a, b) => b.length - a.length);
-    return matches[0];
-  }, [filePathSet, flattenedFilePaths, normalizePath]);
+  const handleEditFromPreview = useCallback(() => {
+    if (!previewFilePath) return;
+    const path = previewFilePath;
+    setPreviewFilePath(null);
+    router.push(`/w/${slug}/explore?path=${encodeURIComponent(path)}`);
+  }, [previewFilePath, router, slug]);
 
-  const diffSignature = useMemo(() => {
-    if (workspace.diffs.length === 0) return '';
-    return workspace.diffs
-      .map(
-        (diff) =>
-          `${diff.path}:${diff.status}:${diff.additions}:${diff.deletions}:${diff.conflicted ? 1 : 0}:${diff.diff}`
-      )
-      .sort()
-      .join('|');
-  }, [workspace.diffs]);
+  function handleClosePreview() {
+    setPreviewFilePath(null);
+    setPreviewFile(null);
+    if (isCompactLayout) {
+      setMobileView("chat");
+    }
+  }
 
-  const lastDiffSignatureRef = useRef<string>('');
+  // Session handlers
+  const handleCommandPaletteSelectSession = useCallback(
+    (sessionId: string) => {
+      switchToChatOnMobile();
+      workspace.selectSession(sessionId);
+    },
+    [switchToChatOnMobile, workspace]
+  );
 
-  useEffect(() => {
-    if (!workspace.isConnected) return;
-    if (lastDiffSignatureRef.current === diffSignature) return;
+  const openCurator = useCallback(() => {
+    setCuratorOpen(true);
+    void refreshKnowledgePendingCount();
+  }, [refreshKnowledgePendingCount, setCuratorOpen]);
 
-    lastDiffSignatureRef.current = diffSignature;
-    workspace.refreshFiles();
+  const handleSelectSessionTab = useCallback((sessionId: string) => {
+    workspace.selectSession(sessionId);
+  }, [workspace]);
 
-    if (openFilePaths.length === 0) return;
+  const handleCloseSession = useCallback(async (sessionId: string) => {
+    await workspace.deleteSession(sessionId);
+  }, [workspace]);
 
-    openFilePaths.forEach((path) => {
-      void workspace.readFile(path).then((result) => {
-        if (!result) return;
-        setFileCache((prev) => ({
-          ...prev,
-          [path]: {
-            content: result.content,
-            type: result.type,
-            title: path.split('/').pop() ?? path,
-            updatedAt: 'Just now',
-            size: `${(result.content.length / 1024).toFixed(1)} KB`,
-            hash: result.hash,
-          },
-        }));
-      });
-    });
-  }, [diffSignature, openFilePaths, workspace, workspace.isConnected, workspace.readFile, workspace.refreshFiles]);
+  const handleRenameSession = useCallback(
+    async (sessionId: string, title: string) => {
+      return workspace.renameSession(sessionId, title);
+    },
+    [workspace]
+  );
 
-  // Load layout from localStorage
+  const handleLearnSession = useCallback(
+    async (session: { id: string; title: string }) => {
+      try {
+        const response = await fetch(`/api/u/${slug}/learning`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sourceSessionId: session.id, title: session.title }),
+        });
+        if (response.ok) {
+          void refreshKnowledgePendingCount();
+          toast.success("Learning started", {
+            action: {
+              label: "Open Curator",
+              onClick: openCurator,
+            },
+          });
+        } else {
+          toast.error("Could not start learning")
+        }
+      } catch {
+        toast.error("Could not start learning")
+      }
+      setLearningRefreshKey((current) => current + 1);
+    },
+    [openCurator, refreshKnowledgePendingCount, slug]
+  );
+
+  const handleLearningProposalSentToReview = useCallback(() => {
+    refreshKnowledgeWorkspace();
+  }, [refreshKnowledgeWorkspace]);
+
+  const handleFlowHumanResponseSubmitted = useCallback(async () => {
+    await Promise.all([
+      workspace.refreshMessages(),
+      workspace.refreshSessions(),
+    ]);
+  }, [workspace]);
+
+  // Load layout from localStorage (global values, ignoring legacy per-mode maps)
   useEffect(() => {
     const stored = loadStoredLayout(layoutStorageKey, layoutCookieName) ?? initialLayoutState;
     const containerWidth = getContainerWidth(containerRef.current);
-    const defaultLeft = containerWidth * DEFAULT_LEFT_RATIO;
-    const defaultRight = containerWidth * DEFAULT_RIGHT_RATIO;
+    const defaultLeft = stored?.leftWidth ?? containerWidth * DEFAULT_LEFT_RATIO;
+    const defaultRight = stored?.rightWidth ?? containerWidth * DEFAULT_RIGHT_RATIO;
 
-    const initialLeftByMode = buildInitialWidthByMode(
-      stored?.leftWidth ?? defaultLeft,
-      stored?.leftWidthByMode,
-      defaultLeft
-    );
-    const initialRightByMode = buildInitialWidthByMode(
-      stored?.rightWidth ?? defaultRight,
-      stored?.rightWidthByMode,
-      defaultRight
-    );
+    const fitted = fitWidths(containerWidth, defaultLeft, defaultRight);
+    setLeftWidth(fitted.left);
+    setRightWidth(fitted.right);
 
-    const fittedLeftByMode: Record<WorkspaceMode, number> = { ...initialLeftByMode };
-    const fittedRightByMode: Record<WorkspaceMode, number> = { ...initialRightByMode };
-    const modes: WorkspaceMode[] = ["chat", "flows", "explore", "knowledge"];
-    let activeFitted = fitWidths(containerWidth, initialLeftByMode[workspaceMode], initialRightByMode[workspaceMode]);
-    for (const mode of modes) {
-      const fitted = fitWidths(containerWidth, initialLeftByMode[mode], initialRightByMode[mode]);
-      fittedLeftByMode[mode] = fitted.left;
-      fittedRightByMode[mode] = fitted.right;
-      if (mode === workspaceMode) {
-        activeFitted = fitted;
-      }
+    if (typeof stored?.leftCollapsed === "boolean") {
+      setLeftCollapsed(stored.leftCollapsed);
     }
-
-    setLeftWidthByMode(fittedLeftByMode);
-    setRightWidthByMode(fittedRightByMode);
-    setMinCenterWidth(activeFitted.minCenter);
-
-    if (
-      typeof stored?.leftCollapsed === "boolean" ||
-      stored?.leftCollapsedByMode
-    ) {
-      setLeftCollapsedByMode(
-        buildInitialCollapseByMode(stored?.leftCollapsed, stored?.leftCollapsedByMode)
-      );
-    }
-    if (
-      typeof stored?.rightCollapsed === "boolean" ||
-      stored?.rightCollapsedByMode
-    ) {
-      setRightCollapsedByMode(
-        buildInitialCollapseByMode(stored?.rightCollapsed, stored?.rightCollapsedByMode, { chat: true })
-      );
-    }
-    if (
-      stored?.rightTab === "preview" ||
-      (workspaceAgentEnabled && stored?.rightTab === "review")
-    ) {
-      setRightTab(stored.rightTab);
+    if (typeof stored?.rightCollapsed === "boolean") {
+      setRightCollapsed(stored.rightCollapsed);
     }
 
     setHydratedLayoutKey(layoutStorageKey);
-  }, [buildInitialCollapseByMode, buildInitialWidthByMode, initialLayoutState, layoutCookieName, layoutStorageKey, workspaceAgentEnabled, workspaceMode]);
-
-  // Re-fit the active mode's widths on mode switch so a previously-stored
-  // width does not overflow if the container is now narrower.
-  useEffect(() => {
-    if (hydratedLayoutKey !== layoutStorageKey) return;
-    const containerWidth = getContainerWidth(containerRef.current);
-    const fitted = fitWidths(
-      containerWidth,
-      leftWidthByMode[workspaceMode],
-      rightWidthByMode[workspaceMode]
-    );
-    setLeftWidthByMode((prev) =>
-      prev[workspaceMode] === fitted.left ? prev : { ...prev, [workspaceMode]: fitted.left }
-    );
-    setRightWidthByMode((prev) =>
-      prev[workspaceMode] === fitted.right ? prev : { ...prev, [workspaceMode]: fitted.right }
-    );
-    setMinCenterWidth(fitted.minCenter);
-    // Intentionally exclude width state from deps so we only refit on mode changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hydratedLayoutKey, layoutStorageKey, workspaceMode]);
+  }, [initialLayoutState, layoutCookieName, layoutStorageKey, setLeftCollapsed, setRightCollapsed]);
 
   // Persist layout
   useEffect(() => {
@@ -1338,25 +668,15 @@ export function WorkspaceShell({
       rightWidth,
       leftCollapsed,
       rightCollapsed,
-      leftCollapsedByMode,
-      rightCollapsedByMode,
-      leftWidthByMode,
-      rightWidthByMode,
-      rightTab: effectiveRightTab,
     });
   }, [
-    effectiveRightTab,
     hydratedLayoutKey,
     layoutCookieName,
     layoutStorageKey,
     leftCollapsed,
-    leftCollapsedByMode,
     leftWidth,
-    leftWidthByMode,
     rightCollapsed,
-    rightCollapsedByMode,
     rightWidth,
-    rightWidthByMode,
   ]);
 
   // Map workspace sessions to UI format
@@ -1396,618 +716,11 @@ export function WorkspaceShell({
     }));
   }, [workspace.messages]);
 
-  // Open files from cache for preview
-  const openFiles = useMemo(() => {
-    return openFilePaths
-      .map(path => {
-        const cached = fileCache[path];
-        if (!cached) return null;
-        return {
-          path,
-          title: path.split('/').pop() ?? path,
-          content: cached.content,
-          updatedAt: cached.updatedAt,
-          size: cached.size,
-          hash: cached.hash,
-          kind: path.endsWith('.md') ? 'markdown' as const : 'text' as const
-        };
-      })
-      .filter((f): f is NonNullable<typeof f> => f != null);
-  }, [openFilePaths, fileCache]);
-
-  // File handlers
-  const handleOpenFile = useCallback(
-    async (path: string, options?: { forceExploreMode?: boolean }) => {
-      const resolvedPath = resolveFilePath(path);
-      const pathToOpen = resolvedPath || path;
-      const normalizedPath = normalizeWorkspacePath(pathToOpen);
-
-      if (!normalizedPath || isProtectedWorkspacePath(normalizedPath)) {
-        return;
-      }
-
-      const shouldOpenInExplore = options?.forceExploreMode || isExploreMode;
-      if (options?.forceExploreMode && !isExploreMode) {
-        handleWorkspaceModeChange("explore");
-      }
-
-      if (shouldOpenInExplore) {
-        setOpenFilePaths(prev => prev.includes(normalizedPath) ? prev : [...prev, normalizedPath]);
-        setActiveFilePath(normalizedPath);
-        setRightTab("preview");
-        if (isCompactLayout) {
-          setMobileView("chat");
-        }
-      } else {
-        if (previewCloseTimerRef.current) {
-          clearTimeout(previewCloseTimerRef.current);
-          previewCloseTimerRef.current = null;
-        }
-        if (previewOpenFrameRef.current !== null) {
-          cancelAnimationFrame(previewOpenFrameRef.current);
-        }
-        setPreviewExpanded(false);
-        setPreviewFilePath(normalizedPath);
-        previewOpenFrameRef.current = requestAnimationFrame(() => {
-          setPreviewExpanded(true);
-          previewOpenFrameRef.current = null;
-        });
-        setRightCollapsedForMode(workspaceMode, false);
-        if (isCompactLayout) {
-          setMobileView("right");
-        }
-      }
-
-      // Load file content if not cached
-      if (!fileCacheRef.current[normalizedPath]) {
-        const result = await readWorkspaceFile(normalizedPath);
-        if (result) {
-          setFileCache(prev => ({
-            ...prev,
-             [normalizedPath]: {
-                content: result.content,
-                type: result.type,
-                title: normalizedPath.split('/').pop() ?? normalizedPath,
-                updatedAt: 'Just now',
-                size: `${(result.content.length / 1024).toFixed(1)} KB`,
-                hash: result.hash,
-              }
-           }));
-         } else {
-           setFileCache(prev => ({
-             ...prev,
-             [normalizedPath]: {
-                content: 'Unable to load file.',
-                type: 'raw',
-                title: normalizedPath.split('/').pop() ?? normalizedPath,
-                updatedAt: 'Error',
-                size: '0 KB',
-              }
-           }));
-          }
-        }
-      },
-    [
-      handleWorkspaceModeChange,
-      isCompactLayout,
-      isExploreMode,
-      resolveFilePath,
-      readWorkspaceFile,
-      setRightCollapsedForMode,
-      workspaceMode,
-    ]
-  );
-
-  const handleCommandPaletteOpenFile = useCallback(
-    (path: string) => handleOpenFile(path, { forceExploreMode: true }),
-    [handleOpenFile]
-  );
-
-  function handleClosePreview() {
-    setPreviewExpanded(false);
-    if (previewOpenFrameRef.current !== null) {
-      cancelAnimationFrame(previewOpenFrameRef.current);
-      previewOpenFrameRef.current = null;
-    }
-    if (previewCloseTimerRef.current) {
-      clearTimeout(previewCloseTimerRef.current);
-    }
-    previewCloseTimerRef.current = setTimeout(() => {
-      setPreviewFilePath(null);
-      previewCloseTimerRef.current = null;
-      if (isCompactLayout) {
-        setMobileView("chat");
-      }
-    }, 220);
-  }
-
-  function handleEditFromPreview() {
-    if (!previewFilePath) return;
-    const path = previewFilePath;
-    if (previewOpenFrameRef.current !== null) {
-      cancelAnimationFrame(previewOpenFrameRef.current);
-      previewOpenFrameRef.current = null;
-    }
-    if (previewCloseTimerRef.current) {
-      clearTimeout(previewCloseTimerRef.current);
-      previewCloseTimerRef.current = null;
-    }
-    setOpenFilePaths((prev) => (prev.includes(path) ? prev : [...prev, path]));
-    setActiveFilePath(path);
-    setRightTab("preview");
-    setPreviewExpanded(false);
-    setPreviewFilePath(null);
-    handleWorkspaceModeChange("explore");
-  }
-
-  useEffect(() => () => {
-    if (previewOpenFrameRef.current !== null) {
-      cancelAnimationFrame(previewOpenFrameRef.current);
-    }
-    if (previewCloseTimerRef.current) {
-      clearTimeout(previewCloseTimerRef.current);
-    }
-  }, []);
-
-  const handleSelectFile = useCallback((path: string) => {
-    setActiveFilePath(path);
-    setRightTab("preview");
-  }, []);
-
-  const handleCloseFile = useCallback((path: string) => {
-    setOpenFilePaths(prev => {
-      const filtered = prev.filter(p => p !== path);
-      if (path === activeFilePath) {
-        setActiveFilePath(filtered.length > 0 ? filtered[filtered.length - 1] : null);
-      }
-      return filtered;
-    });
-  }, [activeFilePath]);
-
-  // Session handlers
-  const handleSelectSession = useCallback((sessionId: string) => {
-    switchToChatOnMobile();
-    workspace.selectSession(sessionId);
-  }, [switchToChatOnMobile, workspace]);
-
-  const handleCommandPaletteSelectSession = useCallback(
-    (sessionId: string, mode: WorkspaceMode) => {
-      handleWorkspaceModeChange(mode);
-      switchToChatOnMobile();
-      workspace.selectSession(sessionId);
-    },
-    [handleWorkspaceModeChange, switchToChatOnMobile, workspace]
-  );
-
-  const handleSelectSessionTab = useCallback((sessionId: string) => {
-    workspace.selectSession(sessionId);
-  }, [workspace]);
-
-  const handleCloseSession = useCallback(async (sessionId: string) => {
-    await workspace.deleteSession(sessionId);
-  }, [workspace]);
-
-  const handleRenameSession = useCallback(
-    async (sessionId: string, title: string) => {
-      return workspace.renameSession(sessionId, title);
-    },
-    [workspace]
-  );
-
-  const handleLearnSession = useCallback(
-    async (session: { id: string; title: string }) => {
-      try {
-        const response = await fetch(`/api/u/${slug}/learning`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sourceSessionId: session.id, title: session.title }),
-        });
-        if (response.ok) {
-          void refreshKnowledgePendingCount();
-          toast.success("Learning started", {
-            action: {
-              label: "View in Knowledge",
-              onClick: () => handleWorkspaceModeChange("knowledge"),
-            },
-          });
-        } else {
-          toast.error("Could not start learning")
-        }
-      } catch {
-        toast.error("Could not start learning")
-      }
-      setLearningRefreshKey((current) => current + 1);
-    },
-    [handleWorkspaceModeChange, refreshKnowledgePendingCount, slug]
-  );
-
-  const handleLearningProposalSentToReview = useCallback(() => {
-    refreshKnowledgeWorkspace();
-    void refreshOpenFilesCache();
-  }, [refreshKnowledgeWorkspace, refreshOpenFilesCache]);
-
-  const handleFlowHumanResponseSubmitted = useCallback(async () => {
-    await Promise.all([
-      workspace.refreshMessages(),
-      workspace.refreshSessions(),
-    ]);
-  }, [workspace]);
-
-  const handleDownloadFile = useCallback(
-    (path: string) => {
-      downloadWorkspaceFile(slug, path);
-    },
-    [slug]
-  );
-
-  const handleExportFile = useCallback(
-    async (format: WorkspaceFileExportFormat, path: string) => {
-      const label = format.toUpperCase();
-      const toastId = `${format}-export:${path}`;
-      toast.loading(`Exporting ${label}…`, { id: toastId });
-      const result = await exportWorkspaceFile(slug, path, format);
-      if (result.ok) {
-        toast.success(`${label} exported`, { id: toastId });
-      } else if (result.error === "export_busy") {
-        toast.error(`Another ${label} export is already in progress`, { id: toastId });
-      } else if (result.error === "file_too_large") {
-        toast.error("The document is too large to export", { id: toastId });
-      } else if (result.error === "bundle_too_large") {
-        toast.error("The document bundle is too large to export", { id: toastId });
-      } else if (result.error === "export_timeout") {
-        toast.error(`${label} export timed out; try again`, { id: toastId });
-      } else {
-        toast.error(`${label} export failed`, { id: toastId });
-      }
-    },
-    [slug]
-  );
-
-  const handleExportFilePdf = useCallback(
-    (path: string) => handleExportFile("pdf", path),
-    [handleExportFile]
-  );
-  const handleExportFileDocx = useCallback(
-    (path: string) => handleExportFile("docx", path),
-    [handleExportFile]
-  );
-
-  // Resize handlers - now work via the gap area between panels
-  const handleResizeLeft = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    const container = containerRef.current;
-    if (!container) return;
-    const rect = container.getBoundingClientRect();
-    const handle = event.currentTarget;
-
-    setIsDragging(true);
-    handle.setPointerCapture(event.pointerId);
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-
-    const onMove = (moveEvent: PointerEvent) => {
-      const minCenter = getMinCenter(rect.width);
-      const effectiveRight = rightCollapsed ? COLLAPSED_PANEL_PX + PANEL_GAP : rightWidth + PANEL_GAP;
-      const maxLeft = Math.max(MIN_LEFT_PX, rect.width - effectiveRight - minCenter - PANEL_GAP);
-      const nextWidth = clamp(moveEvent.clientX - rect.left, MIN_LEFT_PX, maxLeft);
-      setLeftWidth(nextWidth);
-      setMinCenterWidth(minCenter);
-    };
-
-    const onUp = () => {
-      setIsDragging(false);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      handle.releasePointerCapture(event.pointerId);
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-    };
-
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-  }, [rightCollapsed, rightWidth, setLeftWidth]);
-
-  const handleResizeRight = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    const container = containerRef.current;
-    if (!container) return;
-    const rect = container.getBoundingClientRect();
-    const handle = event.currentTarget;
-
-    setIsDragging(true);
-    handle.setPointerCapture(event.pointerId);
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-
-    const onMove = (moveEvent: PointerEvent) => {
-      const minCenter = getMinCenter(rect.width);
-      const effectiveLeft = leftCollapsed ? COLLAPSED_PANEL_PX + PANEL_GAP : leftWidth + PANEL_GAP;
-      const maxRight = Math.max(MIN_RIGHT_PX, rect.width - effectiveLeft - minCenter - PANEL_GAP);
-      const nextWidth = clamp(rect.right - moveEvent.clientX, MIN_RIGHT_PX, maxRight);
-      setRightWidth(nextWidth);
-      setMinCenterWidth(minCenter);
-    };
-
-    const onUp = () => {
-      setIsDragging(false);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      handle.releasePointerCapture(event.pointerId);
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-    };
-
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-  }, [leftCollapsed, leftWidth, setRightWidth]);
-
-  // Get theme from context
-  const { themeId, isDark } = useWorkspaceTheme();
-
-  // Build theme classes
-  const darkModeClasses = isDark ? "dark" : "";
-  const themeClassName = `theme-${themeId}`;
-
-  // Loading screen while instance is starting
-  if (instanceStatus !== 'running') {
-    const loadingStatus = instanceStatus === 'starting' ? 'provisioning' : 'offline';
-    const loadingStyle = statusConfig[loadingStatus as keyof typeof statusConfig];
-    const showInstanceHeader = instanceStatus === 'error';
-    return (
-      <div
-        className={cn(
-          'flex h-dvh flex-col overflow-hidden bg-background text-foreground',
-          macDesktopWindowInset && 'pt-8',
-          darkModeClasses,
-          themeClassName,
-        )}
-      >
-        <div className="flex h-full flex-col p-3">
-          {showInstanceHeader && (
-            <div className="flex items-center gap-2 p-4">
-              <span className="type-display text-base font-semibold tracking-tight">Arche</span>
-              <span className="text-sm text-muted-foreground">/</span>
-              <span className="text-sm text-muted-foreground">{slug}</span>
-              <Circle size={8} weight="fill" className={cn(loadingStyle.color, loadingStyle.pulse && "animate-pulse")} />
-            </div>
-          )}
-
-          <div className="relative z-10 flex flex-1 items-center justify-center">
-            <div className="flex flex-col items-center gap-6 text-center">
-              {instanceStatus === 'starting' && (
-                <>
-                  <div className="relative">
-                    <div className="h-16 w-16 animate-spin rounded-full border-4 border-muted border-t-primary" />
-                  </div>
-                  <div className="space-y-2">
-                    <h2 className="type-display text-xl font-semibold">
-                      Starting workspace
-                    </h2>
-                    <p className="text-sm text-muted-foreground">
-                      Preparing your development environment...
-                    </p>
-                  </div>
-                </>
-              )}
-              {instanceStatus === 'error' && (
-                <>
-                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-destructive/10">
-                    <span className="text-2xl">!</span>
-                  </div>
-                  <div className="space-y-2">
-                    <h2 className="type-display text-xl font-semibold text-destructive">
-                      Failed to start
-                    </h2>
-                    <p className="text-sm text-muted-foreground">
-                      {instanceError ?? 'Unable to start the workspace'}
-                    </p>
-                  </div>
-                </>
-              )}
-              {instanceStatus === null && (
-                <>
-                  <ArcLoader />
-                  <div className="space-y-2">
-                    <h2 className="type-display text-xl font-semibold">
-                      Connecting...
-                    </h2>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Connecting to OpenCode screen
-  if (!workspace.isConnected) {
-    const connectingStyle = statusConfig.provisioning;
-    const showConnectingHeader = workspace.connection.status === 'error';
-    return (
-      <div
-        className={cn(
-          'flex h-dvh flex-col overflow-hidden bg-background text-foreground',
-          macDesktopWindowInset && 'pt-8',
-          darkModeClasses,
-          themeClassName,
-        )}
-      >
-        <div className="flex h-full flex-col p-3">
-          {showConnectingHeader && (
-            <div className="flex items-center gap-2 p-4">
-              <span className="type-display text-base font-semibold tracking-tight">Arche</span>
-              <span className="text-sm text-muted-foreground">/</span>
-              <span className="text-sm text-muted-foreground">{slug}</span>
-              <Circle size={8} weight="fill" className={cn(connectingStyle.color, connectingStyle.pulse && "animate-pulse")} />
-            </div>
-          )}
-
-          <div className="relative z-10 flex flex-1 items-center justify-center">
-            <div className="flex flex-col items-center gap-6 text-center">
-              <ArcLoader />
-              <div className="space-y-2">
-                <h2 className="type-display text-xl font-semibold">
-                  Connecting to OpenCode
-                </h2>
-                <p className="text-sm text-muted-foreground">
-                  {workspace.connection.status === 'error'
-                    ? getConnectionErrorText(workspace.connection.error)
-                    : 'Establishing connection...'}
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  const navigateSettings = () => {
-    router.push(
-      currentVault ? getDesktopWorkspaceHref(slug, 'providers') : `/u/${slug}/settings`,
-    );
-  };
-
-  const navigateConnectors = () => {
-    router.push(
-      currentVault ? getDesktopWorkspaceHref(slug, 'connectors') : `/u/${slug}/connectors`,
-    );
-  };
-
-  const navigateProviders = () => {
-    router.push(
-      currentVault ? getDesktopWorkspaceHref(slug, 'providers') : `/u/${slug}/settings`,
-    );
-  };
-
-  const leftPanelModeLabel = isExploreMode ? "explore" : isFlowsMode ? "flows" : "sessions";
-
-  const collapseLeftButton = !isCompactLayout && !isFlowsMode && !isKnowledgeMode ? (
-    <button
-      type="button"
-      onClick={handleToggleLeft}
-      className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground/80 transition-colors hover:bg-foreground/5 hover:text-foreground"
-      aria-label={`Collapse ${leftPanelModeLabel} panel`}
-      title="Collapse panel"
-    >
-      <ArrowLineLeft size={13} weight="bold" />
-    </button>
-  ) : null;
-
-  const flowsSettingsButton = !isCompactLayout && isFlowsMode ? (
-    <button
-      type="button"
-      onClick={() => router.push(currentVault ? getDesktopFlowsHref(slug, 'list') : `/u/${slug}/flows`)}
-      className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground/80 transition-colors hover:bg-foreground/5 hover:text-foreground"
-      aria-label="Manage flows"
-      title="Manage flows"
-    >
-      <SlidersHorizontal size={13} weight="bold" />
-    </button>
-  ) : null;
-
-  const leftPanelHeaderActions = collapseLeftButton ?? flowsSettingsButton;
-
-  const leftPanelCoreElement = isExploreMode ? (
-    <KnowledgeNavigationPanel
-      activeFilePath={activeFilePath}
-      agentSources={knowledgeAgentSources}
-      fileNodes={workspace.fileTree}
-      headerActions={leftPanelHeaderActions}
-      onDownloadFile={handleDownloadFile}
-      onExportFileDocx={handleExportFileDocx}
-      onExportFilePdf={handleExportFilePdf}
-      onOpenFile={(path) => {
-        void handleOpenFile(path, { forceExploreMode: true })
-      }}
-      openFiles={openFiles}
-      readFile={workspace.readFile}
-      reloadKey={knowledgeGraphReloadKey}
-      view={knowledgeNavView}
-      onViewChange={setKnowledgeNavView}
-    />
-  ) : (
-    <WorkspaceSessionsSidebar
-      slug={slug}
-      kind={isFlowsMode ? "flows" : "chats"}
-      sessions={rootSessions}
-      activeSessionId={activeRootSessionId}
-      hasMoreSessions={workspace.hasMoreSessions}
-      isInitialSessionsReady={workspace.isInitialSessionsReady}
-      isLoadingMoreSessions={workspace.isLoadingMoreSessions}
-      sessionsError={workspace.sessionsError}
-      unseenCompletedSessions={workspace.unseenCompletedSessions}
-      headerActions={leftPanelHeaderActions}
-      onCreateSession={handleCreateSession}
-      onLoadMoreSessions={workspace.loadMoreSessions}
-      onMarkFlowRunSeen={workspace.markFlowRunSeen}
-      onRunFlowComplete={workspace.refreshSessions}
-      onSelectSession={handleSelectSession}
-    />
-  );
-
-  const leftPanelElement = leftCollapsed && !isCompactLayout ? (
-    <div className="flex h-full w-full flex-col items-center py-2 text-card-foreground">
-      <button
-        type="button"
-        onClick={handleToggleLeft}
-        className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
-        aria-label={`Expand ${leftPanelModeLabel} panel`}
-      >
-        <ArrowLineRight size={13} weight="bold" />
-      </button>
-      <div className="my-2 h-px w-6 bg-border/40" />
-      {isExploreMode ? (
-        <>
-          <button
-            type="button"
-            onClick={() => {
-              setKnowledgeNavView("tree");
-              setLeftCollapsedForMode(workspaceMode, false);
-            }}
-            className={cn(
-              "flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-foreground/5 hover:text-foreground",
-              knowledgeNavView === "tree" ? "text-foreground" : "text-muted-foreground"
-            )}
-            aria-label="Show tree view"
-            title="Tree"
-          >
-            <TreeStructure size={13} weight={knowledgeNavView === "tree" ? "fill" : "bold"} />
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setKnowledgeNavView("graph");
-              setLeftCollapsedForMode(workspaceMode, false);
-            }}
-            className={cn(
-              "mt-0.5 flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-foreground/5 hover:text-foreground",
-              knowledgeNavView === "graph" ? "text-foreground" : "text-muted-foreground"
-            )}
-            aria-label="Show graph view"
-            title="Graph"
-          >
-            <Graph size={13} weight={knowledgeNavView === "graph" ? "fill" : "bold"} />
-          </button>
-        </>
-      ) : (
-        <WorkspaceSessionsRail
-          kind={isFlowsMode ? "flows" : "chats"}
-          sessions={rootSessions}
-          activeSessionId={activeRootSessionId}
-          unseenCompletedSessions={workspace.unseenCompletedSessions}
-          onSelectSession={handleSelectSession}
-          onMarkFlowRunSeen={workspace.markFlowRunSeen}
-        />
-      )}
-    </div>
-  ) : (
-    <div className="h-full min-h-0">
-      {leftPanelCoreElement}
-    </div>
-  );
+  // The chrome (sidebar) always renders. While the instance is starting or the
+  // connection is not yet established, the center shows an in-pane banner
+  // instead of the chat panel. This keeps the sidebar mounted across
+  // chat ↔ explorer navigation.
+  const isReady = instanceStatus === 'running' && isConnected;
 
   const activeSessionRecord = workspace.activeSessionId
     ? sessionsById.get(workspace.activeSessionId) ?? null
@@ -2020,6 +733,7 @@ export function WorkspaceShell({
       key={workspace.activeSessionId ?? "no-session"}
       slug={slug}
       agents={workspace.agentCatalog}
+      recentUpdates={recentUpdates}
       attachmentsEnabled={workspaceAgentEnabled}
       contextFilePaths={markdownFilePaths}
       sessions={uiSessions}
@@ -2032,7 +746,7 @@ export function WorkspaceShell({
       sessionsError={workspace.sessionsError}
       isStartingNewSession={workspace.isStartingNewSession}
       sessionTabs={activeSessionTabs}
-      openFilePaths={openFilePaths}
+      openFilePaths={EMPTY_OPEN_FILE_PATHS}
       onCloseSession={handleCloseSession}
       onLearnSession={handleLearnSession}
       onRenameSession={handleRenameSession}
@@ -2068,78 +782,28 @@ export function WorkspaceShell({
     />
   );
 
-  const fileEditorPanelElement = (
-    <InspectorPanel
+  const catalogActive = catalogParam === "agents" || catalogParam === "skills";
+  const flowsActive = flowsParam
+    ? (WORKSPACE_FLOWS_VIEWS as readonly string[]).includes(flowsParam)
+    : false;
+  const centerPanelElement = catalogActive ? (
+    <WorkspaceCatalogView slug={slug} isAdmin={isAdmin} />
+  ) : flowsActive ? (
+    <WorkspaceFlowsView
       slug={slug}
-      panelMode="files"
-      workspaceAgentEnabled={workspaceAgentEnabled}
-      onTabChange={setRightTab}
-      rightCollapsed={false}
-      onToggleRight={handleToggleRight}
-      hideCollapseButton
-      openFiles={openFiles}
-      activeFilePath={activeFilePath}
-      onSelectFile={handleSelectFile}
-      onCloseFile={handleCloseFile}
-      diffs={workspace.diffs}
-      isLoadingDiffs={workspace.isLoadingDiffs}
-      diffsError={workspace.diffsError}
-      onOpenFile={handleOpenFile}
-      onKnowledgeReviewApplied={handleLearningProposalSentToReview}
-      knowledgeReviewRefreshKey={learningRefreshKey}
-      internalLinkPaths={markdownFilePaths}
-      onReloadFile={handleReloadFile}
-      onSaveFile={workspaceAgentEnabled ? handleSaveFile : undefined}
-      onDiscardFileChanges={workspaceAgentEnabled ? handleDiscardFileChanges : undefined}
-      onPublish={workspaceAgentEnabled ? handlePublishComplete : undefined}
-      onResolveConflict={workspaceAgentEnabled ? handleResolveConflict : undefined}
+      slackIntegrationAvailable={slackIntegrationAvailable}
+      teamVisibilityAvailable={teamVisibilityAvailable}
+    />
+  ) : isReady ? chatPanelElement : (
+    <WorkspaceConnectingBanner
+      connection={connection}
+      instanceError={instanceError}
+      instanceStatus={instanceStatus}
     />
   );
-
-  const reviewPanelElement = (
-    <InspectorPanel
-      slug={slug}
-      panelMode="knowledge"
-      workspaceAgentEnabled={workspaceAgentEnabled}
-      onTabChange={setRightTab}
-      rightCollapsed={false}
-      onToggleRight={() => undefined}
-      hideCollapseButton
-      openFiles={openFiles}
-      activeFilePath={activeFilePath}
-      onSelectFile={handleSelectFile}
-      onCloseFile={handleCloseFile}
-      diffs={workspace.diffs}
-      isLoadingDiffs={workspace.isLoadingDiffs}
-      diffsError={workspace.diffsError}
-      onOpenFile={(path) => {
-        void handleOpenFile(path, { forceExploreMode: true })
-      }}
-      onKnowledgeReviewApplied={handleLearningProposalSentToReview}
-      onProposalCountChange={setKnowledgeProposalCount}
-      knowledgeReviewRefreshKey={learningRefreshKey}
-      internalLinkPaths={markdownFilePaths}
-      onReloadFile={handleReloadFile}
-      onSaveFile={workspaceAgentEnabled ? handleSaveFile : undefined}
-      onDiscardFileChanges={workspaceAgentEnabled ? handleDiscardFileChanges : undefined}
-      onPublish={workspaceAgentEnabled ? handlePublishComplete : undefined}
-      onResolveConflict={workspaceAgentEnabled ? handleResolveConflict : undefined}
-    />
-  );
-
-  const isViewingFlowSession = isFlowSession(activeSessionRecord);
-  const showFlowsEmptyState = isFlowsMode && !isViewingFlowSession;
-  const showExploreEmptyState = isExploreMode && openFilePaths.length === 0;
-  const centerPanelElement = isKnowledgeMode
-    ? reviewPanelElement
-    : isExploreMode
-      ? showExploreEmptyState
-        ? <KnowledgeEmptyState />
-        : fileEditorPanelElement
-    : showFlowsEmptyState
-      ? <FlowsEmptyState />
-      : chatPanelElement;
-  const previewCacheEntry = previewFilePath ? fileCache[previewFilePath] : null;
+  const previewCacheEntry = previewFilePath && previewFile?.path === previewFilePath
+    ? previewFile
+    : null;
   const previewPanelElement = previewFilePath ? (
     <FilePreviewPanel
       path={previewFilePath}
@@ -2149,24 +813,22 @@ export function WorkspaceShell({
       onEdit={handleEditFromPreview}
     />
   ) : null;
-  const hasPreviewPanel = !isExploreMode && !isKnowledgeMode && previewFilePath !== null;
+
+  const hasPreviewPanel = previewFilePath !== null;
   const hasRightPanel = hasPreviewPanel;
   const rightPanelContent = previewPanelElement;
 
-  const isLeftPanelActive = mobileView === "left";
+  // The sidebar lives in WorkspaceAppChrome (layout level) so it stays mounted
+  // across chat ↔ explore navigation. The shell renders only the chat main.
   const isChatActive = mobileView === "chat";
   const isRightPanelActive = mobileView === "right";
-  const mobileLeftLabel = isExploreMode ? "Tree" : isFlowsMode ? "Flows" : "Sessions";
-  const mobileCenterLabel = isExploreMode ? "Files" : "Chat";
-  const mobileCenterAriaLabel = isExploreMode ? "Show files" : "Show chat";
 
   return (
     <div
+      ref={containerRef}
       className={cn(
-        'flex h-dvh flex-col overflow-hidden bg-background text-foreground',
+        'flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background text-foreground',
         macDesktopWindowInset && 'desktop-no-select',
-        darkModeClasses,
-        themeClassName,
       )}
     >
       <WorkspaceCommandPalette
@@ -2176,7 +838,9 @@ export function WorkspaceShell({
         hideFlows={false}
         onOpenChange={setCommandPaletteOpen}
         onCreateSession={handleCreateSession}
-        onModeChange={handleWorkspaceModeChange}
+        onOpenCurator={openCurator}
+        onOpenExplore={handleOpenExplore}
+        onNavigateFlows={handleOpenFlowsManager}
         onOpenFile={handleCommandPaletteOpenFile}
         onNavigateConnectors={navigateConnectors}
         onNavigateProviders={navigateProviders}
@@ -2185,20 +849,22 @@ export function WorkspaceShell({
         onSelectSession={handleCommandPaletteSelectSession}
         onToggleLeftPanel={handleToggleLeft}
       />
-      <WorkspaceTopNav
+      <CuratorDialog
+        open={curatorOpen}
+        onOpenChange={setCuratorOpen}
         slug={slug}
-        currentVault={currentVault}
-        mode={workspaceMode}
-        status="active"
-        sessionsUnreadCount={sessionsUnreadCount}
-        flowsUnreadCount={flowsUnreadCount}
-        knowledgePendingCount={workspace.diffs.length + knowledgeProposalCount}
-        macDesktopWindowInset={macDesktopWindowInset}
-        onModeChange={handleWorkspaceModeChange}
-        onNavigateConnectors={navigateConnectors}
-        onNavigateProviders={navigateProviders}
-        onNavigateSettings={navigateSettings}
-        onSyncComplete={handleSyncComplete}
+        workspaceAgentEnabled={workspaceAgentEnabled}
+        diffs={workspace.diffs}
+        isLoadingDiffs={workspace.isLoadingDiffs}
+        diffsError={workspace.diffsError}
+        onOpenFile={handleOpenFileInExplore}
+        internalLinkPaths={markdownFilePaths}
+        onDiscardFileChanges={workspaceAgentEnabled ? handleDiscardFileChanges : undefined}
+        onPublish={workspaceAgentEnabled ? handlePublishComplete : undefined}
+        onResolveConflict={workspaceAgentEnabled ? handleResolveConflict : undefined}
+        onKnowledgeReviewApplied={handleLearningProposalSentToReview}
+        onProposalCountChange={setKnowledgePendingCount}
+        knowledgeReviewRefreshKey={learningRefreshKey}
       />
       {!currentVault ? (
         <ConfigChangeBanner
@@ -2209,185 +875,49 @@ export function WorkspaceShell({
           onRestart={configStatus.restart}
         />
       ) : null}
-      <div className="flex min-h-0 flex-1 flex-col pl-1">
-        {isCompactLayout ? isKnowledgeMode ? (
-          <div className="min-h-0 flex-1 overflow-hidden px-3 pb-3 pt-2">
-            {centerPanelElement}
-          </div>
-        ) : (
-          <>
-            <div className="relative min-h-0 flex-1">
-              <div
-                className="absolute inset-0 min-h-0 overflow-hidden px-3 pb-3"
-                style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
-                hidden={!isLeftPanelActive}
-                aria-hidden={!isLeftPanelActive}
-              >
-                {leftPanelElement}
+      <div className="flex min-h-0 flex-1">
+        {isCompactLayout ? (
+          <div className="relative min-h-0 flex-1">
+            <div
+              className="absolute inset-0 min-h-0 overflow-hidden"
+              style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
+              hidden={!isChatActive}
+              aria-hidden={!isChatActive}
+            >
+              <div className="h-full min-h-0 overflow-hidden">
+                {centerPanelElement}
               </div>
-
-              <div
-                className="absolute inset-0 min-h-0 overflow-hidden"
-                style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
-                hidden={!isChatActive}
-                aria-hidden={!isChatActive}
-              >
-                <div
-                  className={cn(
-                    "h-full min-h-0 overflow-hidden",
-                    isExploreMode && "px-3 pb-3 pt-2"
-                  )}
-                >
-                  {centerPanelElement}
-                </div>
-              </div>
-
-              {hasRightPanel ? (
-                <div
-                  className="absolute inset-0 min-h-0 overflow-hidden px-5 pb-4"
-                  style={{ paddingTop: "calc(0.5rem + env(safe-area-inset-top, 0px))" }}
-                  hidden={!isRightPanelActive}
-                  aria-hidden={!isRightPanelActive}
-                >
-                  {rightPanelContent}
-                </div>
-              ) : null}
             </div>
 
-            <nav
-              className={cn(
-                "grid shrink-0 border-t border-border/40 bg-background",
-                hasRightPanel ? "grid-cols-3" : "grid-cols-2"
-              )}
-              style={{
-                minHeight: "calc(3.5rem + env(safe-area-inset-bottom, 0px))",
-                paddingBottom: "env(safe-area-inset-bottom, 0px)",
-              }}
-              aria-label="Workspace sections"
-            >
-              <button
-                type="button"
-                onClick={handleToggleLeft}
-                className={cn(
-                  "flex flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] font-medium transition-colors",
-                  isLeftPanelActive
-                    ? "text-foreground"
-                    : "text-muted-foreground active:text-foreground"
-                )}
-                aria-label={isLeftPanelActive ? "Close navigate panel" : "Open navigate panel"}
-                aria-pressed={isLeftPanelActive}
-              >
-                <Compass size={22} weight={isLeftPanelActive ? "fill" : "regular"} />
-                <span>{mobileLeftLabel}</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleShowChat}
-                className={cn(
-                  "flex flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] font-medium transition-colors",
-                  isChatActive
-                    ? "text-foreground"
-                    : "text-muted-foreground active:text-foreground"
-                )}
-                aria-label={mobileCenterAriaLabel}
-                aria-pressed={isChatActive}
-              >
-                {isExploreMode ? (
-                  <Database size={22} weight={isChatActive ? "fill" : "regular"} />
-                ) : (
-                  <ChatCircle size={22} weight={isChatActive ? "fill" : "regular"} />
-                )}
-                <span>{mobileCenterLabel}</span>
-              </button>
-
-              {hasRightPanel ? (
-                <button
-                  type="button"
-                  onClick={handleToggleRight}
-                  className={cn(
-                    "relative flex flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] font-medium transition-colors",
-                    isRightPanelActive
-                      ? "text-foreground"
-                      : "text-muted-foreground active:text-foreground"
-                  )}
-                  aria-label={isRightPanelActive ? "Close file preview" : "Open file preview"}
-                  aria-pressed={isRightPanelActive}
-                >
-                  <div className="relative">
-                    <File size={22} weight={isRightPanelActive ? "fill" : "regular"} />
-                  </div>
-                  <span>Preview</span>
-                </button>
-              ) : null}
-            </nav>
-          </>
-        ) : (
-          <div ref={containerRef} className="relative z-10 flex min-h-0 flex-1">
-            {!isKnowledgeMode ? (
-              <>
-                <div
-                  className="shrink-0 overflow-hidden border-r border-border/30"
-                  style={{
-                    width: leftCollapsed ? COLLAPSED_PANEL_PX : leftWidth,
-                    minWidth: leftCollapsed ? COLLAPSED_PANEL_PX : MIN_LEFT_PX,
-                    opacity: 1,
-                    transition: isDragging ? "none" : PANEL_TRANSITION,
-                  }}
-                >
-                  {leftPanelElement}
-                </div>
-
-                {!leftCollapsed && (
-                  <div
-                    className="absolute bottom-0 top-0 z-20 w-6 cursor-col-resize"
-                    style={{ left: leftWidth - 3 }}
-                    onPointerDown={handleResizeLeft}
-                    role="separator"
-                    aria-orientation="vertical"
-                    aria-label="Resize left panel"
-                  />
-                )}
-              </>
-            ) : null}
-
-            <div
-              className="flex min-w-0 flex-1 items-stretch justify-center"
-              style={{ minWidth: hasRightPanel ? minCenterWidth : 0 }}
-            >
+            {hasRightPanel ? (
               <div
-                className={cn(
-                  "h-full w-full min-w-0 overflow-hidden",
-                  hasRightPanel && "border-r border-border/30"
-                )}
+                className="absolute inset-0 min-h-0 overflow-hidden bg-background"
+                style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
+                hidden={!isRightPanelActive}
+                aria-hidden={!isRightPanelActive}
+              >
+                {rightPanelContent}
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <div className="flex h-full min-h-0 w-full">
+            <div className="flex min-w-0 flex-1 items-stretch justify-center">
+              <div
+                data-testid="panes-center"
+                className={cn('h-full w-full min-w-0 overflow-hidden', hasRightPanel && 'border-r border-border/30')}
               >
                 {centerPanelElement}
               </div>
             </div>
 
-            {hasRightPanel && !rightCollapsed && (
-              <div
-                className="absolute bottom-0 top-0 z-20 w-6 cursor-col-resize"
-                style={{ right: rightWidth - 3 }}
-                onPointerDown={handleResizeRight}
-                role="separator"
-                aria-orientation="vertical"
-                aria-label="Resize right panel"
-              />
-            )}
-
             {hasRightPanel ? (
               <div
-                className="shrink-0 overflow-hidden box-border"
+                data-testid="panes-right"
+                className="box-border shrink-0 overflow-hidden"
                 style={{
-                  width: hasPreviewPanel
-                    ? (previewExpanded ? rightWidth : 0)
-                    : (rightCollapsed ? COLLAPSED_PANEL_PX : rightWidth),
-                  minWidth: hasPreviewPanel
-                    ? (previewExpanded ? MIN_RIGHT_PX : 0)
-                    : (rightCollapsed ? COLLAPSED_PANEL_PX : MIN_RIGHT_PX),
-                  opacity: 1,
-                  transition: isDragging ? "none" : PANEL_TRANSITION,
+                  width: rightCollapsed ? 0 : rightWidth,
+                  minWidth: rightCollapsed ? 0 : MIN_RIGHT_PX,
                 }}
               >
                 {rightPanelContent}

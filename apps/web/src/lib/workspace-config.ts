@@ -28,6 +28,11 @@ export type CommonWorkspaceConfig = {
 export const PRIMARY_AGENT_STEP_LIMIT = 120
 export const SUBAGENT_STEP_LIMIT = 40
 
+// Internal, spawn-injected curator identity used by learning runs. It exists in
+// the runtime config so run-executor.ts can resolve it, but must never surface
+// in user-facing agent listings.
+export const SYSTEM_KNOWLEDGE_CURATOR_AGENT_ID = 'knowledge-curator'
+
 export function createDefaultCommonWorkspaceConfig(): CommonWorkspaceConfig {
   return {
     $schema: 'https://opencode.ai/config.json',
@@ -150,15 +155,6 @@ export function getDefaultModel(config: CommonWorkspaceConfig): string | undefin
     : undefined
 }
 
-export function getResolvedAgentModel(
-  config: CommonWorkspaceConfig,
-  agent: CommonAgentConfig,
-): string | undefined {
-  return typeof agent.model === 'string' && agent.model.trim()
-    ? agent.model.trim()
-    : getDefaultModel(config)
-}
-
 export function setDefaultModel(config: CommonWorkspaceConfig, model: string | null): CommonWorkspaceConfig {
   const nextConfig: CommonWorkspaceConfig = { ...config }
   const nextModel = typeof model === 'string' ? model.trim() : ''
@@ -176,20 +172,22 @@ export function getAgentSummaries(config: CommonWorkspaceConfig): CommonAgentSum
   const agents = config.agent ?? {}
   const defaultAgent = config.default_agent
 
-  return Object.entries(agents).map(([id, agent]) => ({
-    id,
-    name: id,
-    displayName: typeof agent?.display_name === 'string' && agent.display_name.trim()
-      ? agent.display_name.trim()
-      : id,
-    description: typeof agent?.description === 'string' ? agent.description : undefined,
-    model: typeof agent?.model === 'string' && agent.model.trim() ? agent.model.trim() : undefined,
-    temperature: typeof agent?.temperature === 'number' ? agent.temperature : undefined,
-    prompt: typeof agent?.prompt === 'string' ? agent.prompt : undefined,
-    mode: typeof agent?.mode === 'string' ? agent.mode : undefined,
-    isPrimary: defaultAgent === id || agent?.mode === 'primary',
-    capabilities: extractAgentCapabilitiesFromTools(agent?.tools, agent?.permission)
-  }))
+  return Object.entries(agents)
+    .filter(([id]) => id !== SYSTEM_KNOWLEDGE_CURATOR_AGENT_ID)
+    .map(([id, agent]) => ({
+      id,
+      name: id,
+      displayName: typeof agent?.display_name === 'string' && agent.display_name.trim()
+        ? agent.display_name.trim()
+        : id,
+      description: typeof agent?.description === 'string' ? agent.description : undefined,
+      model: typeof agent?.model === 'string' && agent.model.trim() ? agent.model.trim() : undefined,
+      temperature: typeof agent?.temperature === 'number' ? agent.temperature : undefined,
+      prompt: typeof agent?.prompt === 'string' ? agent.prompt : undefined,
+      mode: typeof agent?.mode === 'string' ? agent.mode : undefined,
+      isPrimary: defaultAgent === id || agent?.mode === 'primary',
+      capabilities: extractAgentCapabilitiesFromTools(agent?.tools, agent?.permission)
+    }))
 }
 
 function isToolMap(value: unknown): value is Record<string, boolean> {

@@ -30,7 +30,7 @@ const TEMPLATE_DEFINITION_KEYS = new Set([
 const AGENT_OVERRIDE_KEYS = new Set(['model', 'prompt'])
 const KB_SKELETON_DIR_KEYS = new Set(['type', 'path'])
 const KB_SKELETON_FILE_KEYS = new Set(['type', 'path', 'content'])
-const CORE_AGENT_PROMPT_OVERRIDE_BLOCKLIST = new Set(['assistant', 'knowledge-curator'])
+const CORE_AGENT_PROMPT_OVERRIDE_BLOCKLIST = new Set(['assistant'])
 
 function parseTemplateMarkdown(value: unknown, fieldName: string, fileName: string): string {
   if (typeof value !== 'string' || !value.trim()) {

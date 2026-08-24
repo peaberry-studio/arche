@@ -1,8 +1,6 @@
 import { redirect } from 'next/navigation'
-import Link from 'next/link'
 
-import { WebAgentForm } from '@/components/agents/web-agent-form'
-import { getSession } from '@/lib/runtime/session'
+import { getWorkspaceCatalogHref } from '@/lib/workspace-hrefs'
 
 export default async function NewAgentPage({
   params
@@ -10,37 +8,5 @@ export default async function NewAgentPage({
   params: Promise<{ slug: string }>
 }) {
   const { slug } = await params
-
-  const session = await getSession()
-
-  if (session?.user.role !== 'ADMIN') {
-    redirect(`/u/${slug}/agents`)
-  }
-
-  return (
-    <main className="relative mx-auto max-w-3xl px-6 py-10">
-      <div className="space-y-8">
-        <div>
-          <div className="mb-5">
-            <Link
-              href={`/u/${slug}/agents`}
-              className="inline-flex text-sm text-muted-foreground transition-colors hover:text-foreground"
-            >
-              &larr; Back to agents
-            </Link>
-          </div>
-          <div className="space-y-2">
-            <h1 className="type-display text-3xl font-semibold tracking-tight">
-              Create agent
-            </h1>
-            <p className="text-muted-foreground">
-              Define the role, model, and prompt for the new agent.
-            </p>
-          </div>
-        </div>
-
-        <WebAgentForm slug={slug} mode="create" />
-      </div>
-    </main>
-  )
+  redirect(getWorkspaceCatalogHref(slug, 'agents', 'new'))
 }

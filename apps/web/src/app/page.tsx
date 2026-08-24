@@ -21,5 +21,5 @@ export default async function Home() {
     redirect('/login')
   }
 
-  redirect(`/u/${session.user.slug}`)
+  redirect(`/w/${session.user.slug}`)
 }

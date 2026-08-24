@@ -6,8 +6,7 @@ import {
   isSending as isSessionSending,
   overlaySessionRuntimeStatus,
 } from "@/lib/opencode/event-reducer";
-import { useInstanceHeartbeat } from "@/hooks/use-instance-heartbeat";
-import { useWorkspaceConnection } from "@/hooks/use-workspace-connection";
+import { useWorkspaceRuntime } from "@/contexts/workspace-runtime-context";
 import { useWorkspaceDiffs } from "@/hooks/use-workspace-diffs";
 import { useWorkspaceFiles } from "@/hooks/use-workspace-files";
 import {
@@ -22,7 +21,6 @@ import { useWorkspaceEventBus } from "@/hooks/workspace/use-workspace-event-bus"
 import { useWorkspaceMessageActions } from "@/hooks/workspace/use-workspace-message-actions";
 import { useWorkspaceModelSelection } from "@/hooks/workspace/use-workspace-model-selection";
 import { useWorkspaceSessionActions } from "@/hooks/workspace/use-workspace-session-actions";
-import { useWorkspaceSessions } from "@/hooks/workspace/use-workspace-sessions";
 import {
   EMPTY_WORKSPACE_MESSAGES,
   selectVisiblePermissions,
@@ -40,15 +38,13 @@ export { filterModelsByProviderStatus } from "@/hooks/workspace/workspace-types"
 
 export function useWorkspace({
   slug,
-  storageScope,
-  initialSessionId = null,
   pollInterval = 5000,
   enabled = true,
   workspaceAgentEnabled = true,
-  reaperEnabled = true,
 }: UseWorkspaceOptions): UseWorkspaceReturn {
-  // --- Sub-hooks ---
-  const { connection, isConnected } = useWorkspaceConnection(slug, enabled);
+  // Connection + instance lifecycle + sessions come from the layout-level
+  // runtime provider so chat ↔ explorer navigation does not re-establish them.
+  const { connection, isConnected, sessionsHook } = useWorkspaceRuntime();
 
   const files = useWorkspaceFiles(slug, workspaceAgentEnabled);
   const diffsHook = useWorkspaceDiffs(
@@ -57,15 +53,7 @@ export function useWorkspace({
     isConnected
   );
   const { refreshDiffs, triggerDiffsRefresh } = diffsHook;
-  useInstanceHeartbeat(slug, enabled && reaperEnabled);
 
-  // Sessions
-  const sessionsHook = useWorkspaceSessions({
-    slug,
-    storageScope,
-    initialSessionId,
-    isConnected: enabled && isConnected,
-  });
   const {
     activeSessionId,
     activeSessionIdRef,

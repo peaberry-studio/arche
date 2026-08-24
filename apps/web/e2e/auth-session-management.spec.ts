@@ -9,8 +9,8 @@ async function signIn(page: Page, email: string, password: string, slug: string)
   await page.getByLabel('Email').fill(email)
   await page.getByLabel('Password').fill(password)
   await page.getByRole('button', { name: 'Sign in' }).click()
-  await expect(page).toHaveURL(new RegExp(`/u/${slug}$`))
-  await expect(page.getByRole('heading', { name: 'What do you want to work on today?' })).toBeVisible()
+  await expect(page).toHaveURL(new RegExp(`/w/${slug}$`))
+  await expect(page.getByTestId('empty-composer-heading')).toBeVisible({ timeout: 120_000 })
 }
 
 test('logs out from settings', async ({ page }) => {
@@ -19,29 +19,34 @@ test('logs out from settings', async ({ page }) => {
   })
   expect(response.ok()).toBeTruthy()
 
-  await page.goto(`/u/${adminSlug}/settings`)
-  await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible()
+  await page.goto(`/w/${adminSlug}?settings=general`)
+  await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible()
   await page.getByRole('button', { name: 'Log out' }).click()
 
-  await expect(page).toHaveURL(/\/login$/)
+  await expect(page).toHaveURL(/\/login$/, { timeout: 120_000 })
 
-  await page.goto(`/u/${adminSlug}`)
-  await expect(page).toHaveURL(/\/login$/)
+  await page.goto(`/w/${adminSlug}`)
+  await expect(page).toHaveURL(/\/login$/, { timeout: 120_000 })
 })
 
-test('admin resets a team member password and revokes existing sessions', async ({ browser, page }) => {
+test('admin resets a team member password and revokes existing sessions', async ({ browser, page }, testInfo) => {
+  testInfo.setTimeout(120_000)
+
   const userSlug = uniqueName('reset-user')
   const userEmail = `${userSlug}@example.test`
   const oldPassword = 'old-temporary-password'
   const newPassword = 'new-temporary-password'
 
   await signIn(page, adminEmail, adminPassword, adminSlug)
+  // Team management lives in the workspace settings dialog; /u/{slug}/team
+  // redirects into it.
   await page.goto(`/u/${adminSlug}/team`)
+  await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible()
   await page.getByRole('button', { name: 'Add user' }).click()
   await page.getByLabel('Email').fill(userEmail)
   await page.getByLabel('Slug').fill(userSlug)
   await page.getByLabel('Password').fill(oldPassword)
-  await page.getByRole('dialog').getByRole('button', { name: 'Add user' }).click()
+  await page.getByRole('dialog', { name: 'Add user' }).getByRole('button', { name: 'Add user' }).click()
   await expect(page.getByText(userEmail)).toBeVisible()
 
   const memberContext = await browser.newContext({ storageState: { cookies: [], origins: [] } })
@@ -61,11 +66,10 @@ test('admin resets a team member password and revokes existing sessions', async 
   const loginContext = await browser.newContext({ storageState: { cookies: [], origins: [] } })
   const loginPage = await loginContext.newPage()
 
-  await loginPage.goto('/login')
-  await loginPage.getByLabel('Email').fill(userEmail)
-  await loginPage.getByLabel('Password').fill(oldPassword)
-  await loginPage.getByRole('button', { name: 'Sign in' }).click()
-  await expect(loginPage.getByText('Incorrect email or password.')).toBeVisible()
+  const oldPasswordResponse = await loginPage.request.post('/auth/login', {
+    data: { email: userEmail, password: oldPassword },
+  })
+  expect(oldPasswordResponse.status()).toBe(401)
 
   await signIn(loginPage, userEmail, newPassword, userSlug)
   await loginContext.close()

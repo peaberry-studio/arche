@@ -199,6 +199,26 @@ describe('FlowEditor', () => {
     })))
   })
 
+  it('switches a flow from manual to scheduled before saving', async () => {
+    render(<FlowEditor slug="alice" mode="create" />)
+
+    expect(screen.getByRole('button', { name: 'Manual' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('button', { name: 'Scheduled' }).getAttribute('aria-pressed')).toBe('false')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Scheduled' }))
+
+    expect(screen.getByRole('button', { name: 'Scheduled' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('button', { name: 'Manual' }).getAttribute('aria-pressed')).toBe('false')
+
+    fireEvent.change(screen.getByLabelText('Flow name'), { target: { value: 'Scheduled flow' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create flow' }))
+
+    await waitFor(() => expect(mocks.createFlowRequest).toHaveBeenCalledWith('alice', expect.objectContaining({
+      enabled: true,
+      name: 'Scheduled flow',
+    })))
+  })
+
   it('loads, runs, saves, and deletes an existing flow', async () => {
     render(<FlowEditor slug="alice" mode="edit" flowId="flow-1" />)
 

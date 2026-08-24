@@ -34,6 +34,7 @@ import { AgentMentionAutocomplete } from "@/components/workspace/chat-panel/agen
 import { ChatPanelMessages } from "@/components/workspace/chat-panel/messages";
 import { ChatPanelSessionHeader } from "@/components/workspace/chat-panel/session-header";
 import type { SessionTabInfo } from "@/components/workspace/chat-panel/types";
+import { WorkspaceChatEmptyComposer } from "@/components/workspace/workspace-chat-empty-composer";
 import { StatusIndicator } from "@/components/workspace/bitmap-status-indicator";
 import { Button } from "@/components/ui/button";
 import {
@@ -81,6 +82,7 @@ type ChatPanelProps = {
   agents?: AgentCatalogItem[];
   attachmentsEnabled?: boolean;
   contextFilePaths?: string[];
+  recentUpdates?: { fileName: string; filePath: string }[];
   sessions: ChatSession[];
   skills?: SkillListItem[];
   messages: ChatMessage[];
@@ -210,6 +212,7 @@ export function ChatPanel({
   agents = EMPTY_AGENTS,
   attachmentsEnabled = true,
   contextFilePaths = EMPTY_CONTEXT_FILE_PATHS,
+  recentUpdates,
   sessions,
   skills = EMPTY_SKILLS,
   messages,
@@ -1107,6 +1110,9 @@ export function ChatPanel({
       : "border-primary/20 focus-visible:ring-primary/20"
   );
   const hasComposerDirectives = Boolean(selectedExpertId) || selectedSkillNames.size > 0;
+  // When no conversation is selected, the centered empty-state composer is
+  // the only composer; the bottom input area is hidden to avoid duplication.
+  const showsEmptyStateComposer = !activeSessionId && !isReadOnly && Boolean(onSendMessage);
 
   return (
     <div className="desktop-select-enabled flex h-full min-h-0 flex-col text-card-foreground">
@@ -1141,9 +1147,26 @@ export function ChatPanel({
       <ChatPanelMessages
         chatContentStyle={chatContentStyle}
         connectorNamesById={connectorNamesById}
+        emptyStateElement={
+          !activeSessionId && !isReadOnly && onSendMessage ? (
+            <div className="flex h-full flex-col items-center justify-center overflow-y-auto px-4">
+              <WorkspaceChatEmptyComposer
+                agents={agents}
+                agentDefaultModel={agentDefaultModel}
+                models={models}
+                skills={skills}
+                recentUpdates={recentUpdates}
+                onSendMessage={onSendMessage}
+                onSelectModel={onSelectModel}
+                selectedModel={selectedModel}
+              />
+            </div>
+          ) : undefined
+        }
         isInitialSessionsReady={isInitialSessionsReady}
         isLoadingMessages={isLoadingMessages}
         isStartingNewSession={isStartingNewSession}
+        isStreaming={isSending}
         messages={messages}
         permissions={permissions}
         messagesEndRef={messagesEndRef}
@@ -1158,7 +1181,9 @@ export function ChatPanel({
         workspaceRoot={workspaceRoot}
       />
 
-      {/* Input area */}
+      {/* Input area: hidden while the empty-state composer is on screen so
+          the workspace never shows two composers at once. */}
+      {showsEmptyStateComposer ? null : (
       <div className="mx-auto w-full max-w-[800px] px-5 pb-4 pt-2">
         {currentStatus ? (
           <div className={cn(
@@ -1698,6 +1723,7 @@ export function ChatPanel({
           </Dialog>
         )}
       </div>
+      )}
     </div>
   );
 }

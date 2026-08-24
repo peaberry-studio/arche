@@ -1,14 +1,10 @@
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 
-import { DashboardNav } from '@/components/dashboard/dashboard-nav'
-import { DashboardThemeShell } from '@/components/dashboard/dashboard-theme-shell'
 import { WorkspaceThemeProvider } from '@/contexts/workspace-theme-context'
 import { getCurrentDesktopVault, getWorkspacePersistenceScope } from '@/lib/runtime/desktop/current-vault'
-import { shouldUseCurrentMacOsInsetTitleBar } from '@/lib/runtime/desktop-window-chrome'
 import { isDesktop } from '@/lib/runtime/mode'
 import { getSession } from '@/lib/runtime/session'
-import { cn } from '@/lib/utils'
 import {
   DEFAULT_CHAT_FONT_FAMILY,
   DEFAULT_CHAT_FONT_SIZE,
@@ -61,7 +57,6 @@ export default async function DashboardLayout({
 
   const initialThemeId = storedThemeId && isWorkspaceThemeId(storedThemeId) ? storedThemeId : DEFAULT_THEME_ID
   const initialIsDark = storedDarkMode === 'true' ? true : storedDarkMode === 'false' ? false : DEFAULT_DARK_MODE
-  const macDesktopWindowInset = shouldUseCurrentMacOsInsetTitleBar()
 
   return (
     <WorkspaceThemeProvider
@@ -72,29 +67,7 @@ export default async function DashboardLayout({
       initialIsDark={initialIsDark}
       initialThemeId={initialThemeId}
     >
-      <DashboardThemeShell>
-        {macDesktopWindowInset && (
-          <div className="desktop-titlebar-drag absolute inset-x-0 top-0 z-50 h-8" />
-        )}
-        <div
-          className={cn(
-            'mx-auto max-w-6xl px-4 sm:px-6',
-            macDesktopWindowInset ? 'pt-10' : 'pt-6',
-            macDesktopWindowInset && 'desktop-no-select',
-          )}
-        >
-          <DashboardNav
-            slug={slug}
-            desktopMode={Boolean(desktopVault)}
-            displayLabel={desktopVault?.vaultName}
-            hasWindowInset={macDesktopWindowInset}
-          />
-        </div>
-
-        <div className="transition-[margin] duration-200 md:ml-[var(--dashboard-nav-offset,5rem)]">
-          {children}
-        </div>
-      </DashboardThemeShell>
+      {children}
     </WorkspaceThemeProvider>
   )
 }

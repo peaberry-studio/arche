@@ -1,4 +1,5 @@
 import { auditEvent } from '@/lib/auth'
+import { publishKnowledgeBasePaths, type PublishKbResult } from '@/lib/learning/publish-kb'
 import {
   findKnowledgeReviewChange,
   markKnowledgeReviewChangeApplied,
@@ -321,4 +322,31 @@ export async function applyKnowledgeReviewChange(args: {
     metadata: { changeId: change.id, kbPath: change.kbPath, appliedHash: current.hash ?? 'deleted' },
   })
   return { ok: true, change: updated }
+}
+
+export async function applyAndPublishKnowledgeReviewChange(args: {
+  actor: string
+  changeId: string
+  content?: string
+  slug: string
+  userId: string
+}): Promise<
+  | { ok: true; change: KnowledgeReviewChange; publish: PublishKbResult }
+  | { ok: false; error: string }
+> {
+  const applied = await applyKnowledgeReviewChange(args)
+  if (!applied.ok) return applied
+
+  // Applying validates the proposal, so publish exactly that file right away.
+  // If the publish step fails the change stays applied and its diff remains
+  // visible under Manual edits as the natural fallback; the publish result
+  // lets the UI surface the reason.
+  // Audit the acting user (e.g. an ADMIN applying on another user's
+  // workspace), matching the standalone publish route's attribution.
+  const publish = await publishKnowledgeBasePaths({
+    slug: args.slug,
+    actorUserId: args.actor,
+    paths: [applied.change.kbPath],
+  })
+  return { ok: true, change: applied.change, publish }
 }

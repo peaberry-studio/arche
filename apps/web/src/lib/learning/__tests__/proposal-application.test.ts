@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
+  applyAndPublishKnowledgeReviewChange,
   applyKnowledgeReviewChange,
   captureKnowledgeReviewBase,
   rebaseKnowledgeReviewChangeForUser,
@@ -18,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   markKnowledgeReviewChangeApplied: vi.fn(),
   markKnowledgeReviewChangeApplying: vi.fn(),
   markKnowledgeReviewChangeNeedsRebase: vi.fn(),
+  publishKnowledgeBasePaths: vi.fn(),
   rebaseKnowledgeReviewChange: vi.fn(),
   rejectKnowledgeReviewChange: vi.fn(),
   saveKnowledgeReviewDraft: vi.fn(),
@@ -28,6 +30,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/lib/auth', () => ({ auditEvent: mocks.auditEvent }))
 vi.mock('@/lib/workspace-agent/client', () => ({ createWorkspaceAgentClient: mocks.createWorkspaceAgentClient }))
 vi.mock('@/lib/workspace-agent-client', () => ({ workspaceAgentFetch: mocks.workspaceAgentFetch }))
+vi.mock('@/lib/learning/publish-kb', () => ({ publishKnowledgeBasePaths: mocks.publishKnowledgeBasePaths }))
 vi.mock('@/lib/learning/repository', () => ({
   findKnowledgeReviewChange: mocks.findKnowledgeReviewChange,
   markKnowledgeReviewChangeApplied: mocks.markKnowledgeReviewChangeApplied,
@@ -481,5 +484,65 @@ describe('regenerateKnowledgeReviewChangeForUser', () => {
       action: 'knowledge.review_regeneration_requested',
       metadata: { changeId: change.id, kbPath: change.kbPath, runId: 'run-2' },
     }))
+  })
+})
+
+describe('applyAndPublishKnowledgeReviewChange', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.createWorkspaceAgentClient.mockResolvedValue(agent)
+    mocks.findKnowledgeReviewChange.mockResolvedValue(change)
+    mocks.markKnowledgeReviewChangeApplying.mockResolvedValue({ ...change, status: 'applying' })
+    mocks.publishKnowledgeBasePaths.mockResolvedValue({ ok: true, status: 'published', commitHash: 'sha256:commit' })
+  })
+
+  it('applies and publishes the change path', async () => {
+    mocks.workspaceAgentFetch
+      .mockResolvedValueOnce({ ok: true, data: { content: 'Old preference', hash: 'sha256:old' }, status: 200 })
+      .mockResolvedValueOnce({ ok: true, data: { hash: 'sha256:new' }, status: 200 })
+    mocks.markKnowledgeReviewChangeApplied.mockResolvedValue({ ...change, status: 'applied', appliedHash: 'sha256:new' })
+
+    const result = await applyAndPublishKnowledgeReviewChange({ actor: 'user-1', changeId: 'change-1', slug: 'alice', userId: 'user-1' })
+
+    expect(result).toMatchObject({
+      ok: true,
+      change: expect.objectContaining({ status: 'applied', appliedHash: 'sha256:new' }),
+      publish: { ok: true, status: 'published', commitHash: 'sha256:commit' },
+    })
+    expect(mocks.publishKnowledgeBasePaths).toHaveBeenCalledWith({
+      slug: 'alice',
+      actorUserId: 'user-1',
+      paths: [change.kbPath],
+    })
+  })
+
+  it('returns the publish failure when apply succeeds but publish fails', async () => {
+    mocks.workspaceAgentFetch
+      .mockResolvedValueOnce({ ok: true, data: { content: 'Old preference', hash: 'sha256:old' }, status: 200 })
+      .mockResolvedValueOnce({ ok: true, data: { hash: 'sha256:new' }, status: 200 })
+    mocks.markKnowledgeReviewChangeApplied.mockResolvedValue({ ...change, status: 'applied', appliedHash: 'sha256:new' })
+    mocks.publishKnowledgeBasePaths.mockResolvedValue({ ok: false, status: 'push_rejected', message: 'fetch first' })
+
+    const result = await applyAndPublishKnowledgeReviewChange({ actor: 'user-1', changeId: 'change-1', slug: 'alice', userId: 'user-1' })
+
+    expect(result).toMatchObject({ ok: true })
+    expect(result).toMatchObject({
+      change: expect.objectContaining({ status: 'applied' }),
+      publish: { ok: false, status: 'push_rejected', message: 'fetch first' },
+    })
+    expect(mocks.publishKnowledgeBasePaths).toHaveBeenCalledWith({
+      slug: 'alice',
+      actorUserId: 'user-1',
+      paths: [change.kbPath],
+    })
+  })
+
+  it('returns apply errors without publishing', async () => {
+    mocks.findKnowledgeReviewChange.mockResolvedValue(null)
+
+    const result = await applyAndPublishKnowledgeReviewChange({ actor: 'user-1', changeId: 'change-1', slug: 'alice', userId: 'user-1' })
+
+    expect(result).toEqual({ ok: false, error: 'not_found' })
+    expect(mocks.publishKnowledgeBasePaths).not.toHaveBeenCalled()
   })
 })

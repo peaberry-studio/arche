@@ -1,10 +1,12 @@
 import { redirect } from 'next/navigation'
 
+import { getWorkspaceHref } from '@/lib/workspace-hrefs'
+
 export default async function LegacySecuritySettingsPage({
   params,
 }: {
   params: Promise<{ slug: string }>
 }) {
   const { slug } = await params
-  redirect(`/u/${slug}/settings?section=security`)
+  redirect(getWorkspaceHref(slug, { settings: 'security' }))
 }

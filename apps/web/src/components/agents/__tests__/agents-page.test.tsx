@@ -9,6 +9,7 @@ const useAgentsCatalogMock = vi.fn()
 const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>()
 
 vi.mock('@phosphor-icons/react', () => ({
+  CaretDown: () => <svg data-testid="caret-icon" />,
   Robot: () => <svg data-testid="robot-icon" />,
   SpinnerGap: ({ className }: { className?: string }) => <svg data-testid="spinner-icon" className={className} />,
 }))
@@ -142,9 +143,8 @@ describe('AgentsPageClient', () => {
 
     render(<AgentsPageClient slug="alice" isAdmin={true} />)
 
-    await waitFor(() => expect(screen.getByText('GPT 5.5')).toBeTruthy())
-
-    fireEvent.change(screen.getByLabelText('Default model'), { target: { value: 'openai/gpt-6' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Edit default model' }))
+    fireEvent.change(screen.getByPlaceholderText('Select or type a model'), { target: { value: 'openai/gpt-6' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save default model' }))
 
     await waitFor(() => expect(reload).toHaveBeenCalled())
@@ -178,6 +178,7 @@ describe('AgentsPageClient', () => {
 
     render(<AgentsPageClient slug="alice" isAdmin={true} />)
 
+    fireEvent.click(screen.getByRole('button', { name: 'Edit default model' }))
     fireEvent.click(screen.getByRole('button', { name: 'Save default model' }))
 
     await waitFor(() => expect(screen.getByText('Error: hash_conflict')).toBeTruthy())
@@ -201,6 +202,7 @@ describe('AgentsPageClient', () => {
 
     render(<AgentsPageClient slug="alice" isAdmin={true} />)
 
+    fireEvent.click(screen.getByRole('button', { name: 'Edit default model' }))
     fireEvent.click(screen.getByRole('button', { name: 'Save default model' }))
 
     await waitFor(() => expect(screen.getByText('Error: network_error')).toBeTruthy())

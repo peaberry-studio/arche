@@ -46,6 +46,25 @@ describe('ChatPanel', () => {
     expect(html).not.toContain('OLD CHAT')
   })
 
+  it('shows the empty-state composer as the only composer when no session is active', () => {
+    const html = renderChatPanel({
+      sessions: [],
+      activeSessionId: null,
+      isInitialSessionsReady: true,
+    })
+
+    expect(html).toContain('data-testid="empty-composer-heading"')
+    expect(html).not.toContain('Type a message...')
+    expect(html).not.toContain('No active session')
+  })
+
+  it('shows the bottom composer when a session is active', () => {
+    const html = renderChatPanel()
+
+    expect(html).toContain('Type a message...')
+    expect(html).not.toContain('data-testid="empty-composer-heading"')
+  })
+
   it('shows a session loader before the initial selection resolves', () => {
     const html = renderChatPanel({
       sessions: [],

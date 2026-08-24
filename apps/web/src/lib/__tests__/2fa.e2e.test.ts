@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 
+import { generateCurrentTotpCode } from '@/__tests__/totp-code'
+
 const DATABASE_URL = process.env.DATABASE_URL
 const ENCRYPTION_KEY = process.env.ARCHE_ENCRYPTION_KEY
 const SKIP = !DATABASE_URL || !ENCRYPTION_KEY
@@ -51,14 +53,14 @@ describe.runIf(!SKIP)('2FA e2e', () => {
 
   it('generates and verifies TOTP code', () => {
     const secret = totpModule.generateSecret()
-    const code = totpModule.generateCurrentCode(secret)
+    const code = generateCurrentTotpCode(secret)
     expect(totpModule.verifyTotp(secret, code).valid).toBe(true)
     expect(totpModule.verifyTotp(secret, '000000').valid).toBe(false)
   })
 
   it('rejects replayed TOTP code', () => {
     const secret = totpModule.generateSecret()
-    const code = totpModule.generateCurrentCode(secret)
+    const code = generateCurrentTotpCode(secret)
 
     // First use should succeed
     const result1 = totpModule.verifyTotp(secret, code)
@@ -83,7 +85,7 @@ describe.runIf(!SKIP)('2FA e2e', () => {
     })
 
     // 2. Verify TOTP code works
-    const code = totpModule.generateCurrentCode(secret)
+    const code = generateCurrentTotpCode(secret)
     expect(totpModule.verifyTotp(secret, code).valid).toBe(true)
 
     // 3. Enable 2FA and store recovery codes

@@ -8,7 +8,8 @@
   "scripts": {
     "prepare:runtime": "bash ../../scripts/prepare-desktop-runtime.sh",
     "dev": "pnpm prepare:runtime && tsc && electron dist/main.js",
-    "build": "tsc",
+    "build": "pnpm clean && tsc",
+    "clean": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\"",
     "test:e2e": "pnpm build && playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:headed": "playwright test --headed",
@@ -23,6 +24,7 @@
     "dist:win": "pnpm prepare:runtime && electron-builder --win --config electron-builder.config.js"
   },
   "dependencies": {
+    "@arche/desktop-runtime": "link:../desktop-runtime",
     "dugite": "3.2.1",
     "electron-is-dev": "3.0.1"
   },

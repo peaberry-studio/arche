@@ -2,6 +2,7 @@
 
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 
 type CustomConnectorFieldsProps = {
   authType: 'manual' | 'oauth'
@@ -80,9 +81,9 @@ export function CustomConnectorFields({
               (optional JSON)
             </span>
           </Label>
-          <textarea
+          <Textarea
             id="connector-headers"
-            className="min-h-24 w-full rounded-lg border border-border/50 bg-background px-3 py-2 font-mono text-sm text-foreground placeholder:text-muted-foreground/60"
+            className="min-h-24 font-mono"
             value={headersText}
             onChange={(event) => onHeadersTextChange(event.target.value)}
             placeholder={'{\n  "x-api-key": "value"\n}'}

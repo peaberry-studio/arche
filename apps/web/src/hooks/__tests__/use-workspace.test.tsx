@@ -4,6 +4,7 @@ import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useWorkspace } from "@/hooks/use-workspace";
+import { WorkspaceRuntimeProvider } from "@/contexts/workspace-runtime-context";
 import type { WorkspaceMessage } from "@/lib/opencode/types";
 import { WORKSPACE_CONFIG_STATUS_CHANGED_EVENT } from "@/lib/runtime/config-status-events";
 
@@ -34,6 +35,36 @@ const workspaceAgentMocks = vi.hoisted(() => ({
 
 vi.mock("@/actions/opencode", () => opencodeMocks);
 vi.mock("@/actions/workspace-agent", () => workspaceAgentMocks);
+
+vi.mock("@/hooks/use-instance-startup", () => ({
+  useInstanceStartup: () => ({ instanceStatus: "running", instanceError: null }),
+}));
+
+vi.mock("@/hooks/use-workspace-connection", () => ({
+  useWorkspaceConnection: () => ({
+    connection: { status: "connected" },
+    isConnected: true,
+  }),
+}));
+
+vi.mock("@/hooks/use-instance-heartbeat", () => ({
+  useInstanceHeartbeat: () => undefined,
+}));
+
+function renderWorkspaceHook(
+  callback: (props?: { enabled?: boolean }) => ReturnType<typeof useWorkspace>,
+  options?: { initialProps?: { enabled?: boolean } },
+  providerProps?: { initialSessionId?: string | null },
+) {
+  return renderHook(callback, {
+    ...options,
+    wrapper: ({ children }) => (
+      <WorkspaceRuntimeProvider slug="alice" persistenceScope="alice" initialSessionId={providerProps?.initialSessionId ?? null}>
+        {children}
+      </WorkspaceRuntimeProvider>
+    ),
+  })
+}
 
 function createStorageMock() {
   let store: Record<string, string> = {};
@@ -197,8 +228,10 @@ vi.stubGlobal(
   });
 
   it("resets a new session to the primary agent model instead of the previous session runtime model", async () => {
-    const { result } = renderHook(() =>
-      useWorkspace({ slug: "alice", pollInterval: 0 })
+    const { result } = renderWorkspaceHook(
+      () => useWorkspace({ slug: "alice", pollInterval: 0 }),
+      undefined,
+      { initialSessionId: "s1" }
     );
 
     await waitFor(() => {
@@ -221,8 +254,10 @@ vi.stubGlobal(
     vi.stubGlobal("localStorage", createThrowingStorageMock());
     vi.stubGlobal("sessionStorage", createThrowingStorageMock());
 
-    const { result } = renderHook(() =>
-      useWorkspace({ slug: "alice", pollInterval: 0 })
+    const { result } = renderWorkspaceHook(
+      () => useWorkspace({ slug: "alice", pollInterval: 0 }),
+      undefined,
+      { initialSessionId: "s1" }
     );
 
     await waitFor(() => {
@@ -239,7 +274,7 @@ vi.stubGlobal(
   });
 
   it("tracks manual model overrides separately from the agent default", async () => {
-    const { result } = renderHook(() =>
+    const { result } = renderWorkspaceHook(() =>
       useWorkspace({ slug: "alice", pollInterval: 0 })
     );
 
@@ -283,8 +318,10 @@ vi.stubGlobal(
       ],
     });
 
-    const { result } = renderHook(() =>
-      useWorkspace({ slug: "alice", pollInterval: 0, initialSessionId: "flow-1-session" })
+    const { result } = renderWorkspaceHook(
+      () => useWorkspace({ slug: "alice", pollInterval: 0 }),
+      undefined,
+      { initialSessionId: "flow-1-session" }
     );
 
     await waitFor(() => {
@@ -317,8 +354,10 @@ vi.stubGlobal(
       ],
     });
 
-    const { result } = renderHook(() =>
-      useWorkspace({ slug: "alice", pollInterval: 20, initialSessionId: "flow-1-session" })
+    const { result } = renderWorkspaceHook(
+      () => useWorkspace({ slug: "alice", pollInterval: 20 }),
+      undefined,
+      { initialSessionId: "flow-1-session" }
     );
 
     await waitFor(() => {
@@ -424,8 +463,10 @@ vi.stubGlobal(
       })
     );
 
-    const { result } = renderHook(() =>
-      useWorkspace({ slug: "alice", pollInterval: 0, initialSessionId: "flow-session" })
+    const { result } = renderWorkspaceHook(
+      () => useWorkspace({ slug: "alice", pollInterval: 0 }),
+      undefined,
+      { initialSessionId: "flow-session" }
     );
 
     await waitFor(() => {
@@ -477,10 +518,6 @@ vi.stubGlobal(
           };
         }
 
-        if (String(input) === "/api/w/alice/chat/runs") {
-          return { ok: true, json: async () => ({ runId: "run-1" }) };
-        }
-
         if (String(input) === "/api/w/alice/chat/prompt") {
           requestBody = JSON.parse(String(init?.body ?? "{}")) as {
             model?: { providerId: string; modelId: string };
@@ -496,8 +533,10 @@ vi.stubGlobal(
       })
     );
 
-    const { result } = renderHook(() =>
-      useWorkspace({ slug: "alice", pollInterval: 0 })
+    const { result } = renderWorkspaceHook(
+      () => useWorkspace({ slug: "alice", pollInterval: 0 }),
+      undefined,
+      { initialSessionId: "s1" }
     );
 
     await waitFor(() => {
@@ -525,9 +564,11 @@ vi.stubGlobal(
       expect(requestBody).not.toBeNull();
     });
 
-    expect(requestBody?.model).toEqual({
-      providerId: "openai",
-      modelId: "gpt-5.4",
+    expect(requestBody).toMatchObject({
+      model: {
+        providerId: "openai",
+        modelId: "gpt-5.4",
+      },
     });
   });
 
@@ -589,8 +630,10 @@ vi.stubGlobal(
       })
     );
 
-    const { result } = renderHook(() =>
-      useWorkspace({ slug: "alice", pollInterval: 0 })
+    const { result } = renderWorkspaceHook(
+      () => useWorkspace({ slug: "alice", pollInterval: 0 }),
+      undefined,
+      { initialSessionId: "s1" }
     );
 
     await waitFor(() => {
@@ -644,10 +687,6 @@ vi.stubGlobal(
           };
         }
 
-        if (String(input) === "/api/w/alice/chat/runs") {
-          return { ok: true, json: async () => ({ runId: "run-1" }) };
-        }
-
         if (String(input) === "/api/w/alice/chat/prompt") {
           requestBody = JSON.parse(String(init?.body ?? "{}")) as {
             attachments?: Array<{ path: string; filename?: string; mime?: string }>;
@@ -664,8 +703,10 @@ vi.stubGlobal(
       })
     );
 
-    const { result } = renderHook(() =>
-      useWorkspace({ slug: "alice", pollInterval: 0 })
+    const { result } = renderWorkspaceHook(
+      () => useWorkspace({ slug: "alice", pollInterval: 0 }),
+      undefined,
+      { initialSessionId: "s1" }
     );
 
     await waitFor(() => {
@@ -686,10 +727,14 @@ vi.stubGlobal(
       expect(requestBody).not.toBeNull();
     });
 
-    expect(requestBody?.attachments).toEqual([
-      { path: "docs/a.md", filename: "a.md", mime: "text/markdown" },
-    ]);
-    expect(requestBody?.contextPaths).toEqual(["docs/a.md", "notes/b.md"]);
+    expect(requestBody).toMatchObject({
+      attachments: [
+        { path: "docs/a.md", filename: "a.md", mime: "text/markdown" },
+      ],
+    });
+    expect(requestBody).toMatchObject({
+      contextPaths: ["docs/a.md", "notes/b.md"],
+    });
   });
 
   it("allows selecting a model before the first session exists", async () => {
@@ -736,10 +781,6 @@ vi.stubGlobal(
           };
         }
 
-        if (String(input) === "/api/w/alice/chat/runs") {
-          return { ok: true, json: async () => ({ runId: "run-1" }) };
-        }
-
         if (String(input) === "/api/w/alice/chat/prompt") {
           requestBody = JSON.parse(String(init?.body ?? "{}")) as {
             model?: { providerId: string; modelId: string };
@@ -755,7 +796,7 @@ vi.stubGlobal(
       })
     );
 
-    const { result } = renderHook(() =>
+    const { result } = renderWorkspaceHook(() =>
       useWorkspace({ slug: "alice", pollInterval: 0 })
     );
 
@@ -870,7 +911,7 @@ vi.stubGlobal(
       })
     );
 
-    const { result } = renderHook(() =>
+    const { result } = renderWorkspaceHook(() =>
       useWorkspace({ slug: "alice", pollInterval: 0 })
     );
 
@@ -934,7 +975,7 @@ vi.stubGlobal(
         sessions: [],
       });
 
-      const { result } = renderHook(() =>
+      const { result } = renderWorkspaceHook(() =>
         useWorkspace({ slug: "alice", pollInterval: 1000 })
       );
 
@@ -1046,7 +1087,7 @@ vi.stubGlobal(
       })
     );
 
-    const { result } = renderHook(() =>
+    const { result } = renderWorkspaceHook(() =>
       useWorkspace({ slug: "alice", pollInterval: 0 })
     );
 
@@ -1115,7 +1156,7 @@ vi.stubGlobal(
       })
     );
 
-    const { result } = renderHook(() =>
+    const { result } = renderWorkspaceHook(() =>
       useWorkspace({ slug: "alice", pollInterval: 0 })
     );
 
@@ -1172,7 +1213,7 @@ vi.stubGlobal(
       })
     );
 
-    const { result } = renderHook(() =>
+    const { result } = renderWorkspaceHook(() =>
       useWorkspace({ slug: "alice", pollInterval: 0 })
     );
 
@@ -1209,7 +1250,7 @@ vi.stubGlobal(
       session: { id: "s1", title: "Existing", status: "idle", updatedAt: "later" },
     });
 
-    const { result } = renderHook(() =>
+    const { result } = renderWorkspaceHook(() =>
       useWorkspace({ slug: "alice", pollInterval: 0 })
     );
 
@@ -1227,8 +1268,10 @@ vi.stubGlobal(
   });
 
   it("rejects blank session titles without calling the update action", async () => {
-    const { result } = renderHook(() =>
-      useWorkspace({ slug: "alice", pollInterval: 0 })
+    const { result } = renderWorkspaceHook(
+      () => useWorkspace({ slug: "alice", pollInterval: 0 }),
+      undefined,
+      { initialSessionId: "s1" }
     );
 
     await waitFor(() => {
@@ -1271,7 +1314,7 @@ vi.stubGlobal(
       session: { id: "s1", title: "Release plan", status: "idle", updatedAt: "fresh" },
     });
 
-    const { result } = renderHook(() =>
+    const { result } = renderWorkspaceHook(() =>
       useWorkspace({ slug: "alice", pollInterval: 1000 })
     );
 
@@ -1316,8 +1359,10 @@ vi.stubGlobal(
       ],
     });
 
-    const { result } = renderHook(() =>
-      useWorkspace({ slug: "alice", pollInterval: 0 })
+    const { result } = renderWorkspaceHook(
+      () => useWorkspace({ slug: "alice", pollInterval: 0 }),
+      undefined,
+      { initialSessionId: "s1" }
     );
 
     await waitFor(() => {
@@ -1359,8 +1404,7 @@ vi.stubGlobal(
     });
   });
 
-  it("restores the stored active session on reload instead of defaulting to the first returned child session", async () => {
-    localStorage.setItem("arche.workspace.alice.active-session", "root");
+  it("restores the deep-linked active session instead of defaulting to the first returned child session", async () => {
     opencodeMocks.listSessionsAction.mockResolvedValue({
       ok: true,
       sessions: [
@@ -1380,8 +1424,10 @@ vi.stubGlobal(
       ],
     });
 
-    const { result } = renderHook(() =>
-      useWorkspace({ slug: "alice", pollInterval: 0 })
+    const { result } = renderWorkspaceHook(
+      () => useWorkspace({ slug: "alice", pollInterval: 0 }),
+      undefined,
+      { initialSessionId: "root" }
     );
 
     await waitFor(() => {
@@ -1389,7 +1435,7 @@ vi.stubGlobal(
     });
   });
 
-  it("falls back to the first root session when no stored selection exists", async () => {
+  it("keeps no session active when nothing is explicitly selected", async () => {
     opencodeMocks.listSessionsAction.mockResolvedValue({
       ok: true,
       sessions: [
@@ -1409,13 +1455,15 @@ vi.stubGlobal(
       ],
     });
 
-    const { result } = renderHook(() =>
+    const { result } = renderWorkspaceHook(() =>
       useWorkspace({ slug: "alice", pollInterval: 0 })
     );
 
     await waitFor(() => {
-      expect(result.current.activeSessionId).toBe("root");
+      expect(result.current.isInitialSessionsReady).toBe(true);
     });
+
+    expect(result.current.activeSessionId).toBeNull();
   });
 
   it("clears a manual model override when the model is no longer available", async () => {
@@ -1452,9 +1500,10 @@ vi.stubGlobal(
         ],
       });
 
-    const { result, rerender } = renderHook(
-      ({ enabled }) => useWorkspace({ slug: "alice", pollInterval: 0, enabled }),
-      { initialProps: { enabled: true } }
+    const { result, rerender } = renderWorkspaceHook(
+      (props) => useWorkspace({ slug: "alice", pollInterval: 0, enabled: props?.enabled }),
+      { initialProps: { enabled: true } },
+      { initialSessionId: "s1" }
     );
 
     await waitFor(() => {
@@ -1567,8 +1616,10 @@ vi.stubGlobal(
       })
     );
 
-    const { result } = renderHook(() =>
-      useWorkspace({ slug: "alice", pollInterval: 0 })
+    const { result } = renderWorkspaceHook(
+      () => useWorkspace({ slug: "alice", pollInterval: 0 }),
+      undefined,
+      { initialSessionId: "root" }
     );
 
     await waitFor(() => {
@@ -1708,8 +1759,10 @@ vi.stubGlobal(
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const { result } = renderHook(() =>
-      useWorkspace({ slug: "alice", pollInterval: 0 })
+    const { result } = renderWorkspaceHook(
+      () => useWorkspace({ slug: "alice", pollInterval: 0 }),
+      undefined,
+      { initialSessionId: "s1" }
     );
 
     await waitFor(() => {
@@ -1774,8 +1827,10 @@ vi.stubGlobal(
       });
     opencodeMocks.listSessionFamilyAction.mockResolvedValue({ ok: true, rootSessionId: "s1", sessions: [] });
 
-    const { result } = renderHook(() =>
-      useWorkspace({ slug: "alice", pollInterval: 0 })
+    const { result } = renderWorkspaceHook(
+      () => useWorkspace({ slug: "alice", pollInterval: 0 }),
+      undefined,
+      { initialSessionId: "s1" }
     );
 
     await waitFor(() => {
@@ -1808,7 +1863,7 @@ vi.stubGlobal(
       });
     opencodeMocks.listSessionFamilyAction.mockResolvedValue({ ok: true, rootSessionId: "s1", sessions: [] });
 
-    const { result } = renderHook(() =>
+    const { result } = renderWorkspaceHook(() =>
       useWorkspace({ slug: "alice", pollInterval: 0 })
     );
 
@@ -1859,8 +1914,10 @@ vi.stubGlobal(
       return { ok: true, messages: [] };
     });
 
-    const { result } = renderHook(() =>
-      useWorkspace({ slug: "alice", pollInterval: 0, initialSessionId: "old-child" })
+    const { result } = renderWorkspaceHook(
+      () => useWorkspace({ slug: "alice", pollInterval: 0 }),
+      undefined,
+      { initialSessionId: "old-child" }
     );
 
     await waitFor(() => {
@@ -1923,8 +1980,10 @@ vi.stubGlobal(
       })
     );
 
-    const { result } = renderHook(() =>
-      useWorkspace({ slug: "alice", pollInterval: 0 })
+    const { result } = renderWorkspaceHook(
+      () => useWorkspace({ slug: "alice", pollInterval: 0 }),
+      undefined,
+      { initialSessionId: "s1" }
     );
 
     await waitFor(() => {
@@ -1993,8 +2052,10 @@ vi.stubGlobal(
       })
     );
 
-    const { result } = renderHook(() =>
-      useWorkspace({ slug: "alice", pollInterval: 0 })
+    const { result } = renderWorkspaceHook(
+      () => useWorkspace({ slug: "alice", pollInterval: 0 }),
+      undefined,
+      { initialSessionId: "s1" }
     );
 
     await waitFor(() => {
@@ -2038,8 +2099,10 @@ vi.stubGlobal(
       error: "execution_termination_unconfirmed",
     });
 
-    const { result } = renderHook(() =>
-      useWorkspace({ slug: "alice", pollInterval: 0 })
+    const { result } = renderWorkspaceHook(
+      () => useWorkspace({ slug: "alice", pollInterval: 0 }),
+      undefined,
+      { initialSessionId: "s1" }
     );
 
     await waitFor(() => {
@@ -2116,8 +2179,10 @@ vi.stubGlobal(
       })
     );
 
-    const { result } = renderHook(() =>
-      useWorkspace({ slug: "alice", pollInterval: 0 })
+    const { result } = renderWorkspaceHook(
+      () => useWorkspace({ slug: "alice", pollInterval: 0 }),
+      undefined,
+      { initialSessionId: "s1" }
     );
 
     await waitFor(() => {
@@ -2196,8 +2261,10 @@ vi.stubGlobal(
       })
     );
 
-    const { result } = renderHook(() =>
-      useWorkspace({ slug: "alice", pollInterval: 0 })
+    const { result } = renderWorkspaceHook(
+      () => useWorkspace({ slug: "alice", pollInterval: 0 }),
+      undefined,
+      { initialSessionId: "s1" }
     );
 
     await waitFor(() => {
@@ -2250,8 +2317,10 @@ vi.stubGlobal(
       ],
     });
 
-    const { result } = renderHook(() =>
-      useWorkspace({ slug: "alice", initialSessionId: "child", pollInterval: 0 })
+    const { result } = renderWorkspaceHook(
+      () => useWorkspace({ slug: "alice", pollInterval: 0 }),
+      undefined,
+      { initialSessionId: "child" }
     );
 
     await waitFor(() => {
@@ -2262,7 +2331,10 @@ vi.stubGlobal(
     act(() => {
       result.current.setSelectedModel({
         providerId: "openai",
+        providerName: "OpenAI",
         modelId: "gpt-5.4",
+        modelName: "GPT 5.4",
+        isDefault: true,
       });
     });
 
@@ -2287,8 +2359,10 @@ vi.stubGlobal(
         ],
       });
 
-      const { result } = renderHook(() =>
-        useWorkspace({ slug: "alice", pollInterval: 200 })
+      const { result } = renderWorkspaceHook(
+        () => useWorkspace({ slug: "alice", pollInterval: 200 }),
+        undefined,
+        { initialSessionId: "s1" }
       );
 
       await waitFor(() => {
@@ -2313,8 +2387,10 @@ vi.stubGlobal(
         ],
       });
 
-      const { result } = renderHook(() =>
-        useWorkspace({ slug: "alice", pollInterval: 200 })
+      const { result } = renderWorkspaceHook(
+        () => useWorkspace({ slug: "alice", pollInterval: 200 }),
+        undefined,
+        { initialSessionId: "s1" }
       );
 
       await waitFor(() => {
@@ -2339,8 +2415,10 @@ vi.stubGlobal(
         ],
       });
 
-      const { result } = renderHook(() =>
-        useWorkspace({ slug: "alice", pollInterval: 200 })
+      const { result } = renderWorkspaceHook(
+        () => useWorkspace({ slug: "alice", pollInterval: 200 }),
+        undefined,
+        { initialSessionId: "s1" }
       );
 
       await waitFor(() => {
@@ -2369,8 +2447,10 @@ vi.stubGlobal(
         ],
       });
 
-      const { result } = renderHook(() =>
-        useWorkspace({ slug: "alice", pollInterval: 200 })
+      const { result } = renderWorkspaceHook(
+        () => useWorkspace({ slug: "alice", pollInterval: 200 }),
+        undefined,
+        { initialSessionId: "s1" }
       );
 
       await waitFor(() => {
@@ -2391,8 +2471,10 @@ vi.stubGlobal(
   });
 
   it("keeps messages stable when refresh returns identical content", async () => {
-    const { result } = renderHook(() =>
-      useWorkspace({ slug: "alice", pollInterval: 0 })
+    const { result } = renderWorkspaceHook(
+      () => useWorkspace({ slug: "alice", pollInterval: 0 }),
+      undefined,
+      { initialSessionId: "s1" }
     );
 
     await waitFor(() => {

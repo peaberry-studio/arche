@@ -23,7 +23,6 @@ const mocks = vi.hoisted(() => ({
   listEnabledNotificationChannels: vi.fn(),
   listFlowAgentOptions: vi.fn(),
   listFlowsForScope: vi.fn(),
-  listRunsByFlowIdForScope: vi.fn(),
   resumeFlowRun: vi.fn(),
   triggerFlowNow: vi.fn(),
   updateFlowByIdAndOwnerId: vi.fn(),
@@ -62,7 +61,6 @@ vi.mock('@/lib/services', () => ({
     findFlowByIdForScope: mocks.findFlowByIdForScope,
     findRunByIdForScope: mocks.findRunByIdForScope,
     listFlowsForScope: mocks.listFlowsForScope,
-    listRunsByFlowIdForScope: mocks.listRunsByFlowIdForScope,
     updateFlowByIdAndOwnerId: mocks.updateFlowByIdAndOwnerId,
   },
   slackService: {
@@ -80,7 +78,6 @@ import { DELETE as DELETE_FLOW, GET as GET_FLOW, PATCH as PATCH_FLOW } from '../
 import { POST as POST_COPY_FLOW } from '../[id]/copy/route'
 import { GET as GET_FLOW_EXPORT } from '../[id]/export/route'
 import { POST as POST_RUN_FLOW } from '../[id]/run/route'
-import { GET as GET_FLOW_RUNS } from '../[id]/runs/route'
 import { POST as POST_IMPORT_VALIDATE } from '../import/validate/route'
 import { POST as POST_CANCEL_RUN } from '../runs/[runId]/cancel/route'
 import { POST as POST_HUMAN_RESPONSE } from '../runs/[runId]/human-response/route'
@@ -790,11 +787,8 @@ describe('Flow API routes', () => {
     const flow = createFlowRecord()
     const run = createRunRecord()
     mocks.findFlowByIdForScope.mockResolvedValue(flow)
-    mocks.listRunsByFlowIdForScope.mockResolvedValue([run])
     mocks.findRunByIdForScope.mockResolvedValue(run)
 
-    await expect((await GET_FLOW_RUNS(request('/api/u/alice/flows/flow-1/runs'), params({ id: 'flow-1', slug: 'alice' }))).json())
-      .resolves.toMatchObject({ runs: [{ id: 'run-1' }] })
     await expect((await GET_RUN(request('/api/u/alice/flows/runs/run-1'), params({ runId: 'run-1', slug: 'alice' }))).json())
       .resolves.toMatchObject({ run: { id: 'run-1' } })
   })
@@ -803,13 +797,12 @@ describe('Flow API routes', () => {
     const flow = createFlowRecord({ organizationCanRun: true, visibility: 'team' })
     const ownerRun = createRunRecord({ id: 'run-owner' })
     const memberRun = createRunRecord({ executionUserId: 'user-2', id: 'run-member' })
-    mocks.findFlowByIdForScope.mockResolvedValue(flow)
-    mocks.listRunsByFlowIdForScope.mockResolvedValue([memberRun, ownerRun])
+    mocks.findFlowByIdForScope.mockResolvedValue({ ...flow, runs: [memberRun, ownerRun] })
 
-    const response = await GET_FLOW_RUNS(request('/api/u/alice/flows/flow-1/runs'), params({ id: 'flow-1', slug: 'alice' }))
+    const response = await GET_FLOW(request('/api/u/alice/flows/flow-1'), params({ id: 'flow-1', slug: 'alice' }))
     const body = await response.json()
 
-    expect(body.runs).toEqual([expect.objectContaining({ id: 'run-owner' })])
+    expect(body.flow.runs).toEqual([expect.objectContaining({ id: 'run-owner' })])
   })
 
   it('cancels runs and resumes human responses', async () => {

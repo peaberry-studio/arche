@@ -1,8 +1,13 @@
 import { MCP_TOOL_PATTERN, OPENCODE_AGENT_TOOLS } from '@/lib/agent-capabilities'
 import type { ConnectorToolPermissionMap } from '@/lib/connectors/tool-permissions'
 import { CONNECTOR_TYPES, isSingleInstanceConnectorType, type ConnectorType } from '@/lib/connectors/types'
+import { KNOWLEDGE_CURATOR_SYSTEM_INSTRUCTIONS } from '@/lib/learning/curator-prompt'
 import { isRecord } from '@/lib/records'
-import { PRIMARY_AGENT_STEP_LIMIT, SUBAGENT_STEP_LIMIT } from '@/lib/workspace-config'
+import {
+  PRIMARY_AGENT_STEP_LIMIT,
+  SUBAGENT_STEP_LIMIT,
+  SYSTEM_KNOWLEDGE_CURATOR_AGENT_ID,
+} from '@/lib/workspace-config'
 
 const CONNECTOR_TYPE_PATTERN = CONNECTOR_TYPES.join('|')
 const MCP_SERVER_KEY_PATTERN = new RegExp(`^arche_(${CONNECTOR_TYPE_PATTERN})_([^_]+)$`)
@@ -235,6 +240,44 @@ export function denyAgentKnowledgeWrites(
     tools.edit = false
 
     nextAgents[agentId] = { ...agent, tools }
+  }
+
+  return { ...config, agent: nextAgents }
+}
+
+// Guarantees a knowledge-curator sub-agent in the runtime config with read +
+// always-on tools, subagent steps, and a low temperature. Older workspaces that
+// still store a knowledge-curator agent keep their own entry — this only injects
+// when the id is absent so run-executor.ts can resolve the agent on spawn. The
+// agent's prompt comes from KNOWLEDGE_CURATOR_SYSTEM_INSTRUCTIONS (the same
+// single source buildCuratorPrompt composes around in run-executor.ts), so the
+// static persona cannot drift from what a learning run actually sends.
+export function injectSystemKnowledgeCuratorAgent(
+  config: Record<string, unknown>,
+): Record<string, unknown> {
+  const agents = isRecord(config.agent) ? config.agent : null
+  if (agents && agents[SYSTEM_KNOWLEDGE_CURATOR_AGENT_ID]) {
+    return config
+  }
+
+  const nextAgents: Record<string, unknown> = { ...(agents ?? {}) }
+  nextAgents[SYSTEM_KNOWLEDGE_CURATOR_AGENT_ID] = {
+    mode: 'subagent',
+    prompt: KNOWLEDGE_CURATOR_SYSTEM_INSTRUCTIONS,
+    temperature: 0.1,
+    steps: SUBAGENT_STEP_LIMIT,
+    permission: {
+      doom_loop: 'deny',
+      task: 'deny',
+    },
+    tools: {
+      read: true,
+      list: true,
+      glob: true,
+      grep: true,
+      session_history_query: true,
+      learning_propose: true,
+    },
   }
 
   return { ...config, agent: nextAgents }

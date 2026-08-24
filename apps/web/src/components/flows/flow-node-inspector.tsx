@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { Textarea } from '@/components/ui/textarea'
 import type { AgentListItem } from '@/hooks/use-agents-catalog'
 import { getFlowOutgoingTargets } from '@/lib/flows/graph'
 import type { FlowConditionRule, FlowDefinition, FlowNode, SlackFlowNode } from '@/lib/flows/types'
@@ -245,12 +246,12 @@ export function FlowNodeInspector({
           </div>
           <div className="space-y-2">
             <Label htmlFor="flow-node-prompt">Prompt template</Label>
-            <textarea
+            <Textarea
               id="flow-node-prompt"
               value={node.promptTemplate}
               onChange={(event) => onUpdateNode({ ...node, promptTemplate: event.target.value })}
               rows={7}
-              className="min-h-[150px] w-full rounded-lg border border-border/60 bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring/30"
+              className="min-h-[150px]"
             />
             <TemplateVariableHelp
               mode="template"
@@ -276,12 +277,12 @@ export function FlowNodeInspector({
         <>
           <div className="space-y-2">
             <Label htmlFor="flow-human-instructions">Instructions</Label>
-            <textarea
+            <Textarea
               id="flow-human-instructions"
               value={node.instructions}
               onChange={(event) => onUpdateNode({ ...node, instructions: event.target.value })}
               rows={5}
-              className="min-h-[120px] w-full rounded-lg border border-border/60 bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring/30"
+              className="min-h-[120px]"
             />
             <TemplateVariableHelp
               mode="template"
@@ -378,12 +379,12 @@ export function FlowNodeInspector({
           ) : (
             <div className="space-y-2">
               <Label htmlFor="flow-ai-condition-prompt">Evaluator prompt</Label>
-              <textarea
+              <Textarea
                 id="flow-ai-condition-prompt"
                 value={node.evaluatorPrompt ?? ''}
                 onChange={(event) => onUpdateNode({ ...node, evaluatorPrompt: event.target.value })}
                 rows={5}
-                className="min-h-[120px] w-full rounded-lg border border-border/60 bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring/30"
+                className="min-h-[120px]"
               />
               <TemplateVariableHelp
                 mode="template"
@@ -477,12 +478,12 @@ export function FlowNodeInspector({
           {node.messageMode !== 'previous_output' ? (
             <div className="space-y-2">
               <Label htmlFor="flow-slack-message-template">Message</Label>
-              <textarea
+              <Textarea
                 id="flow-slack-message-template"
                 value={node.messageTemplate}
                 onChange={(event) => onUpdateNode({ ...node, messageTemplate: event.target.value })}
                 rows={5}
-                className="min-h-[120px] w-full rounded-lg border border-border/60 bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring/30"
+                className="min-h-[120px]"
               />
               {node.messageMode === 'template' ? (
                 <TemplateVariableHelp
@@ -499,12 +500,12 @@ export function FlowNodeInspector({
       {node.type === 'compaction' ? (
         <div className="space-y-2">
           <Label htmlFor="flow-compaction-prompt">Compaction prompt</Label>
-          <textarea
+          <Textarea
             id="flow-compaction-prompt"
             value={node.promptTemplate}
             onChange={(event) => onUpdateNode({ ...node, promptTemplate: event.target.value })}
             rows={5}
-            className="min-h-[120px] w-full rounded-lg border border-border/60 bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring/30"
+            className="min-h-[120px]"
           />
           <TemplateVariableHelp
             mode="template"

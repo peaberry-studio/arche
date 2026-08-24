@@ -1,19 +1,12 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 
-import { DashboardHero } from '@/components/dashboard/dashboard-hero'
 import { Button } from '@/components/ui/button'
 import { getSession } from '@/lib/runtime/session'
-import {
-  listRecentKbFileUpdates,
-  readCommonWorkspaceConfig,
-} from '@/lib/common-workspace-config-store'
 import { getKickstartStatus } from '@/kickstart/status'
 import type { KickstartStatus } from '@/kickstart/types'
-import { getAgentSummaries, parseCommonWorkspaceConfig } from '@/lib/workspace-config'
 import { getCurrentDesktopVault } from '@/lib/runtime/desktop/current-vault'
 import { isDesktop } from '@/lib/runtime/mode'
-import { listSkills } from '@/lib/skills/skill-store'
 
 function getSetupNotice(setupParam: string | undefined): {
   text: string
@@ -136,63 +129,6 @@ export default async function WorkspacePage({
     )
   }
 
-  const [configResult, recentUpdatesResult, skillsResult] = await Promise.all([
-    readCommonWorkspaceConfig(),
-    listRecentKbFileUpdates(10),
-    listSkills(),
-  ])
-
-  const parsedConfig = configResult.ok ? parseCommonWorkspaceConfig(configResult.content) : null
-  const agents = parsedConfig?.ok
-    ? getAgentSummaries(parsedConfig.config)
-        .sort((a, b) => {
-          if (a.isPrimary && !b.isPrimary) return -1
-          if (!a.isPrimary && b.isPrimary) return 1
-          return a.displayName.localeCompare(b.displayName)
-        })
-        .map((agent) => ({
-          id: agent.id,
-          displayName: agent.displayName,
-          description: agent.description,
-          isPrimary: agent.isPrimary,
-        }))
-    : []
-
-  const recentUpdates = recentUpdatesResult.ok
-    ? recentUpdatesResult.updates.map((update) => ({
-        fileName: update.fileName,
-        filePath: update.filePath,
-      }))
-    : []
-
-  const skills = skillsResult.ok
-    ? skillsResult.data.map((skill) => ({ name: skill.name, description: skill.description }))
-    : []
-
-  return (
-    <main className="relative flex min-h-[calc(100dvh-6rem)] flex-col px-4 py-6 sm:px-6 sm:py-8">
-      <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col">
-        {setupNotice && (
-          <section
-            className={
-              setupNotice.tone === 'success'
-                ? 'mb-6 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-800'
-                : 'mb-6 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning-foreground'
-            }
-          >
-            {setupNotice.text}
-          </section>
-        )}
-
-        <div className="flex flex-1 items-center justify-center">
-          <DashboardHero
-            slug={slug}
-            agents={agents}
-            recentUpdates={recentUpdates}
-            skills={skills}
-          />
-        </div>
-      </div>
-    </main>
-  )
+  // Kickstart is ready: the workspace is the only product surface.
+  redirect(`/w/${slug}`)
 }

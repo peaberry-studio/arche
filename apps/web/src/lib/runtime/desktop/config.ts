@@ -2,6 +2,8 @@ import { randomBytes } from 'crypto'
 import { existsSync } from 'fs'
 import { join } from 'path'
 
+import { getRuntimeResourceCandidate } from '@arche/desktop-runtime/binaries'
+
 import { buildProviderGatewayConfig } from '@/lib/providers/catalog'
 import { buildWorkspaceRuntimeConfig } from '@/lib/spawner/runtime-artifacts'
 
@@ -83,13 +85,17 @@ export function createSafeEnv(): NodeJS.ProcessEnv {
   }
 }
 
-function resolveBundledBinary(binaryName: string): string | null {
+function resolveBundledBinary(binaryName: 'opencode' | 'workspace-agent'): string | null {
   const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath
   if (!resourcesPath) {
     return null
   }
 
-  const bundledPath = join(resourcesPath, 'bin', binaryName)
+  const bundledPath = getRuntimeResourceCandidate(binaryName, {
+    devBaseDir: process.cwd(),
+    isPackaged: true,
+    resourcesPath,
+  })
   return existsSync(bundledPath) ? bundledPath : null
 }
 

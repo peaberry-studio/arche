@@ -1,9 +1,24 @@
-import { cookies } from 'next/headers'
+import { cookies, headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 
-import { WorkspaceThemeProvider } from "@/contexts/workspace-theme-context";
+import { get2FAStatus } from '@/actions/two-factor'
+import { WorkspaceAppChrome } from '@/components/workspace/workspace-app-chrome'
+import { WorkspaceSettingsDialog } from '@/components/workspace/workspace-settings-dialog'
+import { WorkspaceRuntimeProvider } from '@/contexts/workspace-runtime-context'
+import { WorkspaceThemeProvider } from '@/contexts/workspace-theme-context'
+import type { GoogleWorkspaceIntegrationSummary } from '@/lib/google-workspace/types'
+import { getPublicBaseUrl } from '@/lib/http'
+import type { KbGithubRemoteIntegrationSummary } from '@/lib/kb-github-remote/types'
+import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 import { getCurrentDesktopVault, getWorkspacePersistenceScope } from '@/lib/runtime/desktop/current-vault'
+import { shouldUseCurrentMacOsInsetTitleBar } from '@/lib/runtime/desktop-window-chrome'
 import { isDesktop } from '@/lib/runtime/mode'
+import { getSession } from '@/lib/runtime/session'
+import { googleWorkspaceService, kbGithubRemoteService, slackService } from '@/lib/services'
+import { serializeSlackIntegration } from '@/lib/slack/integration'
+import { ensureSlackServiceUser } from '@/lib/slack/service-user'
+import type { SlackIntegrationSummary } from '@/lib/slack/types'
+import { normalizeTwoFactorStatus } from '@/lib/two-factor-status'
 import {
   DEFAULT_CHAT_FONT_FAMILY,
   DEFAULT_CHAT_FONT_SIZE,
@@ -17,6 +32,31 @@ import {
   isWorkspaceChatFontSize,
   isWorkspaceThemeId,
 } from '@/lib/workspace-theme'
+
+async function loadSlackIntegrationSummary(): Promise<SlackIntegrationSummary | null> {
+  const integration = await slackService.findIntegration()
+  if (!integration) return null
+  return serializeSlackIntegration(integration, null)
+}
+
+async function loadGoogleWorkspaceSummary(): Promise<GoogleWorkspaceIntegrationSummary | null> {
+  const record = await googleWorkspaceService.ensureIntegrationSeededFromEnv()
+  const config = record ? googleWorkspaceService.decryptIntegrationConfig(record) : null
+  return {
+    clientId: config?.clientId ?? null,
+    configured: Boolean(config?.clientId && config?.clientSecret),
+    hasClientSecret: Boolean(config?.clientSecret),
+    version: record?.version ?? 0,
+    updatedAt: record?.updatedAt?.toISOString() ?? null,
+  }
+}
+
+async function loadKbGithubRemoteSummary(): Promise<KbGithubRemoteIntegrationSummary | null> {
+  const record = await kbGithubRemoteService.findIntegration()
+  if (!record) return null
+  const config = kbGithubRemoteService.decryptIntegrationConfig(record)
+  return kbGithubRemoteService.toSummary(record, config)
+}
 
 export default async function WorkspaceLayout({
   children,
@@ -32,6 +72,9 @@ export default async function WorkspaceLayout({
   }
 
   const persistenceScope = getWorkspacePersistenceScope(slug)
+  const caps = getRuntimeCapabilities()
+  const reaperEnabled = caps.reaper
+  const macDesktopWindowInset = shouldUseCurrentMacOsInsetTitleBar()
   const cookieStore = await cookies()
   const storedChatFontFamily = cookieStore.get(getWorkspaceChatFontFamilyCookieName(persistenceScope))?.value
   const storedChatFontSize = cookieStore.get(getWorkspaceChatFontSizeCookieName(persistenceScope))?.value
@@ -45,6 +88,38 @@ export default async function WorkspaceLayout({
   const initialThemeId = storedThemeId && isWorkspaceThemeId(storedThemeId) ? storedThemeId : DEFAULT_THEME_ID
   const initialIsDark = storedDarkMode === 'true' ? true : storedDarkMode === 'false' ? false : DEFAULT_DARK_MODE
 
+  const session = await getSession()
+  if (!session) {
+    redirect('/login')
+  }
+
+  if (session.user.slug !== slug && session.user.role !== 'ADMIN') {
+    redirect(`/w/${session.user.slug}`)
+  }
+
+  const isAdmin = session.user.role === 'ADMIN'
+  const [status, slackIntegrationSummary, slackServiceUser, googleWorkspaceSummary, kbGithubRemoteSummary] = await Promise.all([
+    caps.twoFactor ? get2FAStatus() : Promise.resolve(null),
+    caps.slackIntegration && isAdmin
+      ? loadSlackIntegrationSummary()
+      : Promise.resolve<SlackIntegrationSummary | null>(null),
+    caps.slackIntegration && isAdmin
+      ? ensureSlackServiceUser()
+      : Promise.resolve(null),
+    caps.googleWorkspaceIntegration && isAdmin
+      ? loadGoogleWorkspaceSummary()
+      : Promise.resolve<GoogleWorkspaceIntegrationSummary | null>(null),
+    caps.kbGithubRemoteIntegration && isAdmin
+      ? loadKbGithubRemoteSummary()
+      : Promise.resolve<KbGithubRemoteIntegrationSummary | null>(null),
+  ])
+  const { enabled: twoFactorEnabledStatus, verifiedAt: twoFactorVerifiedAt, recoveryCodesRemaining } =
+    normalizeTwoFactorStatus(status)
+
+  const requestHeaders = await headers()
+  const publicBaseUrl = getPublicBaseUrl(requestHeaders, 'http://localhost:3000')
+  const googleWorkspaceRedirectUri = `${publicBaseUrl}/api/connectors/oauth/callback`
+
   return (
     <WorkspaceThemeProvider
       key={persistenceScope}
@@ -54,7 +129,37 @@ export default async function WorkspaceLayout({
       initialIsDark={initialIsDark}
       initialThemeId={initialThemeId}
     >
-      {children}
+      <WorkspaceRuntimeProvider
+        slug={slug}
+        persistenceScope={persistenceScope}
+        reaperEnabled={reaperEnabled}
+      >
+        <WorkspaceAppChrome
+          slug={slug}
+          currentVault={desktopVault ? { id: desktopVault.vaultId, name: desktopVault.vaultName, path: desktopVault.vaultPath } : null}
+          macDesktopWindowInset={macDesktopWindowInset}
+        >
+          {children}
+        </WorkspaceAppChrome>
+        <WorkspaceSettingsDialog
+          slug={slug}
+          caps={caps}
+          isAdmin={isAdmin}
+          currentUserId={session.user.id}
+          currentUserEmail={session.user.email ?? ''}
+          currentUserSlug={session.user.slug}
+          googleWorkspaceRedirectUri={googleWorkspaceRedirectUri}
+          passwordChangeEnabled={caps.auth}
+          twoFactorEnabled={caps.twoFactor}
+          twoFactorEnabledStatus={twoFactorEnabledStatus}
+          twoFactorVerifiedAt={twoFactorVerifiedAt}
+          recoveryCodesRemaining={recoveryCodesRemaining}
+          slackIntegrationSummary={slackIntegrationSummary}
+          slackServiceUserAvailable={Boolean(slackServiceUser?.ok)}
+          googleWorkspaceSummary={googleWorkspaceSummary}
+          kbGithubRemoteSummary={kbGithubRemoteSummary}
+        />
+      </WorkspaceRuntimeProvider>
     </WorkspaceThemeProvider>
   );
 }

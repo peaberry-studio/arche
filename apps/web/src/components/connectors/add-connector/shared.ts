@@ -1,11 +1,5 @@
 import type { LinearOAuthActor } from '@/lib/connectors/linear'
-import {
-  CONNECTOR_TYPES,
-  OAUTH_CONNECTOR_TYPES,
-  type ConnectorAuthType,
-  type ConnectorType,
-} from '@/lib/connectors/types'
-import { isGoogleWorkspaceConnectorType } from '@/lib/connectors/google-workspace'
+import { CONNECTOR_TYPES, type ConnectorType } from '@/lib/connectors/types'
 
 export const CONNECTOR_TYPE_OPTIONS: {
   type: ConnectorType
@@ -130,12 +124,4 @@ export function hasValidHeaders(headersText: string): boolean {
   } catch {
     return false
   }
-}
-
-export function supportsOAuth(type: ConnectorType): boolean {
-  return (OAUTH_CONNECTOR_TYPES as readonly ConnectorType[]).includes(type)
-}
-
-export function getDefaultAuthType(type: ConnectorType): ConnectorAuthType {
-  return type === 'linear' || type === 'notion' || type === 'meta-ads' || isGoogleWorkspaceConnectorType(type) ? 'oauth' : 'manual'
 }

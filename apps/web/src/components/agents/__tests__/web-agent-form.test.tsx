@@ -64,21 +64,21 @@ describe('WebAgentForm', () => {
     render(<WebAgentForm slug="alice" mode="create" />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
-    expect(pushMock).toHaveBeenCalledWith('/u/alice/agents')
+    expect(pushMock).toHaveBeenCalledWith('/w/alice?catalog=agents')
   })
 
   it('navigates to agents list on delete', () => {
     render(<WebAgentForm slug="alice" mode="edit" agentId="agent-1" />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
-    expect(pushMock).toHaveBeenCalledWith('/u/alice/agents')
+    expect(pushMock).toHaveBeenCalledWith('/w/alice?catalog=agents')
   })
 
   it('navigates to agents list on save when mode is create', () => {
     render(<WebAgentForm slug="alice" mode="create" />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
-    expect(pushMock).toHaveBeenCalledWith('/u/alice/agents')
+    expect(pushMock).toHaveBeenCalledWith('/w/alice?catalog=agents')
   })
 
   it('does not navigate on save when mode is edit', () => {

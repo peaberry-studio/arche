@@ -12,7 +12,7 @@ const {
   getDesktopSecretsDir,
   getDesktopUsersDir,
   getDesktopWorkspaceAttachmentsDir,
-} = require('../dist/vault-layout.js')
+} = require('@arche/desktop-runtime/layout')
 
 function withTempDir(run) {
   const root = join(tmpdir(), `arche-vault-layout-${Date.now()}-${Math.random()}`)

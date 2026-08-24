@@ -33,6 +33,9 @@ importers:
 
   .:
     dependencies:
+      '@arche/desktop-runtime':
+        specifier: link:../desktop-runtime
+        version: link:../desktop-runtime
       '@opencode-ai/sdk':
         specifier: 1.18.18
         version: 1.18.18

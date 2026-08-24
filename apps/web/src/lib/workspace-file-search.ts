@@ -104,21 +104,28 @@ export function rankWorkspaceFileSearchCandidates({
     .map(({ file }) => file)
 }
 
-export function rankWorkspaceFileSearchResults({
-  fileNodes,
-  limit,
-  query,
-  remotePaths,
-}: {
-  fileNodes: WorkspaceFileNode[]
-  limit: number
-  query: string
-  remotePaths: string[]
-}): WorkspaceFileSearchCandidate[] {
-  return rankWorkspaceFileSearchCandidates({
-    files: flattenWorkspaceFileNodes(fileNodes),
-    limit,
-    query,
-    remotePaths,
-  })
+function normalizeWorkspaceLookupPath(path: string): string {
+  return path.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+/g, '/')
+}
+
+export function resolveWorkspaceFilePath(
+  path: string,
+  availablePaths: readonly string[],
+): string {
+  if (!path) return path
+
+  const available = new Set(availablePaths)
+  const normalized = normalizeWorkspaceLookupPath(path)
+  if (available.has(normalized)) return normalized
+
+  const trimmed = normalized.replace(/^\/+/, '')
+  if (available.has(trimmed)) return trimmed
+
+  const matches = availablePaths.filter(
+    (candidate) => normalized.endsWith(candidate) || trimmed.endsWith(candidate),
+  )
+  if (matches.length === 0) return normalized
+
+  matches.sort((a, b) => b.length - a.length)
+  return matches[0]
 }

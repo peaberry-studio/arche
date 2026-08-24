@@ -15,7 +15,6 @@ import {
   FLOW_USER_SELECT,
   type FlowRunDetailRecord,
   type FlowRunRecord,
-  type FlowRunStepRecord,
   type SessionMetadataRecord,
 } from '@/lib/services/flow-records'
 
@@ -184,18 +183,6 @@ export async function findRunByIdForScope(id: string, scope: FlowActorScope): Pr
   })
 }
 
-export async function listRunsByFlowIdForScope(flowId: string, scope: FlowActorScope): Promise<FlowRunDetailRecord[]> {
-  return prisma.flowRun.findMany({
-    include: runDetailInclude(),
-    orderBy: { startedAt: 'desc' },
-    take: 50,
-    where: {
-      flowId,
-      ...runVisibleToWorkspaceWhere(scope),
-    },
-  })
-}
-
 export async function markRunResultSeenByIdForScope(id: string, scope: FlowActorScope, seenAt: Date): Promise<boolean> {
   const run = await prisma.flowRun.findFirst({
     select: {
@@ -266,8 +253,4 @@ export async function findSessionMetadataForWorkspace(workspaceUserId: string, s
       trigger: run.trigger,
     }]
   })
-}
-
-export function getLatestStepOutput(step: FlowRunStepRecord): string | null {
-  return step.compactedOutput ?? step.rawOutput ?? step.humanResponse
 }

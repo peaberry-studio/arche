@@ -1,11 +1,11 @@
-import type { RuntimePaths } from '@/lib/runtime/types'
 import {
   DESKTOP_KB_CONFIG_DIR_NAME,
   DESKTOP_KB_CONTENT_DIR_NAME,
   DESKTOP_USERS_DIR_NAME,
-} from '@/lib/runtime/desktop/vault-layout-constants'
+} from '@arche/desktop-runtime/constants'
 
 import { getDesktopVaultRuntimeContext } from '@/lib/runtime/desktop/context-store'
+import type { RuntimePaths } from '@/lib/runtime/types'
 import { assertValidSlug } from '@/lib/validation/slug'
 
 function getDesktopSeparator(): '/' | '\\' {

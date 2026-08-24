@@ -39,7 +39,7 @@ export function FlowImportTemplatePanel({
 
   return (
     <>
-      <section className="rounded-xl border border-border/60 bg-card/40 p-5">
+      <section className="flex flex-wrap items-start justify-between gap-4">
         <input
           ref={importInputRef}
           type="file"
@@ -47,27 +47,25 @@ export function FlowImportTemplatePanel({
           className="hidden"
           onChange={(event) => void importTemplateFile(event)}
         />
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h2 className="text-sm font-semibold text-foreground">Import template</h2>
-            <p className="text-xs text-muted-foreground">Load a flow JSON template as an unsaved draft, then review it before creating.</p>
-          </div>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => importInputRef.current?.click()}
-            disabled={isImporting}
-          >
-            {isImporting ? <SpinnerGap size={14} className="mr-1.5 animate-spin" /> : <UploadSimple size={14} className="mr-1.5" />}
-            {isImporting ? 'Importing...' : 'Import template'}
-          </Button>
+        <div>
+          <h2 className="text-sm font-semibold text-foreground">Import template</h2>
+          <p className="text-xs text-muted-foreground">Load a flow JSON template as an unsaved draft, then review it before creating.</p>
         </div>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => importInputRef.current?.click()}
+          disabled={isImporting}
+        >
+          {isImporting ? <SpinnerGap size={14} className="mr-1.5 animate-spin" /> : <UploadSimple size={14} className="mr-1.5" />}
+          {isImporting ? 'Importing...' : 'Import template'}
+        </Button>
       </section>
 
       {importWarnings.length > 0 ? (
-        <section className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-5 text-sm text-amber-800 dark:text-amber-200">
+        <section className="space-y-2 text-sm text-amber-800 dark:text-amber-200">
           <h2 className="text-sm font-semibold">Review imported template</h2>
-          <ul className="mt-2 list-disc space-y-1 pl-4">
+          <ul className="list-disc space-y-1 pl-4">
             {importWarnings.map((warning, index) => (
               <li key={`${warning.code}-${warning.nodeId ?? warning.value ?? index}`}>{warning.message}</li>
             ))}

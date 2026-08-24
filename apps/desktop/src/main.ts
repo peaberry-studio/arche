@@ -6,22 +6,12 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { dirname, join } from 'path'
 
-import type { CreateVaultArgs, DesktopApiResult, DesktopVaultSummary } from './desktop-bridge-types'
-import { ensureDesktopConnectorOAuthStateSecret } from './desktop-connector-oauth-secret'
-import { ensureDesktopEncryptionKey } from './desktop-encryption-key'
-import { buildDesktopLaunchEnv } from './desktop-launch-env'
-import { createDesktopSmokeTestHarness } from './desktop-smoke-test'
-import { createDesktopVault } from './create-vault'
-import { getDesktopNextDistDirName } from './desktop-next-dist'
 import {
   getMissingPackagedRuntimeBinaries,
   getPackagedNodeBinaryPath,
   getRuntimeBinaryEnv,
-} from './runtime-binaries'
-import { findAvailablePort } from './runtime-network'
-import { startRuntimeWithPortRetries } from './runtime-start'
-import { probeHttpServerReady, RuntimeSupervisor } from './runtime-supervisor'
-import { buildLaunchArgs, resolveLaunchContext, type DesktopLaunchContext } from './vault-launch'
+} from '@arche/desktop-runtime/binaries'
+import { LOCAL_DESKTOP_USER_SLUG } from '@arche/desktop-runtime/constants'
 import {
   getDesktopKbConfigDir,
   getDesktopKbContentDir,
@@ -30,8 +20,19 @@ import {
   getDesktopUserDataDir,
   getDesktopWorkspaceAttachmentsDir,
   getDesktopWorkspaceDir,
-} from './vault-layout'
-import { LOCAL_DESKTOP_USER_SLUG } from './vault-layout-constants'
+} from '@arche/desktop-runtime/layout'
+import { findAvailablePort } from '@arche/desktop-runtime/network'
+
+import type { CreateVaultArgs, DesktopApiResult, DesktopVaultSummary } from './desktop-bridge-types'
+import { ensureDesktopConnectorOAuthStateSecret } from './desktop-connector-oauth-secret'
+import { ensureDesktopEncryptionKey } from './desktop-encryption-key'
+import { buildDesktopLaunchEnv } from './desktop-launch-env'
+import { createDesktopSmokeTestHarness } from './desktop-smoke-test'
+import { createDesktopVault } from './create-vault'
+import { getDesktopNextDistDirName } from './desktop-next-dist'
+import { startRuntimeWithPortRetries } from './runtime-start'
+import { probeHttpServerReady, RuntimeSupervisor } from './runtime-supervisor'
+import { buildLaunchArgs, resolveLaunchContext, type DesktopLaunchContext } from './vault-launch'
 import { acquireVaultLock, getVaultLockState, type VaultLockHandle } from './vault-lock'
 import {
   clearLastOpenedVault,

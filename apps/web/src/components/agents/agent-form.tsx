@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   OPENCODE_AGENT_TOOL_OPTIONS,
@@ -389,103 +390,105 @@ export function AgentForm({
         : 'Save changes'
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
-      <div className="space-y-2">
-        <Label htmlFor="agent-display-name">Display name</Label>
-        <Input
-          id="agent-display-name"
-          value={displayName}
-          onChange={(event) => setDisplayName(event.target.value)}
-          placeholder="Support Agent"
-          required
-        />
-        {mode === 'create' ? (
-          <p className="text-xs text-muted-foreground">An internal ID will be generated automatically.</p>
-        ) : null}
-      </div>
-
-      {mode === 'edit' && (
+    <form onSubmit={handleSubmit} className="space-y-8">
+      <div className="space-y-5">
         <div className="space-y-2">
-          <Label htmlFor="agent-id">Agent ID</Label>
-          <Input id="agent-id" value={id} disabled />
-        </div>
-      )}
-
-      <div className="grid gap-4 md:grid-cols-2">
-        <div className="space-y-2">
-          <div className="flex items-center justify-between gap-3">
-            <Label htmlFor="agent-model">Model override</Label>
-            <label className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Checkbox
-                checked={usesDefaultModel}
-                onChange={(event) => handleUsesDefaultModelChange(event.target.checked)}
-              />
-              Use workspace default model
-            </label>
-          </div>
+          <Label htmlFor="agent-display-name">Display name</Label>
           <Input
-            id="agent-model"
-            list="agent-models"
-            value={model}
-            onChange={(event) => setModel(event.target.value)}
-            placeholder="Select or type a model"
-            disabled={usesDefaultModel}
+            id="agent-display-name"
+            value={displayName}
+            onChange={(event) => setDisplayName(event.target.value)}
+            placeholder="Support Agent"
+            required
           />
-          {usesDefaultModel ? (
-            <p className="text-xs text-muted-foreground">
-              {defaultModel ? `Using ${defaultModel}` : 'No workspace default model is configured.'}
-            </p>
+          {mode === 'create' ? (
+            <p className="text-xs text-muted-foreground">An internal ID will be generated automatically.</p>
           ) : null}
-          <datalist id="agent-models">
-            {modelOptions.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.label}
-              </option>
-            ))}
-            {!hasCurrentModel && model ? <option value={model}>Current: {model}</option> : null}
-          </datalist>
         </div>
+
+        {mode === 'edit' ? (
+          <div className="space-y-2">
+            <Label htmlFor="agent-id">Agent ID</Label>
+            <Input id="agent-id" value={id} disabled />
+          </div>
+        ) : null}
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <Label htmlFor="agent-model">Model override</Label>
+              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Checkbox
+                  checked={usesDefaultModel}
+                  onChange={(event) => handleUsesDefaultModelChange(event.target.checked)}
+                />
+                Use workspace default model
+              </label>
+            </div>
+            <Input
+              id="agent-model"
+              list="agent-models"
+              value={model}
+              onChange={(event) => setModel(event.target.value)}
+              placeholder="Select or type a model"
+              disabled={usesDefaultModel}
+            />
+            {usesDefaultModel ? (
+              <p className="text-xs text-muted-foreground">
+                {defaultModel ? `Using ${defaultModel}` : 'No workspace default model is configured.'}
+              </p>
+            ) : null}
+            <datalist id="agent-models">
+              {modelOptions.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+              {!hasCurrentModel && model ? <option value={model}>Current: {model}</option> : null}
+            </datalist>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="agent-temperature">Temperature</Label>
+            <Input
+              id="agent-temperature"
+              type="number"
+              step="0.1"
+              min="0"
+              max="2"
+              value={temperature}
+              onChange={(event) => setTemperature(event.target.value)}
+              placeholder="0.2"
+            />
+          </div>
+        </div>
+
         <div className="space-y-2">
-          <Label htmlFor="agent-temperature">Temperature</Label>
-          <Input
-            id="agent-temperature"
-            type="number"
-            step="0.1"
-            min="0"
-            max="2"
-            value={temperature}
-            onChange={(event) => setTemperature(event.target.value)}
-            placeholder="0.2"
+          <Label htmlFor="agent-description">Description</Label>
+          <Textarea
+            id="agent-description"
+            className="min-h-[96px]"
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+            placeholder="Short description of the agent role."
           />
         </div>
-      </div>
 
-      <div className="space-y-2">
-        <Label htmlFor="agent-description">Description</Label>
-        <textarea
-          id="agent-description"
-          className="min-h-[96px] w-full rounded-lg border border-border/60 bg-card/50 px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/30"
-          value={description}
-          onChange={(event) => setDescription(event.target.value)}
-          placeholder="Short description of the agent role."
-        />
-      </div>
-
-      <div className="space-y-2">
-        <Label htmlFor="agent-prompt">Prompt</Label>
-        <textarea
-          id="agent-prompt"
-          className="min-h-[240px] w-full rounded-lg border border-border/60 bg-card/50 px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/30"
-          value={prompt}
-          onChange={(event) => setPrompt(event.target.value)}
-          placeholder="Define the system prompt for this agent..."
-        />
+        <div className="space-y-2">
+          <Label htmlFor="agent-prompt">Prompt</Label>
+          <Textarea
+            id="agent-prompt"
+            className="min-h-[240px]"
+            value={prompt}
+            onChange={(event) => setPrompt(event.target.value)}
+            placeholder="Define the system prompt for this agent..."
+          />
+        </div>
       </div>
 
       <TooltipProvider delayDuration={200}>
-        <div className="space-y-5 rounded-xl border border-border/60 bg-card/30 p-5">
+        <section className="space-y-5">
           <div>
-            <Label className="text-base">Capabilities</Label>
+            <h2 className="text-sm font-semibold text-foreground">Capabilities</h2>
             <p className="mt-1 text-xs text-muted-foreground">
               Configure which tools, connectors and skills this agent can use.
             </p>
@@ -547,9 +550,7 @@ export function AgentForm({
               </Tooltip>
             </div>
             {connectors.length === 0 ? (
-              <div className="flex items-center gap-2 rounded-lg border border-dashed border-border/60 px-3 py-2.5 text-sm text-muted-foreground/70">
-                No connectors available.
-              </div>
+              <p className="text-sm text-muted-foreground/70">No connectors available.</p>
             ) : (
               <div className="grid gap-2 md:grid-cols-2">
                 {connectors.map((connector) => {
@@ -599,9 +600,7 @@ export function AgentForm({
               </Tooltip>
             </div>
             {skills.length === 0 ? (
-              <div className="flex items-center gap-2 rounded-lg border border-dashed border-border/60 px-3 py-2.5 text-sm text-muted-foreground/70">
-                No skills available.
-              </div>
+              <p className="text-sm text-muted-foreground/70">No skills available.</p>
             ) : (
               <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3">
                 {skills.map((skill) => {
@@ -627,44 +626,49 @@ export function AgentForm({
               </div>
             )}
           </div>
-        </div>
+        </section>
       </TooltipProvider>
 
-      {mode === 'edit' && (
-        <div className="flex flex-col gap-3">
-          <Label>Agent type</Label>
-          <div
-            role="switch"
-            aria-checked={isPrimary}
-            className="relative inline-grid h-10 grid-cols-2 rounded-full bg-muted p-1"
-          >
-            <span
-              className={`
-                absolute inset-y-1 w-[calc(50%-2px)] rounded-full bg-background shadow-sm transition-all duration-200 ease-in-out
-                ${isPrimary ? 'left-[calc(50%+1px)]' : 'left-1'}
-              `}
-            />
-            <button
-              type="button"
-              onClick={() => {}}
-              disabled={!isPrimary || isSaving}
-              className={`relative z-10 cursor-pointer px-5 text-sm font-medium transition-colors disabled:cursor-default ${!isPrimary ? 'text-foreground' : 'text-muted-foreground'}`}
-            >
-              Secondary
-            </button>
-            <button
-              type="button"
-              onClick={handleSetPrimary}
-              disabled={isPrimary || isSaving}
-              className={`relative z-10 cursor-pointer px-5 text-sm font-medium transition-colors disabled:cursor-default ${isPrimary ? 'text-foreground' : 'text-muted-foreground'}`}
-            >
-              Primary
-            </button>
+      {mode === 'edit' ? (
+        <section className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h2 className="text-sm font-semibold text-foreground">Agent type</h2>
+            <p className="text-xs text-muted-foreground">
+              The primary agent is the default assistant for this workspace.
+            </p>
           </div>
-        </div>
-      )}
+            <div
+              role="switch"
+              aria-checked={isPrimary}
+              className="relative inline-grid h-10 grid-cols-2 rounded-full bg-muted p-1"
+            >
+              <span
+                className={`
+                  absolute inset-y-1 w-[calc(50%-2px)] rounded-full bg-background shadow-sm transition-all duration-200 ease-in-out
+                  ${isPrimary ? 'left-[calc(50%+1px)]' : 'left-1'}
+                `}
+              />
+              <button
+                type="button"
+                onClick={() => {}}
+                disabled={!isPrimary || isSaving}
+                className={`relative z-10 cursor-pointer px-5 text-sm font-medium transition-colors disabled:cursor-default ${!isPrimary ? 'text-foreground' : 'text-muted-foreground'}`}
+              >
+                Secondary
+              </button>
+              <button
+                type="button"
+                onClick={handleSetPrimary}
+                disabled={isPrimary || isSaving}
+                className={`relative z-10 cursor-pointer px-5 text-sm font-medium transition-colors disabled:cursor-default ${isPrimary ? 'text-foreground' : 'text-muted-foreground'}`}
+              >
+                Primary
+              </button>
+            </div>
+        </section>
+      ) : null}
 
-      {mode === 'create' && allowPrimarySelection && (
+      {mode === 'create' && allowPrimarySelection ? (
         <label className="flex items-center gap-2 text-sm text-muted-foreground">
           <Checkbox
             checked={isPrimary}
@@ -672,23 +676,21 @@ export function AgentForm({
           />
           Set as primary
         </label>
-      )}
+      ) : null}
 
-      {mode === 'edit' && !isPrimary && (
-        <section className="rounded-xl border border-destructive/30 bg-destructive/5 p-5">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="space-y-1">
-              <h2 className="text-sm font-semibold text-destructive">Danger zone</h2>
-              <p className="text-xs text-muted-foreground">
-                Deleting an agent removes it from this workspace. This cannot be undone.
-              </p>
-            </div>
-            <Button type="button" variant="destructive" onClick={handleDelete} disabled={isSaving}>
-              Delete agent
-            </Button>
+      {mode === 'edit' && !isPrimary ? (
+        <section className="flex flex-wrap items-start justify-between gap-4">
+          <div className="space-y-1">
+            <h2 className="text-sm font-semibold text-destructive">Danger zone</h2>
+            <p className="text-xs text-muted-foreground">
+              Deleting an agent removes it from this workspace. This cannot be undone.
+            </p>
           </div>
+          <Button type="button" variant="destructive" onClick={handleDelete} disabled={isSaving}>
+            Delete agent
+          </Button>
         </section>
-      )}
+      ) : null}
 
       <div className="sticky bottom-0 z-20 -mx-6 border-t border-border/60 bg-background/85 px-6 py-4 backdrop-blur-md supports-[backdrop-filter]:bg-background/70">
         {saveError ? (

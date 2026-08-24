@@ -1,3 +1,4 @@
+import { KNOWLEDGE_CURATOR_SYSTEM_INSTRUCTIONS } from '@/lib/learning/curator-prompt'
 import {
   claimLearningRunForExecution,
   findLearningRunForUser,
@@ -14,6 +15,7 @@ import {
   waitForSessionToComplete,
 } from '@/lib/opencode/session-execution'
 import { messageRunService } from '@/lib/services'
+import { SYSTEM_KNOWLEDGE_CURATOR_AGENT_ID } from '@/lib/workspace-config'
 import type { KnowledgeReviewRegenerationContext, LearningTrigger } from '@/types/learning'
 
 const LEARNING_SESSION_TITLE_MAX_LENGTH = 160
@@ -64,7 +66,7 @@ export function buildCuratorPrompt(input: LearningRunExecutionInput): string {
   ] : []
 
   return [
-    'You are the Arche knowledge curator. Review workspace activity and capture durable knowledge as Knowledge Base proposals.',
+    KNOWLEDGE_CURATOR_SYSTEM_INSTRUCTIONS,
     '',
     `Learning run id: ${input.runId}`,
     `Source session: ${input.sourceSessionId ?? 'none (review recent sessions)'}`,
@@ -133,7 +135,7 @@ export async function executeLearningRun(input: LearningRunExecutionInput): Prom
       const cursor = await captureSessionMessageCursor(client, sessionId)
       await client.session.promptAsync(
         {
-          agent: 'knowledge-curator',
+          agent: SYSTEM_KNOWLEDGE_CURATOR_AGENT_ID,
           parts: [{ text: buildCuratorPrompt(input), type: 'text' }],
           sessionID: sessionId,
         },

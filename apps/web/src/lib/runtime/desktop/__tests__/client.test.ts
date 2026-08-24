@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
-  isDesktopBridgeAvailable,
   getOptionalDesktopBridge,
   getDesktopBridge,
   getDesktopPlatform,
@@ -18,47 +17,6 @@ describe('desktop client', () => {
   afterEach(() => {
     // @ts-expect-error - restoring window
     globalThis.window = originalWindow
-  })
-
-  describe('isDesktopBridgeAvailable', () => {
-    it('returns false when window is undefined', () => {
-      expect(isDesktopBridgeAvailable()).toBe(false)
-    })
-
-    it('returns false when arche bridge is missing', () => {
-      // @ts-expect-error - mocking window
-      globalThis.window = {}
-      expect(isDesktopBridgeAvailable()).toBe(false)
-    })
-
-    it('returns false when bridge desktop property is missing', () => {
-      // @ts-expect-error - mocking window
-      globalThis.window = { arche: { isDesktop: true } }
-      expect(isDesktopBridgeAvailable()).toBe(false)
-    })
-
-    it('returns false when isDesktop is false', () => {
-      // @ts-expect-error - mocking window
-      globalThis.window = { arche: { isDesktop: false, desktop: {} } }
-      expect(isDesktopBridgeAvailable()).toBe(false)
-    })
-
-    it('returns true when desktop bridge is fully available', () => {
-      const desktopBridge = {
-        createVault: vi.fn(),
-        getCurrentVault: vi.fn(),
-        listRecentVaults: vi.fn(),
-        openExistingVault: vi.fn(),
-        openVault: vi.fn(),
-        openVaultLauncher: vi.fn(),
-        pickVaultParentDirectory: vi.fn(),
-        quitLauncherProcess: vi.fn(),
-        revealAttachmentsDirectory: vi.fn(),
-      }
-      // @ts-expect-error - mocking window
-      globalThis.window = { arche: { isDesktop: true, desktop: desktopBridge } }
-      expect(isDesktopBridgeAvailable()).toBe(true)
-    })
   })
 
   describe('getOptionalDesktopBridge', () => {

@@ -61,7 +61,10 @@ async function removeConnectorsByType(page: Page, type: string): Promise<void> {
 }
 
 async function openAddConnectorDialog(page: Page) {
+  // Connectors management lives in the workspace settings dialog;
+  // /u/{slug}/connectors redirects into it.
   await page.goto(`/u/${adminSlug}/connectors`)
+  await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Connectors' })).toBeVisible()
 
   const addFirstButton = page.getByRole('button', { name: 'Add your first connector' })
@@ -71,7 +74,7 @@ async function openAddConnectorDialog(page: Page) {
     await page.getByRole('button', { name: 'Add connector' }).click()
   }
 
-  const dialog = page.getByRole('dialog')
+  const dialog = page.getByRole('dialog', { name: 'Add connector' })
   await expect(dialog).toBeVisible()
   return dialog
 }
@@ -98,12 +101,11 @@ test('completes Linear user OAuth through fake provider', async ({ page }) => {
 
   await page.getByRole('button', { name: 'Connect OAuth' }).click()
 
-  await page.waitForURL(`**/u/${adminSlug}/connectors?oauth=success`)
-
-  await expect(page.getByText('Linear', { exact: true })).toBeVisible()
+  // The fake provider round-trips back into the workspace connectors settings
+  // and the connector badge flips from "Pending setup" to "Working".
   await expect(
     page.locator('div.rounded-xl').filter({ hasText: 'Linear' }).filter({ hasText: 'Working' }).first()
-  ).toBeVisible()
+  ).toBeVisible({ timeout: 60_000 })
 })
 
 test('completes Notion OAuth through fake provider', async ({ page }) => {
@@ -118,10 +120,9 @@ test('completes Notion OAuth through fake provider', async ({ page }) => {
 
   await page.getByRole('button', { name: 'Connect OAuth' }).click()
 
-  await page.waitForURL(`**/u/${adminSlug}/connectors?oauth=success`)
-
-  await expect(page.getByText('Notion', { exact: true })).toBeVisible()
+  // The fake provider round-trips back into the workspace connectors settings
+  // and the connector badge flips from "Pending setup" to "Working".
   await expect(
     page.locator('div.rounded-xl').filter({ hasText: 'Notion' }).filter({ hasText: 'Working' }).first()
-  ).toBeVisible()
+  ).toBeVisible({ timeout: 60_000 })
 })

@@ -1,5 +1,6 @@
 import {
   KNOWLEDGE_REVIEW_OPERATIONS,
+  LEARNING_AGENT_MAX_LENGTH,
   LEARNING_EVIDENCE_QUOTE_MAX_LENGTH,
   LEARNING_EVIDENCE_SOURCE_MAX_LENGTH,
   LEARNING_KB_PATH_MAX_LENGTH,
@@ -28,6 +29,7 @@ export type LearningProposalRequest = {
   currentFileHash?: string | null
   internalSessionId?: string | null
   trigger?: LearningTrigger
+  agent?: string | null
 }
 
 export type LearningProposalActionRequest = {
@@ -122,6 +124,8 @@ export function parseProposalRequest(body: unknown):
   if (body.type !== undefined && !isProposalType(body.type)) return { ok: false }
   if (body.reason !== undefined && !isBoundedString(body.reason, LEARNING_TITLE_MAX_LENGTH)) return { ok: false }
   if (body.trigger !== undefined && !isTrigger(body.trigger)) return { ok: false }
+  if (!isOptionalStringOrNull(body.agent)) return { ok: false }
+  if (typeof body.agent === 'string' && body.agent.length > LEARNING_AGENT_MAX_LENGTH) return { ok: false }
   if (body.confidence !== undefined && (
     typeof body.confidence !== 'number' ||
     !Number.isFinite(body.confidence) ||
@@ -149,6 +153,7 @@ export function parseProposalRequest(body: unknown):
       currentFileHash: body.currentFileHash ?? null,
       internalSessionId: body.internalSessionId ?? null,
       trigger: body.trigger,
+      agent: body.agent ?? null,
     },
   }
 }

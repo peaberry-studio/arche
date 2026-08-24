@@ -8,14 +8,14 @@ import {
   initiate2FASetup,
   regenerateRecoveryCodes,
   verify2FASetup,
-} from '@/app/u/[slug]/settings/security/actions'
+} from '@/actions/two-factor'
 import { TotpSetupWizard } from '@/components/totp-setup-wizard'
 
 vi.mock('qrcode.react', () => ({
   QRCodeSVG: ({ value }: { value: string }) => <svg data-testid="qr-code" data-value={value} />,
 }))
 
-vi.mock('@/app/u/[slug]/settings/security/actions', () => ({
+vi.mock('@/actions/two-factor', () => ({
   disable2FA: vi.fn(),
   initiate2FASetup: vi.fn(),
   regenerateRecoveryCodes: vi.fn(),

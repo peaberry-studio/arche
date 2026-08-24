@@ -1,20 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
-
+import {
+  BITMAP_GRID_COLS,
+  BITMAP_GRID_ROWS,
+  BitmapGlyph,
+  createFrame,
+  type BitmapAnimationConfig,
+} from "@/components/workspace/bitmap-glyph";
 import type { MessageStatusInfo } from "@/lib/opencode/types";
-import { getWorkspaceToolDisplay } from "@/lib/workspace-tool-display";
 import { cn } from "@/lib/utils";
+import { getWorkspaceToolDisplay } from "@/lib/workspace-tool-display";
 
 type BitmapPattern = "orbit" | "scan" | "columns" | "wave-rows" | "diagonal-swipe";
-
-type BitmapAnimationConfig = {
-  intervalMs: number;
-  frames: boolean[][];
-};
-
-const BITMAP_GRID_COLS = 6;
-const BITMAP_GRID_ROWS = 6;
 
 // Details set by the client while it reattaches to an interrupted stream.
 const STREAM_RECOVERY_DETAILS = new Set([
@@ -23,15 +20,6 @@ const STREAM_RECOVERY_DETAILS = new Set([
   "upstream_eof",
   "upstream_stream_error",
 ]);
-
-function createFrame(cols: number, rows: number, activeDots: Array<[number, number]>): boolean[] {
-  const frame = Array.from({ length: cols * rows }, () => false);
-  for (const [x, y] of activeDots) {
-    if (x < 0 || y < 0 || x >= cols || y >= rows) continue;
-    frame[y * cols + x] = true;
-  }
-  return frame;
-}
 
 function createOrbitFrames(): boolean[][] {
   const ring: Array<[number, number]> = [
@@ -157,59 +145,6 @@ const BITMAP_ANIMATIONS: Record<BitmapPattern, BitmapAnimationConfig> = {
   },
 };
 
-function BitmapGlyph({ pattern }: { pattern: BitmapPattern }) {
-  const animation = BITMAP_ANIMATIONS[pattern];
-  const [frameIndex, setFrameIndex] = useState(0);
-  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
-  const dotSizePx = 2;
-  const dotGapPx = 1;
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const onChange = () => setPrefersReducedMotion(mediaQuery.matches);
-    onChange();
-
-    mediaQuery.addEventListener("change", onChange);
-    return () => mediaQuery.removeEventListener("change", onChange);
-  }, []);
-
-  useEffect(() => {
-    if (prefersReducedMotion) return;
-    const timer = window.setInterval(() => {
-      setFrameIndex((current) => (current + 1) % animation.frames.length);
-    }, animation.intervalMs);
-
-    return () => window.clearInterval(timer);
-  }, [animation.frames.length, animation.intervalMs, prefersReducedMotion]);
-
-  const frame = prefersReducedMotion
-    ? animation.frames[0]
-    : animation.frames[frameIndex % animation.frames.length];
-
-  return (
-    <span
-      className="grid shrink-0"
-      style={{
-        gridTemplateColumns: `repeat(${BITMAP_GRID_COLS}, ${dotSizePx}px)`,
-        gridTemplateRows: `repeat(${BITMAP_GRID_ROWS}, ${dotSizePx}px)`,
-        gap: `${dotGapPx}px`,
-      }}
-      aria-hidden="true"
-    >
-      {frame.map((isActive, index) => (
-        <span
-          key={index}
-          style={{ width: `${dotSizePx}px`, height: `${dotSizePx}px` }}
-          className={cn(
-            "rounded-[0.5px] bg-current transition-opacity duration-100",
-            isActive ? "opacity-80" : "opacity-[0.08]"
-          )}
-        />
-      ))}
-    </span>
-  );
-}
-
 export function StatusIndicator({
   currentStatus,
   connectorNamesById,
@@ -275,7 +210,10 @@ export function StatusIndicator({
         config.className
       )}
     >
-      <BitmapGlyph pattern={config.pattern} />
+      <BitmapGlyph
+        frames={BITMAP_ANIMATIONS[config.pattern].frames}
+        intervalMs={BITMAP_ANIMATIONS[config.pattern].intervalMs}
+      />
       <span>{config.label}</span>
     </div>
   );

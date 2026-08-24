@@ -728,10 +728,11 @@ func TestHandleKbPublishWithoutManifestOnCleanTree(t *testing.T) {
 	}
 }
 
-func TestHandleKbPublishRejectsUnreviewedChanges(t *testing.T) {
+func TestHandleKbPublishPartialCommitLeavesSiblingDirty(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "workspace")
 	remote := filepath.Join(root, "kb.git")
+	remoteWork := filepath.Join(root, "remote-work")
 	ctx := context.Background()
 
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
@@ -747,19 +748,13 @@ func TestHandleKbPublishRejectsUnreviewedChanges(t *testing.T) {
 	runGit(t, ctx, workspace, "remote", "add", "kb", remote)
 	runGit(t, ctx, workspace, "push", "-u", "kb", "main")
 
-	// Both changes are still uncommitted working-tree files: one is the
-	// requested manifest path, the other is a reviewable file the BFF never
-	// listed (a stale /git/diffs snapshot). A publish must not commit the
-	// subset and strand the omitted reviewable path.
-	writeWorkspaceTestFile(t, workspace, "Knowledge/Unreviewed.md", "unreviewed\n")
+	// Two dirty working-tree files: the requested manifest path and a sibling
+	// that must stay uncommitted. A per-file publish commits and ships only
+	// the requested path, leaving the sibling dirty in the working tree.
 	writeWorkspaceTestFile(t, workspace, "Knowledge/Reviewed.md", "reviewed\n")
+	writeWorkspaceTestFile(t, workspace, "Knowledge/Unreviewed.md", "unreviewed\n")
 
 	s := &server{workspace: workspace}
-	localBefore, _, _, _ := runCmd(ctx, workspace, []string{"git", "rev-parse", "HEAD"})
-	// Inspect the real bare remote (not the local tracking ref, which can go
-	// stale) so an advance of the published branch is unmissable.
-	remoteBefore, _, _, _ := runCmd(ctx, workspace, []string{"git", "--git-dir", remote, "rev-parse", "refs/heads/main"})
-
 	req := httptest.NewRequest(http.MethodPost, "/kb/publish", strings.NewReader(`{"paths":["Knowledge/Reviewed.md"]}`))
 	recorder := httptest.NewRecorder()
 	s.handleKbPublish(recorder, req)
@@ -771,26 +766,204 @@ func TestHandleKbPublishRejectsUnreviewedChanges(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode publish response: %v", err)
 	}
-	if response.Ok || response.Status != "error" || response.Message != "unreviewed_changes_present" {
+	if !response.Ok || response.Status != "published" {
 		t.Fatalf("unexpected publish response: %+v", response)
 	}
 
-	// Nothing must be committed or pushed: the local HEAD stays put and the
-	// remote branch must not advance.
-	localAfter, _, _, _ := runCmd(ctx, workspace, []string{"git", "rev-parse", "HEAD"})
-	remoteAfter, _, _, _ := runCmd(ctx, workspace, []string{"git", "--git-dir", remote, "rev-parse", "refs/heads/main"})
-	if strings.TrimSpace(localAfter) != strings.TrimSpace(localBefore) {
-		t.Fatalf("local HEAD advanced on rejection: %q -> %q", strings.TrimSpace(localBefore), strings.TrimSpace(localAfter))
+	// The sibling must still be dirty after the partial publish and the
+	// published path must be clean.
+	entries, err := s.gitStatusEntries(ctx)
+	if err != nil {
+		t.Fatalf("git status: %v", err)
 	}
-	if strings.TrimSpace(remoteAfter) != strings.TrimSpace(remoteBefore) {
-		t.Fatalf("remote branch advanced on rejection: %q -> %q", strings.TrimSpace(remoteBefore), strings.TrimSpace(remoteAfter))
+	foundSibling := false
+	for _, entry := range entries {
+		if entry.Path == "Knowledge/Unreviewed.md" {
+			foundSibling = true
+		}
+		if entry.Path == "Knowledge/Reviewed.md" {
+			t.Fatalf("published path unexpectedly still dirty: %+v", entries)
+		}
+	}
+	if !foundSibling {
+		t.Fatalf("expected sibling to stay dirty: %+v", entries)
 	}
 
-	// The rejected path must not be anywhere on the remote either.
+	// The requested file is on the remote; the sibling is not.
+	runGit(t, ctx, root, "clone", remote, remoteWork)
+	reviewed, err := os.ReadFile(filepath.Join(remoteWork, "Knowledge", "Reviewed.md"))
+	if err != nil || string(reviewed) != "reviewed\n" {
+		t.Fatalf("published content = %q, err = %v", string(reviewed), err)
+	}
+	if _, err := os.Stat(filepath.Join(remoteWork, "Knowledge", "Unreviewed.md")); !os.IsNotExist(err) {
+		t.Fatalf("unreviewed sibling was published: %v", err)
+	}
+}
+
+func TestHandleKbPublishPartialAfterPriorPendingCommit(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	remote := filepath.Join(root, "kb.git")
+	remoteWork := filepath.Join(root, "remote-work")
+	ctx := context.Background()
+
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+	runGit(t, ctx, workspace, "init", "-b", "main")
+	runGit(t, ctx, workspace, "config", "user.email", "tests@example.com")
+	runGit(t, ctx, workspace, "config", "user.name", "Workspace Agent Tests")
+	writeWorkspaceTestFile(t, workspace, "README.md", "base\n")
+	runGit(t, ctx, workspace, "add", "README.md")
+	runGit(t, ctx, workspace, "commit", "-m", "initial")
+	runGit(t, ctx, root, "init", "--bare", remote)
+	runGit(t, ctx, workspace, "remote", "add", "kb", remote)
+	runGit(t, ctx, workspace, "push", "-u", "kb", "main")
+
+	// Simulate a prior publish whose push was rejected: file A is committed
+	// locally but never reaches the remote. File B is still dirty. Publishing
+	// B individually must not be blocked by A sitting outside the new manifest.
+	writeWorkspaceTestFile(t, workspace, "Knowledge/Reviewed.md", "committed A\n")
+	runGit(t, ctx, workspace, "add", "Knowledge/Reviewed.md")
+	runGit(t, ctx, workspace, "commit", "-m", "prior publish")
+	writeWorkspaceTestFile(t, workspace, "Knowledge/Unreviewed.md", "dirty B\n")
+
+	s := &server{workspace: workspace}
+	req := httptest.NewRequest(http.MethodPost, "/kb/publish", strings.NewReader(`{"paths":["Knowledge/Unreviewed.md"]}`))
+	recorder := httptest.NewRecorder()
+	s.handleKbPublish(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("publish status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	var response publishKbResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode publish response: %v", err)
+	}
+	if !response.Ok || response.Status != "published" {
+		t.Fatalf("unexpected publish response: %+v", response)
+	}
+
+	// Both A (already committed) and B (just published) are pushed.
+	runGit(t, ctx, root, "clone", remote, remoteWork)
+	contentA, err := os.ReadFile(filepath.Join(remoteWork, "Knowledge", "Reviewed.md"))
+	if err != nil || string(contentA) != "committed A\n" {
+		t.Fatalf("committed A content = %q, err = %v", string(contentA), err)
+	}
+	contentB, err := os.ReadFile(filepath.Join(remoteWork, "Knowledge", "Unreviewed.md"))
+	if err != nil || string(contentB) != "dirty B\n" {
+		t.Fatalf("published B content = %q, err = %v", string(contentB), err)
+	}
+}
+
+// setupConflictedMergeWorkspace creates a workspace whose merge with the kb
+// remote leaves Conflict.md unmerged while Clean.md stays dirty in the
+// working tree. It returns the agent server ready to serve /kb/publish.
+func setupConflictedMergeWorkspace(t *testing.T) *server {
+	t.Helper()
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	remote := filepath.Join(root, "kb.git")
+	ctx := context.Background()
+	conflictPath := "Notes/Conflict.md"
+	cleanPath := "Notes/Clean.md"
+
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+	runGit(t, ctx, workspace, "init", "-b", "main")
+	runGit(t, ctx, workspace, "config", "user.email", "tests@example.com")
+	runGit(t, ctx, workspace, "config", "user.name", "Workspace Agent Tests")
+	writeWorkspaceTestFile(t, workspace, conflictPath, "base\n")
+	writeWorkspaceTestFile(t, workspace, cleanPath, "base\n")
+	runGit(t, ctx, workspace, "add", ".")
+	runGit(t, ctx, workspace, "commit", "-m", "base")
+
+	runGit(t, ctx, root, "init", "--bare", remote)
+	runGit(t, ctx, workspace, "remote", "add", "kb", remote)
+	runGit(t, ctx, workspace, "push", "-u", "kb", "main")
+
 	remoteWork := filepath.Join(root, "remote-work")
 	runGit(t, ctx, root, "clone", remote, remoteWork)
-	if _, err := os.Stat(filepath.Join(remoteWork, "Knowledge", "Reviewed.md")); !os.IsNotExist(err) {
-		t.Fatalf("reviewed file was published despite unreviewed changes: %v", err)
+	runGit(t, ctx, remoteWork, "config", "user.email", "tests@example.com")
+	runGit(t, ctx, remoteWork, "config", "user.name", "Workspace Agent Tests")
+	writeWorkspaceTestFile(t, remoteWork, conflictPath, "remote\n")
+	runGit(t, ctx, remoteWork, "commit", "-am", "remote")
+	runGit(t, ctx, remoteWork, "push", "origin", "main")
+
+	writeWorkspaceTestFile(t, workspace, conflictPath, "local\n")
+	runGit(t, ctx, workspace, "commit", "-am", "local")
+	writeWorkspaceTestFile(t, workspace, cleanPath, "dirty\n")
+	runGit(t, ctx, workspace, "fetch", "kb")
+	if _, _, mergeCode, mergeErr := runCmd(ctx, workspace, []string{"git", "merge", "kb/main", "--no-edit"}); mergeErr != nil || mergeCode == 0 {
+		t.Fatalf("expected merge conflict, code=%d err=%v", mergeCode, mergeErr)
+	}
+
+	return &server{workspace: workspace}
+}
+
+func publishTestRequest(t *testing.T, s *server, body string) publishKbResponse {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/kb/publish", strings.NewReader(body))
+	recorder := httptest.NewRecorder()
+	s.handleKbPublish(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("publish status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var response publishKbResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode publish response: %v", err)
+	}
+	return response
+}
+
+func TestHandleKbPublishConflictGateScopedToRequestedPaths(t *testing.T) {
+	s := setupConflictedMergeWorkspace(t)
+
+	// A per-file publish that selects the conflicted file itself is blocked
+	// by the conflict gate, with Files scoped to the selected path only.
+	response := publishTestRequest(t, s, `{"paths":["Notes/Conflict.md"]}`)
+	if response.Ok || response.Status != "conflicts" {
+		t.Fatalf("expected conflicts for selected conflicted path, got %+v", response)
+	}
+	if len(response.Files) != 1 || response.Files[0] != "Notes/Conflict.md" {
+		t.Fatalf("expected Files scoped to the selected path, got %+v", response.Files)
+	}
+}
+
+func TestHandleKbPublishConflictGateDoesNotBlockUnselectedSibling(t *testing.T) {
+	s := setupConflictedMergeWorkspace(t)
+
+	// The conflicted sibling must not fail a per-file publish of a clean
+	// file as a global "conflicts" response. The publish itself cannot
+	// proceed while the merge is unresolved (git cannot create a partial
+	// commit during a merge), so it must surface a dedicated, actionable
+	// error instead of the misleading conflict listing.
+	response := publishTestRequest(t, s, `{"paths":["Notes/Clean.md"]}`)
+	if response.Ok || response.Status == "conflicts" {
+		t.Fatalf("unexpected conflicts gate for unselected sibling conflict: %+v", response)
+	}
+	for _, file := range response.Files {
+		if file == "Notes/Conflict.md" {
+			t.Fatalf("unselected conflicted sibling must not be listed: %+v", response)
+		}
+	}
+	if response.Message != "resolve_conflicts_before_publishing" {
+		t.Fatalf("expected resolve_conflicts_before_publishing, got %+v", response)
+	}
+}
+
+func TestHandleKbPublishConflictGateStaysGlobalForPublishAll(t *testing.T) {
+	s := setupConflictedMergeWorkspace(t)
+
+	// Publish all keeps the global conflict gate: any conflicted diff
+	// blocks, and the response lists every conflicted file.
+	response := publishTestRequest(t, s, `{"paths":["Notes/Conflict.md","Notes/Clean.md"]}`)
+	if response.Ok || response.Status != "conflicts" {
+		t.Fatalf("expected global conflicts gate, got %+v", response)
+	}
+	if len(response.Files) != 1 || response.Files[0] != "Notes/Conflict.md" {
+		t.Fatalf("expected conflicted file listed, got %+v", response.Files)
 	}
 }
 

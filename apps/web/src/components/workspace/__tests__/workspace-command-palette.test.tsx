@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest"
 
 import { WorkspaceCommandPalette } from "@/components/workspace/workspace-command-palette"
 import type { WorkspaceFileNode, WorkspaceSession } from "@/lib/opencode/types"
@@ -49,30 +49,34 @@ vi.mock("@/hooks/use-flow-runner", () => ({
 }))
 
 type PaletteHandlers = {
-  onCreateSession: ReturnType<typeof vi.fn>
-  onModeChange: ReturnType<typeof vi.fn>
-  onOpenFile: ReturnType<typeof vi.fn>
-  onNavigateConnectors: ReturnType<typeof vi.fn>
-  onNavigateProviders: ReturnType<typeof vi.fn>
-  onNavigateSettings: ReturnType<typeof vi.fn>
-  onOpenChange: ReturnType<typeof vi.fn>
-  onRefreshSessions: ReturnType<typeof vi.fn>
-  onSelectSession: ReturnType<typeof vi.fn>
-  onToggleLeftPanel: ReturnType<typeof vi.fn>
+  onCreateSession: Mock<() => Promise<void>>
+  onOpenCurator: Mock<() => void>
+  onOpenExplore: Mock<() => void>
+  onNavigateFlows: Mock<() => void>
+  onOpenFile: Mock<(path: string) => Promise<void>>
+  onNavigateConnectors: Mock<() => void>
+  onNavigateProviders: Mock<() => void>
+  onNavigateSettings: Mock<() => void>
+  onOpenChange: Mock<(open: boolean) => void>
+  onRefreshSessions: Mock<() => Promise<void>>
+  onSelectSession: Mock<(sessionId: string) => void>
+  onToggleLeftPanel: Mock<() => void>
 }
 
 function makeHandlers(): PaletteHandlers {
   return {
-    onCreateSession: vi.fn().mockResolvedValue(undefined),
-    onModeChange: vi.fn(),
-    onOpenFile: vi.fn().mockResolvedValue(undefined),
-    onNavigateConnectors: vi.fn(),
-    onNavigateProviders: vi.fn(),
-    onNavigateSettings: vi.fn(),
-    onOpenChange: vi.fn(),
-    onRefreshSessions: vi.fn().mockResolvedValue(undefined),
-    onSelectSession: vi.fn(),
-    onToggleLeftPanel: vi.fn(),
+    onCreateSession: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    onOpenCurator: vi.fn<() => void>(),
+    onOpenExplore: vi.fn<() => void>(),
+    onNavigateFlows: vi.fn<() => void>(),
+    onOpenFile: vi.fn<(path: string) => Promise<void>>().mockResolvedValue(undefined),
+    onNavigateConnectors: vi.fn<() => void>(),
+    onNavigateProviders: vi.fn<() => void>(),
+    onNavigateSettings: vi.fn<() => void>(),
+    onOpenChange: vi.fn<(open: boolean) => void>(),
+    onRefreshSessions: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    onSelectSession: vi.fn<(sessionId: string) => void>(),
+    onToggleLeftPanel: vi.fn<() => void>(),
   }
 }
 
@@ -136,7 +140,7 @@ describe("WorkspaceCommandPalette", () => {
     const handlers = renderPalette()
 
     expect(loadFlowsMock).toHaveBeenCalledTimes(1)
-    expect(screen.getByText("Go to Flows mode")).not.toBeNull()
+    expect(screen.getByText("Go to Flows manager")).not.toBeNull()
 
     fireEvent.change(screen.getByPlaceholderText(palettePlaceholder), {
       target: { value: "new chat" },
@@ -146,11 +150,10 @@ describe("WorkspaceCommandPalette", () => {
     })
 
     await waitFor(() => expect(handlers.onOpenChange).toHaveBeenCalledWith(false))
-    expect(handlers.onModeChange).toHaveBeenCalledWith("chat")
     expect(handlers.onCreateSession).toHaveBeenCalledTimes(1)
   })
 
-  it("searches root sessions and opens a flow run result in flows mode", async () => {
+  it("searches root sessions and opens a flow run result in chat mode", async () => {
     const sessions = [
       {
         id: "flow-session",
@@ -187,7 +190,7 @@ describe("WorkspaceCommandPalette", () => {
     fireEvent.click(screen.getByText("Weekly run"))
 
     await waitFor(() => expect(handlers.onOpenChange).toHaveBeenCalledWith(false))
-    expect(handlers.onSelectSession).toHaveBeenCalledWith("flow-session", "flows")
+    expect(handlers.onSelectSession).toHaveBeenCalledWith("flow-session")
   })
 
   it("hides flow commands and flow search results when flows are unavailable", async () => {
@@ -248,10 +251,10 @@ describe("WorkspaceCommandPalette", () => {
     fireEvent.change(input, { target: { value: "daily report" } })
     fireEvent.keyDown(input, { key: "Enter" })
     await waitFor(() => expect(runFlowMock).toHaveBeenCalledWith("flow-1"))
-    expect(handlers.onModeChange).toHaveBeenCalledWith("flows")
+    expect(handlers.onNavigateFlows).toHaveBeenCalledTimes(1)
   })
 
-  it("finds files by fuzzy name and opens them in Explore mode", async () => {
+  it("finds files by fuzzy name and opens them in Explore", async () => {
     searchFilesActionMock.mockResolvedValue({ ok: true, files: ["Company/Research/Customer Interviews.md"] })
     const handlers = renderPalette()
     const input = screen.getByPlaceholderText(palettePlaceholder)
@@ -262,8 +265,29 @@ describe("WorkspaceCommandPalette", () => {
     fireEvent.click(screen.getByText("Product Strategy.md"))
 
     await waitFor(() => expect(handlers.onOpenChange).toHaveBeenCalledWith(false))
-    expect(handlers.onModeChange).toHaveBeenCalledWith("explore")
     expect(handlers.onOpenFile).toHaveBeenCalledWith("Company/Product Strategy.md")
+  })
+
+  it("runs the Open Knowledge Base command", async () => {
+    const handlers = renderPalette()
+    const input = screen.getByPlaceholderText(palettePlaceholder)
+
+    fireEvent.change(input, { target: { value: "open knowledge base" } })
+    fireEvent.keyDown(input, { key: "Enter" })
+
+    await waitFor(() => expect(handlers.onOpenExplore).toHaveBeenCalledTimes(1))
+    expect(handlers.onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it("runs the Open Curator command", async () => {
+    const handlers = renderPalette()
+    const input = screen.getByPlaceholderText(palettePlaceholder)
+
+    fireEvent.change(input, { target: { value: "open curator" } })
+    fireEvent.keyDown(input, { key: "Enter" })
+
+    await waitFor(() => expect(handlers.onOpenCurator).toHaveBeenCalledTimes(1))
+    expect(handlers.onOpenChange).toHaveBeenCalledWith(false)
   })
 
   it("includes file results returned by workspace search", async () => {

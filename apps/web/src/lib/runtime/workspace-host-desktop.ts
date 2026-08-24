@@ -2,6 +2,8 @@ import { spawn, type ChildProcess } from 'child_process'
 import { writeFileSync } from 'fs'
 import { join } from 'path'
 
+import { findAvailablePort } from '@arche/desktop-runtime/network'
+
 import { isE2eFakeRuntimeEnabled } from '@/lib/e2e/runtime'
 import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
 import { getKbContentRoot } from '@/lib/runtime/paths'
@@ -11,7 +13,6 @@ import {
   waitForHttpReady,
   waitForOpenCodeHealthy,
 } from '@/lib/runtime/desktop/health'
-import { findAvailablePort } from '@/lib/runtime/desktop/network'
 import {
   DEFAULT_USERNAME,
   LOOPBACK_HOST,

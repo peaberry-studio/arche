@@ -78,11 +78,6 @@ export function verifyTotp(
   return { valid: true, windowStart }
 }
 
-export function generateCurrentCode(secret: string): string {
-  const totp = new TOTP({ algorithm: 'SHA1', digits: TOTP_DIGITS, period: TOTP_PERIOD, secret })
-  return totp.generate()
-}
-
 export function generateRecoveryCodes(count = 10): string[] {
   const codes: string[] = []
   while (codes.length < count) {

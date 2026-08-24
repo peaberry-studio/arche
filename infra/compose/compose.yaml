@@ -119,6 +119,7 @@ services:
       - arche-internal
     volumes:
       - ./../../apps/web:/app
+      - ./../../apps/desktop-runtime:/desktop-runtime
       - arche_web_next:/app/.next
       - arche_web_node_modules:/app/node_modules
       - arche_pnpm_store:/pnpm/store

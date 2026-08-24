@@ -21,6 +21,11 @@ module.exports = {
     'dist/**/*',
     'node_modules/**/*',
     'package.json',
+    {
+      from: '../desktop-runtime',
+      to: 'node_modules/@arche/desktop-runtime',
+      filter: ['**/*'],
+    },
   ],
   asarUnpack: [
     'node_modules/dugite/git/**',

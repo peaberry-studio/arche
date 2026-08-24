@@ -34,15 +34,6 @@ const catalog: KickstartTemplatesResponse = {
       tools: ['read'],
     },
     {
-      id: 'knowledge-curator',
-      displayName: 'Knowledge Curator',
-      description: 'Maintains KB structure',
-      systemPrompt: 'Curate knowledge',
-      recommendedModel: 'openai/gpt-5.2',
-      temperature: 0.1,
-      tools: ['read'],
-    },
-    {
       id: 'writer',
       displayName: 'Writer',
       description: 'Writes content',
@@ -157,7 +148,6 @@ describe('KickstartWizard', () => {
       templateId: 'blank',
       agents: [
         { id: 'assistant', model: 'openai/gpt-5.2', prompt: 'Help the user', temperature: 0.2 },
-        { id: 'knowledge-curator', model: 'openai/gpt-5.2', prompt: 'Curate knowledge', temperature: 0.1 },
         { id: 'writer', model: 'openrouter/custom', prompt: 'Custom writer prompt', temperature: 0.8 },
         { id: 'analyst', model: 'openai/gpt-5.2', prompt: 'Analyze data', temperature: 0.3 },
       ],

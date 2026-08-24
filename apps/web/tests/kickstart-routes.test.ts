@@ -10,11 +10,6 @@ vi.mock('@/lib/csrf', () => ({
   validateSameOrigin: (...args: unknown[]) => mockValidateSameOrigin(...args),
 }))
 
-const mockGetKickstartStatus = vi.fn()
-vi.mock('@/kickstart/status', () => ({
-  getKickstartStatus: (...args: unknown[]) => mockGetKickstartStatus(...args),
-}))
-
 const mockGetKickstartTemplateSummaries = vi.fn()
 vi.mock('@/kickstart/templates', () => ({
   getKickstartTemplateSummaries: (...args: unknown[]) =>
@@ -34,13 +29,6 @@ vi.mock('@/kickstart/apply', () => ({
 
 function session(slug: string, role: 'USER' | 'ADMIN' = 'USER') {
   return { user: { id: 'user-1', email: 'a@b.com', slug, role }, sessionId: 's1' }
-}
-
-async function callStatus(slug = 'alice') {
-  const { GET } = await import('@/app/api/u/[slug]/kickstart/status/route')
-  const request = new Request(`http://localhost/api/u/${slug}/kickstart/status`)
-  const response = await GET(request as never, { params: Promise.resolve({ slug }) })
-  return { status: response.status, body: await response.json() }
 }
 
 async function callTemplates(slug = 'alice') {
@@ -87,13 +75,12 @@ describe('kickstart routes', () => {
 
     mockGetAuthenticatedUser.mockResolvedValue(session('alice', 'ADMIN'))
     mockValidateSameOrigin.mockReturnValue({ ok: true })
-    mockGetKickstartStatus.mockResolvedValue('needs_setup')
     mockGetKickstartTemplateSummaries.mockReturnValue([
       {
         id: 'blank',
         label: 'Blank',
         description: 'Minimal template',
-        recommendedAgentIds: ['assistant', 'knowledge-curator'],
+        recommendedAgentIds: ['assistant'],
         agentOverrides: {},
       },
     ])
@@ -111,30 +98,6 @@ describe('kickstart routes', () => {
     mockApplyKickstart.mockResolvedValue({ ok: true })
   })
 
-  it('GET status returns 401 when unauthenticated', async () => {
-    mockGetAuthenticatedUser.mockResolvedValue(null)
-
-    const { status, body } = await callStatus('alice')
-    expect(status).toBe(401)
-    expect(body.error).toBe('unauthorized')
-  })
-
-  it('GET status returns 403 for unauthorized slug', async () => {
-    mockGetAuthenticatedUser.mockResolvedValue(session('bob', 'USER'))
-
-    const { status, body } = await callStatus('alice')
-    expect(status).toBe(403)
-    expect(body.error).toBe('forbidden')
-  })
-
-  it('GET status returns kickstart state', async () => {
-    mockGetKickstartStatus.mockResolvedValue('setup_in_progress')
-
-    const { status, body } = await callStatus('alice')
-    expect(status).toBe(200)
-    expect(body).toEqual({ status: 'setup_in_progress' })
-  })
-
   it('GET templates returns catalog payload', async () => {
     const { status, body } = await callTemplates('alice')
     expect(status).toBe(200)
@@ -149,7 +112,7 @@ describe('kickstart routes', () => {
       companyName: 'Acme',
       companyDescription: 'Desc',
       templateId: 'blank',
-      agents: [{ id: 'assistant' }, { id: 'knowledge-curator' }],
+      agents: [{ id: 'assistant' }],
     })
 
     expect(status).toBe(403)
@@ -171,7 +134,7 @@ describe('kickstart routes', () => {
       companyName: 'Acme',
       companyDescription: 'Desc',
       templateId: 'blank',
-      agents: [{ id: 'assistant' }, { id: 'knowledge-curator' }],
+      agents: [{ id: 'assistant' }],
     })
 
     expect(status).toBe(409)
@@ -199,7 +162,7 @@ describe('kickstart routes', () => {
       companyName: 'Acme',
       companyDescription: 'Desc',
       templateId: 'blank',
-      agents: [{ id: 'assistant' }, { id: 'knowledge-curator' }],
+      agents: [{ id: 'assistant' }],
     })
 
     expect(mockApplyKickstart).toHaveBeenCalledWith(
@@ -207,7 +170,7 @@ describe('kickstart routes', () => {
         companyName: 'Acme',
         companyDescription: 'Desc',
         templateId: 'blank',
-        agents: [{ id: 'assistant' }, { id: 'knowledge-curator' }],
+        agents: [{ id: 'assistant' }],
       },
       'user-1'
     )

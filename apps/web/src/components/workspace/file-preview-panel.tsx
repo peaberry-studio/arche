@@ -61,7 +61,7 @@ export function FilePreviewPanel({
           ) : (
             <ClipboardText size={12} weight="bold" />
           )}
-          {copied ? 'Copied' : 'Copy as MD'}
+          <span className="hidden sm:inline">{copied ? 'Copied' : 'Copy as MD'}</span>
         </Button>
         <Button
           size="sm"
@@ -71,7 +71,7 @@ export function FilePreviewPanel({
           aria-label="Edit file"
         >
           <PencilSimple size={12} weight="bold" />
-          Edit
+          <span className="hidden sm:inline">Edit</span>
         </Button>
         <button
           type="button"

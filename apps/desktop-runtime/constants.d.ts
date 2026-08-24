@@ -1,0 +1,11 @@
+export declare const DEFAULT_NEW_VAULT_NAME: string
+export declare const DESKTOP_DATABASE_FILE_NAME: string
+export declare const DESKTOP_KB_CONFIG_DIR_NAME: string
+export declare const DESKTOP_KB_CONTENT_DIR_NAME: string
+export declare const DESKTOP_MANIFEST_FILE_NAME: string
+export declare const DESKTOP_OPENCODE_RUNTIME_DIR_NAME: string
+export declare const DESKTOP_RUNTIME_DIR_NAME: string
+export declare const DESKTOP_SECRETS_DIR_NAME: string
+export declare const DESKTOP_USERS_DIR_NAME: string
+export declare const DESKTOP_WORKSPACE_DIR_NAME: string
+export declare const LOCAL_DESKTOP_USER_SLUG: string
