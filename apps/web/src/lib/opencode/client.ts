@@ -19,6 +19,16 @@ export type InstanceHealthResult =
   | { ok: true }
   | { ok: false; detail: string; message?: string }
 
+// Every /global/health request is bounded so no single probe can outlive its
+// deadline. Startup probes pass shorter remaining-budget deadlines; status
+// reads rely on this default to avoid a hanging transport-level wait.
+export const DEFAULT_HEALTH_TIMEOUT_MS = 5_000
+
+export type InstanceHealthOptions = {
+  timeoutMs?: number
+  signal?: AbortSignal
+}
+
 function getErrorMessage(error: unknown): string | undefined {
   if (error instanceof Error) {
     return error.message
@@ -84,14 +94,27 @@ export async function createInstanceClient(slug: string): Promise<OpencodeClient
 
 /**
  * Check if an OpenCode instance is healthy using explicit credentials.
+ *
+ * Every request carries an `AbortController` that fires at `timeoutMs`
+ * (default `DEFAULT_HEALTH_TIMEOUT_MS`), so a hanging or idle connection can
+ * never outlive the deadline. An external `options.signal` can additionally
+ * cancel the request from the caller (used to cancel the losing probe when a
+ * concurrent probe confirms health).
  */
 export async function isInstanceHealthyWithPassword(
   slug: string,
   password: string,
   overrideBaseUrl?: string,
+  options?: InstanceHealthOptions,
 ): Promise<InstanceHealthResult> {
   const baseUrl = resolveInstanceUrl(slug, overrideBaseUrl)
   const authHeader = `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}`
+  const timeoutMs = options?.timeoutMs ?? DEFAULT_HEALTH_TIMEOUT_MS
+
+  const controller = new AbortController()
+  const timeoutTimer = setTimeout(() => controller.abort(), timeoutMs)
+  const onExternalAbort = () => controller.abort()
+  options?.signal?.addEventListener('abort', onExternalAbort, { once: true })
 
   try {
     const response = await fetch(`${baseUrl}/global/health`, {
@@ -100,6 +123,7 @@ export async function isInstanceHealthyWithPassword(
         Accept: 'application/json',
       },
       cache: 'no-store',
+      signal: controller.signal,
     })
 
     if (!response.ok) {
@@ -123,7 +147,13 @@ export async function isInstanceHealthyWithPassword(
 
     return { ok: false, detail: 'unhealthy_response', message: JSON.stringify(data) }
   } catch (error) {
+    if (controller.signal.aborted) {
+      return { ok: false, detail: 'healthcheck_timeout' }
+    }
     return { ok: false, ...describeFetchError(error) }
+  } finally {
+    clearTimeout(timeoutTimer)
+    options?.signal?.removeEventListener('abort', onExternalAbort)
   }
 }
 

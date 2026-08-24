@@ -185,6 +185,53 @@ export function setError(slug: string) {
   })
 }
 
+// Race-safe variants: each transition is guarded by slug + status + containerId
+// so a stale startup attempt can never mutate the outcome of a newer one. They
+// return the affected row count so callers can detect a lost race.
+
+export function setRunningIfCurrentContainer(
+  slug: string,
+  containerId: string,
+  appliedConfigSha: string | null,
+): Promise<{ count: number }> {
+  return prisma.instance.updateMany({
+    where: { slug, status: 'starting', containerId },
+    data: {
+      status: 'running',
+      lastActivityAt: new Date(),
+      appliedConfigSha,
+    },
+  })
+}
+
+export function setErrorIfCurrentContainer(
+  slug: string,
+  containerId: string,
+): Promise<{ count: number }> {
+  return prisma.instance.updateMany({
+    where: { slug, status: 'starting', containerId },
+    data: {
+      status: 'error',
+      containerId: null,
+      providerSyncHash: null,
+      providerSyncedAt: null,
+    },
+  })
+}
+
+export function correctToRunningIfCurrentContainer(
+  slug: string,
+  containerId: string,
+): Promise<{ count: number }> {
+  return prisma.instance.updateMany({
+    where: { slug, status: 'starting', containerId },
+    data: {
+      status: 'running',
+      lastActivityAt: new Date(),
+    },
+  })
+}
+
 export function setRunning(slug: string, appliedConfigSha: string | null) {
   return prisma.instance.update({
     where: { slug },
@@ -249,16 +296,6 @@ export function invalidateProviderSyncStateForAllInstances() {
     data: {
       providerSyncHash: null,
       providerSyncedAt: null,
-    },
-  })
-}
-
-export function correctToRunning(slug: string) {
-  return prisma.instance.update({
-    where: { slug },
-    data: {
-      status: 'running',
-      lastActivityAt: new Date(),
     },
   })
 }

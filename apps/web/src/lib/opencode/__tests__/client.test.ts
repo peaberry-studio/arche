@@ -192,4 +192,42 @@ describe('isInstanceHealthyWithPassword', () => {
     expect(mockGetInstanceUrl).toHaveBeenCalledWith('alice', 'http://10.88.0.12:4096')
     vi.unstubAllGlobals()
   })
+
+  it('aborts a never-resolving fetch at the per-request deadline', async () => {
+    mockGetInstanceUrl.mockReturnValue('http://opencode-alice:4096')
+    let fetchInit: RequestInit | undefined
+    vi.stubGlobal('fetch', vi.fn((_url: string, init?: RequestInit) => {
+      fetchInit = init
+      return new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true })
+      })
+    }))
+
+    const { isInstanceHealthyWithPassword } = await import('../client')
+    const result = await isInstanceHealthyWithPassword('alice', 'test-password', undefined, { timeoutMs: 30 })
+
+    expect(result).toEqual({ ok: false, detail: 'healthcheck_timeout' })
+    expect(fetchInit?.signal).toBeDefined()
+    vi.unstubAllGlobals()
+  })
+
+  it('returns healthcheck_timeout when an external signal cancels the request', async () => {
+    mockGetInstanceUrl.mockReturnValue('http://opencode-alice:4096')
+    const controller = new AbortController()
+    vi.stubGlobal('fetch', vi.fn((_url: string, init?: RequestInit) => {
+      return new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true })
+      })
+    }))
+
+    const { isInstanceHealthyWithPassword } = await import('../client')
+    const promise = isInstanceHealthyWithPassword('alice', 'test-password', undefined, {
+      timeoutMs: 1_000,
+      signal: controller.signal,
+    })
+    controller.abort()
+
+    await expect(promise).resolves.toEqual({ ok: false, detail: 'healthcheck_timeout' })
+    vi.unstubAllGlobals()
+  })
 })

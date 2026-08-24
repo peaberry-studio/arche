@@ -1,5 +1,7 @@
 "use client";
 
+import { XCircle } from "@phosphor-icons/react";
+
 import type { InstanceStartupStatus } from "@/hooks/use-instance-startup";
 import type { WorkspaceConnectionState } from "@/lib/opencode/types";
 
@@ -34,10 +36,16 @@ export function WorkspaceConnectingBanner({
   instanceError,
 }: WorkspaceConnectingBannerProps) {
   const starting = instanceStatus === "starting" || instanceStatus === null;
+  const failed = instanceStatus === "error";
+  const connectionFailed = !starting && !failed && connection.status === "error";
 
   return (
     <div className="flex h-full min-h-0 flex-col items-center justify-center gap-3 px-6 text-center">
-      <ArcLoader />
+      {failed || connectionFailed ? (
+        <XCircle size={24} weight="fill" className="text-destructive/70" aria-hidden />
+      ) : (
+        <ArcLoader />
+      )}
       <div className="space-y-1">
         {starting ? (
           <>
@@ -46,22 +54,22 @@ export function WorkspaceConnectingBanner({
               Setting up your workspace…
             </p>
           </>
-        ) : instanceStatus === "error" ? (
-          <>
+        ) : failed ? (
+          <div role="alert">
             <h2 className="type-display text-base font-semibold text-destructive">Failed to start</h2>
             <p className="text-sm text-muted-foreground">
               {instanceError ?? "Unable to start the workspace"}
             </p>
-          </>
+          </div>
         ) : (
-          <>
+          <div role={connectionFailed ? "alert" : undefined}>
             <h2 className="type-display text-base font-semibold">Connecting to OpenCode</h2>
             <p className="text-sm text-muted-foreground">
-              {connection.status === "error"
+              {connectionFailed
                 ? getConnectionErrorText(connection.error)
                 : "Establishing connection..."}
             </p>
-          </>
+          </div>
         )}
       </div>
     </div>

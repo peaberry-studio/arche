@@ -8,6 +8,7 @@ const { mockGetRuntimeCapabilities, mockPrisma } = vi.hoisted(() => ({
     findMany: vi.fn(),
     upsert: vi.fn(),
     update: vi.fn(),
+    updateMany: vi.fn(),
     deleteMany: vi.fn(),
   },
 },
@@ -32,11 +33,13 @@ import {
   setContainerId,
   setError,
   setRunning,
+  setRunningIfCurrentContainer,
+  setErrorIfCurrentContainer,
+  correctToRunningIfCurrentContainer,
   setStopped,
   setStoppedNoContainer,
   setStoppedById,
   setProviderSyncState,
-  correctToRunning,
   touchActivity,
   deleteBySlug,
 } from '../instance'
@@ -216,6 +219,49 @@ describe('instanceService', () => {
     })
   })
 
+  describe('setRunningIfCurrentContainer', () => {
+    it('guards the transition by slug, starting status and containerId', async () => {
+      mockPrisma.instance.updateMany.mockResolvedValue({ count: 1 })
+      await setRunningIfCurrentContainer('alice', 'container-1', 'sha-abc')
+      expect(mockPrisma.instance.updateMany).toHaveBeenCalledWith({
+        where: { slug: 'alice', status: 'starting', containerId: 'container-1' },
+        data: expect.objectContaining({ status: 'running', appliedConfigSha: 'sha-abc' }),
+      })
+    })
+
+    it('returns zero affected rows for a mismatched containerId', async () => {
+      mockPrisma.instance.updateMany.mockResolvedValue({ count: 0 })
+      const result = await setRunningIfCurrentContainer('alice', 'stale-container', 'sha-abc')
+      expect(result).toEqual({ count: 0 })
+      expect(mockPrisma.instance.updateMany).toHaveBeenCalledWith({
+        where: { slug: 'alice', status: 'starting', containerId: 'stale-container' },
+        data: expect.objectContaining({ status: 'running' }),
+      })
+    })
+  })
+
+  describe('setErrorIfCurrentContainer', () => {
+    it('guards the error transition by slug, starting status and containerId', async () => {
+      mockPrisma.instance.updateMany.mockResolvedValue({ count: 1 })
+      await setErrorIfCurrentContainer('alice', 'container-1')
+      expect(mockPrisma.instance.updateMany).toHaveBeenCalledWith({
+        where: { slug: 'alice', status: 'starting', containerId: 'container-1' },
+        data: expect.objectContaining({ status: 'error', containerId: null }),
+      })
+    })
+  })
+
+  describe('correctToRunningIfCurrentContainer', () => {
+    it('guards the correction by slug, starting status and containerId', async () => {
+      mockPrisma.instance.updateMany.mockResolvedValue({ count: 1 })
+      await correctToRunningIfCurrentContainer('alice', 'container-1')
+      expect(mockPrisma.instance.updateMany).toHaveBeenCalledWith({
+        where: { slug: 'alice', status: 'starting', containerId: 'container-1' },
+        data: expect.objectContaining({ status: 'running', lastActivityAt: expect.any(Date) }),
+      })
+    })
+  })
+
   describe('setStopped', () => {
     it('clears containerId and sync state', async () => {
       mockPrisma.instance.update.mockResolvedValue({})
@@ -256,17 +302,6 @@ describe('instanceService', () => {
       expect(mockPrisma.instance.update).toHaveBeenCalledWith({
         where: { slug: 'alice' },
         data: { providerSyncHash: 'hash-123', providerSyncedAt: syncedAt },
-      })
-    })
-  })
-
-  describe('correctToRunning', () => {
-    it('sets running and touches lastActivityAt', async () => {
-      mockPrisma.instance.update.mockResolvedValue({})
-      await correctToRunning('alice')
-      expect(mockPrisma.instance.update).toHaveBeenCalledWith({
-        where: { slug: 'alice' },
-        data: { status: 'running', lastActivityAt: expect.any(Date) },
       })
     })
   })
