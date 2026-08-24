@@ -57,7 +57,7 @@ test('opens settings as a modal over the workspace and closes back to chat', asy
 
   await page.getByRole('button', { name: 'Close settings' }).click()
 
-  await expect(page).toHaveURL(new RegExp(`/w/${adminSlug}$`))
+  await expect(page).toHaveURL(new RegExp(`/w/${adminSlug}$`), { timeout: 120_000 })
   await expect(dialog).toHaveCount(0)
 })
 

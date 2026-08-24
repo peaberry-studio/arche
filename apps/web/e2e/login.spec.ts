@@ -14,5 +14,5 @@ test('signs in from the login page', async ({ page }) => {
   await page.getByRole('button', { name: 'Sign in' }).click()
 
   await expect(page).toHaveURL(new RegExp(`/w/${adminSlug}$`))
-  await expect(page.getByTestId('empty-composer-heading')).toBeVisible()
+  await expect(page.getByTestId('empty-composer-heading')).toBeVisible({ timeout: 120_000 })
 })

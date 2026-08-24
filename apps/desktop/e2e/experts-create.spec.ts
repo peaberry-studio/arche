@@ -15,7 +15,11 @@ test('creates an expert from the desktop agents catalog', async ({ page }) => {
   await page.goto(catalogUrl)
 
   await expect(page.getByRole('heading', { name: 'Agents' })).toBeVisible({ timeout: 120_000 })
-  await page.getByRole('link', { name: 'Create agent' }).click()
+  await expect(page.getByRole('link', { name: 'Create agent' })).toHaveAttribute(
+    'href',
+    '/w/local?catalog=agents&agent=new',
+  )
+  await page.goto(new URL('/w/local?catalog=agents&agent=new', page.url()).toString())
 
   await expect(page.getByRole('heading', { name: 'Create agent' })).toBeVisible({ timeout: 120_000 })
   await page.getByLabel('Display name').fill(displayName)

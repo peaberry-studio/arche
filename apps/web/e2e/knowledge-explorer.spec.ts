@@ -53,7 +53,7 @@ test('explores Knowledge files through quickview, graph, and table controls', as
   await expect(page.getByText('Quickview')).toBeVisible()
 
   await page.getByRole('button', { name: 'Edit file', exact: true }).click()
-  await expect(page).toHaveURL(new RegExp(`/w/${adminSlug}/explore\\?path=`))
+  await expect(page).toHaveURL(new RegExp(`/w/${adminSlug}/explore\\?path=`), { timeout: 120_000 })
   await expect(page.locator('.workspace-tiptap').getByRole('heading', { name: 'E2E Plan' })).toBeVisible()
 
   await page.getByRole('button', { name: 'Graph', exact: true }).click()

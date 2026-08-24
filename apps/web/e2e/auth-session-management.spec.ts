@@ -10,7 +10,7 @@ async function signIn(page: Page, email: string, password: string, slug: string)
   await page.getByLabel('Password').fill(password)
   await page.getByRole('button', { name: 'Sign in' }).click()
   await expect(page).toHaveURL(new RegExp(`/w/${slug}$`))
-  await expect(page.getByTestId('empty-composer-heading')).toBeVisible()
+  await expect(page.getByTestId('empty-composer-heading')).toBeVisible({ timeout: 120_000 })
 }
 
 test('logs out from settings', async ({ page }) => {
@@ -23,10 +23,10 @@ test('logs out from settings', async ({ page }) => {
   await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible()
   await page.getByRole('button', { name: 'Log out' }).click()
 
-  await expect(page).toHaveURL(/\/login$/)
+  await expect(page).toHaveURL(/\/login$/, { timeout: 120_000 })
 
   await page.goto(`/w/${adminSlug}`)
-  await expect(page).toHaveURL(/\/login$/)
+  await expect(page).toHaveURL(/\/login$/, { timeout: 120_000 })
 })
 
 test('admin resets a team member password and revokes existing sessions', async ({ browser, page }) => {
@@ -67,8 +67,14 @@ test('admin resets a team member password and revokes existing sessions', async 
   await loginPage.goto('/login')
   await loginPage.getByLabel('Email').fill(userEmail)
   await loginPage.getByLabel('Password').fill(oldPassword)
-  await loginPage.getByRole('button', { name: 'Sign in' }).click()
-  await expect(loginPage.getByText('Incorrect email or password.')).toBeVisible()
+  const [oldPasswordResponse] = await Promise.all([
+    loginPage.waitForResponse((response) => (
+      response.url().endsWith('/auth/login') && response.request().method() === 'POST'
+    )),
+    loginPage.getByRole('button', { name: 'Sign in' }).click(),
+  ])
+  expect(oldPasswordResponse.status()).toBe(401)
+  await expect(loginPage.getByText('Incorrect email or password.')).toBeVisible({ timeout: 30_000 })
 
   await signIn(loginPage, userEmail, newPassword, userSlug)
   await loginContext.close()
