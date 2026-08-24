@@ -357,7 +357,6 @@ describe('flowService', () => {
       .mockResolvedValueOnce(run)
       .mockResolvedValueOnce({ id: 'run-1', resultSeenAt: null, status: FlowRunStatus.succeeded })
     prismaMock.flowRun.findMany
-      .mockResolvedValueOnce([run])
       .mockResolvedValueOnce([{
         flow: { id: 'flow-1', name: 'Flow' },
         id: 'run-1',
@@ -369,7 +368,6 @@ describe('flowService', () => {
     prismaMock.flowRun.updateMany.mockResolvedValue({ count: 1 })
 
     await expect(flowService.findRunByIdForScope('run-1', createScope())).resolves.toEqual(run)
-    await expect(flowService.listRunsByFlowIdForScope('flow-1', createScope())).resolves.toEqual([run])
     await expect(flowService.markRunResultSeenByIdForScope('run-1', createScope(), now)).resolves.toBe(true)
     expect(prismaMock.flowRun.updateMany).toHaveBeenCalledWith({
       data: { resultSeenAt: now },

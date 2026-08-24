@@ -8,7 +8,7 @@ const { createDesktopVault, validateVaultName } = require('../dist/create-vault.
 const {
   DESKTOP_DATABASE_FILE_NAME,
   LOCAL_DESKTOP_USER_SLUG,
-} = require('../dist/vault-layout-constants.js')
+} = require('@arche/desktop-runtime/constants')
 const {
   getDesktopKbConfigDir,
   getDesktopKbContentDir,
@@ -16,7 +16,7 @@ const {
   getDesktopSecretsDir,
   getDesktopUserDataDir,
   getDesktopWorkspaceDir,
-} = require('../dist/vault-layout.js')
+} = require('@arche/desktop-runtime/layout')
 const { createVaultManifest, getVaultManifestPath } = require('../dist/vault-manifest.js')
 
 async function withTempDir(run) {

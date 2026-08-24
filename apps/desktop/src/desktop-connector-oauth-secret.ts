@@ -2,7 +2,7 @@ import { randomBytes } from 'crypto'
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 
-import { getDesktopSecretsDir } from './vault-layout'
+import { getDesktopSecretsDir } from '@arche/desktop-runtime/layout'
 
 const OAUTH_STATE_SECRET_ENV_NAME = 'ARCHE_CONNECTOR_OAUTH_STATE_SECRET'
 const OAUTH_STATE_SECRET_MANAGED_ENV_NAME = 'ARCHE_DESKTOP_MANAGED_CONNECTOR_OAUTH_STATE_SECRET'

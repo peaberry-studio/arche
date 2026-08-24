@@ -3,10 +3,9 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { dirname, join } from 'path'
 
 import {
-  DESKTOP_OPENCODE_RUNTIME_DIR_NAME,
-  DESKTOP_RUNTIME_DIR_NAME,
-  DESKTOP_WORKSPACE_DIR_NAME,
-} from '@/lib/runtime/desktop/vault-layout-constants'
+  getDesktopRuntimeDataDir,
+  getDesktopWorkspaceDir,
+} from '@arche/desktop-runtime/layout'
 
 import { getKbContentRoot } from '@/lib/runtime/paths'
 import { assertValidSlug } from '@/lib/validation/slug'
@@ -23,11 +22,7 @@ function getRequiredVaultRoot(): string {
 }
 
 function getRequiredOpencodeRuntimeDir(): string {
-  return process.env.ARCHE_OPENCODE_DATA_DIR?.trim() || join(
-    getRequiredVaultRoot(),
-    DESKTOP_RUNTIME_DIR_NAME,
-    DESKTOP_OPENCODE_RUNTIME_DIR_NAME,
-  )
+  return process.env.ARCHE_OPENCODE_DATA_DIR?.trim() || getDesktopRuntimeDataDir(getRequiredVaultRoot())
 }
 
 function resolveWorkspaceExcludePath(workspaceDir: string): string | null {
@@ -95,7 +90,7 @@ export function getWorkspaceDir(slug: string): string {
   // Desktop keeps one shared git workspace per vault; the slug stays in the
   // signature to match the runtime interface used by web mode.
 
-  const workspaceDir = join(getRequiredVaultRoot(), DESKTOP_WORKSPACE_DIR_NAME)
+  const workspaceDir = getDesktopWorkspaceDir(getRequiredVaultRoot())
   if (!existsSync(workspaceDir)) {
     mkdirSync(workspaceDir, { recursive: true })
   }

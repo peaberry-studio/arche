@@ -7,7 +7,7 @@ const { dirname, join } = require('node:path')
 
 const electronPath = require('electron')
 
-const { getDesktopKbConfigDir, getDesktopKbContentDir } = require('../dist/vault-layout.js')
+const { getDesktopKbConfigDir, getDesktopKbContentDir } = require('@arche/desktop-runtime/layout')
 const { createVaultManifest } = require('../dist/vault-manifest.js')
 
 const APP_SMOKE_TIMEOUT_MS = 180_000

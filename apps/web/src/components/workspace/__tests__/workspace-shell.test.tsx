@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stubBrowserStorage } from "@/__tests__/storage";
 import { WorkspaceRuntimeProvider } from "@/contexts/workspace-runtime-context";
 import { WorkspaceShell } from "@/components/workspace/workspace-shell";
-import { setWorkspaceStartPrompt } from "@/lib/workspace-start-prompt";
 
 const { ensureInstanceRunningActionMock } = vi.hoisted(() => ({
   ensureInstanceRunningActionMock: vi.fn().mockResolvedValue({ status: "running" }),
@@ -251,18 +250,6 @@ function clearCookies() {
   });
 }
 
-function readCookieValue(cookieName: string): string | null {
-  const prefix = `${cookieName}=`;
-
-  for (const cookie of document.cookie.split(';')) {
-    const trimmedCookie = cookie.trim();
-    if (!trimmedCookie.startsWith(prefix)) continue;
-    return decodeURIComponent(trimmedCookie.slice(prefix.length));
-  }
-
-  return null;
-}
-
 function setViewportWidth(width: number) {
   Object.defineProperty(window, "innerWidth", {
     configurable: true,
@@ -457,22 +444,6 @@ describe("WorkspaceShell", () => {
     });
     expect(createSessionMock).not.toHaveBeenCalled();
     expect(routerPushMock).toHaveBeenCalledWith("/w/alice");
-  });
-
-  it("auto-starts a dashboard prompt with selected context paths", async () => {
-    setWorkspaceStartPrompt(window.sessionStorage, "alice", {
-      text: "Review the plan",
-      contextPaths: ["docs/plan.md"],
-    });
-
-    renderWorkspaceShell({ slug: "alice" });
-
-    await waitFor(() => {
-      expect(sendMessageMock).toHaveBeenCalledWith("Review the plan", undefined, {
-        forceNewSession: true,
-        contextPaths: ["docs/plan.md"],
-      });
-    });
   });
 
   it("auto-syncs the KB after the workspace connects", async () => {

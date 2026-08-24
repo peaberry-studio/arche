@@ -117,13 +117,6 @@ export function findAppliedConfigShaBySlug(slug: string): Promise<{ appliedConfi
   })
 }
 
-export function findServerPasswordBySlug(slug: string): Promise<{ serverPassword: string } | null> {
-  return prisma.instance.findUnique({
-    where: { slug },
-    select: { serverPassword: true },
-  })
-}
-
 export function findActiveInstances(): Promise<InstanceActiveEntry[]> {
   return prisma.instance.findMany({
     where: { status: { in: ['running', 'starting'] } },

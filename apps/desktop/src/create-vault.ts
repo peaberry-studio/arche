@@ -1,8 +1,9 @@
 import { existsSync, mkdirSync, readdirSync, rmSync } from 'fs'
 import { join } from 'path'
 
+import { DEFAULT_NEW_VAULT_NAME } from '@arche/desktop-runtime/constants'
+
 import type { CreateVaultArgs, DesktopApiResult } from './desktop-bridge-types'
-import { DEFAULT_NEW_VAULT_NAME } from './vault-layout'
 import type { DesktopVault } from './vault-manifest'
 
 const MAX_VAULT_NAME_LENGTH = 255

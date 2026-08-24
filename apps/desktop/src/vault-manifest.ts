@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { basename, join } from 'path'
 
-import { DESKTOP_MANIFEST_FILE_NAME } from './vault-layout-constants'
+import { DESKTOP_MANIFEST_FILE_NAME } from '@arche/desktop-runtime/constants'
 
 export const VAULT_MANIFEST_FILE_NAME = DESKTOP_MANIFEST_FILE_NAME
 export const VAULT_SCHEMA_VERSION = 1

@@ -3,7 +3,9 @@
  * These are the shapes expected by UI components, independent of the OpenCode SDK types.
  */
 
-import type { MessagePart } from "@/lib/opencode/types";
+import type { MessagePart, MessageStatusInfo } from "@/lib/opencode/types";
+
+export type { MessageStatus, MessageStatusInfo } from "@/lib/opencode/types";
 
 export type WorkspaceAttachment = {
   id: string;
@@ -34,27 +36,6 @@ export type ChatSession = {
     trigger: "on_create" | "schedule" | "manual" | "resume";
     hasUnseenResult: boolean;
   };
-};
-
-/**
- * Status types for streaming message state.
- */
-export type MessageStatus = 
-  | "idle"
-  | "thinking"
-  | "reasoning" 
-  | "tool-calling"
-  | "writing"
-  | "complete"
-  | "error";
-
-/**
- * Extended status info for display during streaming.
- */
-export type MessageStatusInfo = {
-  status: MessageStatus;
-  toolName?: string;  // Name of tool being called
-  detail?: string;    // Additional detail (e.g., file being written)
 };
 
 export type ChatMessage = {

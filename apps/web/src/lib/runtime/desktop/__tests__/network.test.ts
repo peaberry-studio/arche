@@ -1,6 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
-import { findAvailablePort } from '../network'
+import { findAvailablePort } from '@arche/desktop-runtime/network'
 
 describe('network', () => {
   describe('findAvailablePort', () => {

@@ -4,29 +4,10 @@ import {
   buildInternalLinkSuggestions,
   findObsidianAutocompleteMatch,
   findObsidianLinks,
-  findObsidianLinkAt,
   getObsidianLinkDisplayLabel,
   getObsidianLinkFullPath,
   resolveObsidianLinkTarget,
 } from "@/lib/kb-internal-links";
-
-describe("findObsidianLinkAt", () => {
-  it("returns link bounds and target at offset inside link", () => {
-    const content = "Go to [[docs/alpha.md|Alpha Doc]] now";
-    const link = findObsidianLinkAt(content, 10);
-
-    expect(link).toEqual({
-      from: 6,
-      to: 33,
-      target: "docs/alpha.md|Alpha Doc",
-    });
-  });
-
-  it("returns null when offset is outside any obsidian link", () => {
-    const content = "Go to [[docs/alpha.md]] now";
-    expect(findObsidianLinkAt(content, 1)).toBeNull();
-  });
-});
 
 describe("findObsidianLinks", () => {
   it("finds all obsidian links in content", () => {

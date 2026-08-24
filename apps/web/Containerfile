@@ -13,6 +13,7 @@ FROM base AS deps
 RUN apt-get update -y \
   && apt-get install -y --no-install-recommends python3 make g++ \
   && rm -rf /var/lib/apt/lists/*
+COPY desktop-runtime /desktop-runtime
 COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
 COPY web/prisma ./prisma
 COPY web/prisma.config.ts ./prisma.config.ts
@@ -22,6 +23,7 @@ RUN NODE_ENV=development pnpm install --frozen-lockfile
 FROM base AS build
 ARG GIT_SHA=dev
 COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /desktop-runtime /desktop-runtime
 COPY web ./
 RUN pnpm prisma generate
 RUN DATABASE_URL="postgresql://build:build@localhost:5432/build" ARCHE_GIT_SHA="$GIT_SHA" pnpm run build
@@ -36,6 +38,7 @@ COPY --from=build /app/.next ./.next
 COPY --from=build /app/public ./public
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /desktop-runtime /desktop-runtime
 COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/prisma.config.ts ./prisma.config.ts
 COPY --from=build /app/src ./src

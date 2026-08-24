@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs'
 import { join } from 'path'
 
-import { getDesktopRuntimeDir } from './vault-layout'
+import { getDesktopRuntimeDir } from '@arche/desktop-runtime/layout'
 
 const VAULT_LOCK_FILE_NAME = 'vault.lock'
 

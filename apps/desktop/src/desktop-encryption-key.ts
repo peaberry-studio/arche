@@ -2,7 +2,7 @@ import { randomBytes } from 'crypto'
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 
-import { getDesktopSecretsDir } from './vault-layout'
+import { getDesktopSecretsDir } from '@arche/desktop-runtime/layout'
 
 const ENCRYPTION_KEY_ENV_NAME = 'ARCHE_ENCRYPTION_KEY'
 const ENCRYPTION_KEY_MANAGED_ENV_NAME = 'ARCHE_DESKTOP_MANAGED_ENCRYPTION_KEY'

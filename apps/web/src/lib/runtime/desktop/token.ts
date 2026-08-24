@@ -1,11 +1,6 @@
-import { randomBytes, timingSafeEqual } from 'crypto'
+import { timingSafeEqual } from 'crypto'
 
 export const DESKTOP_TOKEN_HEADER = 'x-arche-desktop-token'
-const TOKEN_BYTES = 32
-
-export function generateDesktopToken(): string {
-  return randomBytes(TOKEN_BYTES).toString('base64url')
-}
 
 export function getDesktopToken(): string | null {
   return process.env.ARCHE_DESKTOP_API_TOKEN || null

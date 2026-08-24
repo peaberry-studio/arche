@@ -518,10 +518,6 @@ vi.stubGlobal(
           };
         }
 
-        if (String(input) === "/api/w/alice/chat/runs") {
-          return { ok: true, json: async () => ({ runId: "run-1" }) };
-        }
-
         if (String(input) === "/api/w/alice/chat/prompt") {
           requestBody = JSON.parse(String(init?.body ?? "{}")) as {
             model?: { providerId: string; modelId: string };
@@ -691,10 +687,6 @@ vi.stubGlobal(
           };
         }
 
-        if (String(input) === "/api/w/alice/chat/runs") {
-          return { ok: true, json: async () => ({ runId: "run-1" }) };
-        }
-
         if (String(input) === "/api/w/alice/chat/prompt") {
           requestBody = JSON.parse(String(init?.body ?? "{}")) as {
             attachments?: Array<{ path: string; filename?: string; mime?: string }>;
@@ -787,10 +779,6 @@ vi.stubGlobal(
               providers: [{ providerId: "openai", status: "enabled" }],
             }),
           };
-        }
-
-        if (String(input) === "/api/w/alice/chat/runs") {
-          return { ok: true, json: async () => ({ runId: "run-1" }) };
         }
 
         if (String(input) === "/api/w/alice/chat/prompt") {

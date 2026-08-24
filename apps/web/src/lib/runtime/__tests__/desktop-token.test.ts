@@ -1,11 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { randomBytes } from 'node:crypto'
 
 import {
   DESKTOP_TOKEN_HEADER,
-  generateDesktopToken,
   getDesktopToken,
   validateDesktopToken,
 } from '../desktop/token'
+
+function generateTestToken(): string {
+  return randomBytes(32).toString('base64url')
+}
 
 describe('desktop token', () => {
   const originalEnv = process.env
@@ -16,26 +20,6 @@ describe('desktop token', () => {
 
   afterEach(() => {
     process.env = originalEnv
-  })
-
-  describe('generateDesktopToken', () => {
-    it('returns a non-empty string', () => {
-      const token = generateDesktopToken()
-      expect(token).toBeTruthy()
-      expect(typeof token).toBe('string')
-    })
-
-    it('generates unique tokens on each call', () => {
-      const a = generateDesktopToken()
-      const b = generateDesktopToken()
-      expect(a).not.toBe(b)
-    })
-
-    it('generates tokens of consistent length', () => {
-      const token = generateDesktopToken()
-      // 32 bytes in base64url = 43 characters
-      expect(token.length).toBe(43)
-    })
   })
 
   describe('getDesktopToken', () => {
@@ -82,7 +66,7 @@ describe('desktop token', () => {
     })
 
     it('returns true when candidate matches expected token', () => {
-      const token = generateDesktopToken()
+      const token = generateTestToken()
       process.env.ARCHE_DESKTOP_API_TOKEN = token
       expect(validateDesktopToken(token)).toBe(true)
     })

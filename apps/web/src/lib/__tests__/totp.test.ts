@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
+import { generateCurrentTotpCode } from '@/__tests__/totp-code'
+
 vi.mock('../spawner/config', () => ({
   getEncryptionKey: () => Buffer.from('0'.repeat(64), 'hex'),
 }))
@@ -49,7 +51,7 @@ describe('totp', () => {
   describe('verifyTotp', () => {
     it('returns valid: true for valid code', () => {
       const secret = 'JBSWY3DPEHPK3PXP'
-      const code = totp.generateCurrentCode(secret)
+      const code = generateCurrentTotpCode(secret)
       const result = totp.verifyTotp(secret, code)
       expect(result.valid).toBe(true)
       expect(result.windowStart).toBeInstanceOf(Date)
@@ -67,7 +69,7 @@ describe('totp', () => {
 
     it('rejects replayed code (same window)', () => {
       const secret = 'JBSWY3DPEHPK3PXP'
-      const code = totp.generateCurrentCode(secret)
+      const code = generateCurrentTotpCode(secret)
       const result1 = totp.verifyTotp(secret, code)
       expect(result1.valid).toBe(true)
 
@@ -78,7 +80,7 @@ describe('totp', () => {
 
     it('accepts code when lastUsedAt is from earlier window', () => {
       const secret = 'JBSWY3DPEHPK3PXP'
-      const code = totp.generateCurrentCode(secret)
+      const code = generateCurrentTotpCode(secret)
       // Set lastUsedAt to 2 minutes ago (4 windows back)
       const oldTimestamp = new Date(Date.now() - 2 * 60 * 1000)
       const result = totp.verifyTotp(secret, code, oldTimestamp)

@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   getGatewayTokenSecret,
   getGatewayTokenTtlSeconds,
-  getGatewayBaseUrlForProvider,
 } from '../config'
 
 describe('config', () => {
@@ -63,23 +62,6 @@ describe('config', () => {
     it('floors fractional values', () => {
       process.env.ARCHE_GATEWAY_TOKEN_TTL_SECONDS = '900.7'
       expect(getGatewayTokenTtlSeconds()).toBe(900)
-    })
-  })
-
-  describe('getGatewayBaseUrlForProvider', () => {
-    it('returns default base URL with provider path', () => {
-      delete process.env.ARCHE_GATEWAY_BASE_URL
-      expect(getGatewayBaseUrlForProvider('openai')).toBe('http://web:3000/api/internal/providers/openai')
-    })
-
-    it('uses custom ARCHE_GATEWAY_BASE_URL', () => {
-      process.env.ARCHE_GATEWAY_BASE_URL = 'https://gateway.example.com'
-      expect(getGatewayBaseUrlForProvider('anthropic')).toBe('https://gateway.example.com/anthropic')
-    })
-
-    it('strips trailing slash from custom base URL', () => {
-      process.env.ARCHE_GATEWAY_BASE_URL = 'https://gateway.example.com/'
-      expect(getGatewayBaseUrlForProvider('fireworks')).toBe('https://gateway.example.com/fireworks')
     })
   })
 })

@@ -28,10 +28,6 @@ import {
   readWorkspacePanelState,
   type StoredLayoutState,
 } from "@/lib/workspace-panel-state";
-import {
-  takeWorkspaceStartPrompt,
-  type WorkspaceStartPrompt,
-} from "@/lib/workspace-start-prompt";
 import { cn } from "@/lib/utils";
 import { flattenWorkspaceFileNodes, resolveWorkspaceFilePath } from "@/lib/workspace-file-search";
 
@@ -328,9 +324,6 @@ export function WorkspaceShell({
   // Auto-sync KB on first connection
   const hasAutoSynced = useRef(false);
 
-  // Auto-start a new chat session if we have a pending prompt
-  const hasAutoStartedPrompt = useRef(false);
-
   useEffect(() => {
     if (!workspace.isConnected || hasAutoSynced.current) return;
     hasAutoSynced.current = true;
@@ -344,25 +337,6 @@ export function WorkspaceShell({
       refreshKnowledgeReview();
     })();
   }, [refreshKnowledgeReview, slug, workspace.isConnected]);
-
-  useEffect(() => {
-    if (!workspace.isConnected || hasAutoStartedPrompt.current) return;
-
-    let prompt: WorkspaceStartPrompt | null = null;
-    try {
-      prompt = takeWorkspaceStartPrompt(window.sessionStorage, resolvedPersistenceScope);
-    } catch {
-      prompt = null;
-    }
-
-    hasAutoStartedPrompt.current = true;
-    if (!prompt) return;
-
-    void workspace.sendMessage(prompt.text, undefined, {
-      forceNewSession: true,
-      contextPaths: prompt.contextPaths,
-    });
-  }, [resolvedPersistenceScope, workspace, workspace.isConnected]);
 
   // Layout state (global, not per-mode)
   const [leftCollapsed, setLeftCollapsedState] = useState<boolean>(false);

@@ -103,14 +103,6 @@ export function findEnabledGithubConnectorsForUser(userId: string): Promise<Conn
   })
 }
 
-export function findHashEntriesByUserId(userId: string): Promise<ConnectorHashEntry[]> {
-  return prisma.connector.findMany({
-    where: { userId },
-    select: { id: true, type: true, enabled: true, updatedAt: true },
-    orderBy: { id: 'asc' },
-  })
-}
-
 export function findCapabilityInventoryEntries(): Promise<ConnectorCapabilityInventoryEntry[]> {
   return prisma.connector.findMany({
     select: {

@@ -1,14 +1,17 @@
-import { createServer } from 'net'
+'use strict'
 
+const net = require('net')
+
+const LOOPBACK_HOST = '127.0.0.1'
 const MAX_FALLBACK_PORT_ATTEMPTS = 10
 
-export async function findAvailablePort(
-  preferredPort: number,
-  host: string,
-  excludedPorts: number[] = [],
-): Promise<number> {
+async function findAvailablePort(preferredPort, hostOrExcludedPorts = LOOPBACK_HOST, excludedPorts = []) {
+  const host = Array.isArray(hostOrExcludedPorts) ? LOOPBACK_HOST : hostOrExcludedPorts
+  const resolvedExcludedPorts = Array.isArray(hostOrExcludedPorts)
+    ? hostOrExcludedPorts
+    : excludedPorts
   const preferredResult = await tryListen(preferredPort, host)
-  if (preferredResult.ok && !excludedPorts.includes(preferredResult.port)) {
+  if (preferredResult.ok && !resolvedExcludedPorts.includes(preferredResult.port)) {
     return preferredResult.port
   }
 
@@ -16,14 +19,14 @@ export async function findAvailablePort(
     throw preferredResult.error
   }
 
-  const maxFallbackAttempts = Math.max(MAX_FALLBACK_PORT_ATTEMPTS, excludedPorts.length + 1)
+  const maxFallbackAttempts = Math.max(MAX_FALLBACK_PORT_ATTEMPTS, resolvedExcludedPorts.length + 1)
   for (let attempt = 0; attempt < maxFallbackAttempts; attempt++) {
     const fallbackResult = await tryListen(0, host)
     if (!fallbackResult.ok) {
       throw fallbackResult.error
     }
 
-    if (!excludedPorts.includes(fallbackResult.port)) {
+    if (!resolvedExcludedPorts.includes(fallbackResult.port)) {
       return fallbackResult.port
     }
   }
@@ -33,20 +36,12 @@ export async function findAvailablePort(
   )
 }
 
-type ListenResult =
-  | { ok: true; port: number }
-  | { ok: false; error: Error; errorCode?: string }
-
-async function tryListen(port: number, host: string): Promise<ListenResult> {
+function tryListen(port, host) {
   return new Promise((resolve) => {
-    const server = createServer()
+    const server = net.createServer()
 
-    server.once('error', (error: NodeJS.ErrnoException) => {
-      resolve({
-        ok: false,
-        error,
-        errorCode: error.code,
-      })
+    server.once('error', (error) => {
+      resolve({ ok: false, error, errorCode: error.code })
     })
 
     server.listen(port, host, () => {
@@ -58,10 +53,11 @@ async function tryListen(port: number, host: string): Promise<ListenResult> {
         return
       }
 
-      const resolvedPort = address.port
       server.close(() => {
-        resolve({ ok: true, port: resolvedPort })
+        resolve({ ok: true, port: address.port })
       })
     })
   })
 }
+
+module.exports = { findAvailablePort }

@@ -8,7 +8,7 @@ const {
   getRuntimeBinaryEnv,
   getPackagedNodeBinaryPath,
   getMissingPackagedRuntimeBinaries,
-} = require('../dist/runtime-binaries.js')
+} = require('@arche/desktop-runtime/binaries')
 
 test('resolves bundled development binaries from apps/desktop/bin', () => {
   const originalExistsSync = fs.existsSync

@@ -33,7 +33,6 @@ const {
     deleteById: vi.fn(),
   },
   mockSessionService: {
-    revokeByUserId: vi.fn(),
     revokeByUserIdExceptSession: vi.fn(),
   },
   mockInstanceService: {
@@ -291,7 +290,6 @@ describe('POST /api/u/[slug]/team/[id]/password', () => {
     mockHashArgon2.mockResolvedValue('$hashed-password$')
     mockUserService.updatePasswordHash.mockResolvedValue({ ...TARGET_USER })
     mockUserService.updatePasswordHashAndRevokeSessions.mockResolvedValue(undefined)
-    mockSessionService.revokeByUserId.mockResolvedValue({ count: 2 })
     mockSessionService.revokeByUserIdExceptSession.mockResolvedValue({ count: 1 })
   })
 

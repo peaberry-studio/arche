@@ -1,6 +1,8 @@
-import { join } from 'path'
+'use strict'
 
-import {
+const { join } = require('path')
+
+const {
   DEFAULT_NEW_VAULT_NAME,
   DESKTOP_KB_CONFIG_DIR_NAME,
   DESKTOP_KB_CONTENT_DIR_NAME,
@@ -9,42 +11,53 @@ import {
   DESKTOP_SECRETS_DIR_NAME,
   DESKTOP_USERS_DIR_NAME,
   DESKTOP_WORKSPACE_DIR_NAME,
-} from './vault-layout-constants'
+} = require('./constants')
 
-export { DEFAULT_NEW_VAULT_NAME }
-
-export function getDesktopKbConfigDir(vaultPath: string): string {
+function getDesktopKbConfigDir(vaultPath) {
   return join(vaultPath, DESKTOP_KB_CONFIG_DIR_NAME)
 }
 
-export function getDesktopKbContentDir(vaultPath: string): string {
+function getDesktopKbContentDir(vaultPath) {
   return join(vaultPath, DESKTOP_KB_CONTENT_DIR_NAME)
 }
 
-export function getDesktopRuntimeDir(vaultPath: string): string {
+function getDesktopRuntimeDir(vaultPath) {
   return join(vaultPath, DESKTOP_RUNTIME_DIR_NAME)
 }
 
-export function getDesktopRuntimeDataDir(vaultPath: string): string {
+function getDesktopRuntimeDataDir(vaultPath) {
   return join(getDesktopRuntimeDir(vaultPath), DESKTOP_OPENCODE_RUNTIME_DIR_NAME)
 }
 
-export function getDesktopWorkspaceDir(vaultPath: string): string {
+function getDesktopWorkspaceDir(vaultPath) {
   return join(vaultPath, DESKTOP_WORKSPACE_DIR_NAME)
 }
 
-export function getDesktopWorkspaceAttachmentsDir(vaultPath: string): string {
+function getDesktopWorkspaceAttachmentsDir(vaultPath) {
   return join(getDesktopWorkspaceDir(vaultPath), '.arche', 'attachments')
 }
 
-export function getDesktopSecretsDir(vaultPath: string): string {
+function getDesktopSecretsDir(vaultPath) {
   return join(vaultPath, DESKTOP_SECRETS_DIR_NAME)
 }
 
-export function getDesktopUsersDir(vaultPath: string): string {
+function getDesktopUsersDir(vaultPath) {
   return join(vaultPath, DESKTOP_USERS_DIR_NAME)
 }
 
-export function getDesktopUserDataDir(vaultPath: string, slug: string): string {
+function getDesktopUserDataDir(vaultPath, slug) {
   return join(getDesktopUsersDir(vaultPath), slug)
+}
+
+module.exports = {
+  DEFAULT_NEW_VAULT_NAME,
+  getDesktopKbConfigDir,
+  getDesktopKbContentDir,
+  getDesktopRuntimeDir,
+  getDesktopRuntimeDataDir,
+  getDesktopWorkspaceDir,
+  getDesktopWorkspaceAttachmentsDir,
+  getDesktopSecretsDir,
+  getDesktopUsersDir,
+  getDesktopUserDataDir,
 }

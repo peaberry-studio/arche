@@ -19,6 +19,9 @@ importers:
 
   .:
     dependencies:
+      '@arche/desktop-runtime':
+        specifier: link:../desktop-runtime
+        version: link:../desktop-runtime
       dugite:
         specifier: 3.2.1
         version: 3.2.1
