@@ -1,9 +1,9 @@
 /** @vitest-environment jsdom */
 
-import { cleanup, renderHook, waitFor } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { useInstanceStartup } from "@/hooks/use-instance-startup";
+import { INSTANCE_START_TIMEOUT_MS, useInstanceStartup } from "@/hooks/use-instance-startup";
 
 const ensureInstanceRunningActionMock = vi.hoisted(() => vi.fn());
 const routerReplaceMock = vi.hoisted(() => vi.fn());
@@ -98,7 +98,46 @@ describe("useInstanceStartup", () => {
 
     await waitFor(() => expect(routerReplaceMock).toHaveBeenCalledWith("/u/alice?setup=required"));
     // The setup redirect must not surface as an in-shell startup error.
-    expect(result.current.instanceStatus).toBeNull();
+    expect(result.current.instanceStatus).not.toBe("error");
     expect(result.current.instanceError).toBeNull();
+  });
+
+  it("arms the timeout before the server action resolves and ignores a late response", async () => {
+    let resolveAction!: (value: unknown) => void;
+    ensureInstanceRunningActionMock.mockReturnValue(
+      new Promise((resolve) => {
+        resolveAction = resolve;
+      }),
+    );
+
+    vi.useFakeTimers();
+
+    try {
+      const { result } = renderStartupHook("alice");
+
+      // "starting" is surfaced synchronously once the attempt is armed.
+      expect(result.current.instanceStatus).toBe("starting");
+
+      // The independent client timeout fires even though the server action is
+      // still pending.
+      act(() => {
+        vi.advanceTimersByTime(INSTANCE_START_TIMEOUT_MS);
+      });
+      expect(result.current.instanceStatus).toBe("error");
+      expect(result.current.instanceError).toBe(
+        "Workspace startup timed out. Try restarting again.",
+      );
+
+      // A late server response must not overwrite the timed-out state.
+      await act(async () => {
+        resolveAction({ status: "running" });
+      });
+      expect(result.current.instanceStatus).toBe("error");
+      expect(result.current.instanceError).toBe(
+        "Workspace startup timed out. Try restarting again.",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

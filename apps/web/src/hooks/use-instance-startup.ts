@@ -6,7 +6,11 @@ import { useRouter } from "next/navigation";
 import { ensureInstanceRunningAction } from "@/actions/spawner";
 
 const INSTANCE_START_POLL_INTERVAL_MS = 2_000;
-const INSTANCE_START_TIMEOUT_MS = 120_000;
+
+// Client-side timeout that must exceed the server's ARCHE_START_TIMEOUT_MS
+// (default 120s) by a margin so the UI only surfaces an error when the server
+// action genuinely stalls, not while it is about to succeed.
+export const INSTANCE_START_TIMEOUT_MS = 150_000;
 
 function formatInstanceStartupError(error: string): string {
   if (error === "start_timeout") {
@@ -33,11 +37,15 @@ export function useInstanceStartup(slug: string): UseInstanceStartupReturn {
     routerRef.current = router;
   }, [router]);
 
-  const [instanceStatus, setInstanceStatus] = useState<InstanceStartupStatus>(null);
+  // Initialized to "starting" so the UI shows the startup state immediately and
+  // the timeout below is armed before the first awaited server action. The
+  // workspace shell treats null and "starting" identically.
+  const [instanceStatus, setInstanceStatus] = useState<InstanceStartupStatus>("starting");
   const [instanceError, setInstanceError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
+    let timedOut = false;
     let pollingTimer: ReturnType<typeof setInterval> | null = null;
     let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
     let checking = false;
@@ -54,22 +62,23 @@ export function useInstanceStartup(slug: string): UseInstanceStartupReturn {
     };
 
     const failStartup = (error: string) => {
+      timedOut = true;
       clearTimers();
       setInstanceStatus("error");
       setInstanceError(formatInstanceStartupError(error));
     };
 
     const checkInstanceStatus = async () => {
-      if (checking) return;
+      if (checking || timedOut || cancelled) return;
       checking = true;
 
       try {
         const result = await ensureInstanceRunningAction(slug);
-        if (cancelled) return;
+        if (cancelled || timedOut) return;
 
         if (result.status === "error") {
-          clearTimers();
           if (result.error === "setup_required") {
+            clearTimers();
             routerRef.current.replace(`/u/${slug}?setup=required`);
             return;
           }
@@ -87,22 +96,25 @@ export function useInstanceStartup(slug: string): UseInstanceStartupReturn {
         setInstanceStatus("starting");
 
         if (!pollingTimer) {
-          timeoutTimer = setTimeout(() => {
-            if (cancelled) return;
-            failStartup("start_timeout");
-          }, INSTANCE_START_TIMEOUT_MS);
-
           pollingTimer = setInterval(() => {
             void checkInstanceStatus();
           }, INSTANCE_START_POLL_INTERVAL_MS);
         }
       } catch {
-        if (cancelled) return;
+        if (cancelled || timedOut) return;
         failStartup("status_check_failed");
       } finally {
         checking = false;
       }
     };
+
+    // Arm an independent timeout BEFORE awaiting the server action, so a
+    // blocked action/proxy/network can no longer leave the UI spinning forever.
+    // Once the timeout fires, late responses for this attempt are ignored.
+    timeoutTimer = setTimeout(() => {
+      if (cancelled) return;
+      failStartup("start_timeout");
+    }, INSTANCE_START_TIMEOUT_MS);
 
     void checkInstanceStatus();
 
