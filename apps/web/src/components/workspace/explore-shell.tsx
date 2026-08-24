@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
 import { useWorkspaceRuntime } from "@/contexts/workspace-runtime-context";
 import { useExploreWorkspace } from "@/hooks/use-explore-workspace";
 import { useViewportWidth } from "@/hooks/use-viewport-width";
@@ -31,7 +30,6 @@ type ExploreShellProps = {
   knowledgeAgentSources?: KnowledgeGraphAgentSource[];
   macDesktopWindowInset?: boolean;
   workspaceAgentEnabled?: boolean;
-  reaperEnabled?: boolean;
 };
 
 const MOBILE_LAYOUT_BREAKPOINT = WORKSPACE_COMPACT_PANE_BREAKPOINT;
@@ -46,7 +44,6 @@ export function ExploreShell({
   knowledgeAgentSources = [],
   macDesktopWindowInset = false,
   workspaceAgentEnabled = true,
-  reaperEnabled = true,
 }: ExploreShellProps) {
   // Instance startup state comes from the layout-level runtime provider so
   // chat ↔ explore navigation does not re-run the startup waterfall.
@@ -67,7 +64,6 @@ export function ExploreShell({
     initialFilePath,
     enabled: instanceStatus === "running",
     workspaceAgentEnabled,
-    reaperEnabled,
   });
 
   const [knowledgeNavView, setKnowledgeNavView] = useState<KnowledgeNavigationView>("tree");
@@ -179,12 +175,6 @@ export function ExploreShell({
     setMobileView("tree");
   }, []);
 
-  // Get theme from context
-  const { themeId, isDark } = useWorkspaceTheme();
-  const darkModeClasses = isDark ? "dark" : "";
-  const themeClassName = `theme-${themeId}`;
-
-  // Loading screen while instance is starting
   // The chrome stays mounted while the instance is starting / connecting; the
   // editor center shows an in-pane banner instead of a full-viewport gate.
   const isReady = instanceStatus === "running" && isConnected;
@@ -257,8 +247,6 @@ export function ExploreShell({
       className={cn(
         'flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background text-foreground',
         macDesktopWindowInset && "desktop-no-select",
-        darkModeClasses,
-        themeClassName,
       )}
     >
       <CuratorDialog

@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  areWorkspaceSessionListsEqual,
   collectSessionFamilyIds,
   createDefaultSessionSelectionState,
   filterModelsByProviderStatus,
@@ -9,10 +8,8 @@ import {
   getPrimaryAgent,
   getSessionSelectionKey,
   hasModelEntry,
-  mergeWorkspaceSessions,
   normalizeAgentId,
   parseModelString,
-  removeWorkspaceSessions,
   resolveModelEntry,
   selectVisiblePermissions,
 } from "@/hooks/workspace/workspace-types";
@@ -64,15 +61,6 @@ const models: AvailableModel[] = [
 ];
 
 describe("workspace-types session helpers", () => {
-  it("removes sessions by id", () => {
-    expect(
-      removeWorkspaceSessions(
-        [session("root"), session("child", { parentId: "root" })],
-        new Set(["child"])
-      )
-    ).toEqual([session("root")]);
-  });
-
   it("collects transitive session family ids", () => {
     expect(
       [...collectSessionFamilyIds(
@@ -151,7 +139,7 @@ describe("workspace-types session helpers", () => {
     expect(getPrimaryAgent([])).toBeNull();
   });
 
-  it("handles session selection and merging helpers", () => {
+  it("handles session selection helpers", () => {
     expect(getSessionSelectionKey(null)).toBe("__pre_session__");
     expect(getSessionSelectionKey("session-1")).toBe("session-1");
     expect(createDefaultSessionSelectionState("primary")).toEqual({
@@ -159,16 +147,5 @@ describe("workspace-types session helpers", () => {
       manualModel: null,
       runtimeModel: null,
     });
-
-    expect(mergeWorkspaceSessions(
-      [session("root"), session("child")],
-      [session("child"), session("other")],
-    )).toEqual([session("root"), session("child"), session("other")]);
-
-    expect(areWorkspaceSessionListsEqual(
-      [session("root", { flow: { runId: "run-1", flowId: "flow-1", flowName: "Flow", status: "succeeded", trigger: "schedule", hasUnseenResult: true } })],
-      [session("root", { flow: { runId: "run-1", flowId: "flow-1", flowName: "Flow", status: "succeeded", trigger: "schedule", hasUnseenResult: true } })],
-    )).toBe(true);
-    expect(areWorkspaceSessionListsEqual([session("root")], [session("root", { title: "renamed" })])).toBe(false);
   });
 });

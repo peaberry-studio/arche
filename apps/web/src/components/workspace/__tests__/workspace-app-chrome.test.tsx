@@ -71,7 +71,7 @@ vi.mock("@/components/workspace/workspace-sidebar", () => ({
 function renderChrome(children: React.ReactNode) {
   return render(
     <WorkspaceRuntimeProvider slug="alice" persistenceScope="alice">
-      <WorkspaceAppChrome slug="alice" persistenceScope="alice">
+      <WorkspaceAppChrome slug="alice">
         {children}
       </WorkspaceAppChrome>
     </WorkspaceRuntimeProvider>

@@ -11,7 +11,6 @@ type ExploreShellProps = {
   knowledgeAgentSources: { displayName: string; id: string; prompt: string }[]
   macDesktopWindowInset: boolean
   persistenceScope: string
-  reaperEnabled: boolean
   slug: string
   workspaceAgentEnabled: boolean
 }
@@ -135,7 +134,6 @@ describe('WorkspaceExplorePage', () => {
       initialFilePath: 'Notes/Brief.md',
       persistenceScope: 'scope-alice',
       workspaceAgentEnabled: true,
-      reaperEnabled: false,
       macDesktopWindowInset: true,
     })
     expect(exploreShellProps.current?.knowledgeAgentSources).toEqual([

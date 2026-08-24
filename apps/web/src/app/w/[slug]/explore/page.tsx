@@ -74,7 +74,6 @@ export default async function WorkspaceExplorePage({
       knowledgeAgentSources={knowledgeAgentSources}
       macDesktopWindowInset={macDesktopWindowInset}
       workspaceAgentEnabled={caps.workspaceAgent}
-      reaperEnabled={caps.reaper}
     />
   )
 }

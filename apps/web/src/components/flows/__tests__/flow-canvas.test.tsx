@@ -4,7 +4,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { FlowCanvas } from '@/components/flows/flow-canvas'
 import {
-  FLOW_ADD_MENU_HEIGHT,
   FLOW_ADD_MENU_MARGIN,
   FLOW_ADD_MENU_WIDTH,
   FLOW_CANVAS_FIT_MAX_SCALE,
@@ -232,7 +231,7 @@ describe('FlowCanvas', () => {
   })
 
   it('sizes the add node menu from the available node type options', () => {
-    expect(FLOW_ADD_MENU_HEIGHT).toBe(getFlowAddMenuHeight(FLOW_CANVAS_NODE_TYPE_OPTIONS.length))
+    expect(getFlowAddMenuHeight()).toBe(getFlowAddMenuHeight(FLOW_CANVAS_NODE_TYPE_OPTIONS.length))
   })
 
   it('keeps the add node menu inside visible canvas bounds when possible', () => {
@@ -243,7 +242,7 @@ describe('FlowCanvas', () => {
 
     expect(position.x).toBeLessThan(0)
     expect(260 + position.x + FLOW_ADD_MENU_WIDTH).toBeLessThanOrEqual(320 - FLOW_ADD_MENU_MARGIN)
-    expect(500 + position.y + FLOW_ADD_MENU_HEIGHT).toBeLessThanOrEqual(560 - FLOW_ADD_MENU_MARGIN)
+    expect(500 + position.y + getFlowAddMenuHeight()).toBeLessThanOrEqual(560 - FLOW_ADD_MENU_MARGIN)
   })
 
   it('fits content to the viewport without upscaling a small graph', () => {

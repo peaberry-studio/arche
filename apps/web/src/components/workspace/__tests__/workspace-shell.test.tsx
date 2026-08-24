@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { stubBrowserStorage } from "@/__tests__/storage";
@@ -700,18 +700,13 @@ it("opens the Curator modal over the chat workspace", async () => {
     expect(screen.getByText("Unable to load file.")).toBeTruthy();
   });
 
-  it("closes the quickview panel after its exit timer", async () => {
+  it("closes the quickview panel", async () => {
     renderWorkspaceShell({ slug: "alice" });
 
     fireEvent.click(await screen.findByRole("button", { name: "Open plan preview" }));
     expect(await screen.findByText("Quickview")).toBeTruthy();
 
-    vi.useFakeTimers();
     fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(250);
-    });
 
     expect(screen.queryByText("Quickview")).toBeNull();
   });

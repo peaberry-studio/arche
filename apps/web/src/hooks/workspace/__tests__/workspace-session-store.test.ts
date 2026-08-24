@@ -6,7 +6,6 @@ import {
   collectLoadedFamilyIds,
   createSessionStore,
   deriveVisibleSessions,
-  hasSession,
   mergeSessionFamily,
   prependSession,
   removeSessionFamily,
@@ -105,8 +104,8 @@ describe("workspace-session-store", () => {
 
     const next = removeSessionFamily(store, "child");
 
-    expect(hasSession(next, "root")).toBe(true);
-    expect(hasSession(next, "child")).toBe(false);
-    expect(hasSession(next, "grandchild")).toBe(false);
+    expect("root" in next.sessionsById).toBe(true);
+    expect("child" in next.sessionsById).toBe(false);
+    expect("grandchild" in next.sessionsById).toBe(false);
   });
 });

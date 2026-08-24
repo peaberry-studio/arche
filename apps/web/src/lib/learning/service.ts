@@ -1,6 +1,5 @@
 export {
   applyAndPublishKnowledgeReviewChange,
-  applyKnowledgeReviewChange,
   captureKnowledgeReviewBase,
   regenerateKnowledgeReviewChangeForUser,
   rebaseKnowledgeReviewChangeForUser,

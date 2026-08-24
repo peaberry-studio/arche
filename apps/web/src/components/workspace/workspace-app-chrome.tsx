@@ -24,7 +24,6 @@ type WorkspaceAppChromeProps = {
     path: string
   } | null
   macDesktopWindowInset?: boolean
-  persistenceScope: string
   slug: string
 }
 

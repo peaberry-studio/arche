@@ -13,7 +13,7 @@ import {
   exportWorkspaceFile,
   type WorkspaceFileExportFormat,
 } from "@/lib/workspace-file-export";
-import { flattenWorkspaceFileNodes } from "@/lib/workspace-file-search";
+import { flattenWorkspaceFileNodes, resolveWorkspaceFilePath } from "@/lib/workspace-file-search";
 import {
   isProtectedWorkspacePath,
   normalizeWorkspacePath,
@@ -52,7 +52,6 @@ export type UseExploreWorkspaceOptions = {
   initialFilePath?: string | null;
   workspaceAgentEnabled?: boolean;
   enabled?: boolean;
-  reaperEnabled?: boolean;
 };
 
 export type UseExploreWorkspaceReturn = {
@@ -270,34 +269,9 @@ export function useExploreWorkspace({
     [files.fileTree]
   );
 
-  const filePathSet = useMemo(() => new Set(flattenedFilePaths), [flattenedFilePaths]);
   const markdownFilePaths = useMemo(
     () => flattenedFilePaths.filter((path) => path.toLowerCase().endsWith(".md")),
     [flattenedFilePaths]
-  );
-
-  const normalizePath = useCallback((path: string) => {
-    return path.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/+/g, "/");
-  }, []);
-
-  const resolveFilePath = useCallback(
-    (path: string) => {
-      if (!path) return path;
-      const normalized = normalizePath(path);
-      if (filePathSet.has(normalized)) return normalized;
-
-      const trimmed = normalized.replace(/^\/+/, "");
-      if (filePathSet.has(trimmed)) return trimmed;
-
-      const matches = flattenedFilePaths.filter((candidate) =>
-        normalized.endsWith(candidate) || trimmed.endsWith(candidate)
-      );
-      if (matches.length === 0) return normalized;
-
-      matches.sort((a, b) => b.length - a.length);
-      return matches[0];
-    },
-    [filePathSet, flattenedFilePaths, normalizePath]
   );
 
   const diffSignature = useMemo(() => {
@@ -507,7 +481,7 @@ export function useExploreWorkspace({
 
   const onOpenFile = useCallback(
     async (path: string) => {
-      const resolvedPath = resolveFilePath(path);
+      const resolvedPath = resolveWorkspaceFilePath(path, flattenedFilePaths);
       const pathToOpen = resolvedPath || path;
       const normalizedPath = normalizeWorkspacePath(pathToOpen);
 
@@ -533,7 +507,7 @@ export function useExploreWorkspace({
         }
       }
     },
-    [files, resolveFilePath]
+    [files, flattenedFilePaths]
   );
 
   const onDownloadFile = useCallback(

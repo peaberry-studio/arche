@@ -10,10 +10,7 @@ vi.mock('@/lib/runtime/mode', () => ({
 
 import {
   getCurrentDesktopVault,
-  getDesktopFlowsHref,
   getWorkspacePersistenceScope,
-  isDesktopFlowsView,
-  DESKTOP_FLOWS_VIEWS,
 } from '../current-vault'
 
 describe('current-vault', () => {
@@ -26,12 +23,6 @@ describe('current-vault', () => {
 
   afterEach(() => {
     process.env = originalEnv
-  })
-
-  describe('DESKTOP_FLOWS_VIEWS', () => {
-    it('contains expected views', () => {
-      expect(DESKTOP_FLOWS_VIEWS).toEqual(['list', 'new', 'edit', 'runs'])
-    })
   })
 
   describe('getCurrentDesktopVault', () => {
@@ -101,23 +92,6 @@ describe('current-vault', () => {
       delete process.env.ARCHE_DESKTOP_VAULT_PATH
 
       expect(getWorkspacePersistenceScope('alice')).toBe('alice')
-    })
-  })
-
-  describe('getDesktopFlowsHref', () => {
-    it('returns flow dialog list path', () => {
-      expect(getDesktopFlowsHref('alice', 'list')).toBe('/w/alice?flows=list')
-    })
-
-    it('includes flow id for detail views', () => {
-      expect(getDesktopFlowsHref('alice', 'runs', 'flow-1')).toBe('/w/alice?flows=runs&flowId=flow-1')
-    })
-  })
-
-  describe('isDesktopFlowsView', () => {
-    it('accepts known views only', () => {
-      expect(isDesktopFlowsView('list')).toBe(true)
-      expect(isDesktopFlowsView('settings')).toBe(false)
     })
   })
 })

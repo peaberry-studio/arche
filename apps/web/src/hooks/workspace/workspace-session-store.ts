@@ -185,10 +185,3 @@ export function deriveVisibleSessions(
     .map((id) => store.sessionsById[id])
     .filter((session): session is WorkspaceSession => Boolean(session));
 }
-
-export function hasSession(
-  store: WorkspaceSessionStore,
-  id: string
-): boolean {
-  return id in store.sessionsById;
-}

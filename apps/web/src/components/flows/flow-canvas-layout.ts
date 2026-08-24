@@ -61,8 +61,6 @@ export function getFlowAddMenuHeight(optionCount = FLOW_CANVAS_NODE_TYPE_OPTIONS
     FLOW_ADD_MENU_BOTTOM_PADDING
 }
 
-export const FLOW_ADD_MENU_HEIGHT = getFlowAddMenuHeight()
-
 export function getFlowCanvasContentBounds(
   nodes: ReadonlyArray<{ x: number; y: number }>,
   nodeWidth = FLOW_CANVAS_NODE_WIDTH,

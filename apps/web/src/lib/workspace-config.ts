@@ -155,15 +155,6 @@ export function getDefaultModel(config: CommonWorkspaceConfig): string | undefin
     : undefined
 }
 
-export function getResolvedAgentModel(
-  config: CommonWorkspaceConfig,
-  agent: CommonAgentConfig,
-): string | undefined {
-  return typeof agent.model === 'string' && agent.model.trim()
-    ? agent.model.trim()
-    : getDefaultModel(config)
-}
-
 export function setDefaultModel(config: CommonWorkspaceConfig, model: string | null): CommonWorkspaceConfig {
   const nextConfig: CommonWorkspaceConfig = { ...config }
   const nextModel = typeof model === 'string' ? model.trim() : ''

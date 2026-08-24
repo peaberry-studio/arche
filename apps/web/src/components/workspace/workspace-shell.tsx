@@ -5,7 +5,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
 import { useWorkspaceRuntime } from "@/contexts/workspace-runtime-context";
-import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { useConfigStatus } from "@/hooks/use-config-status";
 import { useSkillsCatalog } from "@/hooks/use-skills-catalog";
@@ -20,10 +19,7 @@ import {
   isProtectedWorkspacePath,
   normalizeWorkspacePath,
 } from "@/lib/workspace-paths";
-import {
-  excludeSubagentSessions,
-  isBusyFlowWorkspaceSession,
-} from "@/lib/workspace-session-utils";
+import { isBusyFlowWorkspaceSession } from "@/lib/workspace-session-utils";
 import {
   getWorkspaceLayoutCookieName,
   getWorkspaceLayoutStorageKey,
@@ -37,7 +33,7 @@ import {
   type WorkspaceStartPrompt,
 } from "@/lib/workspace-start-prompt";
 import { cn } from "@/lib/utils";
-import { flattenWorkspaceFileNodes } from "@/lib/workspace-file-search";
+import { flattenWorkspaceFileNodes, resolveWorkspaceFilePath } from "@/lib/workspace-file-search";
 
 import { ChatPanel } from "./chat-panel";
 import { ConfigChangeBanner } from "./config-change-banner";
@@ -61,7 +57,6 @@ type WorkspaceShellProps = {
   isAdmin?: boolean;
   macDesktopWindowInset?: boolean;
   workspaceAgentEnabled?: boolean;
-  reaperEnabled?: boolean;
   slackIntegrationAvailable?: boolean;
   teamVisibilityAvailable?: boolean;
   recentUpdates?: { fileName: string; filePath: string }[];
@@ -183,7 +178,6 @@ export function WorkspaceShell({
   isAdmin = false,
   macDesktopWindowInset = false,
   workspaceAgentEnabled = true,
-  reaperEnabled = true,
   slackIntegrationAvailable = false,
   teamVisibilityAvailable = false,
   recentUpdates = [],
@@ -213,8 +207,6 @@ export function WorkspaceShell({
     setKnowledgePublishCount,
     setSidebarCollapsed,
   } = useWorkspaceRuntime();
-  const [rightTab, setRightTab] = useState<"preview" | "review">("preview");
-  const effectiveRightTab = workspaceAgentEnabled ? rightTab : "preview";
 
   // Config change detection
   const configStatus = useConfigStatus(slug, instanceStatus === "running");
@@ -222,25 +214,20 @@ export function WorkspaceShell({
   // Use workspace hook only when instance is running
   const workspace = useWorkspace({
     slug,
-    storageScope: resolvedPersistenceScope,
     pollInterval: 20000,
     enabled: instanceStatus === 'running',
     workspaceAgentEnabled,
-    reaperEnabled,
   });
   const skillsCatalog = useSkillsCatalog(slug)
   const {
     readFile: readWorkspaceFile,
   } = workspace;
   const [previewFilePath, setPreviewFilePath] = useState<string | null>(null);
-  const [previewExpanded, setPreviewExpanded] = useState(false);
   const [previewFile, setPreviewFile] = useState<{
     path: string;
     content: string;
     hash?: string;
   } | null>(null);
-  const previewOpenFrameRef = useRef<number | null>(null);
-  const previewCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [learningRefreshKey, setLearningRefreshKey] = useState(0);
   const refreshKnowledgeWorkspace = useCallback(() => {
     workspace.refreshDiffs();
@@ -291,11 +278,6 @@ export function WorkspaceShell({
     const query = params.toString();
     router.replace(query ? `/w/${slug}?${query}` : `/w/${slug}`);
   }, [catalogParam, flowsParam, router, searchParams, slug, workspace.activeSessionId, workspace.isInitialSessionsReady]);
-
-  const rootSessions = useMemo(
-    () => excludeSubagentSessions(workspace.sessions),
-    [workspace.sessions]
-  );
 
   const activeRootSessionId = useMemo(
     () => resolveRootSessionId(workspace.activeSessionId, sessionsById),
@@ -469,43 +451,21 @@ export function WorkspaceShell({
     return flattenWorkspaceFileNodes(workspace.fileTree).map((file) => file.path);
   }, [workspace.fileTree]);
 
-  const filePathSet = useMemo(() => new Set(flattenedFilePaths), [flattenedFilePaths]);
   const markdownFilePaths = useMemo(
     () => flattenedFilePaths.filter((path) => path.toLowerCase().endsWith(".md")),
     [flattenedFilePaths]
   );
 
-  const normalizePath = useCallback((path: string) => {
-    return path.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/+/g, "/");
-  }, []);
-
-  const resolveFilePath = useCallback((path: string) => {
-    if (!path) return path;
-    const normalized = normalizePath(path);
-    if (filePathSet.has(normalized)) return normalized;
-
-    const trimmed = normalized.replace(/^\/+/, "");
-    if (filePathSet.has(trimmed)) return trimmed;
-
-    const matches = flattenedFilePaths.filter((candidate) =>
-      normalized.endsWith(candidate) || trimmed.endsWith(candidate)
-    );
-    if (matches.length === 0) return normalized;
-
-    matches.sort((a, b) => b.length - a.length);
-    return matches[0];
-  }, [filePathSet, flattenedFilePaths, normalizePath]);
-
   const handleOpenFileInExplore = useCallback(
     (path: string) => {
-      const resolvedPath = resolveFilePath(path);
+      const resolvedPath = resolveWorkspaceFilePath(path, flattenedFilePaths);
       if (!resolvedPath) return;
       // Opening a file navigates to Explore; the target screen shows the file
       // itself, so the Curator dialog must not stay open over it.
       setCuratorOpen(false);
       router.push(`/w/${slug}/explore?path=${encodeURIComponent(resolvedPath)}`);
     },
-    [resolveFilePath, router, setCuratorOpen, slug]
+    [flattenedFilePaths, router, setCuratorOpen, slug]
   );
 
   const handleCommandPaletteOpenFile = useCallback(
@@ -590,7 +550,7 @@ export function WorkspaceShell({
   // File handlers
   const handleOpenFile = useCallback(
     async (path: string) => {
-      const resolvedPath = resolveFilePath(path);
+      const resolvedPath = resolveWorkspaceFilePath(path, flattenedFilePaths);
       const pathToOpen = resolvedPath || path;
       const normalizedPath = normalizeWorkspacePath(pathToOpen);
 
@@ -598,19 +558,7 @@ export function WorkspaceShell({
         return;
       }
 
-      if (previewCloseTimerRef.current) {
-        clearTimeout(previewCloseTimerRef.current);
-        previewCloseTimerRef.current = null;
-      }
-      if (previewOpenFrameRef.current !== null) {
-        cancelAnimationFrame(previewOpenFrameRef.current);
-      }
-      setPreviewExpanded(false);
       setPreviewFilePath(normalizedPath);
-      previewOpenFrameRef.current = requestAnimationFrame(() => {
-        setPreviewExpanded(true);
-        previewOpenFrameRef.current = null;
-      });
       setRightCollapsed(false);
       if (isCompactLayout) {
         setMobileView("right");
@@ -630,7 +578,7 @@ export function WorkspaceShell({
       isCompactLayout,
       previewFile,
       readWorkspaceFile,
-      resolveFilePath,
+      flattenedFilePaths,
       setRightCollapsed,
     ]
   );
@@ -638,46 +586,17 @@ export function WorkspaceShell({
   const handleEditFromPreview = useCallback(() => {
     if (!previewFilePath) return;
     const path = previewFilePath;
-    if (previewOpenFrameRef.current !== null) {
-      cancelAnimationFrame(previewOpenFrameRef.current);
-      previewOpenFrameRef.current = null;
-    }
-    if (previewCloseTimerRef.current) {
-      clearTimeout(previewCloseTimerRef.current);
-      previewCloseTimerRef.current = null;
-    }
-    setPreviewExpanded(false);
     setPreviewFilePath(null);
     router.push(`/w/${slug}/explore?path=${encodeURIComponent(path)}`);
   }, [previewFilePath, router, slug]);
 
   function handleClosePreview() {
-    setPreviewExpanded(false);
-    if (previewOpenFrameRef.current !== null) {
-      cancelAnimationFrame(previewOpenFrameRef.current);
-      previewOpenFrameRef.current = null;
+    setPreviewFilePath(null);
+    setPreviewFile(null);
+    if (isCompactLayout) {
+      setMobileView("chat");
     }
-    if (previewCloseTimerRef.current) {
-      clearTimeout(previewCloseTimerRef.current);
-    }
-    previewCloseTimerRef.current = setTimeout(() => {
-      setPreviewFilePath(null);
-      setPreviewFile(null);
-      previewCloseTimerRef.current = null;
-      if (isCompactLayout) {
-        setMobileView("chat");
-      }
-    }, 220);
   }
-
-  useEffect(() => () => {
-    if (previewOpenFrameRef.current !== null) {
-      cancelAnimationFrame(previewOpenFrameRef.current);
-    }
-    if (previewCloseTimerRef.current) {
-      clearTimeout(previewCloseTimerRef.current);
-    }
-  }, []);
 
   // Session handlers
   const handleCommandPaletteSelectSession = useCallback(
@@ -763,15 +682,9 @@ export function WorkspaceShell({
     if (typeof stored?.rightCollapsed === "boolean") {
       setRightCollapsed(stored.rightCollapsed);
     }
-    if (
-      stored?.rightTab === "preview" ||
-      (workspaceAgentEnabled && stored?.rightTab === "review")
-    ) {
-      setRightTab(stored.rightTab);
-    }
 
     setHydratedLayoutKey(layoutStorageKey);
-  }, [initialLayoutState, layoutCookieName, layoutStorageKey, setLeftCollapsed, setRightCollapsed, workspaceAgentEnabled]);
+  }, [initialLayoutState, layoutCookieName, layoutStorageKey, setLeftCollapsed, setRightCollapsed]);
 
   // Persist layout
   useEffect(() => {
@@ -781,10 +694,8 @@ export function WorkspaceShell({
       rightWidth,
       leftCollapsed,
       rightCollapsed,
-      rightTab: effectiveRightTab,
     });
   }, [
-    effectiveRightTab,
     hydratedLayoutKey,
     layoutCookieName,
     layoutStorageKey,
@@ -830,13 +741,6 @@ export function WorkspaceShell({
           }))
     }));
   }, [workspace.messages]);
-
-  // Get theme from context
-  const { themeId, isDark } = useWorkspaceTheme();
-
-  // Build theme classes
-  const darkModeClasses = isDark ? "dark" : "";
-  const themeClassName = `theme-${themeId}`;
 
   // The chrome (sidebar) always renders. While the instance is starting or the
   // connection is not yet established, the center shows an in-pane banner
@@ -951,8 +855,6 @@ export function WorkspaceShell({
       className={cn(
         'flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background text-foreground',
         macDesktopWindowInset && 'desktop-no-select',
-        darkModeClasses,
-        themeClassName,
       )}
     >
       <WorkspaceCommandPalette

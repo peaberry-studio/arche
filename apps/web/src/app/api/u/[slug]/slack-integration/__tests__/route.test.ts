@@ -10,8 +10,6 @@ const mocks = vi.hoisted(() => ({
   requireCapability: vi.fn(() => null),
   auditEvent: vi.fn(),
   loadSlackAgentOptions: vi.fn(),
-  decryptSlackToken: vi.fn(),
-  encryptSlackToken: vi.fn(),
   isSlackBotToken: vi.fn(),
   isSlackAppToken: vi.fn(),
   serializeSlackIntegration: vi.fn(),
@@ -56,11 +54,6 @@ vi.mock('@/lib/auth', () => ({
 
 vi.mock('@/lib/slack/agents', () => ({
   loadSlackAgentOptions: mocks.loadSlackAgentOptions,
-}))
-
-vi.mock('@/lib/slack/crypto', () => ({
-  decryptSlackToken: mocks.decryptSlackToken,
-  encryptSlackToken: mocks.encryptSlackToken,
 }))
 
 vi.mock('@/lib/slack/integration', () => ({
@@ -198,8 +191,6 @@ describe('/api/u/[slug]/slack-integration', () => {
     mocks.ensureSlackServiceUser.mockResolvedValue({ ok: true })
     mocks.isSlackBotToken.mockImplementation((t: string) => t.startsWith('xoxb-'))
     mocks.isSlackAppToken.mockImplementation((t: string) => t.startsWith('xapp-'))
-    mocks.encryptSlackToken.mockImplementation((t: string) => `enc:${t}`)
-    mocks.decryptSlackToken.mockImplementation((t: string) => t.replace('enc:', ''))
     mocks.testSlackCredentials.mockResolvedValue({
       teamId: 'T123',
       appId: 'A123',

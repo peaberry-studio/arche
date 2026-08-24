@@ -54,13 +54,6 @@ vi.mock("@/hooks/use-instance-heartbeat", () => ({
   useInstanceHeartbeat: () => undefined,
 }));
 
-vi.mock("@/contexts/workspace-theme-context", () => ({
-  useWorkspaceTheme: () => ({
-    themeId: "warm-sand",
-    isDark: false,
-  }),
-}));
-
 vi.mock("@/hooks/use-explore-workspace", () => ({
   useExploreWorkspace: () => {
     const override = workspaceOverrides.current;

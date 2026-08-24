@@ -10,7 +10,6 @@ type WorkspaceShellProps = {
   initialLayoutState: unknown
   macDesktopWindowInset: boolean
   persistenceScope: string
-  reaperEnabled: boolean
   slug: string
   workspaceAgentEnabled: boolean
 }
@@ -188,7 +187,6 @@ describe('WorkspaceHostPage', () => {
       initialLayoutState: { layout: 'parsed' },
       macDesktopWindowInset: true,
       persistenceScope: 'scope-alice',
-      reaperEnabled: false,
       workspaceAgentEnabled: true,
     })
     expect(getWorkspacePersistenceScopeMock).toHaveBeenCalledWith('alice')
