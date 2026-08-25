@@ -22,6 +22,7 @@ type UseWorkspaceMessageActionsOptions = {
   createSession: (title?: string) => Promise<WorkspaceSession | null>;
   models: AvailableModel[];
   primaryAgentId: string | null;
+  refreshMessages: (sessionIdOverride?: string) => Promise<void>;
   sessionSelectionStateRef: MutableRefObject<Record<string, SessionSelectionState>>;
   getStore: () => ChatStore;
   commitStore: (store: SetStateAction<ChatStore>) => void;
@@ -52,6 +53,7 @@ export function useWorkspaceMessageActions({
   createSession,
   models,
   primaryAgentId,
+  refreshMessages,
   sessionSelectionStateRef,
   getStore,
   commitStore,
@@ -151,6 +153,13 @@ export function useWorkspaceMessageActions({
         return false;
       }
 
+      // The prompt travels out-of-band while the event pipe may still be
+      // connecting or mid-reconnect; runtime events emitted in that window are
+      // never re-delivered, and no other trigger refreshes messages after a
+      // send. Re-hydrating once the prompt is accepted keeps the sent message
+      // visible even when its events were missed.
+      void refreshMessages(sessionId);
+
       return true;
     },
     [
@@ -162,6 +171,7 @@ export function useWorkspaceMessageActions({
       models,
       onStartingNewSessionChange,
       primaryAgentId,
+      refreshMessages,
       sessionSelectionStateRef,
       slug,
     ],

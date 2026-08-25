@@ -572,6 +572,129 @@ vi.stubGlobal(
     });
   });
 
+  it("re-hydrates messages after an accepted prompt even when its events were missed", async () => {
+    // Regression: the prompt POST travels out-of-band while the event pipe may
+    // not be forwarding (cold route, reconnect backoff). Runtime events
+    // emitted in that window are never re-delivered, so without a post-send
+    // hydration the conversation stayed empty forever.
+    let promptAccepted = false;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input) === "/api/u/alice/agents") {
+          return {
+            ok: true,
+            json: async () => ({
+              agents: [
+                {
+                  id: "assistant",
+                  displayName: "Assistant",
+                  model: "openai/gpt-5.4",
+                  isPrimary: true,
+                },
+              ],
+            }),
+          };
+        }
+
+        if (String(input) === "/api/u/alice/providers") {
+          return {
+            ok: true,
+            json: async () => ({
+              providers: [{ providerId: "openai", status: "enabled" }],
+            }),
+          };
+        }
+
+        // Hanging event pipe: connected, but no runtime events ever arrive.
+        if (String(input) === "/api/w/alice/events") {
+          return {
+            ok: true,
+            body: {
+              getReader() {
+                return {
+                  read: () => new Promise<ReadableStreamReadResult<Uint8Array>>(() => {}),
+                  cancel: async () => undefined,
+                };
+              },
+            },
+          };
+        }
+
+        if (String(input) === "/api/w/alice/chat/prompt") {
+          void init;
+          promptAccepted = true;
+          return {
+            ok: true,
+            status: 202,
+            json: async () => ({ ok: true }),
+          };
+        }
+
+        throw new Error(`Unexpected fetch: ${String(input)}`);
+      })
+    );
+
+    opencodeMocks.listMessagesAction.mockImplementation(async (_slug: string, sessionId: string) => {
+      if (sessionId !== "s1" || !promptAccepted) {
+        return { ok: true, messages: [] };
+      }
+
+      return {
+        ok: true,
+        messages: [
+          {
+            id: "server-m1",
+            sessionId: "s1",
+            role: "user",
+            content: "hello",
+            timestamp: "now",
+            parts: [],
+            pending: false,
+          },
+          {
+            id: "server-m2",
+            sessionId: "s1",
+            role: "assistant",
+            content: "E2E_OK: hello",
+            timestamp: "now",
+            agentId: "assistant",
+            model: { providerId: "openai", modelId: "gpt-5.2" },
+            parts: [],
+            pending: false,
+          },
+        ],
+      };
+    });
+
+    const { result } = renderWorkspaceHook(
+      () => useWorkspace({ slug: "alice", pollInterval: 0 }),
+      undefined,
+      { initialSessionId: "s1" }
+    );
+
+    await waitFor(() => {
+      expect(result.current.activeSessionId).toBe("s1");
+      expect(result.current.messages).toHaveLength(0);
+    });
+
+    let accepted = false;
+    await act(async () => {
+      accepted = await result.current.sendMessage("hello");
+    });
+
+    expect(accepted).toBe(true);
+    expect(promptAccepted).toBe(true);
+
+    await waitFor(() => {
+      expect(result.current.messages.map((message: WorkspaceMessage) => message.id)).toEqual([
+        "server-m1",
+        "server-m2",
+      ]);
+    });
+  });
+
   it("restores idle when prompt fails (502) and never inserts a local user message", async () => {
     let promptCalls = 0;
 

@@ -146,6 +146,7 @@ export function useWorkspace({
       createSession,
       models,
       primaryAgentId,
+      refreshMessages,
       sessionSelectionStateRef,
       getStore,
       commitStore,
