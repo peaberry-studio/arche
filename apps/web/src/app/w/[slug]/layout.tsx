@@ -136,6 +136,7 @@ export default async function WorkspaceLayout({
       >
         <WorkspaceAppChrome
           slug={slug}
+          currentUserId={session.user.id}
           currentVault={desktopVault ? { id: desktopVault.vaultId, name: desktopVault.vaultName, path: desktopVault.vaultPath } : null}
           macDesktopWindowInset={macDesktopWindowInset}
         >

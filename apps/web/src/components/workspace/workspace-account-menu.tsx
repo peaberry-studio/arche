@@ -12,7 +12,6 @@ import {
   Plugs,
   Plus,
   Sun,
-  UserCircle,
   Vault,
 } from '@phosphor-icons/react'
 
@@ -24,6 +23,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { GlyphAvatar } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { useWorkspaceTheme } from '@/contexts/workspace-theme-context'
 import type { SyncKbResult } from '@/app/api/instances/[slug]/sync-kb/route'
@@ -54,6 +54,7 @@ type ProviderSummary = {
 
 type WorkspaceAccountMenuProps = {
   slug: string
+  currentUserId: string
   currentVault?: DesktopVaultSummary | null
   status: 'active' | 'provisioning' | 'offline'
   collapsed?: boolean
@@ -108,6 +109,7 @@ async function fetchIntegrationSummaries(slug: string): Promise<{
 
 export function WorkspaceAccountMenu({
   slug,
+  currentUserId,
   currentVault = null,
   status = 'active',
   collapsed = false,
@@ -279,10 +281,23 @@ export function WorkspaceAccountMenu({
           aria-label="Workspace account menu"
         >
           {collapsed ? (
-            <UserCircle size={18} weight="fill" className="shrink-0 text-muted-foreground" />
+            <GlyphAvatar
+              seed={currentUserId}
+              kind="human"
+              size={20}
+              className="bg-foreground/10 text-primary"
+            />
           ) : (
             <>
-              <span className="max-w-[6rem] truncate font-medium sm:max-w-none">{accountMenuLabel}</span>
+              <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                <GlyphAvatar
+                  seed={currentUserId}
+                  kind="human"
+                  size={20}
+                  className="bg-foreground/10 text-primary"
+                />
+                <span className="min-w-0 max-w-[6rem] truncate font-medium sm:max-w-none">{accountMenuLabel}</span>
+              </span>
               <CaretUp
                 size={13}
                 weight="bold"

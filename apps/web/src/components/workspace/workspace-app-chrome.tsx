@@ -18,6 +18,7 @@ import { WorkspaceSidebar } from './workspace-sidebar'
 
 type WorkspaceAppChromeProps = {
   children: ReactNode
+  currentUserId: string
   currentVault?: {
     id: string
     name: string
@@ -29,6 +30,7 @@ type WorkspaceAppChromeProps = {
 
 export function WorkspaceAppChrome({
   children,
+  currentUserId,
   currentVault = null,
   macDesktopWindowInset = false,
   slug,
@@ -183,6 +185,7 @@ export function WorkspaceAppChrome({
       accountMenu={(collapsed) => (
         <WorkspaceAccountMenu
           slug={slug}
+          currentUserId={currentUserId}
           currentVault={currentVault}
           status="active"
           collapsed={collapsed}
