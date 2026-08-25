@@ -7,6 +7,7 @@ import { CreateUserDialog } from '@/components/team/create-user-dialog'
 import { EditUserDialog } from '@/components/team/edit-user-dialog'
 import { getTeamErrorMessage } from '@/components/team/error-messages'
 import type { TeamUser } from '@/components/team/types'
+import { GlyphAvatar } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 
@@ -219,14 +220,17 @@ export function TeamPageClient({
           <div className="divide-y divide-border/60">
             {sortedUsers.map((user) => (
               <div key={user.id} className="flex flex-wrap items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
-                <div className="min-w-0 space-y-1">
-                  <p className="truncate text-sm font-semibold text-foreground">{user.email}</p>
-                  <p className="text-xs text-muted-foreground">
-                    /{user.slug} - created {formatCreatedAt(user.createdAt)}
-                  </p>
+                <div className="flex min-w-0 items-center gap-3">
+                  <GlyphAvatar seed={user.id} kind="human" size={32} />
+                  <div className="min-w-0 space-y-1">
+                    <p className="truncate text-sm font-semibold text-foreground">{user.email}</p>
+                    <p className="text-xs text-muted-foreground">
+                      /{user.slug} - created {formatCreatedAt(user.createdAt)}
+                    </p>
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex shrink-0 items-center gap-2">
                   <Badge variant={user.role === 'ADMIN' ? 'default' : 'secondary'}>{user.role}</Badge>
                   {user.id === currentUserId ? <Badge variant="outline">You</Badge> : null}
                   {isAdmin ? (

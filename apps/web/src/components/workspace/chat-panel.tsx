@@ -36,6 +36,7 @@ import { ChatPanelSessionHeader } from "@/components/workspace/chat-panel/sessio
 import type { SessionTabInfo } from "@/components/workspace/chat-panel/types";
 import { WorkspaceChatEmptyComposer } from "@/components/workspace/workspace-chat-empty-composer";
 import { StatusIndicator } from "@/components/workspace/bitmap-status-indicator";
+import { GlyphAvatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -141,13 +142,6 @@ const EMPTY_MODELS: AvailableModel[] = [];
 const EMPTY_PERMISSIONS: WorkspacePermission[] = [];
 const EMPTY_SESSION_TABS: SessionTabInfo[] = [];
 const EMPTY_SKILLS: SkillListItem[] = [];
-
-function getAgentInitials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
 
 function getAttachmentErrorMessage(error: string): string {
   switch (error) {
@@ -1458,7 +1452,12 @@ export function ChatPanel({
                         }}
                         className={cn("gap-3 rounded-md px-3 py-2", isSelected && "bg-primary/10 text-primary")}
                       >
-                        <span className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[11px] font-semibold uppercase tracking-wide", isSelected ? "bg-primary text-primary-foreground" : "bg-foreground/10 text-foreground/70")}>{getAgentInitials(agent.displayName)}</span>
+                        <GlyphAvatar
+                          seed={agent.id}
+                          kind="agent"
+                          size={28}
+                          active={isSending && agent.id === selectedExpertId}
+                        />
                         <span className="min-w-0 flex-1 truncate text-sm">{agent.displayName}</span>
                         {isSelected ? <Check size={14} weight="bold" /> : null}
                       </DropdownMenuItem>
