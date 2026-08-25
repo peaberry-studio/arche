@@ -1,5 +1,6 @@
 import Link from 'next/link'
 
+import { GlyphAvatar } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
@@ -53,11 +54,9 @@ export function AgentCard({
       ) : null}
 
       <CardHeader>
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted/70 text-sm font-semibold text-muted-foreground">
-            {displayName.slice(0, 1).toUpperCase()}
-          </div>
-          <div className="space-y-0.5">
+        <div className="flex min-w-0 items-center gap-3">
+          <GlyphAvatar seed={agentId} kind="agent" size={40} />
+          <div className="min-w-0 space-y-0.5">
             <CardTitle className="text-base font-semibold">{displayName}</CardTitle>
             <p className="text-xs text-muted-foreground">ID: {agentId}</p>
           </div>

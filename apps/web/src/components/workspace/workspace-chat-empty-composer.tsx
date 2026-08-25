@@ -11,6 +11,7 @@ import {
   Robot,
 } from '@phosphor-icons/react'
 
+import { GlyphAvatar } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -437,13 +438,6 @@ function KnowledgePanel({
   )
 }
 
-function getAgentInitials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean)
-  if (parts.length === 0) return '?'
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
-}
-
 function ExpertsPanel({
   agents,
   selected,
@@ -460,7 +454,6 @@ function ExpertsPanel({
     <ul role="none" className="max-h-72 overflow-y-auto scrollbar-custom">
       {agents.map((agent) => {
         const isSelected = selected === agent.id
-        const initials = getAgentInitials(agent.displayName)
         return (
           <li role="none" key={agent.id}>
             <button
@@ -482,17 +475,7 @@ function ExpertsPanel({
                   isSelected ? 'opacity-100' : 'opacity-0',
                 )}
               />
-              <span
-                aria-hidden="true"
-                className={cn(
-                  'flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[11px] font-semibold uppercase tracking-wide transition-colors',
-                  isSelected
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-foreground/10 text-foreground/70 group-hover:bg-foreground/15',
-                )}
-              >
-                {initials}
-              </span>
+              <GlyphAvatar seed={agent.id} kind="agent" size={28} />
               <span className="min-w-0 flex-1">
                 <span
                   className={cn(

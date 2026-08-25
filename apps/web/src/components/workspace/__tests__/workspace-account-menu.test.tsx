@@ -65,6 +65,7 @@ function renderMenu(
 ) {
   const props = {
     slug: "local",
+    currentUserId: "user-1",
     currentVault,
     status: "active",
     onNavigateConnectors: vi.fn(),
