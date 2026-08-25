@@ -40,6 +40,7 @@ describe("useWorkspaceMessageActions", () => {
     const commitStore = (updater: ChatStore | ((prev: ChatStore) => ChatStore)) => {
       current = typeof updater === "function" ? updater(current) : updater;
     };
+    const refreshMessages = vi.fn(async () => undefined);
 
     const hook = renderHook(() =>
       useWorkspaceMessageActions({
@@ -49,6 +50,7 @@ describe("useWorkspaceMessageActions", () => {
         createSession: vi.fn(),
         models: [],
         primaryAgentId: null,
+        refreshMessages,
         sessionSelectionStateRef: { current: {} },
         getStore,
         commitStore,
@@ -56,12 +58,12 @@ describe("useWorkspaceMessageActions", () => {
       }),
     );
 
-    return { hook, getStore, commitStore };
+    return { hook, getStore, commitStore, refreshMessages };
   }
 
   it("does not insert a local user message; the bus is the source of truth", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 202 })));
-    const { hook, getStore } = renderActions();
+    const { hook, getStore, refreshMessages } = renderActions();
 
     let sent = false;
     await act(async () => {
@@ -71,6 +73,9 @@ describe("useWorkspaceMessageActions", () => {
     expect(sent).toBe(true);
     expect(getStore().messages.s1 ?? []).toHaveLength(0);
     expect(getStore().sessionStatus.s1).toBe("busy");
+    // The accepted prompt asks the server for the persisted messages instead
+    // of grafting a local bubble; missed bus events cannot blank the chat.
+    expect(refreshMessages).toHaveBeenCalledWith("s1");
   });
 
   it("keeps sessionStatus busy when prompt returns 409", async () => {
