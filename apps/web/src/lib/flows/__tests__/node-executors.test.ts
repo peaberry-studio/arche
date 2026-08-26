@@ -6,6 +6,9 @@ import type { SessionExecutionClient } from '@/lib/opencode/session-execution'
 import type { FlowRecord, FlowRunRecord, FlowRunStepRecord } from '@/lib/services/flow'
 
 const mocks = vi.hoisted(() => ({
+  connectorService: {
+    findManyByIds: vi.fn(),
+  },
   markRunWaitingForHuman: vi.fn(),
   runFlowPromptAndReadOutput: vi.fn(),
   sendSlackNotifications: vi.fn(),
@@ -19,6 +22,7 @@ vi.mock('@/lib/flows/session-executor', () => ({
 }))
 
 vi.mock('@/lib/services', () => ({
+  connectorService: mocks.connectorService,
   flowService: {
     markRunWaitingForHuman: mocks.markRunWaitingForHuman,
     updateRunStepByRunIdAndNodeId: mocks.updateRunStepByRunIdAndNodeId,
@@ -165,6 +169,34 @@ describe('executeFlowNode', () => {
     mocks.markRunWaitingForHuman.mockResolvedValue(undefined)
     mocks.runFlowPromptAndReadOutput.mockResolvedValue({ ok: true, output: 'assistant output' })
     mocks.sendSlackNotifications.mockResolvedValue({ errors: [], failed: 0, ok: true, sent: 1 })
+    mocks.connectorService.findManyByIds.mockImplementation(async (ids: string[]) =>
+      [{ id: 'mixpanel', name: 'Mixpanel', type: 'custom' }].filter((connector) => ids.includes(connector.id)))
+  })
+
+  it('passes hydrated connector declarations to the main prompt only', async () => {
+    const node: FlowNode = {
+      compactOutput: true,
+      id: 'agent-1',
+      name: 'Agent',
+      promptTemplate: 'Start',
+      requiredConnectors: ['mixpanel'],
+      targetAgentId: 'writer',
+      type: 'agent',
+    }
+    mocks.runFlowPromptAndReadOutput
+      .mockResolvedValueOnce({ ok: true, output: 'raw output' })
+      .mockResolvedValueOnce({ ok: true, output: 'compact output' })
+    mocks.connectorService.findManyByIds.mockResolvedValue([{ id: 'mixpanel', name: 'Mixpanel', type: 'custom' }])
+
+    await executeFlowNode(createParams(createDefinition(node), node))
+
+    expect(mocks.connectorService.findManyByIds).toHaveBeenCalledTimes(1)
+    expect(mocks.runFlowPromptAndReadOutput).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      requiredConnectors: [{ displayName: 'Mixpanel', id: 'mixpanel' }],
+    }))
+    const compactCall = mocks.runFlowPromptAndReadOutput.mock.calls[1][0] as Record<string, unknown>
+    expect(compactCall.prompt).toContain('Compact the previous assistant output')
+    expect(compactCall).not.toHaveProperty('requiredConnectors')
   })
 
   it('executes compacting agent nodes and advances to the outgoing edge', async () => {
