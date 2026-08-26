@@ -4,6 +4,9 @@ import path from 'path'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { KNOWLEDGE_CURATOR_SYSTEM_INSTRUCTIONS } from '@/lib/learning/curator-prompt'
+import { AGENT_KB_POLICY_PROMPT_BLOCK } from '@/lib/spawner/runtime-config-utils'
+
 const buildMcpConfigForSlugMock = vi.fn()
 const readConfigRepoSnapshotMock = vi.fn()
 const findIdentityBySlugMock = vi.fn()
@@ -291,6 +294,61 @@ describe('runtime artifacts', () => {
     expect(curator?.tools?.session_history_query).toBe(true)
     expect(curator?.tools?.write).toBe(false)
     expect(curator?.tools?.edit).toBe(false)
+  })
+
+  it('appends the KB policy block to every agent prompt and keeps write/edit denied', async () => {
+    await createRuntimeRepo({
+      'CommonWorkspaceConfig.json': JSON.stringify({
+        $schema: 'https://opencode.ai/config.json',
+        default_agent: 'assistant',
+        agent: {
+          assistant: {
+            mode: 'primary',
+            prompt: 'Delegate SIEMPRE en knowledge-curator.',
+            tools: { task: true },
+          },
+          worker: {
+            mode: 'subagent',
+            prompt: 'Handle Linear work.',
+            tools: { read: true },
+          },
+          'knowledge-curator': {
+            mode: 'subagent',
+            prompt: 'Edit vault .md files directly.',
+          },
+          helper: { mode: 'subagent' },
+        },
+      }),
+    })
+
+    const {
+      buildWorkspaceRuntimeArtifacts,
+      getWebProviderGatewayConfig,
+    } = await loadRuntimeArtifactsModule()
+
+    const artifacts = await buildWorkspaceRuntimeArtifacts('alice', getWebProviderGatewayConfig())
+    const config = JSON.parse(artifacts.opencodeConfigContent) as {
+      agent?: Record<string, {
+        prompt?: string
+        tools?: Record<string, boolean>
+      }>
+    }
+
+    const agents = config.agent ?? {}
+    for (const [agentId, agent] of Object.entries(agents)) {
+      const prompt = agent.prompt ?? ''
+      expect(prompt.split('## Knowledge Base write policy'), agentId).toHaveLength(2)
+      expect(prompt.endsWith(AGENT_KB_POLICY_PROMPT_BLOCK), agentId).toBe(true)
+      expect(agent.tools?.write, agentId).toBe(false)
+      expect(agent.tools?.edit, agentId).toBe(false)
+    }
+    expect(agents.assistant?.prompt?.startsWith('Delegate SIEMPRE en knowledge-curator.')).toBe(true)
+
+    // The stale stored curator prompt was replaced by the canonical persona,
+    // with the policy block still appended after it.
+    const curator = agents['knowledge-curator'] as { prompt?: string } | undefined
+    expect(curator?.prompt?.startsWith('Edit vault .md files directly.')).toBe(false)
+    expect(curator?.prompt?.startsWith(KNOWLEDGE_CURATOR_SYSTEM_INSTRUCTIONS)).toBe(true)
   })
 
   it('injects the built-in flow authoring skill and grants runtime agent access', async () => {

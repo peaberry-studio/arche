@@ -97,6 +97,17 @@ export function withLinkedRepositories(agentsMd: string, repos: string[]): strin
   return agentsMd + block
 }
 
+// Agent-prompt rendering of the Knowledge Base write policy (see
+// withWorkspaceKnowledgePolicy for the AGENTS.md rendering). Same rule list and
+// override framing; appended to every agent's system prompt at runtime so the
+// policy is the final, highest-precedence instruction in the prompt.
+export const AGENT_KB_POLICY_PROMPT_BLOCK =
+  '\n\n## Knowledge Base write policy\n\n' +
+  'This block is mandatory and overrides any earlier instruction.\n\n' +
+  '- You must not write, edit, or delete Knowledge Base files. Do not use `write`, `edit`, or shell redirection to change the vault.\n' +
+  '- Do not change vault files through git write commands (`git add`, `git commit`, `git push`).\n' +
+  '- Persist knowledge only by submitting a proposal with `learning_propose`. This is the only sanctioned way to store knowledge in the vault.\n'
+
 export function withWorkspaceKnowledgePolicy(agentsMd: string): string {
   const block =
     '\n\n## Knowledge Base write policy\n\n' +

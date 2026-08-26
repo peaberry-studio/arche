@@ -1,11 +1,13 @@
 import { describe, it, expect } from 'vitest'
 
 
+import { KNOWLEDGE_CURATOR_SYSTEM_INSTRUCTIONS } from '@/lib/learning/curator-prompt'
 import { SUBAGENT_STEP_LIMIT } from '@/lib/workspace-config'
 import {
   applyAgentExecutionGuards,
   applyDefaultAgentModel,
   denyAgentKnowledgeWrites,
+  injectAgentKnowledgePolicy,
   injectAlwaysOnAgentTools,
   injectCustomConnectorHints,
   injectSelfDelegationGuards,
@@ -14,6 +16,8 @@ import {
   materializeAgentToolMaps,
   remapAgentConnectorTools,
 } from '../agent-config-transforms'
+import { serializeRuntimeConfig } from '../runtime-config'
+import { AGENT_KB_POLICY_PROMPT_BLOCK } from '../runtime-config-utils'
 
 describe('applyAgentExecutionGuards', () => {
   it('caps primary and subagent steps and denies unsafe loops', () => {
@@ -1025,5 +1029,194 @@ describe('injectSystemKnowledgeCuratorAgent', () => {
 
     expect(tools.write).toBe(false)
     expect(tools.edit).toBe(false)
+  })
+
+  it('replaces a stale stored curator prompt with the canonical persona', () => {
+    const config = {
+      agent: {
+        'knowledge-curator': {
+          mode: 'subagent',
+          prompt: 'Edit vault .md files directly and run CLI linters.',
+          temperature: 0.7,
+        },
+      },
+    }
+
+    const result = injectSystemKnowledgeCuratorAgent(config)
+    const curator = (result.agent as Record<string, Record<string, unknown>>)['knowledge-curator'] as Record<string, unknown>
+
+    expect(curator.prompt).toBe(KNOWLEDGE_CURATOR_SYSTEM_INSTRUCTIONS)
+    expect(curator.temperature).toBe(0.7)
+  })
+
+  it('preserves other stored fields when replacing the curator prompt', () => {
+    const config = {
+      agent: {
+        'knowledge-curator': {
+          mode: 'subagent',
+          model: 'openai/gpt-5.5',
+          prompt: 'Stale.',
+          steps: 20,
+          tools: { read: true },
+        },
+      },
+    }
+
+    const result = injectSystemKnowledgeCuratorAgent(config)
+    const curator = (result.agent as Record<string, Record<string, unknown>>)['knowledge-curator'] as Record<string, unknown>
+    const tools = curator.tools as Record<string, boolean>
+
+    expect(curator.model).toBe('openai/gpt-5.5')
+    expect(curator.steps).toBe(20)
+    expect(tools.read).toBe(true)
+    expect(curator.prompt).toBe(KNOWLEDGE_CURATOR_SYSTEM_INSTRUCTIONS)
+  })
+})
+
+describe('injectAgentKnowledgePolicy', () => {
+  it('appends exactly one policy block after a user-customized prompt', () => {
+    const config = {
+      agent: {
+        analyst: { prompt: 'Investigate revenue anomalies.', tools: { read: true } },
+      },
+    }
+
+    const result = injectAgentKnowledgePolicy(config)
+    const agents = result.agent as Record<string, Record<string, unknown>>
+    const prompt = agents.analyst.prompt as string
+
+    expect(prompt.startsWith('Investigate revenue anomalies.')).toBe(true)
+    expect(prompt.endsWith(AGENT_KB_POLICY_PROMPT_BLOCK)).toBe(true)
+    expect(prompt.split(AGENT_KB_POLICY_PROMPT_BLOCK)).toHaveLength(2)
+    expect(prompt).toContain('overrides any earlier instruction')
+  })
+
+  it('gives prompt-less agents the policy block as their entire prompt', () => {
+    const config = {
+      agent: {
+        helper: { mode: 'subagent' },
+      },
+    }
+
+    const result = injectAgentKnowledgePolicy(config)
+    const agents = result.agent as Record<string, Record<string, unknown>>
+
+    expect(agents.helper.prompt).toBe(AGENT_KB_POLICY_PROMPT_BLOCK)
+  })
+
+  it('appends the policy block regardless of the agent tool shape', () => {
+    const config = {
+      agent: {
+        legacyAll: { tools: 'all' },
+        noTools: { mode: 'primary' },
+        mapped: { tools: { read: true } },
+      },
+    }
+
+    const result = injectAgentKnowledgePolicy(config)
+    const agents = result.agent as Record<string, Record<string, unknown>>
+
+    expect(agents.legacyAll.prompt).toContain('## Knowledge Base write policy')
+    expect(agents.noTools.prompt).toBe(AGENT_KB_POLICY_PROMPT_BLOCK)
+    expect(agents.mapped.prompt).toBe(AGENT_KB_POLICY_PROMPT_BLOCK)
+  })
+
+  it('is idempotent: applying twice still yields exactly one block', () => {
+    const config = {
+      agent: {
+        analyst: { prompt: 'Investigate revenue anomalies.', tools: { read: true } },
+        helper: {},
+      },
+    }
+
+    const once = injectAgentKnowledgePolicy(config)
+    const twice = injectAgentKnowledgePolicy(once)
+
+    expect(twice).toBe(once)
+    const agents = twice.agent as Record<string, Record<string, unknown>>
+    expect((agents.analyst.prompt as string).split(AGENT_KB_POLICY_PROMPT_BLOCK)).toHaveLength(2)
+    expect(agents.helper.prompt).toBe(AGENT_KB_POLICY_PROMPT_BLOCK)
+  })
+
+  it('leaves non-record agents alone', () => {
+    const config = {
+      agent: {
+        unavailable: null,
+      },
+    }
+
+    const result = injectAgentKnowledgePolicy(config)
+
+    expect(result.agent).toEqual({ unavailable: null })
+  })
+})
+
+function runFullTransformPipeline(
+  config: Record<string, unknown>,
+): Record<string, unknown> {
+  let next = materializeAgentToolMaps(config)
+  next = remapAgentConnectorTools(next, new Set())
+  next = injectAlwaysOnAgentTools(next)
+  next = injectSystemSkillAccess(next, ['arche-flow-authoring'])
+  next = injectSystemKnowledgeCuratorAgent(next)
+  next = applyDefaultAgentModel(next)
+  next = applyAgentExecutionGuards(next)
+  next = injectSelfDelegationGuards(next)
+  next = injectAgentKnowledgePolicy(next)
+  return denyAgentKnowledgeWrites(next)
+}
+
+describe('full transform pipeline (runtime-only guarantees)', () => {
+  it('does not mutate the parsed stored config input', () => {
+    const input = {
+      default_agent: 'assistant',
+      agent: {
+        assistant: { mode: 'primary', prompt: 'Primary prompt.', tools: 'all' },
+        worker: { mode: 'subagent' },
+      },
+    }
+    const snapshot = JSON.parse(JSON.stringify(input)) as typeof input
+
+    runFullTransformPipeline(input)
+
+    expect(input).toEqual(snapshot)
+  })
+
+  it('produces identical output across regenerations with exactly one policy block per agent', () => {
+    const storedContent = JSON.stringify({
+      default_agent: 'assistant',
+      agent: {
+        assistant: { mode: 'primary', prompt: 'Primary prompt.', tools: 'all' },
+        worker: { mode: 'subagent' },
+      },
+    })
+
+    const firstRun = runFullTransformPipeline(JSON.parse(storedContent) as Record<string, unknown>)
+    const secondRun = runFullTransformPipeline(JSON.parse(storedContent) as Record<string, unknown>)
+
+    expect(serializeRuntimeConfig(firstRun)).toBe(serializeRuntimeConfig(secondRun))
+
+    const agents = firstRun.agent as Record<string, Record<string, unknown>>
+    for (const [agentId, agent] of Object.entries(agents)) {
+      const prompt = typeof agent.prompt === 'string' ? agent.prompt : ''
+      expect(prompt.split(AGENT_KB_POLICY_PROMPT_BLOCK), agentId).toHaveLength(2)
+      expect(prompt.endsWith(AGENT_KB_POLICY_PROMPT_BLOCK), agentId).toBe(true)
+    }
+    expect((agents.assistant.prompt as string).startsWith('Primary prompt.')).toBe(true)
+  })
+
+  it('keeps write/edit denied and leaves the policy block intact after denyAgentKnowledgeWrites', () => {
+    const result = runFullTransformPipeline({
+      default_agent: 'assistant',
+      agent: {
+        assistant: { mode: 'primary', tools: 'all' },
+      },
+    })
+    const agents = result.agent as Record<string, Record<string, unknown>>
+    const tools = agents.assistant.tools as Record<string, boolean>
+
+    expect(tools.write).toBe(false)
+    expect(tools.edit).toBe(false)
+    expect((agents.assistant.prompt as string).endsWith(AGENT_KB_POLICY_PROMPT_BLOCK)).toBe(true)
   })
 })

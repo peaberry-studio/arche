@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  AGENT_KB_POLICY_PROMPT_BLOCK,
   withLinkedRepositories,
   withWorkspaceKnowledgePolicy,
   withWorkspacePermissionGuards,
@@ -59,5 +60,18 @@ describe('withWorkspaceKnowledgePolicy', () => {
       '- Persist agent knowledge only with `learning_propose`.\n' +
       '- User edits belong in Explore. They appear under Manual edits and are published from there. They do not go through Proposals.\n'
     )
+  })
+})
+
+describe('AGENT_KB_POLICY_PROMPT_BLOCK', () => {
+  it('carries the mandatory override framing and the full rule set', () => {
+    expect(AGENT_KB_POLICY_PROMPT_BLOCK).toContain('## Knowledge Base write policy')
+    expect(AGENT_KB_POLICY_PROMPT_BLOCK).toContain('overrides any earlier instruction')
+    expect(AGENT_KB_POLICY_PROMPT_BLOCK).toContain('`learning_propose`')
+    expect(AGENT_KB_POLICY_PROMPT_BLOCK).toMatch(/only sanctioned way/)
+    expect(AGENT_KB_POLICY_PROMPT_BLOCK).toContain('write')
+    expect(AGENT_KB_POLICY_PROMPT_BLOCK).toContain('edit')
+    expect(AGENT_KB_POLICY_PROMPT_BLOCK).toContain('shell redirection')
+    expect(AGENT_KB_POLICY_PROMPT_BLOCK).toContain('git write commands')
   })
 })

@@ -22,6 +22,7 @@ import {
   applyAgentExecutionGuards,
   applyDefaultAgentModel,
   denyAgentKnowledgeWrites,
+  injectAgentKnowledgePolicy,
   injectAlwaysOnAgentTools,
   injectCustomConnectorHints,
   injectSelfDelegationGuards,
@@ -233,6 +234,9 @@ async function buildBaseWorkspaceConfig(
   baseConfig = applyDefaultAgentModel(baseConfig)
   baseConfig = applyAgentExecutionGuards(baseConfig)
   baseConfig = injectSelfDelegationGuards(baseConfig)
+  // injectAgentKnowledgePolicy must stay the last prompt-appending transform:
+  // the policy block is the final text in every prompt for maximal precedence.
+  baseConfig = injectAgentKnowledgePolicy(baseConfig)
   // denyAgentKnowledgeWrites must stay the last transform: nothing after it may
   // re-enable write/edit for any agent, no matter what the stored config says.
   return denyAgentKnowledgeWrites(baseConfig)
