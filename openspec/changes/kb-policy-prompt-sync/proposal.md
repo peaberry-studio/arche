@@ -1,0 +1,34 @@
+## Why
+
+The KB write policy ("persist knowledge only via `learning_propose`; never write KB files directly") reaches the model through three weak channels — the Kickstart catalog prompt of the moment, a context block in AGENTS.md, and structural tool denial — but is **never injected into the runtime `agent.prompt`** of provisioned workspaces. Verified consequences in production (workspace `inaki`, 2026-08-24):
+
+- **0 of 14 agents** mention `learning_propose` in their runtime prompts. The tool is force-enabled on every agent (`ALWAYS_ENABLED_TOOLS`), so it is available but unexplained — the model has no instruction to prefer it.
+- The primary agent's stored prompt was customized to "delega SIEMPRE en knowledge-curator" (an older catalog philosophy), while the current catalog prompt says the opposite ("call `learning_propose` directly instead of delegating"). Stored prompts never reconcile with catalog changes, so the same product ships different policies per workspace depending on creation date.
+- The stored `knowledge-curator` agent predates the refactor: its prompt (len=1011) instructs **direct `.md` editing with CLI linters** — the exact opposite of current policy — and actively pushes the Problem C bypass. `injectSystemKnowledgeCuratorAgent()` only injects when the id is *absent*, so the stale prompt survives every regeneration: permanent drift, by design of that guard.
+- When the incident agent bypassed the proposal flow, nothing in its system prompt told it not to; the policy lived only in AGENTS.md file context, which the model can ignore.
+
+## What Changes
+
+- Inject a mandatory KB write-policy block into **every agent's runtime prompt** during runtime config generation: appended after the stored prompt, framed as overriding earlier instructions, naming `learning_propose` as the only persistence path and banning direct file writes, shell redirection, and git writes to the vault. Injection is a runtime transform (like `injectSelfDelegationGuards`); stored prompts are never rewritten.
+- Always materialize the **canonical curator prompt** for the reserved `knowledge-curator` agent id: the runtime config generation replaces any stored prompt for that id with `KNOWLEDGE_CURATOR_SYSTEM_INSTRUCTIONS`, instead of only injecting when the id is absent. The id is system-owned and hidden from the agents UI (`getAgentSummaries` filters it), so no user-authored surface is affected.
+- Align the injected prompt block wording with the AGENTS.md policy block (which the pending `kb-write-enforcement` change extends to name git commands), keeping one policy voice across both channels.
+- No change to tool denial, bash rules, or the publish gates — those are `kb-write-enforcement`'s runtime layer; this change is the prompt layer that makes the policy reach the model with authority.
+
+Behavior change (intended): all agents in all workspaces — including ones with pre-refactor stored prompts — receive the current KB policy in their system prompt at runtime, and the knowledge-curator executes the canonical persona everywhere.
+
+## Capabilities
+
+### New Capabilities
+- `kb-policy-prompt-sync`: Behavioral contract for delivering the Knowledge Base write policy to workspace agents at runtime — mandatory policy injection into every agent's system prompt with override authority, canonical prompt synchronization for the system-owned knowledge-curator agent, and runtime-only (non-persistent) prompt materialization.
+
+### Modified Capabilities
+- (none — `workspace-startup` unaffected; `flow-connector-gating` and `kb-write-enforcement` are separate pending changes.)
+
+## Impact
+
+- `apps/web/src/lib/spawner/agent-config-transforms.ts` — new `injectAgentKnowledgePolicy()` transform (appends the policy block to every agent prompt); `injectSystemKnowledgeCuratorAgent()` changed from inject-only-if-absent to always-canonical-prompt for the reserved id.
+- `apps/web/src/lib/spawner/runtime-config-utils.ts` — shared policy text constant(s) next to `withWorkspaceKnowledgePolicy()` so the AGENTS.md block and the prompt block stay aligned.
+- `apps/web/src/lib/spawner/runtime-artifacts.ts` — pipeline wiring: policy injection after `injectSelfDelegationGuards` (last prompt-appending transform), curator canonicalization unchanged in position.
+- Tests: `src/lib/spawner/__tests__/agent-config-transforms.test.ts` (injection for prompt-less agents, block-after-user-prompt, exactly-one-block idempotency, curator canonical replacement including stale stored prompts), `runtime-artifacts.test.ts` (pipeline order and end-to-end generation), `runtime-config-utils.test.ts` (shared text).
+- No DB migration, no image/compose changes; workspaces pick up prompts on next config regeneration (workspace start).
+- Coordination note: wording overlap with the pending `kb-write-enforcement` change (git-command naming in the policy copy); either landing order is valid, the second aligns the other surface.
