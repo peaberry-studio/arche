@@ -10,6 +10,12 @@ const mocks = vi.hoisted(() => ({
   instanceService: { findCredentialsBySlug: vi.fn() },
   decryptPassword: vi.fn(() => 'secret'),
   getInstanceUrl: vi.fn(() => 'http://test-slug:3000'),
+  subscribeWorkspaceEvents: vi.fn(),
+}))
+
+const broadcast = vi.hoisted(() => ({
+  listener: null as ((event: { type: string }) => void) | null,
+  unsubscribed: false,
 }))
 
 vi.mock('@/lib/runtime/capabilities', () => ({ getRuntimeCapabilities: mocks.getRuntimeCapabilities }))
@@ -23,6 +29,13 @@ vi.mock('@/lib/runtime/desktop/token', () => ({
 vi.mock('@/lib/services', () => ({ instanceService: mocks.instanceService }))
 vi.mock('@/lib/spawner/crypto', () => ({ decryptPassword: mocks.decryptPassword }))
 vi.mock('@/lib/opencode/client', () => ({ getInstanceUrl: mocks.getInstanceUrl }))
+vi.mock('@/lib/runtime/workspace-broadcast', () => ({
+  subscribeWorkspaceEvents: mocks.subscribeWorkspaceEvents,
+  publishWorkspaceEvent: vi.fn(),
+}))
+vi.mock('@/lib/runtime/workspace-broadcast-events', () => ({
+  KNOWLEDGE_PROPOSALS_CHANGED_EVENT: 'knowledge.proposals_changed',
+}))
 
 import { GET } from '../route'
 
@@ -60,6 +73,16 @@ describe('GET /api/w/[slug]/events', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.useRealTimers()
+    broadcast.listener = null
+    broadcast.unsubscribed = false
+    mocks.subscribeWorkspaceEvents.mockImplementation(
+      (_userId: string, listener: (event: { type: string }) => void) => {
+        broadcast.listener = listener
+        return () => {
+          broadcast.unsubscribed = true
+        }
+      },
+    )
     mocks.getSession.mockResolvedValue({
       user: { id: 'u1', email: 'alice@test.com', slug: 'alice', role: 'USER' },
       sessionId: 's1',
@@ -243,5 +266,72 @@ describe('GET /api/w/[slug]/events', () => {
     const res = await GET(new NextRequest('http://localhost/api/w/alice/events'), params())
     const body = await readAll(res)
     expect(body).toContain('session.idle')
+  })
+
+  it('injects broker events for the authenticated user into the pipe', async () => {
+    let upstreamController: ReadableStreamDefaultController<Uint8Array> | null = null
+    const upstream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        upstreamController = controller
+      },
+    })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(upstream)))
+    const decoder = new TextDecoder()
+
+    const res = await GET(new NextRequest('http://localhost/api/w/alice/events'), params())
+    const reader = res.body?.getReader()
+    expect(reader).toBeTruthy()
+    expect(mocks.subscribeWorkspaceEvents).toHaveBeenCalledWith('u1', expect.any(Function))
+
+    const injectedRead = reader!.read()
+    broadcast.listener?.({ type: 'knowledge.proposals_changed' })
+    const injected = await injectedRead
+    expect(decoder.decode(injected.value)).toBe(
+      `data: ${JSON.stringify({ type: 'knowledge.proposals_changed' })}\n\n`,
+    )
+
+    // Upstream OpenCode frames keep flowing unchanged next to injections.
+    const opencodeEvent = JSON.stringify({
+      type: 'session.status',
+      properties: { sessionID: 's1', status: { type: 'busy' } },
+    })
+    upstreamController?.enqueue(new TextEncoder().encode(`data: ${opencodeEvent}\n\n`))
+    const redispatched = await reader!.read()
+    expect(decoder.decode(redispatched.value)).toBe(`data: ${opencodeEvent}\n\n`)
+    vi.unstubAllGlobals()
+  })
+
+  it('unsubscribes the broadcast listener when the browser disconnects', async () => {
+    const pendingBody = new ReadableStream<Uint8Array>({
+      start() { /* never enqueues or closes */ },
+    })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(pendingBody)))
+
+    const controller = new AbortController()
+    await GET(
+      new NextRequest('http://localhost/api/w/alice/events', { signal: controller.signal }),
+      params(),
+    )
+    expect(broadcast.unsubscribed).toBe(false)
+
+    controller.abort()
+    await vi.waitFor(() => {
+      expect(broadcast.unsubscribed).toBe(true)
+    })
+    vi.unstubAllGlobals()
+  })
+
+  it('unsubscribes the broadcast listener when the downstream cancels the body', async () => {
+    const pendingBody = new ReadableStream<Uint8Array>({
+      start() { /* never enqueues or closes */ },
+    })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(pendingBody)))
+
+    const res = await GET(new NextRequest('http://localhost/api/w/alice/events'), params())
+    expect(broadcast.unsubscribed).toBe(false)
+
+    await res.body?.cancel()
+    expect(broadcast.unsubscribed).toBe(true)
+    vi.unstubAllGlobals()
   })
 })

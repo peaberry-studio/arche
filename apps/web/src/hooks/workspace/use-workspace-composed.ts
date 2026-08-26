@@ -44,7 +44,8 @@ export function useWorkspace({
 }: UseWorkspaceOptions): UseWorkspaceReturn {
   // Connection + instance lifecycle + sessions come from the layout-level
   // runtime provider so chat ↔ explorer navigation does not re-establish them.
-  const { connection, isConnected, sessionsHook } = useWorkspaceRuntime();
+  const { connection, isConnected, refreshKnowledgePendingCount, sessionsHook } =
+    useWorkspaceRuntime();
 
   const files = useWorkspaceFiles(slug, workspaceAgentEnabled);
   const diffsHook = useWorkspaceDiffs(
@@ -97,6 +98,7 @@ export function useWorkspace({
     refreshFiles: files.refreshFiles,
     syncRuntimeMetadataForSession,
     onBackgroundSessionIdle: markSessionCompleted,
+    onKnowledgeProposalsChanged: refreshKnowledgePendingCount,
   });
   const {
     store,
