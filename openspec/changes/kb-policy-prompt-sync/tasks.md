@@ -18,7 +18,7 @@
 ## 5. Final verification
 
 - [x] 5.1 Run `pnpm test` and `pnpm lint` from `apps/web/` — both green.
-- [ ] 5.2 Run `bash scripts/check-podman-images.sh` from the repo root — images build.
+- [x] 5.2 Run `bash scripts/check-podman-images.sh` from the repo root — images build.
 - [x] 5.3 Run `openspec validate kb-policy-prompt-sync --strict` — change validates.
 
 ## 6. Review follow-up fixes (convoy run 20260826-231019-z8ml)
