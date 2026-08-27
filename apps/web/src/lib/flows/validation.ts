@@ -91,6 +91,19 @@ function parseSlackTarget(value: unknown): FlowSlackTarget | null {
   return null
 }
 
+function parseRequiredConnectors(value: unknown): string[] | undefined | null {
+  if (value === undefined) return undefined
+  if (!Array.isArray(value)) return null
+
+  const connectors: string[] = []
+  for (const entry of value) {
+    if (typeof entry !== 'string' || !entry.trim()) return null
+    if (!connectors.includes(entry.trim())) connectors.push(entry.trim())
+  }
+
+  return connectors
+}
+
 function parseNode(value: unknown): FlowNode | null {
   if (!isRecord(value)) return null
 
@@ -106,6 +119,9 @@ function parseNode(value: unknown): FlowNode | null {
     if (!promptTemplate || compactOutput === null) return null
     if (targetAgentId !== null && targetAgentId !== undefined && typeof targetAgentId !== 'string') return null
 
+    const requiredConnectors = parseRequiredConnectors(value.requiredConnectors)
+    if (requiredConnectors === null) return null
+
     return {
       compactOutput,
       id,
@@ -113,6 +129,7 @@ function parseNode(value: unknown): FlowNode | null {
       promptTemplate,
       targetAgentId: typeof targetAgentId === 'string' && targetAgentId.trim() ? targetAgentId.trim() : null,
       type,
+      ...(requiredConnectors !== undefined ? { requiredConnectors } : {}),
     } satisfies AgentFlowNode
   }
 

@@ -1,4 +1,4 @@
-import { MCP_TOOL_PATTERN, getConnectorCapabilityId } from '@/lib/agent-capabilities'
+import { getConnectorCapabilityId } from '@/lib/agent-capabilities'
 import { readCommonWorkspaceConfig } from '@/lib/common-workspace-config-store'
 import type { ConnectorType } from '@/lib/connectors/types'
 import { validateConnectorType } from '@/lib/connectors/validators'
@@ -22,19 +22,6 @@ type FlowConnectorRequirementsResult =
   | { ok: true; requirements: FlowConnectorRequirement[] }
   | { ok: false; error: string }
 
-function parseConnectorToolId(toolId: string): { capabilityId: string; connectorType: ConnectorType } | null {
-  const match = toolId.match(MCP_TOOL_PATTERN)
-  if (!match) return null
-
-  const [, rawType, rawConnectorId] = match
-  if (!validateConnectorType(rawType)) return null
-
-  return {
-    capabilityId: getConnectorCapabilityId(rawType, rawConnectorId),
-    connectorType: rawType,
-  }
-}
-
 function uniqueRequirements(requirements: FlowConnectorRequirement[]): FlowConnectorRequirement[] {
   const seen = new Set<string>()
   const unique: FlowConnectorRequirement[] = []
@@ -50,6 +37,30 @@ function uniqueRequirements(requirements: FlowConnectorRequirement[]): FlowConne
     const agentSort = left.agentName.localeCompare(right.agentName)
     if (agentSort !== 0) return agentSort
     return left.capabilityId.localeCompare(right.capabilityId)
+  })
+}
+
+async function resolveDeclaredConnectors(
+  requirements: FlowConnectorRequirement[],
+): Promise<FlowConnectorRequirement[]> {
+  const declaredIds = Array.from(new Set(requirements.map((requirement) => requirement.capabilityId)))
+  if (declaredIds.length === 0) return []
+
+  const connectors = await connectorService.findManyByIds(declaredIds)
+  const connectorById = new Map(connectors.map((connector) => [connector.id, connector]))
+
+  return requirements.map((requirement) => {
+    const connector = connectorById.get(requirement.capabilityId)
+    // A declared id without a connector record keeps its raw id as capability id,
+    // so it can never match an enabled connector and is reported missing.
+    if (!connector || !validateConnectorType(connector.type)) return requirement
+
+    return {
+      ...requirement,
+      capabilityId: getConnectorCapabilityId(connector.type, connector.id),
+      connectorName: connector.name,
+      connectorType: connector.type,
+    }
   })
 }
 
@@ -72,46 +83,23 @@ export async function getFlowConnectorRequirements(
 
   for (const node of definition.nodes) {
     if (node.type !== 'agent') continue
+    if (!node.requiredConnectors?.length) continue
 
     const agent = node.targetAgentId ? agentsById.get(node.targetAgentId) : primaryAgent
     if (!agent) continue
 
-    for (const capabilityId of agent.capabilities.mcpConnectorIds) {
-      const toolId = Object.keys(parsed.config.agent?.[agent.id]?.tools ?? {})
-        .find((candidate) => parseConnectorToolId(candidate)?.capabilityId === capabilityId)
-      const parsedTool = toolId ? parseConnectorToolId(toolId) : null
-      if (!parsedTool) continue
-
+    for (const connectorId of node.requiredConnectors) {
       requirements.push({
         agentId: agent.id,
         agentName: agent.displayName,
-        capabilityId: parsedTool.capabilityId,
+        capabilityId: connectorId,
         connectorName: null,
-        connectorType: parsedTool.connectorType,
+        connectorType: 'custom',
       })
     }
   }
 
-  return { ok: true, requirements: await hydrateCustomConnectorNames(uniqueRequirements(requirements)) }
-}
-
-async function hydrateCustomConnectorNames(
-  requirements: FlowConnectorRequirement[],
-): Promise<FlowConnectorRequirement[]> {
-  const customIds = Array.from(new Set(
-    requirements
-      .filter((requirement) => requirement.connectorType === 'custom')
-      .map((requirement) => requirement.capabilityId),
-  ))
-
-  if (customIds.length === 0) return requirements
-
-  const connectors = await connectorService.findManyByIds(customIds)
-  const nameById = new Map(connectors.map((connector) => [connector.id, connector.name]))
-
-  return requirements.map((requirement) => requirement.connectorType === 'custom'
-    ? { ...requirement, connectorName: nameById.get(requirement.capabilityId) ?? null }
-    : requirement)
+  return { ok: true, requirements: await resolveDeclaredConnectors(uniqueRequirements(requirements)) }
 }
 
 export async function checkMissingConnectorRequirements(

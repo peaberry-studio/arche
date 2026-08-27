@@ -338,7 +338,7 @@ describe('FlowEditor', () => {
 
     expect(screen.queryByRole('radio', { name: 'Team' })).toBeNull()
     expect(screen.getByRole('radio', { name: 'Private' })).toBeTruthy()
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/flows/slack-targets'))).toBe(false)
 
     fireEvent.change(screen.getByLabelText('Flow name'), { target: { value: 'Desktop flow' } })
     fireEvent.click(screen.getByRole('button', { name: 'Create flow' }))

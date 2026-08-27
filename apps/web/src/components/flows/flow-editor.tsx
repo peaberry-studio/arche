@@ -62,6 +62,11 @@ type SlackTargetChannel = {
   name: string
 }
 
+type EditorConnectorOption = {
+  id: string
+  name: string
+}
+
 export function FlowEditor({
   buildFlowHref,
   flowId,
@@ -101,6 +106,7 @@ export function FlowEditor({
   const [slackIntegrationEnabled, setSlackIntegrationEnabled] = useState(false)
   const [teamMembers, setTeamMembers] = useState<SlackTargetUser[]>([])
   const [slackChannels, setSlackChannels] = useState<SlackTargetChannel[]>([])
+  const [connectors, setConnectors] = useState<EditorConnectorOption[]>([])
 
   const isReadOnly = mode === 'edit' && permissions ? !permissions.canEdit : false
 
@@ -264,6 +270,32 @@ export function FlowEditor({
       cancelled = true
     }
   }, [slackIntegrationAvailable, slug])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadConnectors() {
+      try {
+        const response = await fetch(`/api/u/${slug}/connectors`, { cache: 'no-store' })
+        const data = (await response.json().catch(() => null)) as
+          | { connectors?: Array<{ enabled?: boolean; id?: string; name?: string }> }
+          | null
+        if (cancelled || !response.ok || !data) return
+
+        setConnectors((data.connectors ?? [])
+          .filter((connector) => connector.enabled === true && connector.id && connector.name)
+          .map((connector) => ({ id: connector.id as string, name: connector.name as string })))
+      } catch {
+        if (!cancelled) setConnectors([])
+      }
+    }
+
+    void loadConnectors()
+
+    return () => {
+      cancelled = true
+    }
+  }, [slug])
 
   const editingNode = useMemo(
     () => definition.nodes.find((node) => node.id === editingNodeId) ?? null,
@@ -715,6 +747,7 @@ export function FlowEditor({
           </DialogHeader>
           <FlowNodeInspector
             agents={agents}
+            connectors={connectors}
             definition={definition}
             selectedNode={editingNode}
             slackChannels={slackChannels}

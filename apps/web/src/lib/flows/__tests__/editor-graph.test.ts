@@ -162,6 +162,23 @@ describe('flow editor graph helpers', () => {
     ]))
   })
 
+  it('keeps required connector declarations absent by default and preserved on update', () => {
+    const created = createFlowEditorNode('agent', 1, new Set())
+    expect(created.type === 'agent' && created.requiredConnectors).toBeFalsy()
+
+    const result = updateFlowDefinitionNode(definition(), {
+      compactOutput: false,
+      id: 'agent-1',
+      name: 'Agent',
+      promptTemplate: 'Prompt',
+      requiredConnectors: ['c1'],
+      targetAgentId: null,
+      type: 'agent',
+    })
+    const updated = result?.definition.nodes.find((node) => node.id === 'agent-1')
+    expect(updated?.type === 'agent' && updated?.requiredConnectors).toEqual(['c1'])
+  })
+
   it('moves, deletes, connects, and removes graph elements', () => {
     vi.spyOn(Date, 'now').mockReturnValue(123)
     const moved = moveFlowDefinitionNode(definition(), 'agent-1', 150, 160)

@@ -219,4 +219,43 @@ describe('validateFlowDefinition', () => {
       nodes: [{ ...definition.nodes[0], messageMode: 'fixed', messageTemplate: '' }],
     })).toEqual({ ok: false, error: 'invalid_flow_nodes' })
   })
+
+  it('accepts agent steps without connector declarations and normalizes valid lists', () => {
+    const base = createDefaultFlowDefinition()
+
+    const absent = validateFlowDefinition(base)
+    expect(absent.ok).toBe(true)
+    if (!absent.ok) return
+    expect(absent.definition.nodes[0]).not.toHaveProperty('requiredConnectors')
+
+    const result = validateFlowDefinition({
+      ...base,
+      nodes: [{ ...base.nodes[0], requiredConnectors: [' c1 ', 'c2', 'c1'] }],
+    })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    const agentNode = result.definition.nodes[0]
+    expect(agentNode.type === 'agent' && agentNode.requiredConnectors).toEqual(['c1', 'c2'])
+  })
+
+  it('rejects malformed connector declarations', () => {
+    const base = createDefaultFlowDefinition()
+    const cases: unknown[] = [
+      'a plain string',
+      { notAnArray: true },
+      [42],
+      [null],
+      [''],
+      ['   '],
+      ['ok', ''],
+    ]
+
+    for (const requiredConnectors of cases) {
+      expect(validateFlowDefinition({
+        ...base,
+        nodes: [{ ...base.nodes[0], requiredConnectors }],
+      })).toEqual({ ok: false, error: 'invalid_flow_nodes' })
+    }
+  })
 })
