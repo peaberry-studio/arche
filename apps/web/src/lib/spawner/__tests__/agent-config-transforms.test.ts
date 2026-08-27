@@ -1138,6 +1138,24 @@ describe('injectAgentKnowledgePolicy', () => {
     expect(agents.helper.prompt).toBe(AGENT_KB_POLICY_PROMPT_BLOCK)
   })
 
+  it('appends the block after a mid-prompt copy so the policy stays the final text', () => {
+    const config = {
+      agent: {
+        analyst: {
+          prompt: `Pasted block: ${AGENT_KB_POLICY_PROMPT_BLOCK}\nMy own later instructions.`,
+          tools: { read: true },
+        },
+      },
+    }
+
+    const result = injectAgentKnowledgePolicy(config)
+    const agents = result.agent as Record<string, Record<string, unknown>>
+    const prompt = agents.analyst.prompt as string
+
+    expect(prompt.endsWith(AGENT_KB_POLICY_PROMPT_BLOCK)).toBe(true)
+    expect(prompt.split(AGENT_KB_POLICY_PROMPT_BLOCK)).toHaveLength(3)
+  })
+
   it('leaves non-record agents alone', () => {
     const config = {
       agent: {

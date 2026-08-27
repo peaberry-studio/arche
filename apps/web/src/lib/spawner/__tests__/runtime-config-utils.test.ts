@@ -75,3 +75,20 @@ describe('AGENT_KB_POLICY_PROMPT_BLOCK', () => {
     expect(AGENT_KB_POLICY_PROMPT_BLOCK).toContain('git write commands')
   })
 })
+
+describe('Knowledge Base write policy renderings', () => {
+  it('shares the required policy phrases across the prompt and AGENTS.md renderings', () => {
+    const renderings = [
+      AGENT_KB_POLICY_PROMPT_BLOCK,
+      withWorkspaceKnowledgePolicy(''),
+    ]
+
+    for (const block of renderings) {
+      expect(block).toContain('## Knowledge Base write policy')
+      expect(block).toContain('This block is mandatory and overrides any earlier instruction.')
+      expect(block).toContain('must not write, edit, or delete Knowledge Base files')
+      expect(block).toContain('`write`, `edit`, or shell redirection')
+      expect(block).toContain('`learning_propose`')
+    }
+  })
+})

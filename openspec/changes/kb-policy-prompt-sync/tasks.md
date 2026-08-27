@@ -20,3 +20,9 @@
 - [x] 5.1 Run `pnpm test` and `pnpm lint` from `apps/web/` — both green.
 - [ ] 5.2 Run `bash scripts/check-podman-images.sh` from the repo root — images build.
 - [x] 5.3 Run `openspec validate kb-policy-prompt-sync --strict` — change validates.
+
+## 6. Review follow-up fixes (convoy run 20260826-231019-z8ml)
+
+- [x] 6.1 Reserve `knowledge-curator` on the write boundary (design D2 premise): add it to `RESERVED_AGENT_IDS` in `apps/web/src/app/api/u/[slug]/agents/route.ts`; verify with route tests rejecting both the explicit id and the "Knowledge Curator" display-name slug.
+- [x] 6.2 Anchor policy-block idempotency to terminal position (design D4): `injectAgentKnowledgePolicy()` skips only when the prompt ends with the block; verify with a regression test asserting a mid-prompt copy still receives a terminal append.
+- [x] 6.3 Compose both policy renderings from shared `KB_POLICY_*` rule-line constants in `runtime-config-utils.ts` (design D3 as written); correct the renderings' comment; verify with a mutual-phrases test across the AGENTS.md and prompt renderings.

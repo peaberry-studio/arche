@@ -525,7 +525,9 @@ export function injectSelfDelegationGuards(
 // Appends the Knowledge Base write policy to every agent's system prompt,
 // regardless of stored prompt content (the stored prompt is never rewritten —
 // this is a runtime-only transform over freshly parsed config). Idempotent by
-// exact-constant check: a prompt already carrying the block is left as-is.
+// exact-constant check: a prompt already ending with the block is left as-is;
+// a block appearing mid-prompt does not count, so the append keeps the policy
+// as the final, highest-precedence text.
 export function injectAgentKnowledgePolicy(
   config: Record<string, unknown>,
 ): Record<string, unknown> {
@@ -542,7 +544,7 @@ export function injectAgentKnowledgePolicy(
     }
 
     const existingPrompt = typeof agent.prompt === 'string' ? agent.prompt : ''
-    if (existingPrompt.includes(AGENT_KB_POLICY_PROMPT_BLOCK)) {
+    if (existingPrompt.endsWith(AGENT_KB_POLICY_PROMPT_BLOCK)) {
       nextAgents[agentId] = agent
       continue
     }

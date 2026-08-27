@@ -17,7 +17,7 @@ The generated runtime configuration SHALL append a Knowledge Base write-policy b
 
 #### Scenario: Policy injection is idempotent across regenerations
 - **WHEN** the runtime configuration is generated repeatedly from the same stored configuration
-- **THEN** each generated agent prompt contains exactly one policy block
+- **THEN** each generated agent prompt contains exactly one policy block, as the final text of the prompt
 
 ### Requirement: The knowledge-curator agent always executes the canonical persona
 The generated runtime configuration SHALL set the system prompt of the reserved knowledge-curator agent to the canonical curator instructions, regardless of any prompt stored for that agent id. Other properties of a stored knowledge-curator entry that do not conflict with system requirements (such as model) SHALL be preserved.

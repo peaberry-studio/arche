@@ -6,7 +6,7 @@ Pipeline facts that shape this design (verified in code):
 
 - Runtime config generation (`buildBaseWorkspaceConfig()` in `runtime-artifacts.ts`) parses the stored common config **fresh on every generation** and applies a transform chain; the result is serialized to the workspace's `opencode.json`. Nothing is written back to the config repo — so appended prompt blocks cannot accumulate across regenerations. Prompt-affecting transforms already exist as precedent: `injectCustomConnectorHints` and `injectSelfDelegationGuards` both append text to `agent.prompt`.
 - `injectSystemKnowledgeCuratorAgent()` injects the canonical agent (prompt from `KNOWLEDGE_CURATOR_SYSTEM_INSTRUCTIONS` in `lib/learning/curator-prompt.ts`) only when the id is absent; the code comment documents this as deliberate tolerance for older workspaces — which is exactly the permanent-drift bug.
-- The `knowledge-curator` id is system-owned and already hidden from user surfaces: `getAgentSummaries()` filters it out, so the agents UI and flow agent pickers never show it. A stored entry can only have come from an earlier system injection, not user authorship.
+- The `knowledge-curator` id is system-owned by construction, not by assumption: `getAgentSummaries()` filters it out of user surfaces (agents UI, flow agent pickers), and the agents API rejects creating that id — `RESERVED_AGENT_IDS` in `app/api/u/[slug]/agents/route.ts` covers both an explicit id and the slug a display name like "Knowledge Curator" would generate (review follow-up; before this, a user could author an entry with that id, falsifying the premise below).
 - `withWorkspaceKnowledgePolicy()` in `runtime-config-utils.ts` builds the AGENTS.md block ("This block is mandatory and overrides any earlier instruction") — the natural home for a shared policy-text constant.
 - Legacy agents without tool maps are materialized to full boolean maps early in the pipeline, and `materializeAgentToolMaps` leaves prompts untouched — prompt-less agents reach the new transform with `prompt: undefined`.
 
@@ -36,13 +36,13 @@ Pipeline facts that shape this design (verified in code):
 ### D2: The knowledge-curator prompt is unconditionally canonical at runtime
 
 - Change `injectSystemKnowledgeCuratorAgent()` from inject-only-if-absent to: if an entry exists, overwrite its `prompt` with `KNOWLEDGE_CURATOR_SYSTEM_INSTRUCTIONS` (preserving other fields such as `model`, `temperature`, `display_name`); if absent, inject the full canonical agent as today.
-- Justification: the id is system-owned and hidden from every user surface (`getAgentSummaries` filter — verified), so no user-authorable content is lost; the stored stale entries were system-injected by an older runtime. This is the PRD's "always synced with the canonical version" requirement, and it makes prompt versioning = deploying code, permanently killing the drift class for this agent.
+- Justification: the id is system-owned by construction — hidden from every user surface (`getAgentSummaries` filter — verified) and reserved on the write boundary (`RESERVED_AGENT_IDS` rejects both the explicit id and the generated slug), so no user-authorable content is lost; the stored stale entries were system-injected by an older runtime. This is the PRD's "always synced with the canonical version" requirement, and it makes prompt versioning = deploying code, permanently killing the drift class for this agent.
 - The transform still runs before the policy injection, so the curator also receives the D1 block (uniformity; its canonical prompt already contains equivalent rules, redundancy is harmless and consistent).
 - Alternative rejected: *version-gated replacement* (stored prompt carries a version stamp; replace if older). Requires a versioning scheme and stored-config awareness for zero additional benefit while the id stays system-owned.
 
 ### D3: One policy text family, two renderings
 
-- The policy wording lives as exported constants in `runtime-config-utils.ts` next to `withWorkspaceKnowledgePolicy()`: the AGENTS.md block (existing) and the agent-prompt block (new) share the same rule list and override framing, differing only in channel-appropriate framing. This keeps one voice across channels and gives the pending `kb-write-enforcement` change (which extends the AGENTS.md copy to name git commands) a single place to align.
+- The policy wording lives in `runtime-config-utils.ts` next to `withWorkspaceKnowledgePolicy()` as one shared rule set composed into both renderings: module-private `KB_POLICY_*` constants (block header, override framing, write-rule core, git-rule core) are the single source for the AGENTS.md block and the agent-prompt block, with channel-specific clauses (second-person vs "Chat agents" framing, git rule, Explore/Manual-edits clause) kept local to each rendering. A mutual-phrases test pins the shared voice across both channels. This gives the pending `kb-write-enforcement` change (which extends the AGENTS.md copy to name git commands) a single place to align.
 - `agent-config-transforms.ts` imports the prompt-block constant from `runtime-config-utils.ts`; no import cycle (runtime-config-utils imports nothing from agent-config-transforms).
 
 ### D4: Pipeline placement — last prompt-appending transform
@@ -53,7 +53,7 @@ Pipeline facts that shape this design (verified in code):
 
 ### D5: No persistence, no migration, idempotency by construction
 
-- Runtime-only transforms over freshly parsed config (verified: nothing in the pipeline writes back to the config repo). Regeneration determinism gives the spec's "exactly one block" scenario for free; a test pins it anyway.
+- Runtime-only transforms over freshly parsed config (verified: nothing in the pipeline writes back to the config repo). Regeneration determinism gives the spec's "exactly one block" scenario for free; a test pins it anyway. The idempotency guard anchors on the prompt *ending* with the block, so a block pasted mid-prompt does not suppress the append — the policy stays the final, highest-precedence text (reinforces D4).
 - Workspaces converge on next start (config regenerates per workspace start/restart); no backfill job needed. Stale stored curator entries stop being load-bearing the moment the workspace restarts.
 
 ## Risks / Trade-offs

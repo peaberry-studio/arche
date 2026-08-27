@@ -62,7 +62,7 @@ type CreateAgentRequest = {
   }
 }
 
-const RESERVED_AGENT_IDS = new Set(['connectors', 'default-model', 'models'])
+const RESERVED_AGENT_IDS = new Set(['connectors', 'default-model', 'models', 'knowledge-curator'])
 
 async function loadCommonConfig() {
   const result = await readCommonWorkspaceConfig()
