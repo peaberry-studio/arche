@@ -62,6 +62,7 @@ export type AgentFlowNode = {
   targetAgentId: string | null
   promptTemplate: string
   compactOutput: boolean
+  requiredConnectors?: string[]
 }
 
 export type HumanFlowNode = {

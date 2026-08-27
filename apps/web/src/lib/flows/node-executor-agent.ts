@@ -3,12 +3,27 @@ import { FlowRunStepStatus } from '@prisma/client'
 import { toPrismaJson } from '@/lib/flows/serializers'
 import {
   runFlowPromptAndReadOutput,
+  type FlowConnectorDeclaration,
 } from '@/lib/flows/session-executor'
 import { buildFlowTemplateContext, renderFlowTemplate } from '@/lib/flows/template'
 import type { FlowNode } from '@/lib/flows/types'
-import { flowService } from '@/lib/services'
+import { connectorService, flowService } from '@/lib/services'
 import type { FlowNodeExecutorFailure, FlowNodeExecutorOk, FlowNodeExecutorParams } from '@/lib/flows/node-executor-types'
 import { errorMessage, isFlowRunCancellation, nodeTypeToPrisma, replaceStep } from '@/lib/flows/node-executor-utils'
+
+async function resolveRequiredConnectors(
+  connectorIds: string[],
+): Promise<FlowConnectorDeclaration[]> {
+  if (connectorIds.length === 0) return []
+
+  const connectors = await connectorService.findManyByIds(connectorIds)
+  const displayNameById = new Map(connectors.map((connector) => [connector.id, connector.name]))
+
+  return connectorIds.map((id) => {
+    const displayName = displayNameById.get(id)
+    return displayName ? { displayName, id } : { id }
+  })
+}
 
 export async function executeAgentNode(params: Omit<FlowNodeExecutorParams, 'node'> & {
   node: Extract<FlowNode, { type: 'agent' }>
@@ -32,6 +47,8 @@ export async function executeAgentNode(params: Omit<FlowNodeExecutorParams, 'nod
     status: FlowRunStepStatus.running,
   }))
 
+  const requiredConnectors = await resolveRequiredConnectors(params.node.requiredConnectors ?? [])
+
   let rawResult: Awaited<ReturnType<typeof runFlowPromptAndReadOutput>>
   try {
     rawResult = await runFlowPromptAndReadOutput({
@@ -40,6 +57,7 @@ export async function executeAgentNode(params: Omit<FlowNodeExecutorParams, 'nod
       flowId: params.flow.id,
       leaseOwner: params.leaseOwner,
       prompt: rendered.value,
+      requiredConnectors,
       runId: params.run.id,
       sessionId: params.sessionId,
       slug: params.slug,

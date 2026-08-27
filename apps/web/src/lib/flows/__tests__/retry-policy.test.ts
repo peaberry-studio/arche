@@ -47,6 +47,7 @@ describe('flow retry policy', () => {
   it('classifies retryable infrastructure errors', () => {
     expect(isRetryableFlowRunError('healthcheck timeout while starting')).toBe(true)
     expect(isRetryableFlowRunError('INSTANCE_UNAVAILABLE')).toBe(true)
+    expect(isRetryableFlowRunError('flow_mcp_connector_unavailable:Mixpanel')).toBe(true)
     expect(isRetryableFlowRunError('fetch failed: ECONNREFUSED')).toBe(true)
     expect(isRetryableFlowRunError('UND_ERR_CONNECT_TIMEOUT')).toBe(true)
     expect(isRetryableFlowRunError('container name /arche is already in use')).toBe(true)
@@ -64,6 +65,12 @@ describe('flow retry policy', () => {
       nextAttempt: 2,
       ok: true,
       retryAt: new Date('2026-05-12T10:00:00.010Z'),
+    })
+    expect(planFlowRetry({ attempt: 2, error: 'flow_mcp_connector_unavailable:Mixpanel', now })).toEqual({
+      maxAttempts: 5,
+      nextAttempt: 3,
+      ok: true,
+      retryAt: new Date('2026-05-12T10:00:00.020Z'),
     })
     expect(planFlowRetry({ attempt: 4, error: 'kb_unavailable', now })).toEqual({
       maxAttempts: 5,

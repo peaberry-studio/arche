@@ -214,25 +214,54 @@ describe('runFlowPromptAndReadOutput', () => {
     })).resolves.toEqual({ ok: true, output: 'assistant output' })
   })
 
-  it('waits for required MCP connectors before sending the prompt', async () => {
+  it('skips the MCP gate entirely when no connectors are declared', async () => {
     const client = createClient({
       config: {
         agent: {
           growth: {
-            prompt: [
-              'Investigate growth anomalies.',
-              '',
-              '## Available custom connectors',
-              '',
-              '- Mixpanel: available through MCP tools prefixed with `arche_custom_mixpanel_`.',
-              '  Use these tools for Mixpanel queries before declaring Mixpanel unavailable.',
-            ].join('\n'),
-            tools: {
-              'arche_custom_mixpanel_*': true,
-            },
+            tools: { 'arche_custom_mixpanel_*': true },
           },
         },
         default_agent: 'growth',
+        mcp: {
+          arche_custom_mixpanel: { enabled: true, type: 'remote', url: 'https://mixpanel.example/mcp' },
+        },
+      },
+      mcpStatus: {
+        arche_custom_mixpanel: { status: 'failed', error: 'not ready' },
+      },
+    })
+
+    await expect(runFlowPromptAndReadOutput({
+      agent: null,
+      client,
+      flowId: 'flow-1',
+      leaseOwner: 'worker-1',
+      prompt: 'Do work',
+      runId: 'run-1',
+      sessionId: 'session-1',
+      slug: 'alice',
+    })).resolves.toEqual({ ok: true, output: 'assistant output' })
+    await expect(runFlowPromptAndReadOutput({
+      agent: null,
+      client,
+      flowId: 'flow-1',
+      leaseOwner: 'worker-1',
+      prompt: 'Do work',
+      requiredConnectors: [],
+      runId: 'run-1',
+      sessionId: 'session-1',
+      slug: 'alice',
+    })).resolves.toEqual({ ok: true, output: 'assistant output' })
+
+    expect(client.config.get).not.toHaveBeenCalled()
+    expect(client.mcp.status).not.toHaveBeenCalled()
+    expect(client.session.promptAsync).toHaveBeenCalled()
+  })
+
+  it('waits for declared MCP connectors before sending the prompt', async () => {
+    const client = createClient({
+      config: {
         mcp: {
           arche_custom_mixpanel: { enabled: true, type: 'remote', url: 'https://mixpanel.example/mcp' },
         },
@@ -243,13 +272,13 @@ describe('runFlowPromptAndReadOutput', () => {
       .mockResolvedValueOnce({ data: { arche_custom_mixpanel: { status: 'connected' } } })
 
     await expect(runFlowPromptAndReadOutput({
-      agent: null,
       client,
       flowId: 'flow-1',
       leaseOwner: 'worker-1',
       mcpReadinessInitialDelayMs: 1,
       mcpReadinessTimeoutMs: 50,
       prompt: 'Do work',
+      requiredConnectors: [{ displayName: 'Mixpanel', id: 'mixpanel' }],
       runId: 'run-1',
       sessionId: 'session-1',
       slug: 'alice',
@@ -259,25 +288,9 @@ describe('runFlowPromptAndReadOutput', () => {
     expect(client.session.promptAsync).toHaveBeenCalled()
   })
 
-  it('returns an explicit connector unavailable error when MCP readiness times out', async () => {
+  it('returns an explicit declared-connector error when MCP readiness times out', async () => {
     const client = createClient({
       config: {
-        agent: {
-          growth: {
-            prompt: [
-              'Investigate growth anomalies.',
-              '',
-              '## Available custom connectors',
-              '',
-              '- Mixpanel: available through MCP tools prefixed with `arche_custom_mixpanel_`.',
-              '  Use these tools for Mixpanel queries before declaring Mixpanel unavailable.',
-            ].join('\n'),
-            tools: {
-              arche_custom_mixpanel_query: true,
-            },
-          },
-        },
-        default_agent: 'growth',
         mcp: {
           arche_custom_mixpanel: { enabled: true, type: 'remote', url: 'https://mixpanel.example/mcp' },
         },
@@ -293,6 +306,7 @@ describe('runFlowPromptAndReadOutput', () => {
       leaseOwner: 'worker-1',
       mcpReadinessTimeoutMs: 0,
       prompt: 'Do work',
+      requiredConnectors: [{ displayName: 'Mixpanel', id: 'mixpanel' }],
       runId: 'run-1',
       sessionId: 'session-1',
       slug: 'alice',
@@ -302,25 +316,60 @@ describe('runFlowPromptAndReadOutput', () => {
     expect(client.session.promptAsync).not.toHaveBeenCalled()
   })
 
-  it('returns connector unavailable when MCP status does not answer', async () => {
+  it('falls back to the server key when a declared connector has no display name', async () => {
+    const client = createClient({
+      config: {
+        mcp: {
+          arche_custom_mixpanel: { enabled: true, type: 'remote', url: 'https://mixpanel.example/mcp' },
+        },
+      },
+      mcpStatus: {
+        arche_custom_mixpanel: { status: 'failed', error: 'not ready' },
+      },
+    })
+
+    await expect(runFlowPromptAndReadOutput({
+      client,
+      flowId: 'flow-1',
+      leaseOwner: 'worker-1',
+      mcpReadinessTimeoutMs: 0,
+      prompt: 'Do work',
+      requiredConnectors: [{ id: 'mixpanel' }],
+      runId: 'run-1',
+      sessionId: 'session-1',
+      slug: 'alice',
+    })).resolves.toEqual({ ok: false, type: 'failed', error: 'flow_mcp_connector_unavailable:arche_custom_mixpanel' })
+  })
+
+  it('returns the declared id as unavailable when it is absent from the runtime config', async () => {
+    const client = createClient({
+      config: {
+        mcp: {
+          arche_custom_other: { enabled: true, type: 'remote', url: 'https://other.example/mcp' },
+        },
+      },
+      mcpStatus: {},
+    })
+
+    await expect(runFlowPromptAndReadOutput({
+      client,
+      flowId: 'flow-1',
+      leaseOwner: 'worker-1',
+      mcpReadinessTimeoutMs: 0,
+      prompt: 'Do work',
+      requiredConnectors: [{ id: 'missingcuid' }],
+      runId: 'run-1',
+      sessionId: 'session-1',
+      slug: 'alice',
+    })).resolves.toEqual({ ok: false, type: 'failed', error: 'flow_mcp_connector_unavailable:missingcuid' })
+
+    expect(client.session.promptAsync).not.toHaveBeenCalled()
+  })
+
+  it('returns declared-connector unavailability when MCP status does not answer', async () => {
     vi.useFakeTimers()
     const client = createClient({
       config: {
-        agent: {
-          growth: {
-            prompt: [
-              'Investigate growth anomalies.',
-              '',
-              '## Available custom connectors',
-              '',
-              '- Mixpanel: available through MCP tools prefixed with `arche_custom_mixpanel_`.',
-            ].join('\n'),
-            tools: {
-              arche_custom_mixpanel_query: true,
-            },
-          },
-        },
-        default_agent: 'growth',
         mcp: {
           arche_custom_mixpanel: { enabled: true, type: 'remote', url: 'https://mixpanel.example/mcp' },
         },
@@ -335,6 +384,7 @@ describe('runFlowPromptAndReadOutput', () => {
       mcpReadinessStatusTimeoutMs: 1,
       mcpReadinessTimeoutMs: 0,
       prompt: 'Do work',
+      requiredConnectors: [{ displayName: 'Mixpanel', id: 'mixpanel' }],
       runId: 'run-1',
       sessionId: 'session-1',
       slug: 'alice',
@@ -347,25 +397,10 @@ describe('runFlowPromptAndReadOutput', () => {
     expect(client.session.promptAsync).not.toHaveBeenCalled()
   })
 
-  it('stops polling MCP readiness after the maximum attempts', async () => {
+  it('stops polling declared-connector readiness after the maximum attempts', async () => {
     vi.useFakeTimers()
     const client = createClient({
       config: {
-        agent: {
-          growth: {
-            prompt: [
-              'Investigate growth anomalies.',
-              '',
-              '## Available custom connectors',
-              '',
-              '- Mixpanel: available through MCP tools prefixed with `arche_custom_mixpanel_`.',
-            ].join('\n'),
-            tools: {
-              arche_custom_mixpanel_query: true,
-            },
-          },
-        },
-        default_agent: 'growth',
         mcp: {
           arche_custom_mixpanel: { enabled: true, type: 'remote', url: 'https://mixpanel.example/mcp' },
         },
@@ -383,6 +418,7 @@ describe('runFlowPromptAndReadOutput', () => {
       mcpReadinessMaxAttempts: 2,
       mcpReadinessTimeoutMs: 1_000,
       prompt: 'Do work',
+      requiredConnectors: [{ displayName: 'Mixpanel', id: 'mixpanel' }],
       runId: 'run-1',
       sessionId: 'session-1',
       slug: 'alice',

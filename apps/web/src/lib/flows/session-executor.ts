@@ -29,20 +29,18 @@ type RuntimeAgent = {
   name?: string
 }
 
-type RuntimeAgentConfig = {
-  prompt?: string
-  tools?: Record<string, boolean>
-}
-
-type RuntimeConfig = {
-  agents: Record<string, RuntimeAgentConfig>
-  defaultAgent?: string
-  mcpServerKeys: string[]
-}
-
 type RuntimeProvider = {
   id?: string
   models?: Record<string, unknown>
+}
+
+type RuntimeConfig = {
+  mcpServerKeys: string[]
+}
+
+export type FlowConnectorDeclaration = {
+  displayName?: string
+  id: string
 }
 
 export type FlowPromptResult =
@@ -127,126 +125,58 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
   }
 }
 
-function readRuntimeAgentConfig(value: unknown): RuntimeAgentConfig | null {
-  if (!isRecord(value)) return null
-
-  const prompt = typeof value.prompt === 'string' ? value.prompt : undefined
-  const tools: Record<string, boolean> = {}
-  if (isRecord(value.tools)) {
-    for (const [toolKey, enabled] of Object.entries(value.tools)) {
-      if (typeof enabled === 'boolean') {
-        tools[toolKey] = enabled
-      }
-    }
-  }
-
-  return {
-    ...(prompt ? { prompt } : {}),
-    ...(Object.keys(tools).length > 0 ? { tools } : {}),
-  }
-}
-
 function readRuntimeConfig(data: unknown): RuntimeConfig {
-  if (!isRecord(data)) return { agents: {}, mcpServerKeys: [] }
-
-  const agents: Record<string, RuntimeAgentConfig> = {}
-  if (isRecord(data.agent)) {
-    for (const [agentId, agent] of Object.entries(data.agent)) {
-      const config = readRuntimeAgentConfig(agent)
-      if (config) {
-        agents[agentId] = config
-      }
-    }
-  }
+  if (!isRecord(data)) return { mcpServerKeys: [] }
 
   return {
-    agents,
-    ...(typeof data.default_agent === 'string' && data.default_agent.trim()
-      ? { defaultAgent: data.default_agent.trim() }
-      : {}),
     mcpServerKeys: isRecord(data.mcp)
       ? Object.keys(data.mcp).filter((serverKey) => serverKey.startsWith('arche_')).sort()
       : [],
   }
 }
 
-function resolveRuntimeAgentId(input: {
-  agent: string | null | undefined
-  config: RuntimeConfig
-}): string {
-  const requestedAgent = typeof input.agent === 'string' && input.agent.trim()
-    ? input.agent.trim()
-    : undefined
-  return requestedAgent ?? input.config.defaultAgent ?? 'build'
+type RequiredConnectorEntry = {
+  declarationId: string
+  serverKey: string | null
 }
 
-function extractRequiredMcpServerKeys(input: {
-  agent: RuntimeAgentConfig
+function resolveRequiredConnectorEntries(input: {
+  declarations: FlowConnectorDeclaration[]
   mcpServerKeys: string[]
-}): string[] {
-  if (!input.agent.tools || input.mcpServerKeys.length === 0) return []
-
-  const required = new Set<string>()
-  for (const [toolKey, enabled] of Object.entries(input.agent.tools)) {
-    if (enabled !== true) continue
-
-    for (const serverKey of input.mcpServerKeys) {
-      if (toolKey.startsWith(`${serverKey}_`)) {
-        required.add(serverKey)
-      }
-    }
-  }
-
-  return Array.from(required).sort()
+}): RequiredConnectorEntry[] {
+  // Connector ids are cuid-style and contain no underscores, so the trailing
+  // segment of an `arche_<type>_<id>` server key identifies them unambiguously.
+  return input.declarations.map((declaration) => ({
+    declarationId: declaration.id,
+    serverKey: input.mcpServerKeys.find((key) => key.endsWith(`_${declaration.id}`)) ?? null,
+  }))
 }
 
-function readConnectorNameHints(input: {
-  prompt?: string
-  serverKeys: string[]
-}): Map<string, string> {
-  const names = new Map<string, string>()
-  if (!input.prompt) return names
-
-  const prefixToServerKey = new Map(input.serverKeys.map((serverKey) => [`${serverKey}_`, serverKey]))
-  const marker = ': available through MCP tools prefixed with `'
-
-  for (const line of input.prompt.split('\n')) {
-    if (!line.startsWith('- ')) continue
-
-    const markerIndex = line.indexOf(marker)
-    if (markerIndex === -1) continue
-
-    const displayName = line.slice(2, markerIndex).trim()
-    const prefixStart = markerIndex + marker.length
-    const prefixEnd = line.indexOf('`', prefixStart)
-    if (!displayName || prefixEnd === -1) continue
-
-    const prefix = line.slice(prefixStart, prefixEnd)
-    const serverKey = prefixToServerKey.get(prefix)
-    if (serverKey) {
-      names.set(serverKey, displayName)
-    }
-  }
-
-  return names
-}
-
-function getUnavailableMcpServerKeys(data: unknown, serverKeys: string[]): string[] {
+function getUnavailableDeclarationIds(
+  data: unknown,
+  required: RequiredConnectorEntry[],
+): string[] {
   const status = isRecord(data) ? data : {}
-  return serverKeys.filter((serverKey) => {
-    const entry = status[serverKey]
-    return !isRecord(entry) || entry.status !== 'connected'
-  })
+  return required
+    .filter((entry) => {
+      if (!entry.serverKey) return true
+      const connectorStatus = status[entry.serverKey]
+      return !isRecord(connectorStatus) || connectorStatus.status !== 'connected'
+    })
+    .map((entry) => entry.declarationId)
 }
 
 async function getUnavailableMcpConnectorError(params: {
-  agent: string | null | undefined
   client: SessionExecutionClient
   maxAttempts?: number
   initialDelayMs?: number
+  requiredConnectors?: FlowConnectorDeclaration[]
   statusTimeoutMs?: number
   timeoutMs?: number
 }): Promise<string | null> {
+  const declarations = params.requiredConnectors ?? []
+  if (declarations.length === 0) return null
+
   const client = params.client as RuntimeClientWithConfig
   if (!client.config?.get || !client.mcp?.status) return null
 
@@ -261,20 +191,15 @@ async function getUnavailableMcpConnectorError(params: {
     return null
   }
 
-  const agentId = resolveRuntimeAgentId({ agent: params.agent, config: runtimeConfig })
-  const agent = runtimeConfig.agents[agentId]
-  if (!agent) return null
-
-  const requiredServerKeys = extractRequiredMcpServerKeys({
-    agent,
+  const requiredEntries = resolveRequiredConnectorEntries({
+    declarations,
     mcpServerKeys: runtimeConfig.mcpServerKeys,
   })
-  if (requiredServerKeys.length === 0) return null
-
-  const connectorNameHints = readConnectorNameHints({
-    prompt: agent.prompt,
-    serverKeys: requiredServerKeys,
-  })
+  const describeUnavailableConnector = (declarationId: string): string => {
+    const declaration = declarations.find((candidate) => candidate.id === declarationId)
+    const serverKey = requiredEntries.find((entry) => entry.declarationId === declarationId)?.serverKey
+    return declaration?.displayName ?? serverKey ?? declarationId
+  }
   const timeoutMs = Math.min(
     FLOW_MCP_READINESS_MAX_TIMEOUT_MS,
     Math.max(0, params.timeoutMs ?? FLOW_MCP_READINESS_TIMEOUT_MS),
@@ -290,7 +215,7 @@ async function getUnavailableMcpConnectorError(params: {
   )
   const deadline = Date.now() + timeoutMs
   let delayMs = initialDelayMs
-  let unavailableServerKeys = requiredServerKeys
+  let unavailableDeclarationIds = requiredEntries.map((entry) => entry.declarationId)
   let attempts = 0
 
   while (attempts < maxAttempts) {
@@ -303,24 +228,22 @@ async function getUnavailableMcpConnectorError(params: {
         ),
         statusTimeoutMs,
       )
-      unavailableServerKeys = getUnavailableMcpServerKeys(statusResult.data, requiredServerKeys)
-      if (unavailableServerKeys.length === 0) return null
+      unavailableDeclarationIds = getUnavailableDeclarationIds(statusResult.data, requiredEntries)
+      if (unavailableDeclarationIds.length === 0) return null
     } catch {
-      unavailableServerKeys = requiredServerKeys
+      unavailableDeclarationIds = requiredEntries.map((entry) => entry.declarationId)
     }
 
     const remainingMs = deadline - Date.now()
     if (remainingMs <= 0 || attempts >= maxAttempts) {
-      const serverKey = unavailableServerKeys[0] ?? requiredServerKeys[0]
-      return `flow_mcp_connector_unavailable:${connectorNameHints.get(serverKey) ?? serverKey}`
+      return `flow_mcp_connector_unavailable:${describeUnavailableConnector(unavailableDeclarationIds[0] ?? declarations[0].id)}`
     }
 
     await sleep(Math.min(delayMs, remainingMs))
     delayMs = Math.min(delayMs * 2, FLOW_MCP_READINESS_MAX_DELAY_MS)
   }
 
-  const serverKey = unavailableServerKeys[0] ?? requiredServerKeys[0]
-  return `flow_mcp_connector_unavailable:${connectorNameHints.get(serverKey) ?? serverKey}`
+  return `flow_mcp_connector_unavailable:${describeUnavailableConnector(unavailableDeclarationIds[0] ?? declarations[0].id)}`
 }
 
 async function getUnavailableAgentModelError(params: {
@@ -360,6 +283,7 @@ export async function runFlowPromptAndReadOutput(params: {
   flowId: string
   leaseOwner: string
   prompt: string
+  requiredConnectors?: FlowConnectorDeclaration[]
   runId: string
   sessionId: string
   slug: string
@@ -383,10 +307,10 @@ export async function runFlowPromptAndReadOutput(params: {
   }
 
   const unavailableMcpConnector = await getUnavailableMcpConnectorError({
-    agent: params.agent,
     client: params.client,
     initialDelayMs: params.mcpReadinessInitialDelayMs,
     maxAttempts: params.mcpReadinessMaxAttempts,
+    requiredConnectors: params.requiredConnectors,
     statusTimeoutMs: params.mcpReadinessStatusTimeoutMs,
     timeoutMs: params.mcpReadinessTimeoutMs,
   })

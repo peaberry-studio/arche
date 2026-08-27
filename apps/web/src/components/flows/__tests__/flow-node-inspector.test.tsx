@@ -3,12 +3,14 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { FlowNodeInspector } from '@/components/flows/flow-node-inspector'
-import type { FlowDefinition } from '@/lib/flows/types'
+import type { AgentFlowNode, FlowDefinition } from '@/lib/flows/types'
+
+const agentNode: AgentFlowNode = { compactOutput: false, id: 'agent-1', name: 'Agent', promptTemplate: 'Prompt', targetAgentId: null, type: 'agent' }
 
 const definition: FlowDefinition = {
   edges: [],
   nodes: [
-    { compactOutput: false, id: 'agent-1', name: 'Agent', promptTemplate: 'Prompt', targetAgentId: null, type: 'agent' },
+    agentNode,
     { id: 'human-1', instructions: 'Review', name: 'Human', required: true, type: 'human' },
     { id: 'condition-1', mode: 'rules', name: 'Condition', rules: [{ id: 'rule-1', operator: 'contains', targetNodeId: 'merge-1', value: 'yes', variable: 'previous.output' }], type: 'condition' },
     { id: 'slack-1', messageMode: 'fixed', messageTemplate: 'Hello', name: 'Slack', target: { type: 'dm', userId: 'user-1' }, type: 'slack' },
@@ -84,6 +86,51 @@ describe('FlowNodeInspector', () => {
     expect(onUpdateNode).toHaveBeenCalledWith(expect.objectContaining({ compactOutput: true }))
 
     expect(screen.getByText('Create or remove step connections directly on the canvas.')).toBeTruthy()
+  })
+
+  it('updates agent required connectors from the multi-select', () => {
+    const onUpdateNode = vi.fn()
+    const connectors = [{ id: 'mixpanel', name: 'Mixpanel' }, { id: 'zendesk', name: 'Zendesk' }]
+    const renderWith = (node: AgentFlowNode) => {
+      cleanup()
+      return render(
+        <FlowNodeInspector
+          agents={[]}
+          connectors={connectors}
+          definition={definition}
+          selectedNode={node}
+          slackChannels={[]}
+          slackIntegrationEnabled
+          slackUsers={[]}
+          onDeleteNode={vi.fn()}
+          onUpdateNode={onUpdateNode}
+        />,
+      )
+    }
+
+    renderWith(agentNode)
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Require Mixpanel' }))
+    expect(onUpdateNode).toHaveBeenLastCalledWith(expect.objectContaining({ requiredConnectors: ['mixpanel'] }))
+
+    cleanup()
+    renderWith({ ...agentNode, requiredConnectors: ['mixpanel'] })
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Require Zendesk' }))
+    expect(onUpdateNode).toHaveBeenLastCalledWith(expect.objectContaining({ requiredConnectors: ['mixpanel', 'zendesk'] }))
+
+    cleanup()
+    onUpdateNode.mockClear()
+    renderWith({ ...agentNode, requiredConnectors: ['mixpanel', 'zendesk'] })
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Require Mixpanel' }))
+    expect(onUpdateNode.mock.calls[0][0] as Record<string, unknown>).toEqual(
+      expect.objectContaining({ requiredConnectors: ['zendesk'] }),
+    )
+
+    cleanup()
+    renderWith({ ...agentNode, requiredConnectors: ['zendesk'] })
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Require Zendesk' }))
+    const updatedNode = onUpdateNode.mock.lastCall?.[0] as Record<string, unknown>
+    expect(updatedNode).not.toHaveProperty('requiredConnectors')
   })
 
   it('updates human node fields', () => {

@@ -3,6 +3,7 @@
 import { Plus, Trash } from '@phosphor-icons/react'
 
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
@@ -10,6 +11,7 @@ import { Textarea } from '@/components/ui/textarea'
 import type { AgentListItem } from '@/hooks/use-agents-catalog'
 import { getFlowOutgoingTargets } from '@/lib/flows/graph'
 import type { FlowConditionRule, FlowDefinition, FlowNode, SlackFlowNode } from '@/lib/flows/types'
+import { cn } from '@/lib/utils'
 
 type SlackTargetUser = {
   email: string
@@ -23,8 +25,14 @@ type SlackTargetChannel = {
   name: string
 }
 
+type InspectorConnectorOption = {
+  id: string
+  name: string
+}
+
 type FlowNodeInspectorProps = {
   agents: AgentListItem[]
+  connectors?: InspectorConnectorOption[]
   definition: FlowDefinition
   selectedNode: FlowNode | null
   slackChannels: SlackTargetChannel[]
@@ -184,6 +192,7 @@ function HumanResponseReference({ node }: { node: Extract<FlowNode, { type: 'hum
 
 export function FlowNodeInspector({
   agents,
+  connectors = [],
   definition,
   selectedNode,
   slackChannels,
@@ -212,6 +221,25 @@ export function FlowNodeInspector({
       ...node,
       rules: (node.rules ?? []).map((candidate) => candidate.id === rule.id ? rule : candidate),
     })
+  }
+
+  function updateRequiredConnectors(connectorId: string, checked: boolean) {
+    if (node.type !== 'agent') return
+    const selected = new Set(node.requiredConnectors ?? [])
+    if (checked) {
+      selected.add(connectorId)
+    } else {
+      selected.delete(connectorId)
+    }
+
+    if (selected.size === 0) {
+      const nextNode = { ...node }
+      delete nextNode.requiredConnectors
+      onUpdateNode(nextNode)
+      return
+    }
+
+    onUpdateNode({ ...node, requiredConnectors: [...selected] })
   }
 
   return (
@@ -270,6 +298,39 @@ export function FlowNodeInspector({
               aria-label="Compact agent output"
             />
           </div>
+          {connectors.length > 0 ? (
+            <div className="space-y-2">
+              <div className="space-y-1">
+                <Label>Required connectors</Label>
+                <p className="text-xs text-muted-foreground">
+                  This step waits for the connectors you select and fails if one is unavailable. Unselected connectors never block it.
+                </p>
+              </div>
+              <div className="space-y-2">
+                {connectors.map((connector) => {
+                  const checked = (node.requiredConnectors ?? []).includes(connector.id)
+                  return (
+                    <label
+                      key={connector.id}
+                      className={cn(
+                        'flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors',
+                        checked
+                          ? 'border-primary/40 bg-primary/5 text-foreground'
+                          : 'border-border/60 bg-card/40 text-muted-foreground hover:bg-card/70',
+                      )}
+                    >
+                      <Checkbox
+                        checked={checked}
+                        onChange={(event) => updateRequiredConnectors(connector.id, event.target.checked)}
+                        aria-label={`Require ${connector.name}`}
+                      />
+                      <span className="min-w-0 flex-1 truncate font-medium">{connector.name}</span>
+                    </label>
+                  )
+                })}
+              </div>
+            </div>
+          ) : null}
         </>
       ) : null}
 
