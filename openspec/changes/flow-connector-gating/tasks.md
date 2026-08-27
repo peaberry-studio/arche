@@ -26,5 +26,5 @@
 ## 6. Final verification
 
 - [x] 6.1 Run `pnpm test` and `pnpm lint` from `apps/web/` — both green.
-- [ ] 6.2 Run `bash scripts/check-podman-images.sh` from the repo root — images build.
+- [x] 6.2 Run `bash scripts/check-podman-images.sh` from the repo root — images build.
 - [x] 6.3 Run `openspec validate flow-connector-gating --strict` — change validates.
