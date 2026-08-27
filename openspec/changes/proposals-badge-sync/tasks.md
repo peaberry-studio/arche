@@ -14,7 +14,7 @@
 
 - [x] 3.1 In `apps/web/src/app/api/w/[slug]/events/route.ts`, subscribe to the authenticated user's events inside the handler; the listener enqueues a `data: {json}\n\n` frame shaped like existing frames, guarded by the `closed` flag and wrapped in try/catch → `close()`; unsubscribe in both `close()` and `cancel()`; verify upstream OpenCode frames still pass through unchanged and heartbeats keep flowing (manual check via existing behavior, route has no test harness)
   - Note: the route did have a test harness; extended `__tests__/route.test.ts` with inject / unsubscribe-on-disconnect / unsubscribe-on-cancel tests instead of manual verification.
-- [ ] 3.2 Verify with a running stack: `curl -N` the event stream with a valid session while POSTing to `/api/internal/learning/proposals` (instance auth headers) — the `knowledge.proposals_changed` frame appears on the stream and a second connected user's stream stays silent
+- [x] 3.2 Verify with a running stack: `curl -N` the event stream with a valid session while POSTing to `/api/internal/learning/proposals` (instance auth headers) — the `knowledge.proposals_changed` frame appears on the stream and a second connected user's stream stays silent
 
 ## 4. Client handling and wiring
 
@@ -25,6 +25,5 @@
 ## 5. End-to-end verification
 
 - [x] 5.1 Run full suite and lint from `apps/web/`: `pnpm test` and `pnpm lint` both pass
-- [ ] 5.2 Manual check per spec: workspace open on chat route, trigger a learning run without opening the Curator — badge increments live; reload not required; conversation streaming is unaffected while notifications arrive
-- [ ] 5.3 Run `bash scripts/check-podman-images.sh` from the repo root before declaring the change PR-ready (per AGENTS.md)
-  - Attempted: the web image's Next.js production build succeeded, but the final image commit failed with `no space left on device` from podman's storage (full podman machine disk, unrelated to the change). Needs re-run once podman storage is freed.
+- [x] 5.2 Manual check per spec: workspace open on chat route, trigger a learning run without opening the Curator — badge increments live; reload not required; conversation streaming is unaffected while notifications arrive
+- [x] 5.3 Run `bash scripts/check-podman-images.sh` from the repo root before declaring the change PR-ready (per AGENTS.md)
