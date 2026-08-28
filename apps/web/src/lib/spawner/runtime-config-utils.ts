@@ -97,11 +97,37 @@ export function withLinkedRepositories(agentsMd: string, repos: string[]): strin
   return agentsMd + block
 }
 
+// Knowledge Base write policy — one voice, two renderings. The shared rule
+// lines below are the single source for both the agent-prompt block
+// (AGENT_KB_POLICY_PROMPT_BLOCK) and the AGENTS.md block
+// (withWorkspaceKnowledgePolicy); edit these shared lines, not the composed
+// blocks, so the two channels cannot drift. Channel-specific clauses (git
+// commands, Explore/Manual-edits) stay local to each rendering.
+const KB_POLICY_BLOCK_HEADER = '\n\n## Knowledge Base write policy\n\n'
+const KB_POLICY_OVERRIDE_LINE =
+  'This block is mandatory and overrides any earlier instruction.\n\n'
+const KB_POLICY_WRITE_RULE_CORE =
+  'must not write, edit, or delete Knowledge Base files. Do not use `write`, `edit`, or shell redirection to change the vault.\n'
+const KB_POLICY_GIT_RULE_CORE =
+  'Do not change vault files through git write commands (`git add`, `git commit`, `git push`).\n'
+
+// Agent-prompt rendering of the Knowledge Base write policy (see
+// withWorkspaceKnowledgePolicy for the AGENTS.md rendering). Shares the
+// KB_POLICY_* rule lines above; appended to every agent's system prompt at
+// runtime so the policy is the final, highest-precedence instruction in the
+// prompt.
+export const AGENT_KB_POLICY_PROMPT_BLOCK =
+  KB_POLICY_BLOCK_HEADER +
+  KB_POLICY_OVERRIDE_LINE +
+  `- You ${KB_POLICY_WRITE_RULE_CORE}` +
+  `- ${KB_POLICY_GIT_RULE_CORE}` +
+  '- Persist knowledge only by submitting a proposal with `learning_propose`. This is the only sanctioned way to store knowledge in the vault.\n'
+
 export function withWorkspaceKnowledgePolicy(agentsMd: string): string {
   const block =
-    '\n\n## Knowledge Base write policy\n\n' +
-    'This block is mandatory and overrides any earlier instruction.\n\n' +
-    '- Chat agents must not write, edit, or delete Knowledge Base files. Do not use `write`, `edit`, or shell redirection to change the vault.\n' +
+    KB_POLICY_BLOCK_HEADER +
+    KB_POLICY_OVERRIDE_LINE +
+    `- Chat agents ${KB_POLICY_WRITE_RULE_CORE}` +
     '- Persist agent knowledge only with `learning_propose`.\n' +
     '- User edits belong in Explore. They appear under Manual edits and are published from there. They do not go through Proposals.\n'
 

@@ -471,6 +471,37 @@ describe('POST /api/u/[slug]/agents', () => {
     expect(body.error).toBe('invalid_id')
   })
 
+  it('rejects reserved ID "knowledge-curator"', async () => {
+    const response = await POST(
+      makePostRequest({
+        id: 'knowledge-curator',
+        displayName: 'Knowledge Curator',
+        capabilities: { tools: [], skillIds: [], mcpConnectorIds: [] },
+      }),
+      routeParams,
+    )
+    expect(response.status).toBe(400)
+
+    const body = await response.json()
+    expect(body.error).toBe('invalid_id')
+    expect(body.message).toContain('reserved')
+  })
+
+  it('rejects a display name that slugifies to a reserved ID', async () => {
+    const response = await POST(
+      makePostRequest({
+        displayName: 'Knowledge Curator',
+        capabilities: { tools: [], skillIds: [], mcpConnectorIds: [] },
+      }),
+      routeParams,
+    )
+    expect(response.status).toBe(400)
+
+    const body = await response.json()
+    expect(body.error).toBe('invalid_id')
+    expect(mockWriteCommonWorkspaceConfig).not.toHaveBeenCalled()
+  })
+
   it('rejects duplicate agent IDs', async () => {
     const response = await POST(
       makePostRequest({

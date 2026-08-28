@@ -3,6 +3,7 @@ import type { ConnectorToolPermissionMap } from '@/lib/connectors/tool-permissio
 import { CONNECTOR_TYPES, isSingleInstanceConnectorType, type ConnectorType } from '@/lib/connectors/types'
 import { KNOWLEDGE_CURATOR_SYSTEM_INSTRUCTIONS } from '@/lib/learning/curator-prompt'
 import { isRecord } from '@/lib/records'
+import { AGENT_KB_POLICY_PROMPT_BLOCK } from '@/lib/spawner/runtime-config-utils'
 import {
   PRIMARY_AGENT_STEP_LIMIT,
   SUBAGENT_STEP_LIMIT,
@@ -245,22 +246,31 @@ export function denyAgentKnowledgeWrites(
   return { ...config, agent: nextAgents }
 }
 
-// Guarantees a knowledge-curator sub-agent in the runtime config with read +
-// always-on tools, subagent steps, and a low temperature. Older workspaces that
-// still store a knowledge-curator agent keep their own entry — this only injects
-// when the id is absent so run-executor.ts can resolve the agent on spawn. The
-// agent's prompt comes from KNOWLEDGE_CURATOR_SYSTEM_INSTRUCTIONS (the same
-// single source buildCuratorPrompt composes around in run-executor.ts), so the
-// static persona cannot drift from what a learning run actually sends.
+// Guarantees the knowledge-curator sub-agent runs the canonical persona: the
+// reserved id is system-owned (getAgentSummaries filters it out of every user
+// surface), so any stored prompt for it came from an older runtime injection —
+// its prompt is replaced with KNOWLEDGE_CURATOR_SYSTEM_INSTRUCTIONS while all
+// other stored fields are preserved. When the id is absent, the full canonical
+// agent is injected so run-executor.ts can resolve it on spawn. The prompt comes
+// from KNOWLEDGE_CURATOR_SYSTEM_INSTRUCTIONS (the same single source
+// buildCuratorPrompt composes around in run-executor.ts), so the static persona
+// cannot drift from what a learning run actually sends, and canonical prompt
+// changes ship with deploys without per-workspace migration.
 export function injectSystemKnowledgeCuratorAgent(
   config: Record<string, unknown>,
 ): Record<string, unknown> {
   const agents = isRecord(config.agent) ? config.agent : null
-  if (agents && agents[SYSTEM_KNOWLEDGE_CURATOR_AGENT_ID]) {
-    return config
-  }
 
   const nextAgents: Record<string, unknown> = { ...(agents ?? {}) }
+  const storedCurator = nextAgents[SYSTEM_KNOWLEDGE_CURATOR_AGENT_ID]
+  if (isRecord(storedCurator)) {
+    nextAgents[SYSTEM_KNOWLEDGE_CURATOR_AGENT_ID] = {
+      ...storedCurator,
+      prompt: KNOWLEDGE_CURATOR_SYSTEM_INSTRUCTIONS,
+    }
+    return { ...config, agent: nextAgents }
+  }
+
   nextAgents[SYSTEM_KNOWLEDGE_CURATOR_AGENT_ID] = {
     mode: 'subagent',
     prompt: KNOWLEDGE_CURATOR_SYSTEM_INSTRUCTIONS,
@@ -505,6 +515,41 @@ export function injectSelfDelegationGuards(
 
     const existingPrompt = typeof agent.prompt === 'string' ? agent.prompt : ''
     nextAgents[agentId] = { ...agent, prompt: existingPrompt + guard }
+    changed = true
+  }
+
+  if (!changed) return config
+  return { ...config, agent: nextAgents }
+}
+
+// Appends the Knowledge Base write policy to every agent's system prompt,
+// regardless of stored prompt content (the stored prompt is never rewritten —
+// this is a runtime-only transform over freshly parsed config). Idempotent by
+// exact-constant check: a prompt already ending with the block is left as-is;
+// a block appearing mid-prompt does not count, so the append keeps the policy
+// as the final, highest-precedence text.
+export function injectAgentKnowledgePolicy(
+  config: Record<string, unknown>,
+): Record<string, unknown> {
+  const agents = isRecord(config.agent) ? config.agent : null
+  if (!agents) return config
+
+  const nextAgents: Record<string, unknown> = {}
+  let changed = false
+
+  for (const [agentId, agent] of Object.entries(agents)) {
+    if (!isRecord(agent)) {
+      nextAgents[agentId] = agent
+      continue
+    }
+
+    const existingPrompt = typeof agent.prompt === 'string' ? agent.prompt : ''
+    if (existingPrompt.endsWith(AGENT_KB_POLICY_PROMPT_BLOCK)) {
+      nextAgents[agentId] = agent
+      continue
+    }
+
+    nextAgents[agentId] = { ...agent, prompt: existingPrompt + AGENT_KB_POLICY_PROMPT_BLOCK }
     changed = true
   }
 
