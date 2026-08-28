@@ -80,7 +80,7 @@ jobs:
               | add // {}
               | to_entries[]
               | select(
-                  (.value | test("^(workspace:|https?://|file:)")) | not
+                  (.value | test("^(workspace:|link:|https?://|file:)")) | not
                 )
               | select(
                   (.value | test("^[0-9]+\\.[0-9]+\\.[0-9]")) | not
