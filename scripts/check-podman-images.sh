@@ -22,6 +22,14 @@ if [[ -z "$OPENCODE_VERSION" ]]; then
   exit 1
 fi
 
+printf '==> Pruning dangling images\n'
+podman image prune -f
+
+if [[ "${ARCHE_PODMAN_PRUNE_ALL:-}" == "1" ]]; then
+  printf '==> Pruning all unused Podman data (ARCHE_PODMAN_PRUNE_ALL=1)\n'
+  podman system prune -af
+fi
+
 printf '==> Building web image\n'
 podman build \
   --build-arg GIT_SHA=podman-check \
