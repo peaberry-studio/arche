@@ -36,7 +36,7 @@ Current mechanics that shape this design (verified in code):
 
 ### D2: Pinning policy is exact versions, with a deliberate allowlist
 
-- Any semver-looking range (`^`, `~`, `>=`, `*`, dist-tags) fails. `workspace:`, `https?://`, and `file:` protocols pass: workspace links are the pnpm mechanism, and URL/file deps are version-addressed by their target.
+- Any semver-looking range (`^`, `~`, `>=`, `*`, dist-tags) fails. `workspace:`, `link:`, `https?://`, and `file:` protocols pass: workspace links are the pnpm mechanism, `link:` symlinks the pnpm local packages (e.g. `@arche/desktop-runtime` in `apps/web`/`apps/desktop`), and URL/file deps are version-addressed by their target.
 - Malformed `package.json` files warn and are skipped rather than failing the check — generated/vendor manifests must not wedge CI; package files with zero deps are skipped outright.
 - Scans only `dependencies` and `devDependencies`; `peerDependencies`/`optionalDependencies` are out of scope for now.
 

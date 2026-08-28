@@ -20,7 +20,7 @@ The PR check workflow SHALL run on every pull request targeting `main` and SHALL
 - **THEN** no web or desktop check job executes and the run still completes
 
 ### Requirement: Dependency versions are pinned
-Every repository `package.json` SHALL declare exact version pins for its `dependencies` and `devDependencies`. A version range, dist-tag, or other non-exact reference SHALL fail the governance check, except for `workspace:`, `https://`, `http://`, and `file:` protocol references, which are permitted. A manifest with no dependencies, or one that cannot be parsed, SHALL not fail the check.
+Every repository `package.json` SHALL declare exact version pins for its `dependencies` and `devDependencies`. A version range, dist-tag, or other non-exact reference SHALL fail the governance check, except for `workspace:`, `link:`, `https://`, `http://`, and `file:` protocol references, which are permitted. A manifest with no dependencies, or one that cannot be parsed, SHALL not fail the check.
 
 #### Scenario: Caret range rejected
 - **WHEN** a pull request adds `"lodash": "^4.17.21"` to a `package.json`
@@ -28,6 +28,10 @@ Every repository `package.json` SHALL declare exact version pins for its `depend
 
 #### Scenario: Workspace reference accepted
 - **WHEN** a `package.json` depends on a workspace package via `"arche-web": "workspace:*"`
+- **THEN** the pinned-versions check passes for that entry
+
+#### Scenario: Local link reference accepted
+- **WHEN** a `package.json` depends on a local package directory via `"@arche/desktop-runtime": "link:../desktop-runtime"`
 - **THEN** the pinned-versions check passes for that entry
 
 #### Scenario: Generated manifest tolerated
