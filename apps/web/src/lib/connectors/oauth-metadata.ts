@@ -30,37 +30,59 @@ export async function sanitizeOAuthMetadata(metadata: OAuthServerMetadata): Prom
   }
 }
 
+function buildWellKnownMetadataUrls(serverUrl: URL): string[] {
+  const authorizationBase = `${serverUrl.protocol}//${serverUrl.host}`
+  const rootMetadataUrl = `${authorizationBase}/.well-known/oauth-authorization-server`
+  const serverPath = serverUrl.pathname.replace(/\/+$/, '')
+
+  // RFC 8414 §3.1: when the issuer has a path component, the well-known suffix
+  // is inserted between the host and the path (e.g. https://mcp.facebook.com/ads
+  // publishes metadata at /.well-known/oauth-authorization-server/ads).
+  // The root document is kept as a fallback for servers that only publish there.
+  if (serverPath) {
+    return [`${rootMetadataUrl}${serverPath}`, rootMetadataUrl]
+  }
+
+  return [rootMetadataUrl]
+}
+
 export async function discoverOAuthMetadata(mcpServerUrl: string): Promise<OAuthServerMetadata> {
   const serverUrl = new URL(mcpServerUrl)
   const authorizationBase = `${serverUrl.protocol}//${serverUrl.host}`
-  const metadataUrl = `${authorizationBase}/.well-known/oauth-authorization-server`
+  const metadataUrls = buildWellKnownMetadataUrls(serverUrl)
 
-  const metadataResponse = await fetch(metadataUrl, {
-    method: 'GET',
-    headers: {
-      Accept: 'application/json',
-    },
-    cache: 'no-store',
-  }).catch(() => null)
+  for (const [index, metadataUrl] of metadataUrls.entries()) {
+    const isLastCandidate = index === metadataUrls.length - 1
 
-  if (metadataResponse && metadataResponse.ok) {
-    const data = (await metadataResponse.json().catch(() => null)) as Record<string, unknown> | null
-    const authorizationEndpoint = getString(data?.authorization_endpoint)
-    const tokenEndpoint = getString(data?.token_endpoint)
-    if (!authorizationEndpoint || !tokenEndpoint) {
-      throw new Error('oauth_discovery_failed:invalid_metadata')
+    const metadataResponse = await fetch(metadataUrl, {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+      },
+      cache: 'no-store',
+    }).catch(() => null)
+
+    if (metadataResponse && metadataResponse.ok) {
+      const data = (await metadataResponse.json().catch(() => null)) as Record<string, unknown> | null
+      const authorizationEndpoint = getString(data?.authorization_endpoint)
+      const tokenEndpoint = getString(data?.token_endpoint)
+      if (!authorizationEndpoint || !tokenEndpoint) {
+        throw new Error('oauth_discovery_failed:invalid_metadata')
+      }
+
+      return {
+        issuer: getString(data?.issuer),
+        authorizationEndpoint,
+        tokenEndpoint,
+        registrationEndpoint: getString(data?.registration_endpoint),
+      }
     }
 
-    return {
-      issuer: getString(data?.issuer),
-      authorizationEndpoint,
-      tokenEndpoint,
-      registrationEndpoint: getString(data?.registration_endpoint),
+    // Non-404 errors on intermediate candidates fall through to the next
+    // candidate; only the final (root) document keeps strict error semantics.
+    if (isLastCandidate && metadataResponse && metadataResponse.status !== 404) {
+      throw new Error(`oauth_discovery_failed:${metadataResponse.status}`)
     }
-  }
-
-  if (metadataResponse && metadataResponse.status !== 404) {
-    throw new Error(`oauth_discovery_failed:${metadataResponse.status}`)
   }
 
   return {
