@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   captureKbArticleForReview: vi.fn(),
   createKnowledgeReviewChange: vi.fn(),
+  publishWorkspaceEvent: vi.fn(),
 }))
 
 vi.mock('@/lib/mcp/kb-content-store', async (importOriginal) => {
@@ -11,6 +12,10 @@ vi.mock('@/lib/mcp/kb-content-store', async (importOriginal) => {
 })
 vi.mock('@/lib/learning/service', () => ({
   createKnowledgeReviewChange: mocks.createKnowledgeReviewChange,
+}))
+vi.mock('@/lib/runtime/workspace-broadcast', () => ({ publishWorkspaceEvent: mocks.publishWorkspaceEvent }))
+vi.mock('@/lib/runtime/workspace-broadcast-events', () => ({
+  KNOWLEDGE_PROPOSALS_CHANGED_EVENT: 'knowledge.proposals_changed',
 }))
 
 import { handleMcpJsonRpcRequest } from '@/lib/mcp/server'
@@ -170,6 +175,19 @@ describe('handleMcpJsonRpcRequest', () => {
         agent: 'mcp',
         author: 'alice@example.com',
       }))
+      expect(mocks.publishWorkspaceEvent).toHaveBeenCalledWith('u1', {
+        type: 'knowledge.proposals_changed',
+      })
+    })
+
+    it('does not publish a notification when the submission fails', async () => {
+      mocks.captureKbArticleForReview.mockResolvedValue(makeSnapshot('current body'))
+      mocks.createKnowledgeReviewChange.mockResolvedValue({ ok: false, error: 'regeneration_source_not_rebaseable' })
+
+      const { isError } = await callTool('update_kb_article', { path: 'Notes/Brief.md', content: '# Updated' })
+
+      expect(isError).toBe(true)
+      expect(mocks.publishWorkspaceEvent).not.toHaveBeenCalled()
     })
 
     it('submits an update_kb_article with the captured base snapshot', async () => {

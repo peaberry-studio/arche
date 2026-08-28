@@ -190,6 +190,28 @@ describe('flow import/export helpers', () => {
     }
   })
 
+  it('preserves agent required connector declarations through template import', async () => {
+    const definition = createDefaultFlowDefinition()
+    definition.nodes = definition.nodes.map((node) => (
+      node.type === 'agent' ? { ...node, requiredConnectors: ['c1', 'c2'] } : node
+    ))
+
+    const result = await validateFlowTemplateImport({
+      cronExpression: null,
+      definition,
+      enabled: false,
+      format: FLOW_TEMPLATE_FORMAT,
+      name: 'Declared flow',
+      timezone: 'UTC',
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    const importedNode = result.draftPayload.definition.nodes[0]
+    expect(importedNode.type === 'agent' && importedNode.requiredConnectors).toEqual(['c1', 'c2'])
+  })
+
   it('returns payload validation errors after parsing the template source', async () => {
     const definition = createDefaultFlowDefinition()
     definition.nodes = definition.nodes.map((node) => (

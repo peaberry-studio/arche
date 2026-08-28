@@ -24,11 +24,13 @@ import {
 } from "@/lib/opencode/event-reducer";
 import type { WorkspaceMessage, WorkspaceSession } from "@/lib/opencode/types";
 import { isRecord } from "@/lib/records";
+import { KNOWLEDGE_PROPOSALS_CHANGED_EVENT } from "@/lib/runtime/workspace-broadcast-events";
 import { INITIAL_SSE_PARSE_STATE, parseSseChunk } from "@/lib/sse-parser";
 
 const BUS_RECONNECT_BASE_DELAY_MS = 1_000;
 const BUS_RECONNECT_MAX_DELAY_MS = 30_000;
 const WORKSPACE_REFRESH_DEBOUNCE_MS = 250;
+const KNOWLEDGE_REFRESH_DEBOUNCE_MS = 500;
 
 type UseWorkspaceEventBusOptions = {
   slug: string;
@@ -38,6 +40,7 @@ type UseWorkspaceEventBusOptions = {
   refreshFiles: () => Promise<void>;
   syncRuntimeMetadataForSession?: (sessionId: string, items: WorkspaceMessage[]) => void;
   onBackgroundSessionIdle?: (sessionId: string) => void;
+  onKnowledgeProposalsChanged?: () => void;
 };
 
 function parseSseEvent(data: string): { type: string; properties?: Record<string, unknown> } | null {
@@ -72,6 +75,7 @@ export function useWorkspaceEventBus({
   refreshFiles,
   syncRuntimeMetadataForSession,
   onBackgroundSessionIdle,
+  onKnowledgeProposalsChanged,
 }: UseWorkspaceEventBusOptions) {
   const [store, setStore] = useState<ChatStore>(() => createEmptyChatStore());
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
@@ -101,6 +105,23 @@ export function useWorkspaceEventBus({
       void refreshFiles();
     }, WORKSPACE_REFRESH_DEBOUNCE_MS);
   }, [refreshDiffs, refreshFiles]);
+
+  // Held in a ref so the bus loop never restarts because the callback identity
+  // changed; only the debounce timer has to survive across renders.
+  const onKnowledgeProposalsChangedRef = useRef(onKnowledgeProposalsChanged);
+  useEffect(() => {
+    onKnowledgeProposalsChangedRef.current = onKnowledgeProposalsChanged;
+  }, [onKnowledgeProposalsChanged]);
+
+  const knowledgeRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const scheduleKnowledgeProposalsRefresh = useCallback(() => {
+    if (knowledgeRefreshTimeoutRef.current) return;
+    knowledgeRefreshTimeoutRef.current = setTimeout(() => {
+      knowledgeRefreshTimeoutRef.current = null;
+      onKnowledgeProposalsChangedRef.current?.();
+    }, KNOWLEDGE_REFRESH_DEBOUNCE_MS);
+  }, []);
 
   const mergeHydratedMessages = useCallback(
     (sessionId: string, hydrated: WorkspaceMessage[]) => {
@@ -249,8 +270,10 @@ export function useWorkspaceEventBus({
         // Hydrate messages, permissions, and session status on every successful
         // connect (initial and reconnects). OpenCode keeps running while the
         // pipe is down; the hydrate merges the server state into what the bus
-        // already applied.
+        // already applied. The pending-proposal count refreshes on connect too,
+        // recovering notifications missed while the pipe was down.
         void hydrateOnConnectRef.current();
+        scheduleKnowledgeProposalsRefresh();
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
@@ -263,7 +286,14 @@ export function useWorkspaceEventBus({
           parseState = parsed.state;
           for (const parsedEvent of parsed.events) {
             const event = parseSseEvent(parsedEvent.data);
-            if (event) dispatchReducerEvent(event);
+            if (!event) continue;
+            // Badge notifications are intercepted before the reducer: they
+            // must never mutate chat/session state.
+            if (event.type === KNOWLEDGE_PROPOSALS_CHANGED_EVENT) {
+              scheduleKnowledgeProposalsRefresh();
+              continue;
+            }
+            dispatchReducerEvent(event);
           }
         }
         if (signal.aborted) return;
@@ -278,7 +308,7 @@ export function useWorkspaceEventBus({
         delay = Math.min(delay * 2, BUS_RECONNECT_MAX_DELAY_MS);
       }
     }
-  }, [slug, dispatchReducerEvent]);
+  }, [slug, dispatchReducerEvent, scheduleKnowledgeProposalsRefresh]);
 
   useEffect(() => {
     if (!slug) return;
