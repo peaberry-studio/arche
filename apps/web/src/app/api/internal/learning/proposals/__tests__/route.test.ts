@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   createKnowledgeReviewChange: vi.fn(),
   findLearningRunForUser: vi.fn(),
   getInternalLearningContext: vi.fn(),
+  publishWorkspaceEvent: vi.fn(),
 }))
 
 vi.mock('@/app/api/internal/learning/auth', () => ({ getInternalLearningContext: mocks.getInternalLearningContext }))
@@ -13,6 +14,10 @@ vi.mock('@/lib/learning/service', () => ({
   captureKnowledgeReviewBase: mocks.captureKnowledgeReviewBase,
   createKnowledgeReviewChange: mocks.createKnowledgeReviewChange,
   findLearningRunForUser: mocks.findLearningRunForUser,
+}))
+vi.mock('@/lib/runtime/workspace-broadcast', () => ({ publishWorkspaceEvent: mocks.publishWorkspaceEvent }))
+vi.mock('@/lib/runtime/workspace-broadcast-events', () => ({
+  KNOWLEDGE_PROPOSALS_CHANGED_EVENT: 'knowledge.proposals_changed',
 }))
 
 import { POST } from '../route'
@@ -91,6 +96,38 @@ describe('POST /api/internal/learning/proposals', () => {
       confidence: 0.8,
       evidence: { quote: 'Use concise answers' },
     }))
+    expect(mocks.publishWorkspaceEvent).toHaveBeenCalledWith('user-1', {
+      type: 'knowledge.proposals_changed',
+    })
+  })
+
+  it('does not publish a notification when validation fails', async () => {
+    const response = await POST(makeRequest({ ...validBody, kbPath: '' }))
+
+    expect(response.status).toBe(400)
+    expect(mocks.publishWorkspaceEvent).not.toHaveBeenCalled()
+  })
+
+  it('does not publish a notification when base capture fails', async () => {
+    mocks.captureKnowledgeReviewBase.mockResolvedValue({ ok: false, error: 'invalid_request' })
+
+    const response = await POST(makeRequest(validBody))
+
+    expect(response.status).toBe(400)
+    expect(mocks.publishWorkspaceEvent).not.toHaveBeenCalled()
+  })
+
+  it('does not publish a notification when persistence fails', async () => {
+    mocks.findLearningRunForUser.mockResolvedValue({ id: 'run-2', regenerationChangeId: null })
+    mocks.createKnowledgeReviewChange.mockResolvedValue({
+      ok: false,
+      error: 'regeneration_source_not_rebaseable',
+    })
+
+    const response = await POST(makeRequest({ ...validBody, runId: 'run-2' }))
+
+    expect(response.status).toBe(409)
+    expect(mocks.publishWorkspaceEvent).not.toHaveBeenCalled()
   })
 
   it('attributes to the tool-provided agent when no run id is present', async () => {

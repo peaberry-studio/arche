@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 
 import { getInstanceUrl } from '@/lib/opencode/client'
 import { withAuth } from '@/lib/runtime/with-auth'
+import { subscribeWorkspaceEvents } from '@/lib/runtime/workspace-broadcast'
 import { instanceService } from '@/lib/services'
 import { decryptPassword } from '@/lib/spawner/crypto'
 import { INITIAL_SSE_PARSE_STATE, parseSseChunk } from '@/lib/sse-parser'
@@ -24,7 +25,7 @@ function jsonErrorResponse(status: number, error: string) {
  */
 export const GET = withAuth<unknown, { slug: string }>(
   { csrf: false },
-  async (request, { slug }) => {
+  async (request, { slug, user }) => {
     const instance = await instanceService.findCredentialsBySlug(slug)
 
     if (!instance || !instance.serverPassword || instance.status !== 'running') {
@@ -67,6 +68,10 @@ export const GET = withAuth<unknown, { slug: string }>(
     const encoder = new TextEncoder()
     const reader = upstream.body.getReader()
 
+    // Set inside start() once the broadcast listener is attached; cancel() can
+    // then release it even when start()'s close path never ran.
+    let unsubscribeBroadcast: (() => void) | null = null
+
     const stream = new ReadableStream({
       async start(controller) {
         const decoder = new TextDecoder()
@@ -77,6 +82,8 @@ export const GET = withAuth<unknown, { slug: string }>(
           if (closed) return
           closed = true
           clearInterval(heartbeat)
+          unsubscribeBroadcast?.()
+          unsubscribeBroadcast = null
           // Release the upstream connection: the browser is gone or the pipe
           // ended. This aborts only this /event fetch, never the OpenCode
           // session itself.
@@ -92,6 +99,19 @@ export const GET = withAuth<unknown, { slug: string }>(
             close()
           }
         }, HEARTBEAT_INTERVAL_MS)
+
+        // Inject workspace-level notifications for this user into the pipe,
+        // shaped exactly like re-dispatched OpenCode frames so the client
+        // parser is unchanged. Delivery is best-effort: a closed or errored
+        // stream only closes this pipe, it never breaks the publishing side.
+        unsubscribeBroadcast = subscribeWorkspaceEvents(user.id, (event) => {
+          if (closed) return
+          try {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
+          } catch {
+            close()
+          }
+        })
 
         request.signal.addEventListener('abort', close, { once: true })
 
@@ -117,7 +137,10 @@ export const GET = withAuth<unknown, { slug: string }>(
         }
       },
       cancel() {
-        // Downstream cancelled: release the upstream /event fetch.
+        // Downstream cancelled: release the upstream /event fetch and stop
+        // receiving broadcasts for this user.
+        unsubscribeBroadcast?.()
+        unsubscribeBroadcast = null
         upstreamController.abort()
       },
     })

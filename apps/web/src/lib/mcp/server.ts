@@ -21,6 +21,8 @@ import {
 } from '@/lib/mcp/workspace-tools'
 import { isRecord } from '@/lib/records'
 import type { RuntimeUser } from '@/lib/runtime/types'
+import { publishWorkspaceEvent } from '@/lib/runtime/workspace-broadcast'
+import { KNOWLEDGE_PROPOSALS_CHANGED_EVENT } from '@/lib/runtime/workspace-broadcast-events'
 import { listSkills, readSkill } from '@/lib/skills/skill-store'
 
 type JsonRpcId = string | number | null
@@ -287,6 +289,8 @@ async function submitMcpKnowledgeReviewChange(args: {
   if (!result.ok) {
     return { ok: false, error: result.error === 'regeneration_source_not_rebaseable' ? 'invalid_request' : result.error }
   }
+
+  publishWorkspaceEvent(args.user.id, { type: KNOWLEDGE_PROPOSALS_CHANGED_EVENT })
 
   return {
     ok: true,

@@ -7,6 +7,8 @@ import {
   findLearningRunForUser,
 } from '@/lib/learning/service'
 import { parseProposalRequest } from '@/lib/learning/validation'
+import { publishWorkspaceEvent } from '@/lib/runtime/workspace-broadcast'
+import { KNOWLEDGE_PROPOSALS_CHANGED_EVENT } from '@/lib/runtime/workspace-broadcast-events'
 import { SYSTEM_KNOWLEDGE_CURATOR_AGENT_ID } from '@/lib/workspace-config'
 
 // A learning run is always executed by the injected system curator, so runId
@@ -70,6 +72,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const status = result.error === 'regeneration_source_not_rebaseable' ? 409 : 400
     return NextResponse.json({ error: result.error }, { status })
   }
+
+  publishWorkspaceEvent(context.userId, { type: KNOWLEDGE_PROPOSALS_CHANGED_EVENT })
 
   return NextResponse.json({ proposal: result.change })
 }

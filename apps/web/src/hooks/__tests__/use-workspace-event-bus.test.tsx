@@ -84,6 +84,8 @@ describe("useWorkspaceEventBus", () => {
     const refreshDiffs = options.refreshDiffs ?? vi.fn();
     const refreshFiles = options.refreshFiles ?? vi.fn(async () => undefined);
     const onBackgroundSessionIdle = options.onBackgroundSessionIdle ?? vi.fn();
+    const onKnowledgeProposalsChanged =
+      options.onKnowledgeProposalsChanged ?? vi.fn();
     const hook = renderHook(() =>
       useWorkspaceEventBus({
         slug: "alice",
@@ -92,9 +94,16 @@ describe("useWorkspaceEventBus", () => {
         refreshDiffs,
         refreshFiles,
         onBackgroundSessionIdle,
+        onKnowledgeProposalsChanged,
       }),
     );
-    return { hook, refreshDiffs, refreshFiles, onBackgroundSessionIdle };
+    return {
+      hook,
+      refreshDiffs,
+      refreshFiles,
+      onBackgroundSessionIdle,
+      onKnowledgeProposalsChanged,
+    };
   }
 
   async function flush() {
@@ -399,6 +408,115 @@ describe("useWorkspaceEventBus", () => {
     });
     expect(refreshDiffs).toHaveBeenCalledTimes(1);
     expect(refreshFiles).toHaveBeenCalledTimes(1);
+  });
+
+  it("coalesces a knowledge.proposals_changed burst into one callback without touching the store", async () => {
+    const stream = createEventStream();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => sseResponse(stream)),
+    );
+
+    const { hook, onKnowledgeProposalsChanged } = renderBus({
+      onKnowledgeProposalsChanged: vi.fn(),
+    });
+    await flush();
+
+    const storeBefore = hook.result.current.store;
+    await act(async () => {
+      stream.sendEvent({ type: "knowledge.proposals_changed" });
+      stream.sendEvent({ type: "knowledge.proposals_changed" });
+      stream.sendEvent({ type: "knowledge.proposals_changed" });
+      await vi.advanceTimersByTimeAsync(499);
+    });
+    expect(onKnowledgeProposalsChanged).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(onKnowledgeProposalsChanged).toHaveBeenCalledTimes(1);
+
+    // The notification never reaches the reducer: no session status, messages,
+    // or permissions state may change because of it.
+    expect(hook.result.current.store.sessionStatus).toEqual({});
+    expect(hook.result.current.store.messages.s1 ?? []).toEqual([]);
+    expect(hook.result.current.store.permissions).toEqual({});
+    expect(hook.result.current.store).toBe(storeBefore);
+  });
+
+  it("fires the knowledge proposals callback on reconnect and keeps reducing runtime events", async () => {
+    const first = createEventStream();
+    const second = createEventStream();
+    let fetchCalls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        fetchCalls += 1;
+        return sseResponse(fetchCalls === 1 ? first : second);
+      }),
+    );
+
+    const { hook, onKnowledgeProposalsChanged } = renderBus({
+      onKnowledgeProposalsChanged: vi.fn(),
+    });
+    await flush();
+    // The initial connect schedules one deferred count refresh.
+    expect(opencodeMocks.listMessagesAction).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      first.end();
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    // Connect-1's debounce fired, and the reconnect hydrated again.
+    expect(onKnowledgeProposalsChanged).toHaveBeenCalledTimes(1);
+    expect(onKnowledgeProposalsChanged).not.toHaveBeenCalledWith(expect.anything());
+    expect(opencodeMocks.listMessagesAction).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      second.sendEvent(busyEvent("s1"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // Runtime events are unaffected by the notification pipeline.
+    expect(isSending(hook.result.current.store, "s1")).toBe(true);
+  });
+
+  it("refreshes the pending count when a notification lands mid-conversation without disturbing streaming parts", async () => {
+    const stream = createEventStream();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => sseResponse(stream)),
+    );
+
+    const { hook, onKnowledgeProposalsChanged } = renderBus({
+      onKnowledgeProposalsChanged: vi.fn(),
+    });
+    await flush();
+
+    await act(async () => {
+      stream.sendEvent(busyEvent("s1"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    await act(async () => {
+      stream.sendEvent({ type: "knowledge.proposals_changed" });
+      stream.sendEvent({
+        type: "message.part.updated",
+        properties: {
+          part: { id: "p1", type: "text", text: "Hola", messageID: "m1", sessionID: "s1" },
+        },
+      });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    // Streaming continues normally while the badge refresh is still debounced.
+    expect(isSending(hook.result.current.store, "s1")).toBe(true);
+    expect(onKnowledgeProposalsChanged).not.toHaveBeenCalled();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    // The notification burst coalesced with the still-pending connect refresh:
+    // a single fetch ran after everything settled.
+    expect(onKnowledgeProposalsChanged).toHaveBeenCalledTimes(1);
   });
 
   it("fires onBackgroundSessionIdle when a non-active session turns idle", async () => {
