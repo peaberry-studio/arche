@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   getE2eFakeProviderUrl: vi.fn(),
   getCanonicalProviderId: vi.fn((id: string) =>
-    ['openai', 'anthropic', 'fireworks', 'huggingface', 'openrouter', 'opencode', 'ollama'].includes(id) ? id : null,
+    ['openai', 'anthropic', 'fireworks', 'huggingface', 'openrouter', 'zai', 'opencode', 'ollama'].includes(id) ? id : null,
   ),
   getEffectiveCredentialForUser: vi.fn(),
   verifyGatewayToken: vi.fn(),
@@ -49,7 +49,7 @@ describe('/api/internal/providers/[provider]/[...path]', () => {
     mocks.checkRateLimit.mockReturnValue({ allowed: true, remaining: 99, resetAt: Date.now() + 60_000 })
     mocks.getRuntimeCapabilities.mockReturnValue({ auth: true })
     mocks.getCanonicalProviderId.mockImplementation((id: string) =>
-      ['openai', 'anthropic', 'fireworks', 'huggingface', 'openrouter', 'opencode', 'ollama'].includes(id) ? id : null,
+      ['openai', 'anthropic', 'fireworks', 'huggingface', 'openrouter', 'zai', 'opencode', 'ollama'].includes(id) ? id : null,
     )
     fetchMock = vi.fn()
     global.fetch = fetchMock

@@ -150,6 +150,7 @@ describe('runtime artifacts', () => {
         fireworks?: { options?: { baseURL?: string } }
         'fireworks-ai'?: { options?: { baseURL?: string } }
         huggingface?: { options?: { baseURL?: string } }
+        zai?: { options?: { baseURL?: string } }
       }
     }
 
@@ -164,6 +165,9 @@ describe('runtime artifacts', () => {
     )
     expect(config.provider?.huggingface?.options?.baseURL).toBe(
       'http://web:3000/api/internal/providers/huggingface'
+    )
+    expect(config.provider?.zai?.options?.baseURL).toBe(
+      'http://web:3000/api/internal/providers/zai'
     )
     expect(config.provider?.ollama).toBeUndefined()
     expect(config.provider?.['opencode-go']).toBeUndefined()
