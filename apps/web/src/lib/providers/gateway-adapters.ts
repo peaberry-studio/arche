@@ -34,6 +34,7 @@ const PROVIDER_BASE_URL: Record<ProviderId, string> = {
   fireworks: 'https://api.fireworks.ai/inference/v1',
   huggingface: 'https://router.huggingface.co/v1',
   openrouter: 'https://openrouter.ai/api/v1',
+  zai: 'https://api.z.ai/api/paas/v4',
   opencode: 'https://opencode.ai/zen/v1',
   'opencode-go': 'https://opencode.ai/zen/go/v1',
   ollama: 'http://127.0.0.1:11434/v1',
@@ -233,6 +234,12 @@ const PROVIDER_ADAPTERS: Record<ProviderId, ProviderGatewayAdapter> = {
     ...DEFAULT_PROVIDER_ADAPTER,
     authScheme: 'bearer',
     baseUrl: staticBaseUrl('openrouter'),
+    extractGatewayToken: extractBearerToken,
+  },
+  zai: {
+    ...DEFAULT_PROVIDER_ADAPTER,
+    authScheme: 'bearer',
+    baseUrl: staticBaseUrl('zai'),
     extractGatewayToken: extractBearerToken,
   },
   opencode: {
