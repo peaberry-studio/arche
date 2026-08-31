@@ -109,13 +109,23 @@ describe("SessionsPanel", () => {
   });
 
   it("groups sessions by date buckets", () => {
-    const now = Date.now();
-    const dayMs = 86_400_000;
-    renderPanel([
-      { id: "today-session", title: "Today chat", status: "idle", updatedAt: "now", updatedAtRaw: now },
-      { id: "yesterday-session", title: "Yesterday chat", status: "idle", updatedAt: "1d", updatedAtRaw: now - dayMs },
-      { id: "old-session", title: "Old chat", status: "idle", updatedAt: "30d", updatedAtRaw: now - 30 * dayMs },
-    ]);
+    // Pin the clock: `now - 30d` must land in the previous calendar month so
+    // it buckets as "Older" regardless of when the suite runs. A real clock
+    // fails on month-boundary days (e.g. on the 31st, 30d back stays in-month
+    // and groups as "This month" instead).
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-06-17T12:00:00Z"));
+      const now = Date.now();
+      const dayMs = 86_400_000;
+      renderPanel([
+        { id: "today-session", title: "Today chat", status: "idle", updatedAt: "now", updatedAtRaw: now },
+        { id: "yesterday-session", title: "Yesterday chat", status: "idle", updatedAt: "1d", updatedAtRaw: now - dayMs },
+        { id: "old-session", title: "Old chat", status: "idle", updatedAt: "30d", updatedAtRaw: now - 30 * dayMs },
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
 
     expect(screen.getByText("Today")).toBeTruthy();
     expect(screen.getByText("Yesterday")).toBeTruthy();
