@@ -15,6 +15,13 @@ import {
 } from '@/lib/connectors/tool-permissions'
 import type { ConnectorType } from '@/lib/connectors/types'
 import { validateConnectorConfig, validateConnectorType } from '@/lib/connectors/validators'
+import {
+  normalizeZendeskActionPermissions,
+} from '@/lib/connectors/zendesk'
+import {
+  ZENDESK_ACTION_KEYS,
+  type ZendeskActionName,
+} from '@/lib/connectors/zendesk-types'
 import { requireCapability } from '@/lib/runtime/require-capability'
 import { withAuth } from '@/lib/runtime/with-auth'
 import { connectorService, userService } from '@/lib/services'
@@ -43,6 +50,28 @@ function fallbackToolsFromStoredPermissions(
     name,
     title: name,
   }))
+}
+
+function toZendeskActionTitle(name: string): string {
+  const formatted = name.replace(/_/g, ' ').trim()
+  return formatted ? formatted.charAt(0).toUpperCase() + formatted.slice(1) : name
+}
+
+// Zendesk policies are canonical action state, not generic tool-permission
+// state: the read path projects the normalized actions so the response can
+// never disagree with Zendesk settings, and writes are rejected so a second,
+// independently editable policy surface cannot exist.
+function buildZendeskToolPermissionsResponse(
+  config: Record<string, unknown>
+): ConnectorToolPermissionsResponse {
+  const actions = normalizeZendeskActionPermissions(config)
+  const tools: ConnectorToolPermissionEntry[] = ZENDESK_ACTION_KEYS.map((action: ZendeskActionName) => ({
+    name: action,
+    title: toZendeskActionTitle(action),
+    permission: actions[action],
+  }))
+
+  return { tools, policyConfigured: true }
 }
 
 async function buildToolPermissionsResponse(input: {
@@ -135,6 +164,10 @@ export const GET = withAuth<
   const context = await getConnectorContext(slug, id)
   if (!context.ok) return context.response
 
+  if (context.connectorType === 'zendesk') {
+    return NextResponse.json(buildZendeskToolPermissionsResponse(context.config))
+  }
+
   return NextResponse.json(
     await buildToolPermissionsResponse({
       connectorType: context.connectorType,
@@ -152,6 +185,16 @@ export const PATCH = withAuth<
 
   const context = await getConnectorContext(slug, id)
   if (!context.ok) return context.response
+
+  if (context.connectorType === 'zendesk') {
+    return NextResponse.json(
+      {
+        error: 'unsupported_connector',
+        message: 'Zendesk tool permissions are managed through Zendesk settings.',
+      },
+      { status: 409 },
+    )
+  }
 
   let body: UpdateConnectorToolPermissionsRequest
   try {

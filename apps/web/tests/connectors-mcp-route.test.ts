@@ -132,8 +132,11 @@ describe('internal connector MCP route', () => {
       'search_tickets',
       'get_ticket',
       'list_ticket_comments',
-      'create_ticket',
-      'update_ticket',
+      'create_ticket_public',
+      'create_ticket_internal',
+      'update_ticket_fields',
+      'update_ticket_with_public_comment',
+      'update_ticket_with_internal_note',
     ])
   })
 
@@ -164,7 +167,8 @@ describe('internal connector MCP route', () => {
       'search_tickets',
       'get_ticket',
       'list_ticket_comments',
-      'update_ticket',
+      'update_ticket_fields',
+      'update_ticket_with_internal_note',
     ])
   })
 
@@ -242,12 +246,10 @@ describe('internal connector MCP route', () => {
         id: 'tool-call-2',
         method: 'tools/call',
         params: {
-          name: 'create_ticket',
+          name: 'create_ticket_public',
           arguments: {
             subject: 'Need help',
             comment: 'The issue is still happening.',
-            requesterEmail: 'external@example.com',
-            requesterName: 'External User',
           },
         },
       },
@@ -270,7 +272,7 @@ describe('internal connector MCP route', () => {
     })
   })
 
-  it('rejects invalid boolean tool arguments instead of coercing them', async () => {
+  it('rejects invalid assignee arguments instead of coercing them', async () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
 
@@ -280,11 +282,10 @@ describe('internal connector MCP route', () => {
         id: 'tool-call-3',
         method: 'tools/call',
         params: {
-          name: 'update_ticket',
+          name: 'update_ticket_fields',
           arguments: {
             ticketId: 42,
-            comment: 'Internal note',
-            publicComment: 'false',
+            assigneeId: 'nope',
           },
         },
       },
@@ -294,23 +295,29 @@ describe('internal connector MCP route', () => {
     expect(JSON.parse(body.result.content[0].text)).toEqual({
       ok: false,
       error: 'invalid_arguments',
-      message: 'publicComment must be a boolean',
+      message: 'assigneeId must be a positive integer',
     })
     expect(body.result.isError).toBe(true)
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  it('rejects public comments when the connector forbids them', async () => {
+  it('rejects direct invocation of a connector-denied action', async () => {
     mockDecryptConfig.mockReturnValueOnce({
       subdomain: 'acme',
       email: 'agent@example.com',
       apiToken: 'token-123',
-      permissions: {
-        allowRead: true,
-        allowCreateTickets: true,
-        allowUpdateTickets: true,
-        allowPublicComments: false,
-        allowInternalComments: true,
+      zendeskActionPermissions: {
+        version: 1,
+        actions: {
+          search_tickets: 'allow',
+          get_ticket: 'allow',
+          list_ticket_comments: 'allow',
+          create_ticket_public: 'deny',
+          create_ticket_internal: 'allow',
+          update_ticket_fields: 'allow',
+          update_ticket_with_public_comment: 'allow',
+          update_ticket_with_internal_note: 'allow',
+        },
       },
     })
 
@@ -323,9 +330,9 @@ describe('internal connector MCP route', () => {
         id: 'tool-call-5',
         method: 'tools/call',
         params: {
-          name: 'update_ticket',
+          name: 'create_ticket_public',
           arguments: {
-            ticketId: 42,
+            subject: 'Need help',
             comment: 'This will notify the requester',
           },
         },
@@ -336,13 +343,13 @@ describe('internal connector MCP route', () => {
     expect(JSON.parse(body.result.content[0].text)).toEqual({
       ok: false,
       error: 'operation_not_allowed',
-      message: 'Public comments are disabled for this Zendesk connector',
+      message: 'This Zendesk action is denied for this connector',
     })
     expect(body.result.isError).toBe(true)
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  it('rejects update_ticket calls without any ticket changes', async () => {
+  it('rejects field-only update calls without any ticket changes', async () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
 
@@ -352,7 +359,7 @@ describe('internal connector MCP route', () => {
         id: 'tool-call-4',
         method: 'tools/call',
         params: {
-          name: 'update_ticket',
+          name: 'update_ticket_fields',
           arguments: {
             ticketId: 42,
           },
@@ -364,7 +371,7 @@ describe('internal connector MCP route', () => {
     expect(JSON.parse(body.result.content[0].text)).toEqual({
       ok: false,
       error: 'invalid_arguments',
-      message: 'At least one ticket field or comment must be provided',
+      message: 'At least one ticket field must be provided',
     })
     expect(body.result.isError).toBe(true)
     expect(fetchMock).not.toHaveBeenCalled()
