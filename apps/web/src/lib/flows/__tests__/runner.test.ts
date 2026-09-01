@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   createInstanceClient: vi.fn(),
   createRun: vi.fn(),
   extendFlowLease: vi.fn(),
+  ensureProviderAccessFreshForExecution: vi.fn(),
   ensureWorkspaceRunningForExecution: vi.fn(),
   findFlowByIdForScope: vi.fn(),
   findRunByIdForScope: vi.fn(),
@@ -46,6 +47,10 @@ vi.mock('@/lib/flows/route-auth', () => ({
 
 vi.mock('@/lib/opencode/client', () => ({
   createInstanceClient: mocks.createInstanceClient,
+}))
+
+vi.mock('@/lib/opencode/providers', () => ({
+  ensureProviderAccessFreshForExecution: mocks.ensureProviderAccessFreshForExecution,
 }))
 
 vi.mock('@/lib/opencode/session-execution', () => ({
@@ -214,6 +219,7 @@ describe('triggerFlowNow', () => {
     mocks.findRunByIdForScope.mockResolvedValue(null)
     mocks.findRunStatusById.mockResolvedValue({ status: FlowRunStatus.running })
     mocks.extendFlowLease.mockResolvedValue({ count: 1 })
+    mocks.ensureProviderAccessFreshForExecution.mockResolvedValue(undefined)
     mocks.ensureWorkspaceRunningForExecution.mockResolvedValue(undefined)
     mocks.markRunFailed.mockResolvedValue({ count: 1 })
     mocks.markRunRunning.mockResolvedValue(undefined)
@@ -347,8 +353,43 @@ describe('triggerFlowNow', () => {
 
     await runClaimedFlow(createClaimedFlow(), FlowRunTrigger.manual)
 
-    expect(mocks.ensureWorkspaceRunningForExecution).toHaveBeenCalledWith('alice', 'user-1')
+    expect(mocks.ensureWorkspaceRunningForExecution).toHaveBeenCalledWith('alice', 'user-1', { forceProviderRefresh: true })
+    expect(mocks.ensureProviderAccessFreshForExecution).toHaveBeenCalledTimes(1)
     expect(mocks.markRunSucceeded).toHaveBeenCalledWith('run-1', expect.objectContaining({ openCodeSessionId: 'session-1' }))
+  })
+
+  it('refreshes provider access before each flow node', async () => {
+    const flow = createClaimedFlow()
+    flow.definition = {
+      edges: [{ id: 'edge-1', sourceNodeId: 'agent-1', targetNodeId: 'agent-2' }],
+      nodes: [
+        { compactOutput: false, id: 'agent-1', name: 'First', promptTemplate: 'First', targetAgentId: null, type: 'agent' },
+        { compactOutput: false, id: 'agent-2', name: 'Second', promptTemplate: 'Second', targetAgentId: null, type: 'agent' },
+      ],
+      startNodeId: 'agent-1',
+      version: 1,
+    }
+    mocks.userFindByIdSelect.mockResolvedValue({ slug: 'alice' })
+    mocks.createRun.mockResolvedValue(createRunRecord())
+
+    await runClaimedFlow(flow, FlowRunTrigger.manual)
+
+    expect(mocks.ensureProviderAccessFreshForExecution).toHaveBeenCalledTimes(2)
+    expect(mocks.ensureProviderAccessFreshForExecution).toHaveBeenCalledWith({ slug: 'alice', userId: 'user-1' })
+    expect(mocks.runFlowPromptAndReadOutput).toHaveBeenCalledTimes(2)
+    expect(mocks.markRunSucceeded).toHaveBeenCalledWith('run-1', expect.objectContaining({ openCodeSessionId: 'session-1' }))
+  })
+
+  it('continues the flow when the between-step provider refresh fails', async () => {
+    mocks.userFindByIdSelect.mockResolvedValue({ slug: 'alice' })
+    mocks.createRun.mockResolvedValue(createRunRecord())
+    mocks.ensureProviderAccessFreshForExecution.mockRejectedValue(new Error('instance_unavailable'))
+
+    await runClaimedFlow(createClaimedFlow(), FlowRunTrigger.manual)
+
+    expect(mocks.runFlowPromptAndReadOutput).toHaveBeenCalledTimes(1)
+    expect(mocks.markRunSucceeded).toHaveBeenCalledWith('run-1', expect.objectContaining({ openCodeSessionId: 'session-1' }))
+    expect(mocks.markRunFailed).not.toHaveBeenCalled()
   })
 
   it('keeps the flow run and lease active when runtime termination is unconfirmed', async () => {
@@ -383,7 +424,7 @@ describe('triggerFlowNow', () => {
       scheduledFor: now,
       trigger: FlowRunTrigger.manual,
     })
-    await vi.waitFor(() => expect(mocks.ensureWorkspaceRunningForExecution).toHaveBeenCalledWith('bob', 'user-2'))
+    await vi.waitFor(() => expect(mocks.ensureWorkspaceRunningForExecution).toHaveBeenCalledWith('bob', 'user-2', { forceProviderRefresh: true }))
     await vi.waitFor(() => expect(mocks.runFlowPromptAndReadOutput).toHaveBeenCalledWith(expect.objectContaining({
       slug: 'bob',
       userId: 'user-2',
@@ -905,7 +946,7 @@ describe('triggerFlowNow', () => {
       .resolves.toMatchObject({ ok: true, run: { id: 'run-1' } })
 
     await vi.waitFor(() => expect(mocks.markRunSucceeded).toHaveBeenCalledWith('run-1', expect.objectContaining({ openCodeSessionId: 'session-1' })))
-    expect(mocks.ensureWorkspaceRunningForExecution).toHaveBeenCalledWith('alice', 'user-1')
+    expect(mocks.ensureWorkspaceRunningForExecution).toHaveBeenCalledWith('alice', 'user-1', { forceProviderRefresh: true })
   })
 
   it('keeps a resumed flow run and lease active when termination is unconfirmed', async () => {

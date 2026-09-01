@@ -19,6 +19,7 @@ import {
 import type { FlowDefinition } from '@/lib/flows/types'
 import { validateFlowDefinition } from '@/lib/flows/validation'
 import { createInstanceClient } from '@/lib/opencode/client'
+import { ensureProviderAccessFreshForExecution } from '@/lib/opencode/providers'
 import {
   ensureWorkspaceRunningForExecution,
   type SessionExecutionClient,
@@ -139,6 +140,23 @@ async function executeFlowNodes(params: {
 
     if (!await hasActiveFlowLease(params.flow.id, params.leaseOwner)) {
       return { status: 'failed', error: 'flow_lease_lost' }
+    }
+
+    // Gateway tokens carry a short TTL, so multi-step flows must not carry an
+    // aged token into the next step. The flow's own message run is finalized
+    // between steps, so this only defers when an unrelated run is active — the
+    // case where a concurrent sync (which disposes the instance) must not run.
+    try {
+      await ensureProviderAccessFreshForExecution({
+        slug: params.slug,
+        userId: params.executionUserId,
+      })
+    } catch (error) {
+      console.warn('[flows] Failed to refresh provider access between steps', {
+        error: error instanceof Error ? error.message : String(error),
+        flowId: params.flow.id,
+        runId: params.run.id,
+      })
     }
 
     visitedNodeIds.add(currentNodeId)
@@ -408,7 +426,10 @@ async function executeClaimedFlowRun(
       return
     }
 
-    await ensureWorkspaceRunningForExecution(slug, executionUserId)
+    // Force a token refresh at flow start: a scheduled flow can begin long
+    // after the last interactive sync, and would otherwise inherit a gateway
+    // token with too little TTL left to cover the first step.
+    await ensureWorkspaceRunningForExecution(slug, executionUserId, { forceProviderRefresh: true })
     await instanceService.touchActivity(slug).catch(() => undefined)
 
     const client = await createInstanceClient(slug)
@@ -617,7 +638,7 @@ async function resumeClaimedFlowRun(params: {
       return
     }
 
-    await ensureWorkspaceRunningForExecution(slug, executionUserId)
+    await ensureWorkspaceRunningForExecution(slug, executionUserId, { forceProviderRefresh: true })
     const client = await createInstanceClient(slug)
     if (!client) throw new Error('instance_unavailable')
 

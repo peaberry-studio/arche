@@ -576,6 +576,22 @@ describe('session execution helpers', () => {
     })
   })
 
+  it('forces a provider refresh on a running workspace when requested', async () => {
+    const { ensureProviderAccessFreshForExecution } = await import('@/lib/opencode/providers')
+    const { getWorkspaceStatus } = await import('@/lib/runtime/workspace-host')
+
+    vi.mocked(getWorkspaceStatus).mockResolvedValue({ status: 'running' } as never)
+
+    const { ensureWorkspaceRunningForExecution } = await import('../session-execution')
+    await ensureWorkspaceRunningForExecution('slack-bot', 'user-1', { forceProviderRefresh: true })
+
+    expect(ensureProviderAccessFreshForExecution).toHaveBeenCalledWith({
+      slug: 'slack-bot',
+      userId: 'user-1',
+      force: true,
+    })
+  })
+
   it('refreshes provider access after a workspace finishes starting', async () => {
     vi.useFakeTimers()
 
