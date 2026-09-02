@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 
 import { ClockCountdown, ClockCounterClockwise, DotsThreeVertical, DownloadSimple, GitBranch, PencilSimple, Play, SpinnerGap, TreeStructure } from '@phosphor-icons/react'
 
@@ -17,12 +16,15 @@ import { getFlowErrorMessage } from '@/lib/flows/errors'
 import type { FlowListItem } from '@/lib/flows/types'
 import { cn } from '@/lib/utils'
 
+// While any visible flow has an active run, refresh the list quietly so the
+// badges track the run without leaving the page.
+const ACTIVE_RUN_REFRESH_INTERVAL_MS = 5000
+
 type FlowsPageProps = {
   buildCreateHref?: () => string
   buildEditHref?: (flowId: string) => string
   buildHistoryHref?: (flowId: string) => string
   hideHeader?: boolean
-  navigateToHistoryOnRun?: boolean
   slug: string
 }
 
@@ -44,16 +46,15 @@ function getRunBadgeLabel(flow: FlowListItem): string {
   return 'Last run failed'
 }
 
-export function FlowsPage({ buildCreateHref, buildEditHref, buildHistoryHref, hideHeader = false, navigateToHistoryOnRun = false, slug }: FlowsPageProps) {
-  const router = useRouter()
+export function FlowsPage({ buildCreateHref, buildEditHref, buildHistoryHref, hideHeader = false, slug }: FlowsPageProps) {
   const [flows, setFlows] = useState<FlowListItem[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [runningFlowId, setRunningFlowId] = useState<string | null>(null)
 
-  const loadFlows = useCallback(async () => {
-    setIsLoading(true)
+  const loadFlows = useCallback(async (options: { silent?: boolean } = {}) => {
+    if (!options.silent) setIsLoading(true)
     setLoadError(null)
     try {
       const result = await fetchFlowList(slug)
@@ -66,7 +67,7 @@ export function FlowsPage({ buildCreateHref, buildEditHref, buildHistoryHref, hi
     } catch {
       setLoadError('network_error')
     } finally {
-      setIsLoading(false)
+      if (!options.silent) setIsLoading(false)
     }
   }, [slug])
 
@@ -90,18 +91,13 @@ export function FlowsPage({ buildCreateHref, buildEditHref, buildHistoryHref, hi
         return
       }
 
-      if (navigateToHistoryOnRun) {
-        router.push(getHistoryHref(flowId))
-        return
-      }
-
       await loadFlows()
     } catch {
       setActionError('network_error')
     } finally {
       setRunningFlowId(null)
     }
-  }, [getHistoryHref, loadFlows, navigateToHistoryOnRun, router, slug])
+  }, [loadFlows, slug])
 
   useEffect(() => {
     let cancelled = false
@@ -138,6 +134,20 @@ export function FlowsPage({ buildCreateHref, buildEditHref, buildHistoryHref, hi
   const sortedFlows = useMemo(() => [...flows].sort((left, right) => left.name.localeCompare(right.name)), [flows])
   const myFlows = useMemo(() => sortedFlows.filter((flow) => flow.permissions.isOwner), [sortedFlows])
   const teamFlows = useMemo(() => sortedFlows.filter((flow) => !flow.permissions.isOwner), [sortedFlows])
+  const hasActiveRun = useMemo(
+    () => flows.some((flow) => flow.latestRun?.status === 'running' || flow.latestRun?.status === 'waiting_for_human'),
+    [flows],
+  )
+
+  useEffect(() => {
+    if (!hasActiveRun) return
+
+    const interval = setInterval(() => {
+      void loadFlows({ silent: true })
+    }, ACTIVE_RUN_REFRESH_INTERVAL_MS)
+
+    return () => clearInterval(interval)
+  }, [hasActiveRun, loadFlows])
 
   function renderFlowGrid(items: FlowListItem[]) {
     return (

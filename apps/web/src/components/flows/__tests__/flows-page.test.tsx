@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 import { FlowRunStatus, FlowRunTrigger } from '@prisma/client'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { FlowsPage } from '@/components/flows/flows-page'
@@ -175,14 +175,46 @@ describe('FlowsPage', () => {
     expect(screen.getByText('Running')).toBeTruthy()
   })
 
-  it('runs flows from the desktop list and navigates to history', async () => {
-    render(<FlowsPage slug="alice" navigateToHistoryOnRun />)
-    await waitFor(() => expect(screen.getByText('Weekly Review')).toBeTruthy())
+  it('keeps the list in place after a run and refreshes it silently while the run is active', async () => {
+    const pollCallbacks: Array<() => void> = []
+    const setIntervalSpy = vi.spyOn(global, 'setInterval').mockImplementation(((callback: () => void) => {
+      pollCallbacks.push(callback)
+      return 0 as unknown as ReturnType<typeof setInterval>
+    }) as typeof setInterval)
+    const clearIntervalSpy = vi.spyOn(global, 'clearInterval').mockImplementation(() => undefined)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Run' }))
-    await waitFor(() => expect(clientMocks.runFlowRequest).toHaveBeenCalledWith('alice', 'flow-1'))
-    expect(clientMocks.push).toHaveBeenCalledWith('/u/alice/flows/flow-1/runs')
-    expect(clientMocks.fetchFlowList).toHaveBeenCalledTimes(1)
+    try {
+      clientMocks.fetchFlowList
+        .mockResolvedValueOnce({ ok: true, data: { flows: [createFlow()] } })
+        .mockResolvedValueOnce({ ok: true, data: { flows: [createFlow({ latestRun: createRun(FlowRunStatus.running) })] } })
+        .mockResolvedValue({ ok: true, data: { flows: [createFlow({ latestRun: createRun(FlowRunStatus.succeeded) })] } })
+
+      render(<FlowsPage slug="alice" />)
+      await waitFor(() => expect(screen.getByText('Weekly Review')).toBeTruthy())
+
+      fireEvent.click(screen.getByRole('button', { name: 'Run' }))
+      await waitFor(() => expect(clientMocks.runFlowRequest).toHaveBeenCalledWith('alice', 'flow-1'))
+      await waitFor(() => expect(clientMocks.fetchFlowList).toHaveBeenCalledTimes(2))
+
+      // Active run registered a silent poll (StrictMode may register the
+      // effect twice); firing the latest one refreshes without mounting the
+      // loader or navigating away.
+      expect(pollCallbacks.length).toBeGreaterThan(0)
+      await act(async () => {
+        pollCallbacks[pollCallbacks.length - 1]!()
+      })
+      await waitFor(() => expect(clientMocks.fetchFlowList).toHaveBeenCalledTimes(3))
+
+      expect(clientMocks.push).not.toHaveBeenCalled()
+      expect(screen.getByText('Weekly Review')).toBeTruthy()
+      expect(screen.queryByText('Loading flows...')).toBeNull()
+
+      // Once no run is active, the poll tears itself down.
+      expect(clearIntervalSpy).toHaveBeenCalled()
+    } finally {
+      setIntervalSpy.mockRestore()
+      clearIntervalSpy.mockRestore()
+    }
   })
 
   it('shows action errors from run and network failures', async () => {
