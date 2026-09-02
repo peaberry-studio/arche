@@ -142,21 +142,28 @@ async function executeFlowNodes(params: {
       return { status: 'failed', error: 'flow_lease_lost' }
     }
 
-    // Gateway tokens carry a short TTL, so multi-step flows must not carry an
-    // aged token into the next step. The flow's own message run is finalized
-    // between steps, so this only defers when an unrelated run is active — the
-    // case where a concurrent sync (which disposes the instance) must not run.
-    try {
-      await ensureProviderAccessFreshForExecution({
-        slug: params.slug,
-        userId: params.executionUserId,
-      })
-    } catch (error) {
-      console.warn('[flows] Failed to refresh provider access between steps', {
-        error: error instanceof Error ? error.message : String(error),
-        flowId: params.flow.id,
-        runId: params.run.id,
-      })
+    // Force a token refresh between steps so each step after the first starts
+    // with the full gateway-token TTL: flow steps run for minutes, so a
+    // freshness-threshold check here would skip until the token is nearly
+    // expired and hand the next step a token that dies mid-step. The first
+    // iteration is exempt — the run entry points already force a fresh sync
+    // before the loop starts. The flow's own message run is finalized between
+    // steps, so this only defers when an unrelated run is active — the case
+    // where a concurrent sync (which disposes the instance) must not run.
+    if (visitedNodeIds.size > 0) {
+      try {
+        await ensureProviderAccessFreshForExecution({
+          slug: params.slug,
+          userId: params.executionUserId,
+          force: true,
+        })
+      } catch (error) {
+        console.warn('[flows] Failed to refresh provider access between steps', {
+          error: error instanceof Error ? error.message : String(error),
+          flowId: params.flow.id,
+          runId: params.run.id,
+        })
+      }
     }
 
     visitedNodeIds.add(currentNodeId)

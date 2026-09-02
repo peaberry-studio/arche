@@ -20,12 +20,12 @@ A flow run SHALL refresh provider access when it starts on an already-running wo
 
 ### Requirement: Provider access is refreshed at flow step boundaries
 
-A flow run SHALL attempt a provider-access refresh before each step executes, after the run's cancellation and lease checks for that step. Because a flow's own message run is finalized between steps, the refresh SHALL defer only when an unrelated run is active in the workspace. A failed step-boundary refresh SHALL NOT fail the flow run; authentication failures surface from the step execution itself.
+A flow run SHALL force a provider-access refresh before each step after the first executes — after the run's cancellation and lease checks for that step — so every step begins with a gateway token carrying the full configured TTL. Flow steps run for minutes, so a freshness-threshold check at a boundary would skip until the token is nearly expired and hand the next step a token that dies mid-step. The first step of an execution is exempt because the run's entry refresh has just re-issued tokens. Because a flow's own message run is finalized between steps, the forced refresh SHALL defer only when an unrelated run is active in the workspace. A failed step-boundary refresh SHALL NOT fail the flow run; authentication failures surface from the step execution itself.
 
 #### Scenario: Multi-step flow crosses the token TTL
 
 - **WHEN** a flow runs longer than the gateway token TTL and reaches a step boundary
-- **THEN** provider access is refreshed before the next step starts and the next step's gateway calls succeed
+- **THEN** provider access is force-refreshed before the next step starts and the next step's gateway calls succeed
 
 #### Scenario: Boundary refresh fails
 

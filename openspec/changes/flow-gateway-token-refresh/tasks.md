@@ -7,6 +7,7 @@
 ## 2. Step-boundary refresh
 
 - [x] 2.1 In `executeFlowNodes` in `apps/web/src/lib/flows/runner.ts`, call `ensureProviderAccessFreshForExecution` before each node executes, after the cancellation and lease checks; catch and warn on failure without failing the run. Verify with `runner.test.ts` cases: one refresh per node in a two-node flow, and the run still succeeds when the refresh rejects.
+- [x] 2.2 Force the boundary refresh (`force: true`) except on the first loop iteration, which the entry-point refresh already covers. A threshold-based boundary check skips while the sync is young and cannot keep multi-minute steps inside the token TTL (2026-09-02 incident: an 11-minute step failed at expiry after two skipped boundaries). Verify with updated `runner.test.ts` cases: the boundary call carries `force: true`, a single-node flow makes no boundary call, and the run still succeeds when the forced refresh rejects.
 
 ## 3. Retryable gateway auth failures
 

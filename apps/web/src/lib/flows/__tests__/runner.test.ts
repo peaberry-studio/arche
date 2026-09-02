@@ -354,11 +354,13 @@ describe('triggerFlowNow', () => {
     await runClaimedFlow(createClaimedFlow(), FlowRunTrigger.manual)
 
     expect(mocks.ensureWorkspaceRunningForExecution).toHaveBeenCalledWith('alice', 'user-1', { forceProviderRefresh: true })
-    expect(mocks.ensureProviderAccessFreshForExecution).toHaveBeenCalledTimes(1)
+    // Single-node flow: the first iteration is exempt because the forced
+    // entry-point sync above already re-issued tokens.
+    expect(mocks.ensureProviderAccessFreshForExecution).not.toHaveBeenCalled()
     expect(mocks.markRunSucceeded).toHaveBeenCalledWith('run-1', expect.objectContaining({ openCodeSessionId: 'session-1' }))
   })
 
-  it('refreshes provider access before each flow node', async () => {
+  it('forces a provider access refresh between flow nodes', async () => {
     const flow = createClaimedFlow()
     flow.definition = {
       edges: [{ id: 'edge-1', sourceNodeId: 'agent-1', targetNodeId: 'agent-2' }],
@@ -374,20 +376,30 @@ describe('triggerFlowNow', () => {
 
     await runClaimedFlow(flow, FlowRunTrigger.manual)
 
-    expect(mocks.ensureProviderAccessFreshForExecution).toHaveBeenCalledTimes(2)
-    expect(mocks.ensureProviderAccessFreshForExecution).toHaveBeenCalledWith({ slug: 'alice', userId: 'user-1' })
+    expect(mocks.ensureProviderAccessFreshForExecution).toHaveBeenCalledTimes(1)
+    expect(mocks.ensureProviderAccessFreshForExecution).toHaveBeenCalledWith({ slug: 'alice', userId: 'user-1', force: true })
     expect(mocks.runFlowPromptAndReadOutput).toHaveBeenCalledTimes(2)
     expect(mocks.markRunSucceeded).toHaveBeenCalledWith('run-1', expect.objectContaining({ openCodeSessionId: 'session-1' }))
   })
 
   it('continues the flow when the between-step provider refresh fails', async () => {
+    const flow = createClaimedFlow()
+    flow.definition = {
+      edges: [{ id: 'edge-1', sourceNodeId: 'agent-1', targetNodeId: 'agent-2' }],
+      nodes: [
+        { compactOutput: false, id: 'agent-1', name: 'First', promptTemplate: 'First', targetAgentId: null, type: 'agent' },
+        { compactOutput: false, id: 'agent-2', name: 'Second', promptTemplate: 'Second', targetAgentId: null, type: 'agent' },
+      ],
+      startNodeId: 'agent-1',
+      version: 1,
+    }
     mocks.userFindByIdSelect.mockResolvedValue({ slug: 'alice' })
     mocks.createRun.mockResolvedValue(createRunRecord())
     mocks.ensureProviderAccessFreshForExecution.mockRejectedValue(new Error('instance_unavailable'))
 
-    await runClaimedFlow(createClaimedFlow(), FlowRunTrigger.manual)
+    await runClaimedFlow(flow, FlowRunTrigger.manual)
 
-    expect(mocks.runFlowPromptAndReadOutput).toHaveBeenCalledTimes(1)
+    expect(mocks.runFlowPromptAndReadOutput).toHaveBeenCalledTimes(2)
     expect(mocks.markRunSucceeded).toHaveBeenCalledWith('run-1', expect.objectContaining({ openCodeSessionId: 'session-1' }))
     expect(mocks.markRunFailed).not.toHaveBeenCalled()
   })
