@@ -43,3 +43,14 @@ The flows UI SHALL offer a stop control for a flow whose latest run is active (`
 #### Scenario: Cancel permission is enforced by the API
 - **WHEN** a user without permission to cancel the run invokes the stop action
 - **THEN** the cancel endpoint rejects the request and the UI surfaces the error
+
+### Requirement: Cancelling or recovering a run settles its in-flight steps
+When a run is cancelled or recovered as stale, its step records that are still `pending`, `running`, or `waiting_for_human` SHALL be settled to `failed` with the corresponding error (`flow_run_cancelled` / `flow_run_stale_recovered`). Already-final step records SHALL be left untouched. Step settling SHALL happen in the same service operation that settles the run, because the runner never revisits step rows after cancellation and stale runs have no living runner.
+
+#### Scenario: Stop leaves no spinning step
+- **WHEN** a user cancels an active run whose current step is `running`
+- **THEN** the step record is settled to `failed` with error `flow_run_cancelled` and the run history no longer renders it as in-flight
+
+#### Scenario: Recovery settles orphaned steps
+- **WHEN** stale-run recovery marks orphaned `running` runs as failed
+- **THEN** the in-flight steps of those runs are settled in the same tick

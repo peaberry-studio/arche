@@ -12,6 +12,7 @@
 - [x] 3.1 `apps/web/src/components/flows/flows-page.tsx`: when the user can run the flow and its latest run is `running` or `waiting_for_human`, replace the Run button with a destructive Stop button that calls `cancelFlowRunRequest` and reloads the list on success.
 - [x] 3.2 `apps/web/src/components/flows/flow-run-history-view.tsx`: while the flow has an active run (`running` or `waiting_for_human`), swap the "Run flow" header button for the Stop button wired to the same cancel call.
 - [x] 3.3 `apps/web/src/components/flows/flow-run-history.tsx`: add a Stop button to `running` run cards for the execution user, keeping `waiting_for_human` cards on their existing human-response cancel affordance.
+- [x] 3.4 Settle in-flight step records when a run is cancelled (`cancelRunByIdForScope`/`cancelRunById` in `apps/web/src/lib/services/flow-runs.ts`) and when stale runs are recovered (`recoverStaleRunningRuns` in `apps/web/src/lib/services/flow-leases.ts`) — the runner never revisits step rows after cancellation, so the run history spun on `running` steps forever after a stop. Verify with `src/lib/services/__tests__/flow.test.ts` cases: cancel settles `pending`/`running`/`waiting_for_human` steps with `flow_run_cancelled`, an already-settled run leaves steps untouched, and recovery settles orphaned steps in the same tick.
 
 ## 4. Final verification
 

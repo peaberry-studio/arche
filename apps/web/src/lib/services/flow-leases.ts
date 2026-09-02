@@ -1,4 +1,4 @@
-import { FlowRunStatus } from '@prisma/client'
+import { FlowRunStatus, FlowRunStepStatus } from '@prisma/client'
 
 import { prisma } from '@/lib/prisma'
 import {
@@ -40,6 +40,24 @@ export async function recoverStaleRunningRuns(now: Date): Promise<number> {
       status: FlowRunStatus.running,
     },
   })
+
+  // The runner that owned these runs is gone, so nothing else settles their
+  // in-flight steps; the run history would spin on them forever.
+  if (result.count > 0) {
+    await prisma.flowRunStep.updateMany({
+      data: {
+        error: 'flow_run_stale_recovered',
+        finishedAt: now,
+        status: FlowRunStepStatus.failed,
+      },
+      where: {
+        run: { error: 'flow_run_stale_recovered', finishedAt: now },
+        status: {
+          in: [FlowRunStepStatus.pending, FlowRunStepStatus.running, FlowRunStepStatus.waiting_for_human],
+        },
+      },
+    })
+  }
 
   return result.count
 }
