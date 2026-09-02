@@ -1,3 +1,5 @@
+import type { ConnectorToolPermissionMap } from '@/lib/connectors/tool-permissions'
+
 export const ZENDESK_CONNECTOR_PERMISSION_KEYS = [
   'allowRead',
   'allowCreateTickets',
@@ -27,14 +29,48 @@ export type ZendeskConnectorConfig = {
   email: string
   apiToken: string
   permissions: ZendeskConnectorPermissions
+  zendeskActionPermissions?: ZendeskActionPermissions
+  storedToolPermissions?: ConnectorToolPermissionMap
 }
 
-export type ZendeskToolName =
-  | 'search_tickets'
-  | 'get_ticket'
-  | 'list_ticket_comments'
-  | 'create_ticket'
-  | 'update_ticket'
+export const ZENDESK_ACTION_PERMISSIONS_CONFIG_KEY = 'zendeskActionPermissions'
+
+export const ZENDESK_ACTION_PERMISSIONS_VERSION = 1 as const
+
+export const ZENDESK_ACTION_KEYS = [
+  'search_tickets',
+  'get_ticket',
+  'list_ticket_comments',
+  'create_ticket_public',
+  'create_ticket_internal',
+  'update_ticket_fields',
+  'update_ticket_with_public_comment',
+  'update_ticket_with_internal_note',
+] as const
+
+export type ZendeskActionName = (typeof ZENDESK_ACTION_KEYS)[number]
+
+export type ZendeskActionPolicy = 'deny' | 'ask' | 'allow'
+
+export type ZendeskActionPermissions = Record<ZendeskActionName, ZendeskActionPolicy>
+
+export const DEFAULT_ZENDESK_ACTION_PERMISSIONS: ZendeskActionPermissions = {
+  search_tickets: 'allow',
+  get_ticket: 'allow',
+  list_ticket_comments: 'allow',
+  create_ticket_public: 'allow',
+  create_ticket_internal: 'allow',
+  update_ticket_fields: 'allow',
+  update_ticket_with_public_comment: 'allow',
+  update_ticket_with_internal_note: 'allow',
+}
+
+export type ZendeskActionPermissionsConfig = {
+  version: typeof ZENDESK_ACTION_PERMISSIONS_VERSION
+  actions: ZendeskActionPermissions
+}
+
+export type ZendeskToolName = ZendeskActionName
 
 export type ZendeskMcpTextContent = {
   type: 'text'

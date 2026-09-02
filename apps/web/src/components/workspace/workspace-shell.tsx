@@ -740,6 +740,7 @@ export function WorkspaceShell({
       skills={skillsCatalog.skills}
       messages={uiMessages}
       permissions={workspace.permissions}
+      permissionToolParts={workspace.permissionToolParts}
       activeSessionId={workspace.activeSessionId}
       isInitialSessionsReady={workspace.isInitialSessionsReady}
       isLoadingMessages={workspace.isLoadingMessages}

@@ -4,4 +4,5 @@ export { useWorkspaceActiveSessionEffects } from "@/hooks/workspace/use-workspac
 export { useWorkspaceFlowSeenEffect } from "@/hooks/workspace/use-workspace-flow-seen-effect";
 export { useWorkspaceConfigRefreshEffect } from "@/hooks/workspace/use-workspace-config-refresh-effect";
 export { useWorkspaceInitialRefreshEffect } from "@/hooks/workspace/use-workspace-initial-refresh-effect";
+export { useWorkspacePermissionMessagesEffect } from "@/hooks/workspace/use-workspace-permission-messages-effect";
 export { useWorkspacePollingEffect } from "@/hooks/workspace/use-workspace-polling-effect";

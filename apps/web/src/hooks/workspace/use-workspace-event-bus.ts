@@ -142,8 +142,9 @@ export function useWorkspaceEventBus({
   );
 
   const hydrateSessionMessages = useCallback(
-    async (sessionId: string) => {
-      setIsLoadingMessages(true);
+    async (sessionId: string, options?: { trackLoading?: boolean }) => {
+      const trackLoading = options?.trackLoading !== false;
+      if (trackLoading) setIsLoadingMessages(true);
       const statusBefore = getStore().sessionStatus[sessionId];
       try {
         const result = await listMessagesAction(slug, sessionId);
@@ -164,7 +165,7 @@ export function useWorkspaceEventBus({
           });
         }
       } finally {
-        setIsLoadingMessages(false);
+        if (trackLoading) setIsLoadingMessages(false);
       }
     },
     [slug, mergeHydratedMessages, getStore, commitStore],
@@ -326,6 +327,7 @@ export function useWorkspaceEventBus({
     commitStore,
     isLoadingMessages,
     isBusConnected,
+    hydrateSessionMessages,
     refreshMessages,
     updateMessages,
     setSessionStatus,

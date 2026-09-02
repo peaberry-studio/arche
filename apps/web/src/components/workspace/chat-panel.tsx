@@ -58,6 +58,7 @@ import { useAgentMentionAutocomplete } from "@/hooks/use-agent-mention-autocompl
 import type { SkillListItem } from "@/hooks/use-skills-catalog";
 import type { AgentCatalogItem } from "@/hooks/use-workspace";
 import type { WorkspacePermission } from "@/lib/opencode/permission";
+import type { ResolvedPermissionToolPart } from "@/lib/opencode/permission-tool-parts";
 import type { AvailableModel, PermissionResponse } from "@/lib/opencode/types";
 import { getDesktopPlatform, getOptionalDesktopBridge } from "@/lib/runtime/desktop/client";
 import {
@@ -88,6 +89,7 @@ type ChatPanelProps = {
   skills?: SkillListItem[];
   messages: ChatMessage[];
   permissions?: WorkspacePermission[];
+  permissionToolParts?: Record<string, ResolvedPermissionToolPart>;
   activeSessionId: string | null;
   sessionTabs?: SessionTabInfo[];
   openFilePaths: string[];
@@ -140,6 +142,7 @@ const EMPTY_AGENTS: AgentCatalogItem[] = [];
 const EMPTY_CONTEXT_FILE_PATHS: string[] = [];
 const EMPTY_MODELS: AvailableModel[] = [];
 const EMPTY_PERMISSIONS: WorkspacePermission[] = [];
+const EMPTY_PERMISSION_TOOL_PARTS: Record<string, ResolvedPermissionToolPart> = {};
 const EMPTY_SESSION_TABS: SessionTabInfo[] = [];
 const EMPTY_SKILLS: SkillListItem[] = [];
 
@@ -211,6 +214,7 @@ export function ChatPanel({
   skills = EMPTY_SKILLS,
   messages,
   permissions = EMPTY_PERMISSIONS,
+  permissionToolParts = EMPTY_PERMISSION_TOOL_PARTS,
   activeSessionId,
   sessionTabs = EMPTY_SESSION_TABS,
   openFilePaths,
@@ -1163,6 +1167,7 @@ export function ChatPanel({
         isStreaming={isSending}
         messages={messages}
         permissions={permissions}
+        permissionToolParts={permissionToolParts}
         messagesEndRef={messagesEndRef}
         onOpenFile={onOpenFile}
         onAnswerPermission={isReadOnly ? undefined : onAnswerPermission}
