@@ -318,6 +318,42 @@ describe('syncProviderAccessForInstance', () => {
     expect(mockGetInstanceBasicAuth).not.toHaveBeenCalled()
   })
 
+  it('forces a refresh even when the running instance matches the expected hash', async () => {
+    mockGetEnabledCredentials.mockResolvedValue(enabledCredentials([
+      ['openai', { credentialId: 'org-1', source: 'organization', version: 3 }],
+    ]))
+
+    mockInstanceService.findProviderSyncBySlug.mockResolvedValue({
+      providerSyncHash: await getProviderSyncHashForUser('user-1'),
+      providerSyncedAt: new Date(),
+      status: 'running',
+    })
+
+    await ensureProviderAccessFreshForExecution({ slug: 'alice', userId: 'user-1', force: true })
+
+    expect(mockGetInstanceBasicAuth).toHaveBeenCalledWith('alice')
+  })
+
+  it('still defers a forced refresh while the workspace has active runs', async () => {
+    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    mockGetEnabledCredentials.mockResolvedValue(enabledCredentials([
+      ['openai', { credentialId: 'org-1', source: 'organization', version: 3 }],
+    ]))
+    mockInstanceService.findProviderSyncBySlug.mockResolvedValue({
+      providerSyncHash: await getProviderSyncHashForUser('user-1'),
+      providerSyncedAt: new Date(),
+      status: 'running',
+    })
+    mockMessageRunService.hasActiveRunForSlug.mockResolvedValue(true)
+
+    await ensureProviderAccessFreshForExecution({ slug: 'alice', userId: 'user-1', force: true })
+
+    expect(mockGetInstanceBasicAuth).not.toHaveBeenCalled()
+    expect(mockInstanceService.setProviderSyncState).not.toHaveBeenCalled()
+
+    consoleWarnSpy.mockRestore()
+  })
+
   it('refreshes provider access when the sync record is stale by age', async () => {
     mockGetEnabledCredentials.mockResolvedValue(enabledCredentials([
       ['openai', { credentialId: 'org-1', source: 'organization', version: 3 }],

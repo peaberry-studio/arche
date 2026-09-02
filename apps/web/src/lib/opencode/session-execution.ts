@@ -302,10 +302,16 @@ function inspectSessionOutcome(
   return null
 }
 
-export async function ensureWorkspaceRunningForExecution(slug: string, userId: string): Promise<void> {
+export async function ensureWorkspaceRunningForExecution(
+  slug: string,
+  userId: string,
+  options: { forceProviderRefresh?: boolean } = {},
+): Promise<void> {
   const current = await getWorkspaceStatus(slug)
   if (current?.status === 'running') {
-    await ensureProviderAccessFreshForExecution({ slug, userId })
+    // Only the already-running path honors the flag: a freshly started
+    // workspace was just synced, so it has no aged token to refresh.
+    await ensureProviderAccessFreshForExecution({ slug, userId, force: options.forceProviderRefresh })
     return
   }
 

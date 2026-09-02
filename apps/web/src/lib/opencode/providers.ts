@@ -86,12 +86,17 @@ export async function ensureProviderAccessFreshForExecution(args: {
   slug: string
   userId: string
   ignoreActiveRunId?: string
+  // Flow runs force a refresh at start so they never inherit a partially aged
+  // gateway token from earlier interactive activity. The active-run deferral
+  // below still applies, so a concurrent generation is never aborted.
+  force?: boolean
 }): Promise<void> {
   await withProviderSyncLock(args.slug, async () => {
     const expectedHash = await getProviderSyncHashForUser(args.userId)
     const current = await instanceService.findProviderSyncBySlug(args.slug)
 
     if (
+      !args.force &&
       current?.status === 'running' &&
       !shouldRefreshProviderAccess({
         expectedHash,
