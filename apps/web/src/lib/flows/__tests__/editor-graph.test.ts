@@ -93,6 +93,30 @@ describe('flow editor graph helpers', () => {
     })
   })
 
+  it('remaps a fork join when the join node is renamed', () => {
+    const flow: FlowDefinition = {
+      edges: [
+        { id: 'edge-1', sourceNodeId: 'fork-1', targetNodeId: 'agent-2' },
+        { id: 'edge-2', sourceNodeId: 'agent-2', targetNodeId: 'merge-1' },
+      ],
+      layout: undefined,
+      nodes: [
+        { id: 'fork-1', joinNodeId: 'merge-1', name: 'Fan out', type: 'fork' },
+        { compactOutput: false, id: 'agent-2', name: 'Agent', promptTemplate: 'Work', targetAgentId: null, type: 'agent' },
+        { id: 'merge-1', name: 'Collect', type: 'merge' },
+      ],
+      startNodeId: 'fork-1',
+      version: 1,
+    }
+    const mergeNode = flow.nodes[2]!
+
+    const result = updateFlowDefinitionNode(flow, { ...mergeNode, name: 'Collect results' })
+
+    expect(result?.nodeId).toBe('collect-results')
+    const fork = result?.definition.nodes[0]
+    expect(fork?.type === 'fork' && fork.joinNodeId).toBe('collect-results')
+  })
+
   it('renames condition targets and template references across node types', () => {
     const flow: FlowDefinition = {
       edges: [
