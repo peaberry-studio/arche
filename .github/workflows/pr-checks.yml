@@ -3,16 +3,34 @@ name: PR Checks
 on:
   pull_request:
     branches: [main]
-    paths:
-      - "apps/web/**"
-      - "apps/desktop/**"
-      - "scripts/**"
-      - ".github/workflows/pr-checks.yml"
   workflow_dispatch:
 
 jobs:
+  detect-changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      web: ${{ steps.changes.outputs.web }}
+      desktop: ${{ steps.changes.outputs.desktop }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check changed paths
+        id: changes
+        run: |
+          changed=$(git diff --name-only origin/main...HEAD 2>/dev/null || echo "")
+          echo "web=$(echo "$changed" | grep -qE '^(apps/web/|scripts/)' && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "desktop=$(echo "$changed" | grep -qE '^apps/desktop/' && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
   web-lint-test:
     name: Web - Lint & Test
+    needs: detect-changes
+    if: needs.detect-changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -44,6 +62,8 @@ jobs:
 
   web-e2e-smoke:
     name: Web - E2E Smoke
+    needs: detect-changes
+    if: needs.detect-changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -119,6 +139,8 @@ jobs:
 
   desktop-build-test:
     name: Desktop - Build & Test
+    needs: detect-changes
+    if: needs.detect-changes.outputs.desktop == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -147,6 +169,8 @@ jobs:
 
   desktop-e2e-smoke:
     name: Desktop - E2E Smoke
+    needs: detect-changes
+    if: needs.detect-changes.outputs.desktop == 'true'
     runs-on: macos-14
     permissions:
       contents: read
@@ -204,6 +228,8 @@ jobs:
 
   desktop-workspace-smoke:
     name: Desktop - Workspace Smoke
+    needs: detect-changes
+    if: needs.detect-changes.outputs.desktop == 'true'
     runs-on: macos-14
     permissions:
       contents: read
