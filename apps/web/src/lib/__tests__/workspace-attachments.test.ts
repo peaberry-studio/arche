@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   MAX_ATTACHMENT_UPLOAD_MEGABYTES,
+  contentDispositionHeader,
   ensureUniqueAttachmentFilename,
   formatAttachmentSize,
   inferAttachmentMimeType,
@@ -60,6 +61,21 @@ describe('workspace attachments helpers', () => {
       ),
     ).toBe(true)
     expect(isPresentationMimeType('application/vnd.ms-powerpoint')).toBe(false)
+  })
+
+  it('builds RFC 6266 Content-Disposition with sanitized ASCII and UTF-8 extended filename', () => {
+    expect(contentDispositionHeader('résumé.pdf')).toBe(
+      "attachment; filename=\"r_sum_.pdf\"; filename*=UTF-8''r%C3%A9sum%C3%A9.pdf",
+    )
+    expect(contentDispositionHeader('report.csv')).toBe(
+      "attachment; filename=\"report.csv\"; filename*=UTF-8''report.csv",
+    )
+    expect(contentDispositionHeader('')).toBe(
+      "attachment; filename=\"attachment\"; filename*=UTF-8''",
+    )
+    expect(contentDispositionHeader("it's a report.pdf")).toBe(
+      "attachment; filename=\"it_s-a-report.pdf\"; filename*=UTF-8''it%27s%20a%20report.pdf",
+    )
   })
 
   it('sanitizes unsafe filenames', () => {

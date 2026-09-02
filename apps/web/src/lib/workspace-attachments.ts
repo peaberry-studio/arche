@@ -62,6 +62,12 @@ export function inferAttachmentMimeType(filename: string): string {
   return MIME_BY_EXTENSION[ext] ?? FALLBACK_MIME
 }
 
+export function contentDispositionHeader(filename: string): string {
+  const safeName = sanitizeAttachmentFilename(filename)
+  const encoded = encodeURIComponent(filename).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
+  return `attachment; filename="${safeName}"; filename*=UTF-8''${encoded}`
+}
+
 export function sanitizeAttachmentFilename(filename: string): string {
   const cleaned = filename
     .replace(/[/\\]+/g, '-')
