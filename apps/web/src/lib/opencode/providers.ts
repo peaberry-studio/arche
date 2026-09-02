@@ -215,14 +215,29 @@ export async function syncProviderAccessForInstance(
 
     if (input.disposeInstance !== false) {
       // OpenCode caches provider discovery; dispose to reload with updated auth.
-      await fetchRequired(`${instance.baseUrl}/instance/dispose`, {
-        method: 'POST',
-        headers: {
-          Authorization: instance.authHeader,
-          Accept: 'application/json',
-        },
-        cache: 'no-store',
-      })
+      // The active-run deferral ran before the auth PUTs, so a run may have
+      // started since: dispose aborts any in-flight generation, and the keys
+      // are already updated by now, so skip the destructive part and let a
+      // later sync reload discovery instead of killing the run. Unlike the
+      // deferral, this check does not exclude the caller's own run — an
+      // in-flight generation must never be disposed underneath itself.
+      if (await messageRunService.hasActiveRunForSlug(input.slug)) {
+        console.warn('[opencode/providers] Deferred instance dispose because a run started during the sync', {
+          slug: input.slug,
+        })
+      } else {
+        console.log('[opencode/providers] Disposing instance to reload provider discovery', {
+          slug: input.slug,
+        })
+        await fetchRequired(`${instance.baseUrl}/instance/dispose`, {
+          method: 'POST',
+          headers: {
+            Authorization: instance.authHeader,
+            Accept: 'application/json',
+          },
+          cache: 'no-store',
+        })
+      }
     }
 
     try {

@@ -160,6 +160,54 @@ describe('syncProviderAccessForInstance', () => {
     expect(disposeCalls).toHaveLength(1)
   })
 
+  it('skips the destructive dispose when a run starts during the sync', async () => {
+    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    mockGetEnabledCredentials.mockResolvedValue(enabledCredentials([
+      ['openai', { credentialId: '1', source: 'user', version: 1 }],
+    ]))
+    // A run registered while the auth PUTs were in flight: the keys are
+    // already updated, but disposing would abort the run's generation.
+    mockMessageRunService.hasActiveRunForSlug.mockResolvedValue(true)
+
+    const result = await syncProviderAccessForInstance({
+      instance: fakeInstance,
+      slug: 'alice',
+      userId: 'user-1',
+    })
+
+    expect(result).toEqual({ ok: true })
+    const mockFetch = vi.mocked(globalThis.fetch)
+    expect(mockFetch.mock.calls.some((call) => (call[1] as RequestInit)?.method === 'PUT')).toBe(true)
+    expect(mockFetch.mock.calls.some((call) => String(call[0]).endsWith('/instance/dispose'))).toBe(false)
+    expect(mockInstanceService.setProviderSyncState).toHaveBeenCalled()
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      '[opencode/providers] Deferred instance dispose because a run started during the sync',
+      expect.objectContaining({ slug: 'alice' }),
+    )
+
+    consoleWarnSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
+
+  it('disposes the instance when no run started during the sync', async () => {
+    const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    mockGetEnabledCredentials.mockResolvedValue(enabledCredentials([
+      ['openai', { credentialId: '1', source: 'user', version: 1 }],
+    ]))
+
+    const result = await syncProviderAccessForInstance({
+      instance: fakeInstance,
+      slug: 'alice',
+      userId: 'user-1',
+    })
+
+    expect(result).toEqual({ ok: true })
+    expect(vi.mocked(globalThis.fetch).mock.calls.some((call) => String(call[0]).endsWith('/instance/dispose'))).toBe(true)
+
+    consoleLogSpy.mockRestore()
+  })
+
   it('skips dispose when disposeInstance is false', async () => {
     const mockFetch = vi.mocked(globalThis.fetch)
     mockGetEnabledCredentials.mockResolvedValue(enabledCredentials())

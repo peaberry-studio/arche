@@ -54,3 +54,14 @@ When a run is cancelled or recovered as stale, its step records that are still `
 #### Scenario: Recovery settles orphaned steps
 - **WHEN** stale-run recovery marks orphaned `running` runs as failed
 - **THEN** the in-flight steps of those runs are settled in the same tick
+
+### Requirement: Provider syncs never dispose the instance under an active run
+A provider-access sync that disposes the workspace instance SHALL re-check for active runs immediately before the dispose — not only before the sync starts — because disposing aborts any in-flight generation. Credential writes SHALL still complete when a run appears during the sync; only the destructive dispose SHALL be skipped, deferring provider-discovery reload to a later sync. Dispose decisions and session-family aborts SHALL be logged with their targets so runtime `MessageAbortedError` reports can be correlated with their source.
+
+#### Scenario: A run starts while a sync is in flight
+- **WHEN** a run registers in the workspace after the sync's initial deferral check but before the dispose fires
+- **THEN** the credential writes are kept, the dispose is skipped, and the run's generation is not aborted
+
+#### Scenario: No run starts during the sync
+- **WHEN** no active run is present after the credential writes complete
+- **THEN** the instance is disposed to reload provider discovery as before

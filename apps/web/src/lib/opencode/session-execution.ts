@@ -433,6 +433,13 @@ export async function abortSessionFamilyAndConfirmIdle(params: {
   const deadline = Date.now() + ABORT_CONFIRMATION_TIMEOUT_MS
   const discovery = await listDescendantSessionIds(params.client, params.rootSessionId, deadline)
 
+  // Abort sources are otherwise invisible when correlating runtime
+  // MessageAbortedError reports against cancel calls.
+  console.log('[opencode/session-execution] Aborting session family', {
+    rootSessionId: params.rootSessionId,
+    sessionIds: discovery.sessionIds,
+  })
+
   for (const sessionId of [...discovery.sessionIds].reverse()) {
     await awaitBeforeDeadline(
       params.client.session.abort(
