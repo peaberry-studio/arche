@@ -68,6 +68,10 @@ function updateNodeReferences(node: FlowNode, previousId: string, nextId: string
     return { ...node, promptTemplate: replaceNodeVariableReferences(node.promptTemplate, previousId, nextId) }
   }
 
+  if (node.type === 'fork') {
+    return { ...node, joinNodeId: node.joinNodeId === previousId ? nextId : node.joinNodeId }
+  }
+
   return node
 }
 

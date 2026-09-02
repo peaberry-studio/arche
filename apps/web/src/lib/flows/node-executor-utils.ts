@@ -3,10 +3,14 @@ import { FlowNodeType as PrismaFlowNodeType } from '@prisma/client'
 import {
   FLOW_RUN_CANCELLED_ERROR,
 } from '@/lib/flows/session-executor'
-import type { FlowNode } from '@/lib/flows/types'
+import type { FlowNode, ForkFlowNode } from '@/lib/flows/types'
 import type { FlowRunStepRecord } from '@/lib/services/flow'
 
-export function nodeTypeToPrisma(node: FlowNode): PrismaFlowNodeType {
+// Fork nodes never record run steps (they are handled by the runner loop),
+// so the step-record node mapping excludes them.
+export type StepRecordFlowNode = Exclude<FlowNode, ForkFlowNode>
+
+export function nodeTypeToPrisma(node: StepRecordFlowNode): PrismaFlowNodeType {
   switch (node.type) {
     case 'agent':
       return PrismaFlowNodeType.agent

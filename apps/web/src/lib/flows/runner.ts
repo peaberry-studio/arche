@@ -9,6 +9,7 @@ import { formatFlowRunDate } from '@/lib/flows/cron'
 import { dispatchFlowExecution } from '@/lib/flows/execution-dispatcher'
 import { getFlowNodeById, getFlowOutgoingTargets } from '@/lib/flows/graph'
 import { executeFlowNode } from '@/lib/flows/node-executors'
+import { errorMessage, replaceStep } from '@/lib/flows/node-executor-utils'
 import { planFlowRetry } from '@/lib/flows/retry-policy'
 import { validateFlowSlackNodeAccess } from '@/lib/flows/route-auth'
 import { serializeFlowRun } from '@/lib/flows/serializers'
@@ -16,7 +17,7 @@ import {
   createFlowLeaseOwner,
   FLOW_LEASE_MS,
 } from '@/lib/flows/session-executor'
-import type { FlowDefinition } from '@/lib/flows/types'
+import type { FlowDefinition, ForkFlowNode } from '@/lib/flows/types'
 import { validateFlowDefinition } from '@/lib/flows/validation'
 import { createInstanceClient } from '@/lib/opencode/client'
 import {
@@ -110,7 +111,12 @@ async function hasActiveFlowLease(flowId: string, leaseOwner: string): Promise<b
   return false
 }
 
-async function executeFlowNodes(params: {
+// Shared fail-fast flag across sibling branches of one fork: the first branch
+// failure makes the remaining branches exit on their next loop iteration.
+type FlowBranchState = { aborted: boolean }
+
+type FlowNodesParams = {
+  branchState?: FlowBranchState
   client: SessionExecutionClient
   definition: FlowDefinition
   executionUserId: string
@@ -122,7 +128,17 @@ async function executeFlowNodes(params: {
   slug: string
   startNodeId: string | null
   steps: FlowRunStepRecord[]
-}): Promise<FlowExecutionOutcome> {
+  // Branch fibers stop when they reach the fork's join node; the join is
+  // executed once by the parent cursor.
+  stopBeforeNodeId?: string
+  // `currentNodeId` is ambiguous while branches run concurrently, so fibers
+  // leave it untouched and only single-cursor segments track it.
+  trackCurrentNode?: boolean
+}
+
+type FlowNodesResult = FlowExecutionOutcome & { steps: FlowRunStepRecord[] }
+
+async function runFlowNodes(params: FlowNodesParams): Promise<FlowNodesResult> {
   let currentNodeId = params.startNodeId
   let previousOutput = params.previousOutput
   let steps = params.steps
@@ -130,24 +146,46 @@ async function executeFlowNodes(params: {
 
   while (currentNodeId) {
     if (visitedNodeIds.has(currentNodeId)) {
-      return { status: 'failed', error: 'cyclic_flow' }
+      return { status: 'failed', error: 'cyclic_flow', steps }
+    }
+
+    if (params.stopBeforeNodeId && currentNodeId === params.stopBeforeNodeId) {
+      return { status: 'succeeded', steps }
+    }
+
+    if (params.branchState?.aborted) {
+      return { status: 'cancelled', steps }
     }
 
     if (await isRunCancelled(params.run.id)) {
-      return { status: 'cancelled' }
+      return { status: 'cancelled', steps }
     }
 
     if (!await hasActiveFlowLease(params.flow.id, params.leaseOwner)) {
-      return { status: 'failed', error: 'flow_lease_lost' }
+      return { status: 'failed', error: 'flow_lease_lost', steps }
     }
 
     visitedNodeIds.add(currentNodeId)
     const node = getFlowNodeById(params.definition, currentNodeId)
     if (!node) {
-      return { status: 'failed', error: 'flow_node_not_found' }
+      return { status: 'failed', error: 'flow_node_not_found', steps }
     }
 
-    await flowService.updateRunCurrentNode(params.run.id, node.id)
+    if (params.trackCurrentNode !== false) {
+      await flowService.updateRunCurrentNode(params.run.id, node.id)
+    }
+
+    if (node.type === 'fork') {
+      const forkResult = await executeForkBranches({ ...params, node, steps })
+      steps = forkResult.steps
+      if (forkResult.status !== 'succeeded') return forkResult
+
+      // Branch outputs are referenced through {{steps.<nodeId>.output}}; the
+      // single cursor continues from the join without a branch-scoped output.
+      previousOutput = null
+      currentNodeId = node.joinNodeId
+      continue
+    }
 
     const result = await executeFlowNode({
       client: params.client,
@@ -164,17 +202,97 @@ async function executeFlowNodes(params: {
     })
 
     steps = result.steps
-    if (result.status === 'cancelled') return { status: 'cancelled' }
-    if (result.status === 'failed') return { status: 'failed', error: result.error }
+    if (result.status === 'cancelled') return { status: 'cancelled', steps }
+    if (result.status === 'failed') return { status: 'failed', error: result.error, steps }
     if (result.status === 'termination_unconfirmed') {
-      return { status: 'termination_unconfirmed', cause: result.cause }
+      return { status: 'termination_unconfirmed', cause: result.cause, steps }
     }
-    if (result.status === 'waiting_for_human') return { status: 'waiting_for_human', nodeId: result.nodeId }
+    if (result.status === 'waiting_for_human') return { status: 'waiting_for_human', nodeId: result.nodeId, steps }
 
     previousOutput = result.previousOutput
     currentNodeId = result.nextNodeId
   }
 
+  return { status: 'succeeded', steps }
+}
+
+// Each branch runs against its own OpenCode session: a workspace session
+// executes one prompt at a time, so sharing the parent session would make
+// concurrent branches fail spuriously with session_busy.
+async function executeForkBranches(
+  params: FlowNodesParams & { node: ForkFlowNode; steps: FlowRunStepRecord[] },
+): Promise<FlowNodesResult> {
+  const branchStarts = getFlowOutgoingTargets(params.definition, params.node.id)
+  const branchState: FlowBranchState = { aborted: false }
+  const baseTitle = buildFlowSessionTitle(params.flow, params.run.scheduledFor)
+
+  const results = await Promise.all(branchStarts.map(async (branchStartId): Promise<FlowNodesResult> => {
+    try {
+      const branchNode = getFlowNodeById(params.definition, branchStartId)
+      const sessionResult = await params.client.session.create(
+        { title: `${baseTitle} · ${branchNode?.name ?? branchStartId}` },
+        { throwOnError: true },
+      )
+      if (!sessionResult.data) {
+        branchState.aborted = true
+        return { status: 'failed', error: 'flow_branch_session_create_failed', steps: params.steps }
+      }
+
+      const result = await runFlowNodes({
+        ...params,
+        branchState,
+        sessionId: sessionResult.data.id,
+        startNodeId: branchStartId,
+        steps: [...params.steps],
+        stopBeforeNodeId: params.node.joinNodeId,
+        trackCurrentNode: false,
+      })
+      if (result.status === 'failed' || result.status === 'termination_unconfirmed') {
+        branchState.aborted = true
+      }
+      return result
+    } catch (error) {
+      branchState.aborted = true
+      return { status: 'failed', error: errorMessage(error, 'flow_branch_failed'), steps: params.steps }
+    }
+  }))
+
+  let steps = params.steps
+  for (const result of results) {
+    for (const step of result.steps) {
+      steps = replaceStep(steps, step)
+    }
+  }
+
+  const firstFailure = results.find((result) => result.status === 'termination_unconfirmed')
+    ?? results.find((result) => result.status === 'failed')
+    ?? results.find((result) => result.status === 'cancelled')
+    ?? results.find((result) => result.status === 'waiting_for_human')
+
+  if (!firstFailure) {
+    return { status: 'succeeded', steps }
+  }
+
+  if (firstFailure.status === 'termination_unconfirmed') {
+    return { status: 'termination_unconfirmed', cause: firstFailure.cause, steps }
+  }
+  if (firstFailure.status === 'failed') {
+    return { status: 'failed', error: firstFailure.error, steps }
+  }
+  if (firstFailure.status === 'cancelled') {
+    return { status: 'cancelled', steps }
+  }
+  // Validation forbids human nodes inside branches; a waiting branch cannot
+  // pause its siblings, so it surfaces as a failure.
+  return { status: 'failed', error: 'flow_branch_pause_unsupported', steps }
+}
+
+async function executeFlowNodes(params: FlowNodesParams): Promise<FlowExecutionOutcome> {
+  const result = await runFlowNodes(params)
+  if (result.status === 'failed') return { status: 'failed', error: result.error }
+  if (result.status === 'cancelled') return { status: 'cancelled' }
+  if (result.status === 'termination_unconfirmed') return { status: 'termination_unconfirmed', cause: result.cause }
+  if (result.status === 'waiting_for_human') return { status: 'waiting_for_human', nodeId: result.nodeId }
   return { status: 'succeeded' }
 }
 

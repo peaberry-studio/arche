@@ -351,6 +351,98 @@ describe('triggerFlowNow', () => {
     expect(mocks.markRunSucceeded).toHaveBeenCalledWith('run-1', expect.objectContaining({ openCodeSessionId: 'session-1' }))
   })
 
+  describe('fork execution', () => {
+    function createForkFlowDefinition() {
+      return {
+        edges: [
+          { id: 'edge-1', sourceNodeId: 'agent-1', targetNodeId: 'fork-1' },
+          { id: 'edge-2', sourceNodeId: 'fork-1', targetNodeId: 'agent-2' },
+          { id: 'edge-3', sourceNodeId: 'fork-1', targetNodeId: 'agent-3' },
+          { id: 'edge-4', sourceNodeId: 'agent-2', targetNodeId: 'merge-1' },
+          { id: 'edge-5', sourceNodeId: 'agent-3', targetNodeId: 'merge-1' },
+          { id: 'edge-6', sourceNodeId: 'merge-1', targetNodeId: 'agent-4' },
+        ],
+        nodes: [
+          { compactOutput: false, id: 'agent-1', name: 'Orient', promptTemplate: 'Start', targetAgentId: null, type: 'agent' },
+          { id: 'fork-1', joinNodeId: 'merge-1', name: 'Fan out', type: 'fork' },
+          { compactOutput: false, id: 'agent-2', name: 'Hunt bugs', promptTemplate: 'Branch A', targetAgentId: null, type: 'agent' },
+          { compactOutput: false, id: 'agent-3', name: 'Hunt perf', promptTemplate: 'Branch B', targetAgentId: null, type: 'agent' },
+          { id: 'merge-1', name: 'Collect', type: 'merge' },
+          { compactOutput: false, id: 'agent-4', name: 'Verify', promptTemplate: 'Merged: {{steps.agent-2.output}} / {{steps.agent-3.output}}', targetAgentId: null, type: 'agent' },
+        ],
+        startNodeId: 'agent-1',
+        version: 1,
+      }
+    }
+
+    function createForkFlow() {
+      const flow = createClaimedFlow()
+      flow.definition = createForkFlowDefinition()
+      return flow
+    }
+
+    function promptedPrompts() {
+      return mocks.runFlowPromptAndReadOutput.mock.calls.map((call) => (call[0] as { prompt: string }).prompt)
+    }
+
+    it('runs fork branches and exposes branch outputs after the join', async () => {
+      mocks.userFindByIdSelect.mockResolvedValue({ slug: 'alice' })
+      mocks.createRun.mockResolvedValue(createRunRecord())
+      mocks.runFlowPromptAndReadOutput.mockImplementation(async (params: { prompt: string }) => ({
+        ok: true,
+        output: params.prompt,
+      }))
+
+      await runClaimedFlow(createForkFlow(), FlowRunTrigger.manual)
+
+      const prompts = promptedPrompts()
+      expect(prompts).toContain('Branch A')
+      expect(prompts).toContain('Branch B')
+      expect(prompts.at(-1)).toBe('Merged: Branch A / Branch B')
+      expect(mocks.markRunSucceeded).toHaveBeenCalledWith('run-1', expect.objectContaining({ openCodeSessionId: 'session-1' }))
+      expect(mocks.markRunFailed).not.toHaveBeenCalled()
+    })
+
+    it('creates a separate session per fork branch', async () => {
+      mocks.userFindByIdSelect.mockResolvedValue({ slug: 'alice' })
+      mocks.createRun.mockResolvedValue(createRunRecord())
+      mocks.runFlowPromptAndReadOutput.mockImplementation(async (params: { prompt: string }) => ({
+        ok: true,
+        output: params.prompt,
+      }))
+      const createSession = vi.fn()
+        .mockResolvedValueOnce({ data: { id: 'session-primary' } })
+        .mockResolvedValueOnce({ data: { id: 'session-branch-a' } })
+        .mockResolvedValueOnce({ data: { id: 'session-branch-b' } })
+      mocks.createInstanceClient.mockResolvedValue({ session: { create: createSession } })
+
+      await runClaimedFlow(createForkFlow(), FlowRunTrigger.manual)
+
+      expect(mocks.markRunSucceeded).toHaveBeenCalled()
+      const titles = createSession.mock.calls.map((call) => (call[0] as { title: string }).title)
+      expect(titles).toHaveLength(3)
+      expect(titles.some((title) => title.includes('Hunt bugs'))).toBe(true)
+      expect(titles.some((title) => title.includes('Hunt perf'))).toBe(true)
+    })
+
+    it('fails the run without executing the join when a branch fails', async () => {
+      mocks.userFindByIdSelect.mockResolvedValue({ slug: 'alice' })
+      mocks.createRun.mockResolvedValue(createRunRecord())
+      mocks.runFlowPromptAndReadOutput.mockImplementation(async (params: { prompt: string }) => {
+        if (params.prompt === 'Branch B') {
+          return { ok: false, type: 'failed', error: 'flow_step_failed' }
+        }
+        return { ok: true, output: params.prompt }
+      })
+
+      await runClaimedFlow(createForkFlow(), FlowRunTrigger.manual)
+
+      expect(promptedPrompts()).not.toContain('Merged: Branch A / Branch B')
+      expect(mocks.markRunFailed).toHaveBeenCalledWith('run-1', expect.objectContaining({ error: 'flow_step_failed' }))
+      expect(mocks.markRunSucceeded).not.toHaveBeenCalled()
+    })
+  })
+
   it('keeps the flow run and lease active when runtime termination is unconfirmed', async () => {
     mocks.userFindByIdSelect.mockResolvedValue({ slug: 'alice' })
     mocks.runFlowPromptAndReadOutput.mockResolvedValue({

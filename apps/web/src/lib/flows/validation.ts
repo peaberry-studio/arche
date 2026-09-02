@@ -1,4 +1,4 @@
-import { getFlowTraversalTargets } from '@/lib/flows/graph'
+import { getFlowNodeById, getFlowTraversalTargets } from '@/lib/flows/graph'
 import { isRecord } from '@/lib/records'
 
 import type {
@@ -14,6 +14,7 @@ import type {
   FlowNode,
   FlowSlackMessageMode,
   FlowSlackTarget,
+  ForkFlowNode,
   HumanFlowNode,
   MergeFlowNode,
   SlackFlowNode,
@@ -192,6 +193,13 @@ function parseNode(value: unknown): FlowNode | null {
     return { id, name, type } satisfies MergeFlowNode
   }
 
+  if (type === 'fork') {
+    const joinNodeId = readString(value, 'joinNodeId')
+    if (!joinNodeId) return null
+
+    return { id, joinNodeId, name, type } satisfies ForkFlowNode
+  }
+
   if (type === 'compaction') {
     const promptTemplate = readString(value, 'promptTemplate')
     if (!promptTemplate) return null
@@ -273,6 +281,89 @@ function hasCycle(definition: FlowDefinition): boolean {
   }
 
   return definition.nodes.some((node) => visit(node.id))
+}
+
+// Nodes that pause a run (human) or notify asynchronously (slack) are not
+// supported inside parallel branches: a paused branch has no resume semantics
+// while its siblings keep executing.
+const FORK_UNSUPPORTED_BRANCH_NODE_TYPES = new Set<string>(['human', 'slack'])
+
+function computeForkBranchRegion(definition: FlowDefinition, fork: ForkFlowNode): Set<string> {
+  const region = new Set<string>()
+  const queue = getFlowTraversalTargets(definition, fork.id)
+    .filter((nodeId) => nodeId !== fork.joinNodeId)
+
+  while (queue.length > 0) {
+    const nodeId = queue.pop()!
+    if (nodeId === fork.joinNodeId || region.has(nodeId)) continue
+
+    region.add(nodeId)
+    for (const target of getFlowTraversalTargets(definition, nodeId)) {
+      if (target !== fork.joinNodeId) queue.push(target)
+    }
+  }
+
+  return region
+}
+
+// Enforces the single-cursor contract for non-condition nodes (extra outgoing
+// edges are silently dropped at runtime) and the fork/join topology rules.
+// The graph is acyclic by the time this runs, so "every branch edge stays in
+// the branch region or targets the join" guarantees every branch path reaches
+// the join.
+function validateFlowGraph(definition: FlowDefinition): string | null {
+  for (const node of definition.nodes) {
+    if (node.type === 'condition' || node.type === 'fork') continue
+    if (getFlowTraversalTargets(definition, node.id).length > 1) {
+      return `multiple_outgoing_edges:${node.id}`
+    }
+  }
+
+  const declaredJoinIds = new Set<string>()
+  for (const node of definition.nodes) {
+    if (node.type !== 'fork') continue
+    if (declaredJoinIds.has(node.joinNodeId)) return 'fork_join_shared'
+    declaredJoinIds.add(node.joinNodeId)
+  }
+
+  for (const node of definition.nodes) {
+    if (node.type !== 'fork') continue
+
+    const join = getFlowNodeById(definition, node.joinNodeId)
+    if (!join) return `fork_unknown_join:${node.id}`
+    if (join.type !== 'merge') return `fork_join_not_merge:${node.id}`
+
+    const branchStarts = getFlowTraversalTargets(definition, node.id)
+    if (branchStarts.length < 2) return `fork_without_branches:${node.id}`
+    if (branchStarts.some((branchStart) => branchStart === node.joinNodeId)) {
+      return `fork_branch_empty:${node.id}`
+    }
+
+    const region = computeForkBranchRegion(definition, node)
+    for (const nodeId of region) {
+      const branchNode = getFlowNodeById(definition, nodeId)
+      if (!branchNode) continue
+
+      if (FORK_UNSUPPORTED_BRANCH_NODE_TYPES.has(branchNode.type)) {
+        return `fork_branch_unsupported_node:${nodeId}`
+      }
+
+      // The region is the reachable set, so every branch edge already lands in
+      // the region or on the join; only a dead end can stop a path from
+      // reaching the join in an acyclic graph.
+      if (getFlowTraversalTargets(definition, nodeId).length === 0) {
+        return `fork_branch_dead_end:${nodeId}`
+      }
+    }
+
+    for (const edge of definition.edges) {
+      if (edge.targetNodeId === node.joinNodeId && !region.has(edge.sourceNodeId)) {
+        return `fork_join_external_input:${node.id}`
+      }
+    }
+  }
+
+  return null
 }
 
 export function validateFlowDefinition(value: unknown): FlowDefinitionValidationResult {
@@ -370,6 +461,11 @@ export function validateFlowDefinition(value: unknown): FlowDefinitionValidation
 
   if (hasCycle(definition)) {
     return { ok: false, error: 'cyclic_flow' }
+  }
+
+  const graphError = validateFlowGraph(definition)
+  if (graphError) {
+    return { ok: false, error: graphError }
   }
 
   return { ok: true, definition }

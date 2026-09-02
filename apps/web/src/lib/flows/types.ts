@@ -97,6 +97,13 @@ export type MergeFlowNode = {
   name: string
 }
 
+export type ForkFlowNode = {
+  id: string
+  type: 'fork'
+  name: string
+  joinNodeId: string
+}
+
 export type CompactionFlowNode = {
   id: string
   type: 'compaction'
@@ -111,6 +118,7 @@ export type FlowNode =
   | SlackFlowNode
   | MergeFlowNode
   | CompactionFlowNode
+  | ForkFlowNode
 
 export type FlowEdge = {
   id: string
