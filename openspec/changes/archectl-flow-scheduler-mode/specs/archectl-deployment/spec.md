@@ -36,3 +36,10 @@ The update script SHALL set `ARCHE_FLOW_SCHEDULER_MODE` in the existing env file
 #### Scenario: Pre-existing deployment gains the runner
 - **WHEN** an existing deployment runs the update script after the compose template gained the flow daemon service
 - **THEN** the `flows` service is created and running after the update completes
+
+### Requirement: The stack runs the reaper daemon
+The generated compose stack SHALL run a reaper service using the web image's `src/reaper-daemon.ts` entrypoint, so stale message runs and expired locks are reaped without a separate deployment path. The update script SHALL bring the reaper service up alongside the web and flow daemon services.
+
+#### Scenario: Reaper reconciles stale state on one-click deployments
+- **WHEN** a one-click deployment runs the generated compose stack
+- **THEN** a reaper service executes the reaper daemon on the same env file and networks as the web service

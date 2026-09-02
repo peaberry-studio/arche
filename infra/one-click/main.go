@@ -1390,8 +1390,8 @@ log "Pulling ${ARCHE_WEB_IMAGE}"
 docker pull "${ARCHE_WEB_IMAGE}"
 log "Pulling ${OPENCODE_IMAGE}"
 docker pull "${OPENCODE_IMAGE}"
-log 'Recreating web and flows services'
-docker compose up -d web flows
+log 'Recreating web, flows, and reaper services'
+docker compose up -d web flows reaper
 docker compose ps
 log 'Update complete'
 `, appName, appName, appName, shellQuote(b64(compose)), shellQuote(version), shellQuote(version), shellQuote(appImageForVersion(version)), shellQuote(workspaceImageForVersion(version)), appName)
@@ -2034,6 +2034,27 @@ services:
       - /opt/arche/users:/opt/arche/users
       - /opt/arche/kb-content:/kb-content
       - /opt/arche/kb-config:/kb-config
+    healthcheck:
+      disable: true
+
+  reaper:
+    image: "${ARCHE_WEB_IMAGE}"
+    restart: "on-failure:5"
+    command:
+      - ./node_modules/.bin/tsx
+      - src/reaper-daemon.ts
+    env_file:
+      - .env
+    # Reaper only reconciles database state with container lifecycle via Docker.
+    # It does not read KB config/content or write user workspace data.
+    networks:
+      - default
+      - arche-internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+      docker-socket-proxy:
+        condition: service_healthy
     healthcheck:
       disable: true
 

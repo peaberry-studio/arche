@@ -6,11 +6,13 @@
 ## 2. Flow daemon runner
 
 - [x] 2.1 Add a `flows` service to `renderCompose` mirroring the Ansible remote template: `${ARCHE_WEB_IMAGE}` running `./node_modules/.bin/tsx src/flow-daemon.ts`, `env_file: .env`, `restart: unless-stopped`, both networks, the three host mounts (`/opt/arche/users`, `/opt/arche/kb-content`, `/opt/arche/kb-config`), `depends_on` for healthy postgres and docker-socket-proxy, healthcheck disabled.
+- [x] 2.2 Add a `reaper` service to `renderCompose` mirroring the Ansible remote template: `${ARCHE_WEB_IMAGE}` running `./node_modules/.bin/tsx src/reaper-daemon.ts`, `env_file: .env`, `restart: "on-failure:5"`, both networks, no volumes (it only reconciles database state with container lifecycle), `depends_on` for healthy postgres and docker-socket-proxy, healthcheck disabled. Without it, `reapStaleRuns` (message-run lock reaping) has no caller on one-click deployments.
 
 ## 3. Update convergence
 
 - [x] 3.1 In `renderUpdateScript`, set `ARCHE_FLOW_SCHEDULER_MODE=daemon` via the existing `set_env` helper so existing deployments gain the variable idempotently.
 - [x] 3.2 Recreate `flows` alongside `web` in the update script's compose up call so the runner is created on existing deployments.
+- [x] 3.3 Recreate `reaper` alongside `web` and `flows` in the update script's compose up call.
 
 ## 4. Tests
 

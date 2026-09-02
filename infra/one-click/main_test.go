@@ -226,8 +226,8 @@ func TestRenderUpdateScriptSetsFlowSchedulerModeAndStartsFlows(t *testing.T) {
 	if !strings.Contains(script, "set_env ARCHE_FLOW_SCHEDULER_MODE daemon") {
 		t.Fatalf("renderUpdateScript() should set ARCHE_FLOW_SCHEDULER_MODE via set_env:\n%s", script)
 	}
-	if !strings.Contains(script, "docker compose up -d web flows") {
-		t.Fatalf("renderUpdateScript() should bring up the flows service alongside web:\n%s", script)
+	if !strings.Contains(script, "docker compose up -d web flows reaper") {
+		t.Fatalf("renderUpdateScript() should bring up the flows and reaper services alongside web:\n%s", script)
 	}
 }
 
@@ -240,6 +240,18 @@ func TestRenderComposeRunsFlowDaemon(t *testing.T) {
 	}
 	if !strings.Contains(compose, "src/flow-daemon.ts") {
 		t.Fatalf("renderCompose() should run the flow-daemon entrypoint:\n%s", compose)
+	}
+}
+
+func TestRenderComposeRunsReaper(t *testing.T) {
+	t.Parallel()
+
+	compose := renderCompose()
+	if !strings.Contains(compose, "\n  reaper:\n") {
+		t.Fatalf("renderCompose() should declare a reaper service:\n%s", compose)
+	}
+	if !strings.Contains(compose, "src/reaper-daemon.ts") {
+		t.Fatalf("renderCompose() should run the reaper-daemon entrypoint:\n%s", compose)
 	}
 }
 
