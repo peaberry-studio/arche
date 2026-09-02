@@ -218,6 +218,7 @@ export async function syncProviderAccessForInstance(
       })
     }
 
+    let disposed = false
     if (input.disposeInstance !== false) {
       // OpenCode caches provider discovery; dispose to reload with updated auth.
       // The active-run deferral ran before the auth PUTs, so a run may have
@@ -242,13 +243,21 @@ export async function syncProviderAccessForInstance(
           },
           cache: 'no-store',
         })
+        disposed = true
       }
     }
 
-    try {
-      await instanceService.setProviderSyncState(input.slug, providerSyncHash, new Date())
-    } catch (error) {
-      console.error('[opencode/providers] Failed to persist provider sync state', error)
+    // Record the sync only when the instance is consistent with the keys we
+    // just wrote. A skipped dispose leaves the previous state so the next
+    // sync re-puts the keys and disposes once the workspace is idle —
+    // recording here would make later syncs short-circuit on the fresh
+    // timestamp while the instance still runs on stale cached discovery.
+    if (disposed || input.disposeInstance === false) {
+      try {
+        await instanceService.setProviderSyncState(input.slug, providerSyncHash, new Date())
+      } catch (error) {
+        console.error('[opencode/providers] Failed to persist provider sync state', error)
+      }
     }
 
     return { ok: true }

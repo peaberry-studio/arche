@@ -180,7 +180,10 @@ describe('syncProviderAccessForInstance', () => {
     const mockFetch = vi.mocked(globalThis.fetch)
     expect(mockFetch.mock.calls.some((call) => (call[1] as RequestInit)?.method === 'PUT')).toBe(true)
     expect(mockFetch.mock.calls.some((call) => String(call[0]).endsWith('/instance/dispose'))).toBe(false)
-    expect(mockInstanceService.setProviderSyncState).toHaveBeenCalled()
+    // Withholding the sync record is the point: a later sync must re-put the
+    // keys and dispose once the workspace is idle instead of short-circuiting
+    // on a fresh timestamp.
+    expect(mockInstanceService.setProviderSyncState).not.toHaveBeenCalled()
     expect(consoleWarnSpy).toHaveBeenCalledWith(
       '[opencode/providers] Deferred instance dispose because a run started during the sync',
       expect.objectContaining({ slug: 'alice' }),
@@ -190,7 +193,7 @@ describe('syncProviderAccessForInstance', () => {
     consoleLogSpy.mockRestore()
   })
 
-  it('disposes the instance when no run started during the sync', async () => {
+  it('disposes the instance and records sync state when no run started during the sync', async () => {
     const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined)
     mockGetEnabledCredentials.mockResolvedValue(enabledCredentials([
       ['openai', { credentialId: '1', source: 'user', version: 1 }],
@@ -204,11 +207,16 @@ describe('syncProviderAccessForInstance', () => {
 
     expect(result).toEqual({ ok: true })
     expect(vi.mocked(globalThis.fetch).mock.calls.some((call) => String(call[0]).endsWith('/instance/dispose'))).toBe(true)
+    expect(mockInstanceService.setProviderSyncState).toHaveBeenCalledWith(
+      'alice',
+      await getProviderSyncHashForUser('user-1'),
+      expect.any(Date),
+    )
 
     consoleLogSpy.mockRestore()
   })
 
-  it('skips dispose when disposeInstance is false', async () => {
+  it('skips dispose but records sync state when disposeInstance is false', async () => {
     const mockFetch = vi.mocked(globalThis.fetch)
     mockGetEnabledCredentials.mockResolvedValue(enabledCredentials())
 
@@ -226,6 +234,11 @@ describe('syncProviderAccessForInstance', () => {
         (call[1] as RequestInit)?.method === 'POST',
     )
     expect(disposeCalls).toHaveLength(0)
+    expect(mockInstanceService.setProviderSyncState).toHaveBeenCalledWith(
+      'alice',
+      await getProviderSyncHashForUser('user-1'),
+      expect.any(Date),
+    )
   })
 
   it('returns sync_failed on network error', async () => {

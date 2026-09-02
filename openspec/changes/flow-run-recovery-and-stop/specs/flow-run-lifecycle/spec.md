@@ -65,3 +65,24 @@ A provider-access sync that disposes the workspace instance SHALL re-check for a
 #### Scenario: No run starts during the sync
 - **WHEN** no active run is present after the credential writes complete
 - **THEN** the instance is disposed to reload provider discovery as before
+
+### Requirement: Unconfirmed termination settles the message run
+When a prompt's runtime termination cannot be confirmed, the flow run SHALL remain preserved for lease-expiry recovery, but its tracked message run SHALL be settled to `failed` with the termination cause instead of lingering in `running` until the message-run timeout, because a lingering lock blocks provider syncs for the workspace.
+
+#### Scenario: Abort confirmation times out
+- **WHEN** the abort of a session family does not reach a confirmed idle state within the confirmation window
+- **THEN** the message run is marked failed with the termination cause and the flow run remains recoverable
+
+### Requirement: A skipped dispose withholds the provider sync record
+A provider-access sync whose dispose was skipped due to an active run SHALL NOT record a fresh provider sync state, so subsequent syncs retry the full sync — re-writing credentials and disposing — once the workspace is idle, instead of short-circuiting on a fresh timestamp while the instance runs on stale cached discovery. A sync that runs with disposal intentionally disabled SHALL still record its state.
+
+#### Scenario: Discovery reload is not lost after a skipped dispose
+- **WHEN** a sync writes new gateway tokens but skips the dispose because a run started during the sync
+- **THEN** no fresh sync state is recorded and the next sync after the workspace idles re-writes credentials and disposes
+
+### Requirement: Empty assistant output errors name the model and part profile
+When a flow step completes without assistant text, the raised error SHALL keep the stable `flow_no_assistant_output` code and append the provider, model, and the part-type profile the assistant messages contained, so reasoning-only, tool-only, and truly empty responses are distinguishable in run history and logs.
+
+#### Scenario: Model replies without text parts
+- **WHEN** the latest assistant messages contain no `text` parts (for example only reasoning and tool parts)
+- **THEN** the step fails with `flow_no_assistant_output` suffixed by the provider, model, and observed part types

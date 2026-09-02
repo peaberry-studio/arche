@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   captureSessionMessageCursor: vi.fn(),
+  describeLatestAssistantReply: vi.fn(),
   extendFlowLease: vi.fn(),
   findRunStatusById: vi.fn(),
   messageRunService: {
@@ -16,6 +17,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@/lib/opencode/session-execution', () => ({
   captureSessionMessageCursor: mocks.captureSessionMessageCursor,
+  describeLatestAssistantReply: mocks.describeLatestAssistantReply,
   EXECUTION_TERMINATION_UNCONFIRMED_ERROR: 'execution_termination_unconfirmed',
   readLatestAssistantText: mocks.readLatestAssistantText,
   waitForSessionToComplete: mocks.waitForSessionToComplete,
@@ -551,7 +553,7 @@ describe('runFlowPromptAndReadOutput', () => {
     expect(mocks.messageRunService.markRunFailed).toHaveBeenCalledWith('message-run-1', 'flow_run_timeout')
   })
 
-  it('keeps tracked message runs active when termination is unconfirmed', async () => {
+  it('fails tracked message runs when termination is unconfirmed', async () => {
     const client = createClient()
     client.session.status = vi.fn().mockResolvedValue({ data: { 'session-1': { type: 'idle' } } })
     mocks.messageRunService.createActiveRunAfterRuntimeStateCheck.mockResolvedValue({ ok: true, run: { id: 'message-run-1' } })
@@ -575,11 +577,49 @@ describe('runFlowPromptAndReadOutput', () => {
       cause: 'flow_run_timeout',
     })
 
-    expect(mocks.messageRunService.markRunFailed).not.toHaveBeenCalled()
+    // The flow run stays preserved for lease-expiry recovery, but this
+    // message run is definitively over — leaving it `running` would block
+    // provider syncs until the 35-minute timeout.
+    expect(mocks.messageRunService.markRunFailed).toHaveBeenCalledWith('message-run-1', 'flow_run_timeout')
   })
 
-  it('returns an error when no assistant output is available', async () => {
+  it('returns a self-describing error when no assistant output is available', async () => {
+    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     mocks.readLatestAssistantText.mockResolvedValue(null)
+    mocks.describeLatestAssistantReply.mockResolvedValue({
+      agent: 'repository-analyst',
+      assistantMessageCount: 1,
+      messageCount: 2,
+      modelId: 'glm-5.2',
+      partTypes: ['reasoning', 'step-finish'],
+      providerId: 'openrouter',
+    })
+
+    await expect(runFlowPromptAndReadOutput({
+      client: createClient(),
+      flowId: 'flow-1',
+      leaseOwner: 'worker-1',
+      prompt: 'Do work',
+      runId: 'run-1',
+      sessionId: 'session-1',
+      slug: 'alice',
+    })).resolves.toEqual({
+      ok: false,
+      type: 'failed',
+      error: 'flow_no_assistant_output:openrouter/glm-5.2:reasoning+step-finish',
+    })
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      '[flows] Step completed without assistant output',
+      expect.objectContaining({ agent: 'repository-analyst', modelId: 'glm-5.2' }),
+    )
+
+    consoleWarnSpy.mockRestore()
+  })
+
+  it('returns the plain no-output error when diagnostics are unavailable', async () => {
+    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    mocks.readLatestAssistantText.mockResolvedValue(null)
+    mocks.describeLatestAssistantReply.mockRejectedValue(new Error('instance unavailable'))
 
     await expect(runFlowPromptAndReadOutput({
       client: createClient(),
@@ -590,6 +630,9 @@ describe('runFlowPromptAndReadOutput', () => {
       sessionId: 'session-1',
       slug: 'alice',
     })).resolves.toEqual({ ok: false, type: 'failed', error: 'flow_no_assistant_output' })
+
+    consoleWarnSpy.mockRestore()
+  })
   })
 })
 

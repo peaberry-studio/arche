@@ -587,3 +587,46 @@ export async function readLatestAssistantText(
 
   return null
 }
+
+export type LatestAssistantReplyDiagnostics = {
+  agent: string | null
+  assistantMessageCount: number
+  messageCount: number
+  modelId: string | null
+  partTypes: string[]
+  providerId: string | null
+}
+
+// Diagnostics for runs that completed without assistant text: the message
+// metadata and part-type profile distinguish reasoning-only, tool-only, and
+// truly empty model responses.
+export async function describeLatestAssistantReply(params: {
+  client: SessionExecutionClient
+  cursor?: SessionMessageCursor
+  sessionId: string
+}): Promise<LatestAssistantReplyDiagnostics> {
+  const response = await params.client.session.messages(
+    { sessionID: params.sessionId },
+    { throwOnError: true },
+  )
+  const messages = getMessagesSinceCursor(response.data, params.cursor)
+  const assistantMessages = messages.filter((message) => normalizeRole(message.info.role) === 'assistant')
+  const partTypes = new Set<string>()
+  for (const message of assistantMessages) {
+    for (const part of transformParts(message.parts ?? [])) {
+      partTypes.add(part.type)
+    }
+  }
+
+  const latest = assistantMessages[assistantMessages.length - 1]
+  const info = latest ? (latest.info as { agent?: unknown; modelID?: unknown; providerID?: unknown }) : null
+
+  return {
+    agent: typeof info?.agent === 'string' && info.agent.trim() ? info.agent : null,
+    assistantMessageCount: assistantMessages.length,
+    messageCount: messages.length,
+    modelId: typeof info?.modelID === 'string' && info.modelID.trim() ? info.modelID : null,
+    partTypes: [...partTypes].sort(),
+    providerId: typeof info?.providerID === 'string' && info.providerID.trim() ? info.providerID : null,
+  }
+}
