@@ -6,6 +6,7 @@ export const PROVIDERS = [
   'fireworks',
   'huggingface',
   'openrouter',
+  'zai',
   'opencode',
   'opencode-go',
   'ollama',
