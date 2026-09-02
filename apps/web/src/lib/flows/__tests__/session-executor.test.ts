@@ -633,7 +633,6 @@ describe('runFlowPromptAndReadOutput', () => {
 
     consoleWarnSpy.mockRestore()
   })
-  })
 })
 
 describe('createFlowLeaseOwner', () => {

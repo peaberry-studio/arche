@@ -8,6 +8,9 @@ vi.mock('@/lib/services', () => ({
   instanceService: {
     setProviderSyncState: vi.fn(),
   },
+  messageRunService: {
+    hasActiveRunForSlug: vi.fn(),
+  },
 }))
 
 vi.mock('@/lib/providers/tokens', () => ({
@@ -18,9 +21,12 @@ import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
 import { getEnabledProviderCredentialsForUser, type EnabledProviderCredentials } from '@/lib/providers/store'
 import { issueGatewayToken } from '@/lib/providers/tokens'
 import type { ProviderId } from '@/lib/providers/types'
+import { instanceService, messageRunService } from '@/lib/services'
 
 const mockGetEnabledProviderCredentialsForUser = vi.mocked(getEnabledProviderCredentialsForUser)
 const mockIssueGatewayToken = vi.mocked(issueGatewayToken)
+const mockHasActiveRunForSlug = vi.mocked(messageRunService.hasActiveRunForSlug)
+const mockSetProviderSyncState = vi.mocked(instanceService.setProviderSyncState)
 
 type TestEnabledProviderCredential = {
   credentialId: string
@@ -42,6 +48,8 @@ const fakeInstance = {
 describe('syncProviderAccessForInstance', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockHasActiveRunForSlug.mockResolvedValue(false)
+    mockSetProviderSyncState.mockResolvedValue(undefined)
   })
 
   it('returns sync_failed when credential lookup throws', async () => {
