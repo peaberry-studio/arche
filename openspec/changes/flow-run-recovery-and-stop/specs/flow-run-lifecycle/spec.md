@@ -44,6 +44,17 @@ The flows UI SHALL offer a stop control for a flow whose latest run is active (`
 - **WHEN** a user without permission to cancel the run invokes the stop action
 - **THEN** the cancel endpoint rejects the request and the UI surfaces the error
 
+### Requirement: Starting a run keeps the user on the flows list
+Starting a run from the flows list SHALL NOT navigate away to the run history view. While any visible flow has an active run (`running` or `waiting_for_human`), the list SHALL refresh itself periodically without replacing the rendered list with a loading state, and SHALL stop refreshing once no run is active. Explicit links to run history SHALL remain available.
+
+#### Scenario: Run started from the flows list
+- **WHEN** the user starts a run from a flow card on the flows list
+- **THEN** the list stays mounted, refreshes its run states in place, and never navigates to the run history view
+
+#### Scenario: Active run finishes
+- **WHEN** the last active run among the visible flows reaches a terminal state
+- **THEN** the periodic refresh stops
+
 ### Requirement: Cancelling or recovering a run settles its in-flight steps
 When a run is cancelled or recovered as stale, its step records that are still `pending`, `running`, or `waiting_for_human` SHALL be settled to `failed` with the corresponding error (`flow_run_cancelled` / `flow_run_stale_recovered`). Already-final step records SHALL be left untouched. Step settling SHALL happen in the same service operation that settles the run, because the runner never revisits step rows after cancellation and stale runs have no living runner.
 
