@@ -80,7 +80,6 @@ export function WorkspaceFlowsView({
           buildCreateHref={buildCreateHref}
           buildEditHref={buildEditHref}
           buildHistoryHref={buildHistoryHref}
-          navigateToHistoryOnRun
         />
       </CatalogFrame>
     )

@@ -1,5 +1,6 @@
 import {
   FlowRunStatus,
+  FlowRunStepStatus,
   FlowRunTrigger,
 } from '@prisma/client'
 
@@ -124,6 +125,26 @@ export function markRunRetryScheduled(id: string, data: { attempt: number; error
   })
 }
 
+// The runner never revisits step rows after cancellation — finalizeRun
+// early-returns for cancelled runs and executors skip step updates for
+// cancelled prompts — so cancellation must settle in-flight steps itself or
+// the run history spins on them forever.
+function cancelInFlightSteps(runId: string, cancelledAt: Date) {
+  return prisma.flowRunStep.updateMany({
+    data: {
+      error: 'flow_run_cancelled',
+      finishedAt: cancelledAt,
+      status: FlowRunStepStatus.failed,
+    },
+    where: {
+      runId,
+      status: {
+        in: [FlowRunStepStatus.pending, FlowRunStepStatus.running, FlowRunStepStatus.waiting_for_human],
+      },
+    },
+  })
+}
+
 export async function cancelRunByIdForScope(id: string, scope: FlowActorScope, cancelledAt: Date): Promise<boolean> {
   const result = await prisma.flowRun.updateMany({
     data: {
@@ -136,8 +157,10 @@ export async function cancelRunByIdForScope(id: string, scope: FlowActorScope, c
       status: { in: ACTIVE_RUN_STATUSES },
     },
   })
+  if (result.count !== 1) return false
 
-  return result.count === 1
+  await cancelInFlightSteps(id, cancelledAt)
+  return true
 }
 
 export async function cancelRunById(id: string, cancelledAt: Date): Promise<boolean> {
@@ -151,8 +174,10 @@ export async function cancelRunById(id: string, cancelledAt: Date): Promise<bool
       status: { in: ACTIVE_RUN_STATUSES },
     },
   })
+  if (result.count !== 1) return false
 
-  return result.count === 1
+  await cancelInFlightSteps(id, cancelledAt)
+  return true
 }
 
 function runDetailInclude() {

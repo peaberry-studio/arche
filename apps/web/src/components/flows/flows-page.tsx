@@ -2,27 +2,29 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 
-import { ClockCountdown, ClockCounterClockwise, DotsThreeVertical, DownloadSimple, GitBranch, PencilSimple, Play, SpinnerGap, TreeStructure } from '@phosphor-icons/react'
+import { ClockCountdown, ClockCounterClockwise, DotsThreeVertical, DownloadSimple, GitBranch, PencilSimple, Play, SpinnerGap, Stop, TreeStructure } from '@phosphor-icons/react'
 
 import { DashboardEmptyState } from '@/components/dashboard/dashboard-empty-state'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { fetchFlowList, runFlowRequest } from '@/lib/flows/client'
+import { cancelFlowRunRequest, fetchFlowList, runFlowRequest } from '@/lib/flows/client'
 import { formatFlowRunDate } from '@/lib/flows/cron'
 import { getFlowErrorMessage } from '@/lib/flows/errors'
 import type { FlowListItem } from '@/lib/flows/types'
 import { cn } from '@/lib/utils'
+
+// While any visible flow has an active run, refresh the list quietly so the
+// badges and stop controls track the run without leaving the page.
+const ACTIVE_RUN_REFRESH_INTERVAL_MS = 5000
 
 type FlowsPageProps = {
   buildCreateHref?: () => string
   buildEditHref?: (flowId: string) => string
   buildHistoryHref?: (flowId: string) => string
   hideHeader?: boolean
-  navigateToHistoryOnRun?: boolean
   slug: string
 }
 
@@ -44,16 +46,16 @@ function getRunBadgeLabel(flow: FlowListItem): string {
   return 'Last run failed'
 }
 
-export function FlowsPage({ buildCreateHref, buildEditHref, buildHistoryHref, hideHeader = false, navigateToHistoryOnRun = false, slug }: FlowsPageProps) {
-  const router = useRouter()
+export function FlowsPage({ buildCreateHref, buildEditHref, buildHistoryHref, hideHeader = false, slug }: FlowsPageProps) {
   const [flows, setFlows] = useState<FlowListItem[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [runningFlowId, setRunningFlowId] = useState<string | null>(null)
+  const [cancellingFlowId, setCancellingFlowId] = useState<string | null>(null)
 
-  const loadFlows = useCallback(async () => {
-    setIsLoading(true)
+  const loadFlows = useCallback(async (options: { silent?: boolean } = {}) => {
+    if (!options.silent) setIsLoading(true)
     setLoadError(null)
     try {
       const result = await fetchFlowList(slug)
@@ -66,7 +68,7 @@ export function FlowsPage({ buildCreateHref, buildEditHref, buildHistoryHref, hi
     } catch {
       setLoadError('network_error')
     } finally {
-      setIsLoading(false)
+      if (!options.silent) setIsLoading(false)
     }
   }, [slug])
 
@@ -90,18 +92,30 @@ export function FlowsPage({ buildCreateHref, buildEditHref, buildHistoryHref, hi
         return
       }
 
-      if (navigateToHistoryOnRun) {
-        router.push(getHistoryHref(flowId))
-        return
-      }
-
       await loadFlows()
     } catch {
       setActionError('network_error')
     } finally {
       setRunningFlowId(null)
     }
-  }, [getHistoryHref, loadFlows, navigateToHistoryOnRun, router, slug])
+  }, [loadFlows, slug])
+
+  const cancelFlow = useCallback(async (runId: string, flowId: string) => {
+    setCancellingFlowId(flowId)
+    setActionError(null)
+    try {
+      const result = await cancelFlowRunRequest(slug, runId)
+      if (!result.ok) {
+        setActionError(result.error)
+        return
+      }
+      await loadFlows()
+    } catch {
+      setActionError('network_error')
+    } finally {
+      setCancellingFlowId(null)
+    }
+  }, [loadFlows, slug])
 
   useEffect(() => {
     let cancelled = false
@@ -138,6 +152,20 @@ export function FlowsPage({ buildCreateHref, buildEditHref, buildHistoryHref, hi
   const sortedFlows = useMemo(() => [...flows].sort((left, right) => left.name.localeCompare(right.name)), [flows])
   const myFlows = useMemo(() => sortedFlows.filter((flow) => flow.permissions.isOwner), [sortedFlows])
   const teamFlows = useMemo(() => sortedFlows.filter((flow) => !flow.permissions.isOwner), [sortedFlows])
+  const hasActiveRun = useMemo(
+    () => flows.some((flow) => flow.latestRun?.status === 'running' || flow.latestRun?.status === 'waiting_for_human'),
+    [flows],
+  )
+
+  useEffect(() => {
+    if (!hasActiveRun) return
+
+    const interval = setInterval(() => {
+      void loadFlows({ silent: true })
+    }, ACTIVE_RUN_REFRESH_INTERVAL_MS)
+
+    return () => clearInterval(interval)
+  }, [hasActiveRun, loadFlows])
 
   function renderFlowGrid(items: FlowListItem[]) {
     return (
@@ -218,7 +246,18 @@ export function FlowsPage({ buildCreateHref, buildEditHref, buildHistoryHref, hi
                   </span>
                 </div>
 
-                {flow.permissions.canRun ? (
+                {flow.permissions.canRun && flow.latestRun && (flow.latestRun.status === 'running' || flow.latestRun.status === 'waiting_for_human') ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void cancelFlow(flow.latestRun!.id, flow.id)}
+                    disabled={cancellingFlowId === flow.id}
+                    className="h-8 shrink-0 gap-1.5 px-3.5 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  >
+                    {cancellingFlowId === flow.id ? <SpinnerGap size={14} className="animate-spin" /> : <Stop size={14} weight="fill" />}
+                    {cancellingFlowId === flow.id ? 'Stopping' : 'Stop'}
+                  </Button>
+                ) : flow.permissions.canRun ? (
                   <Button
                     size="sm"
                     onClick={() => void runFlow(flow.id)}

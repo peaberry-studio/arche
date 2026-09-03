@@ -193,6 +193,68 @@ func TestValidateTemplatesAcceptsPRVersion(t *testing.T) {
 	}
 }
 
+func TestRenderEnvFileSetsFlowSchedulerMode(t *testing.T) {
+	t.Parallel()
+
+	envFile := renderEnvFile(input{token: "sample", email: "admin@example.com", version: "v1.2.3"}, stateSecrets{
+		PostgresPassword:          "postgres-password",
+		SessionPepper:             "session-pepper",
+		EncryptionKey:             "encryption-key",
+		InternalToken:             "internal-token",
+		GatewayTokenSecret:        "gateway-token",
+		ConnectorOAuthStateSecret: "oauth-state-token",
+		AdminPassword:             "admin-password",
+	}, envPlaceholderDomain, envPlaceholderPublicBaseURL)
+	if !strings.Contains(envFile, "ARCHE_FLOW_SCHEDULER_MODE=daemon") {
+		t.Fatalf("renderEnvFile() should set ARCHE_FLOW_SCHEDULER_MODE=daemon:\n%s", envFile)
+	}
+}
+
+func TestRenderBootstrapScriptWritesFlowSchedulerMode(t *testing.T) {
+	t.Parallel()
+
+	script := renderBootstrapScript(input{token: "sample", email: "admin@example.com", version: "v1.2.3"})
+	if !strings.Contains(script, "ARCHE_FLOW_SCHEDULER_MODE=daemon") {
+		t.Fatalf("renderBootstrapScript() should write ARCHE_FLOW_SCHEDULER_MODE=daemon to the env file:\n%s", script)
+	}
+}
+
+func TestRenderUpdateScriptSetsFlowSchedulerModeAndStartsFlows(t *testing.T) {
+	t.Parallel()
+
+	script := renderUpdateScript("v1.2.3", "services:\n  web:\n")
+	if !strings.Contains(script, "set_env ARCHE_FLOW_SCHEDULER_MODE daemon") {
+		t.Fatalf("renderUpdateScript() should set ARCHE_FLOW_SCHEDULER_MODE via set_env:\n%s", script)
+	}
+	if !strings.Contains(script, "docker compose up -d web flows reaper") {
+		t.Fatalf("renderUpdateScript() should bring up the flows and reaper services alongside web:\n%s", script)
+	}
+}
+
+func TestRenderComposeRunsFlowDaemon(t *testing.T) {
+	t.Parallel()
+
+	compose := renderCompose()
+	if !strings.Contains(compose, "\n  flows:\n") {
+		t.Fatalf("renderCompose() should declare a flows service:\n%s", compose)
+	}
+	if !strings.Contains(compose, "src/flow-daemon.ts") {
+		t.Fatalf("renderCompose() should run the flow-daemon entrypoint:\n%s", compose)
+	}
+}
+
+func TestRenderComposeRunsReaper(t *testing.T) {
+	t.Parallel()
+
+	compose := renderCompose()
+	if !strings.Contains(compose, "\n  reaper:\n") {
+		t.Fatalf("renderCompose() should declare a reaper service:\n%s", compose)
+	}
+	if !strings.Contains(compose, "src/reaper-daemon.ts") {
+		t.Fatalf("renderCompose() should run the reaper-daemon entrypoint:\n%s", compose)
+	}
+}
+
 func TestValidateVersionAcceptsPRVersion(t *testing.T) {
 	t.Parallel()
 

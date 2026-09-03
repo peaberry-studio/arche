@@ -18,6 +18,7 @@ const prismaMock = vi.hoisted(() => ({
   },
   flowRunStep: {
     update: vi.fn(),
+    updateMany: vi.fn(),
     upsert: vi.fn(),
   },
 }))
@@ -87,6 +88,7 @@ describe('flowService', () => {
 
   it('marks stale running runs failed when their flow lease has expired', async () => {
     prismaMock.flowRun.updateMany.mockResolvedValue({ count: 2 })
+    prismaMock.flowRunStep.updateMany.mockResolvedValue({ count: 3 })
 
     await expect(flowService.recoverStaleRunningRuns(now)).resolves.toBe(2)
 
@@ -99,12 +101,37 @@ describe('flowService', () => {
       },
       where: {
         flow: {
-          leaseExpiresAt: { lt: now },
+          OR: [
+            { leaseExpiresAt: null },
+            { leaseExpiresAt: { lt: now } },
+          ],
         },
         retryScheduledFor: null,
         status: FlowRunStatus.running,
       },
     })
+
+    expect(prismaMock.flowRunStep.updateMany).toHaveBeenCalledWith({
+      data: {
+        error: 'flow_run_stale_recovered',
+        finishedAt: now,
+        status: FlowRunStepStatus.failed,
+      },
+      where: {
+        run: { error: 'flow_run_stale_recovered', finishedAt: now },
+        status: {
+          in: [FlowRunStepStatus.pending, FlowRunStepStatus.running, FlowRunStepStatus.waiting_for_human],
+        },
+      },
+    })
+  })
+
+  it('does not touch run steps when no stale runs were recovered', async () => {
+    prismaMock.flowRun.updateMany.mockResolvedValue({ count: 0 })
+
+    await expect(flowService.recoverStaleRunningRuns(now)).resolves.toBe(0)
+
+    expect(prismaMock.flowRunStep.updateMany).not.toHaveBeenCalled()
   })
 
   it('recovers stale running runs before claiming an immediate run', async () => {
@@ -225,6 +252,27 @@ describe('flowService', () => {
     await expect(flowService.findRunStatusById('run-1')).resolves.toEqual({ status: FlowRunStatus.running })
     await expect(flowService.cancelRunByIdForScope('run-1', createScope(), now)).resolves.toBe(true)
     await expect(flowService.cancelRunById('run-1', now)).resolves.toBe(true)
+    expect(prismaMock.flowRunStep.updateMany).toHaveBeenCalledWith({
+      data: {
+        error: 'flow_run_cancelled',
+        finishedAt: now,
+        status: FlowRunStepStatus.failed,
+      },
+      where: {
+        runId: 'run-1',
+        status: {
+          in: [FlowRunStepStatus.pending, FlowRunStepStatus.running, FlowRunStepStatus.waiting_for_human],
+        },
+      },
+    })
+  })
+
+  it('leaves run steps untouched when the run was already settled', async () => {
+    prismaMock.flowRun.updateMany.mockResolvedValue({ count: 0 })
+
+    await expect(flowService.cancelRunById('run-1', now)).resolves.toBe(false)
+
+    expect(prismaMock.flowRunStep.updateMany).not.toHaveBeenCalled()
   })
 
   it('normalizes private flow organization execution in the service layer', async () => {
