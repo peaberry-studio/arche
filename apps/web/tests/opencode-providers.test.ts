@@ -65,7 +65,7 @@ describe('syncProviderAccessForInstance', () => {
   })
 
   it('sets auth for active credentials and keeps OpenCode gateway auth', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('true', { status: 200 })))
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{"healthy":true}', { status: 200 })))
 
     mockGetEnabledProviderCredentialsForUser.mockResolvedValue(enabledCredentials([
       ['openai', { credentialId: 'cred-1', source: 'user', version: 2 }],

@@ -7,6 +7,7 @@ import { getEnabledProviderCredentialsForUser, type EnabledProviderCredentials }
 import { issueGatewayToken } from '@/lib/providers/tokens'
 import { PROVIDERS } from '@/lib/providers/types'
 import { instanceService, messageRunService } from '@/lib/services'
+import { isRecord } from '@/lib/records'
 
 export type SyncProviderAccessResult =
   | { ok: true }
@@ -22,7 +23,16 @@ type SyncProviderAccessInput = {
 // Refresh slightly before the gateway token expires so long-running runs do not
 // reuse credentials that are about to age out.
 const PROVIDER_SYNC_REFRESH_SKEW_MS = 60_000
+// Dispose exits the OpenCode process and the container restarts (5-15s), so
+// health probes after a dispose need a generous budget before giving up.
+const DISPOSE_HEALTH_TIMEOUT_MS = 30_000
+const DISPOSE_HEALTH_POLL_INTERVAL_MS = 1_000
+const DISPOSE_HEALTH_PROBE_TIMEOUT_MS = 3_000
 const providerSyncLocks = new Map<string, Promise<void>>()
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
 
 function buildProviderSyncHash(enabledByProvider: EnabledProviderCredentials): string {
   // Only configured providers affect runtime auth. Missing credentials and
@@ -147,6 +157,43 @@ async function fetchRequired(
   throw new Error(`provider_sync_failed:${init.method ?? 'GET'}:${url}:${response.status}`)
 }
 
+// Dispose exits the OpenCode process and Docker restarts the container, so
+// callers that immediately create sessions would otherwise hit a dead or
+// restarting instance. Poll the health endpoint until it reports healthy.
+async function waitForInstanceHealthyAfterDispose(
+  instance: { baseUrl: string; authHeader: string },
+): Promise<boolean> {
+  const deadline = Date.now() + DISPOSE_HEALTH_TIMEOUT_MS
+  while (Date.now() < deadline) {
+    const controller = new AbortController()
+    const probeTimeout = setTimeout(() => controller.abort(), DISPOSE_HEALTH_PROBE_TIMEOUT_MS)
+    try {
+      const response = await fetch(`${instance.baseUrl}/global/health`, {
+        headers: {
+          Authorization: instance.authHeader,
+          Accept: 'application/json',
+        },
+        cache: 'no-store',
+        signal: controller.signal,
+      })
+      if (response.ok) {
+        const data: unknown = await response.json().catch(() => null)
+        if (isRecord(data) && data.healthy === true) {
+          return true
+        }
+      }
+    } catch {
+      // Connection refused or probe timeout while the container restarts — retry.
+    } finally {
+      clearTimeout(probeTimeout)
+    }
+
+    await sleep(DISPOSE_HEALTH_POLL_INTERVAL_MS)
+  }
+
+  return false
+}
+
 export async function syncProviderAccessForInstance(
   input: SyncProviderAccessInput,
 ): Promise<SyncProviderAccessResult> {
@@ -244,6 +291,12 @@ export async function syncProviderAccessForInstance(
           cache: 'no-store',
         })
         disposed = true
+
+        if (!(await waitForInstanceHealthyAfterDispose(instance))) {
+          console.warn('[opencode/providers] Instance did not report healthy after dispose', {
+            slug: input.slug,
+          })
+        }
       }
     }
 

@@ -62,6 +62,10 @@ A provider-access sync that disposes the workspace instance SHALL re-check for a
 - **WHEN** a run registers in the workspace after the sync's initial deferral check but before the dispose fires
 - **THEN** the credential writes are kept, the dispose is skipped, and the run's generation is not aborted
 
+#### Scenario: Instance becomes healthy again after a dispose
+- **WHEN** a sync disposes the instance
+- **THEN** the sync waits for the instance health endpoint to report healthy (bounded timeout) before returning, because dispose exits the OpenCode process and callers immediately create sessions against it
+
 #### Scenario: No run starts during the sync
 - **WHEN** no active run is present after the credential writes complete
 - **THEN** the instance is disposed to reload provider discovery as before

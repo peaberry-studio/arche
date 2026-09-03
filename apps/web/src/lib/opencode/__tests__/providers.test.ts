@@ -62,7 +62,7 @@ const fakeInstance = {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('ok', { status: 200 })))
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{"healthy":true}', { status: 200 })))
   mockGetGatewayTokenTtlSeconds.mockReturnValue(3600)
   mockGetInstanceBasicAuth.mockResolvedValue(fakeInstance)
   mockInstanceService.findProviderSyncBySlug.mockResolvedValue({
@@ -191,6 +191,76 @@ describe('syncProviderAccessForInstance', () => {
 
     consoleWarnSpy.mockRestore()
     consoleLogSpy.mockRestore()
+  })
+
+  it('waits for the instance to become healthy after disposing', async () => {
+    const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    mockGetEnabledCredentials.mockResolvedValue(enabledCredentials([
+      ['openai', { credentialId: '1', source: 'user', version: 1 }],
+    ]))
+
+    const healthResults = [false, false, true]
+    let healthCalls = 0
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async (url: unknown) => {
+      if (String(url).endsWith('/global/health')) {
+        const healthy = healthResults[Math.min(healthCalls, healthResults.length - 1)]!
+        healthCalls += 1
+        return healthy
+          ? new Response('{"healthy":true}', { status: 200 })
+          : new Response('{"healthy":false}', { status: 503 })
+      }
+      return new Response('{"healthy":true}', { status: 200 })
+    }))
+
+    const result = await syncProviderAccessForInstance({
+      instance: fakeInstance,
+      slug: 'alice',
+      userId: 'user-1',
+    })
+
+    expect(result).toEqual({ ok: true })
+    expect(healthCalls).toBeGreaterThanOrEqual(3)
+    expect(mockInstanceService.setProviderSyncState).toHaveBeenCalled()
+
+    consoleLogSpy.mockRestore()
+  })
+
+  it('warns when the instance never becomes healthy after disposing', async () => {
+    vi.useFakeTimers()
+    const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    mockGetEnabledCredentials.mockResolvedValue(enabledCredentials([
+      ['openai', { credentialId: '1', source: 'user', version: 1 }],
+    ]))
+
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async (url: unknown) => {
+      if (String(url).endsWith('/global/health')) {
+        return new Response('{"healthy":false}', { status: 503 })
+      }
+      return new Response('{"healthy":true}', { status: 200 })
+    }))
+
+    try {
+      const pending = syncProviderAccessForInstance({
+        instance: fakeInstance,
+        slug: 'alice',
+        userId: 'user-1',
+      })
+
+      await vi.advanceTimersByTimeAsync(35_000)
+
+      await expect(pending).resolves.toEqual({ ok: true })
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        '[opencode/providers] Instance did not report healthy after dispose',
+        expect.objectContaining({ slug: 'alice' }),
+      )
+      // The dispose did run, so the sync state is still recorded.
+      expect(mockInstanceService.setProviderSyncState).toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+      consoleLogSpy.mockRestore()
+      consoleWarnSpy.mockRestore()
+    }
   })
 
   it('disposes the instance and records sync state when no run started during the sync', async () => {
