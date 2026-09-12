@@ -93,10 +93,86 @@ describe('oauth-metadata', () => {
         tokenEndpoint: 'https://example.com/token',
         registrationEndpoint: 'https://example.com/register',
       })
+      // RFC 8414: server URLs with a path component are discovered through the
+      // path-aware well-known document first.
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+      expect(mockFetch).toHaveBeenCalledWith('https://example.com/.well-known/oauth-authorization-server/mcp', {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+        cache: 'no-store',
+      })
+
+      vi.unstubAllGlobals()
+    })
+
+    it('queries the root well-known document directly when the server URL has no path', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          authorization_endpoint: 'https://example.com/auth',
+          token_endpoint: 'https://example.com/token',
+        }),
+      })
+      vi.stubGlobal('fetch', mockFetch)
+
+      const { discoverOAuthMetadata } = await import('@/lib/connectors/oauth-metadata')
+      await discoverOAuthMetadata('https://example.com/')
+      expect(mockFetch).toHaveBeenCalledTimes(1)
       expect(mockFetch).toHaveBeenCalledWith('https://example.com/.well-known/oauth-authorization-server', {
         method: 'GET',
         headers: { Accept: 'application/json' },
         cache: 'no-store',
+      })
+
+      vi.unstubAllGlobals()
+    })
+
+    it('falls back to the root well-known document when the path-aware document is missing', async () => {
+      const mockFetch = vi.fn()
+        .mockResolvedValueOnce({ ok: false, status: 404 })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            issuer: 'https://example.com',
+            authorization_endpoint: 'https://example.com/auth',
+            token_endpoint: 'https://example.com/token',
+          }),
+        })
+      vi.stubGlobal('fetch', mockFetch)
+
+      const { discoverOAuthMetadata } = await import('@/lib/connectors/oauth-metadata')
+      const result = await discoverOAuthMetadata('https://example.com/mcp')
+      expect(result.authorizationEndpoint).toBe('https://example.com/auth')
+      expect(mockFetch).toHaveBeenNthCalledWith(1, 'https://example.com/.well-known/oauth-authorization-server/mcp', expect.any(Object))
+      expect(mockFetch).toHaveBeenNthCalledWith(2, 'https://example.com/.well-known/oauth-authorization-server', expect.any(Object))
+
+      vi.unstubAllGlobals()
+    })
+
+    it('uses path-aware metadata for servers hosted under a path (Meta Ads MCP shape)', async () => {
+      const mockFetch = vi.fn(async (url: string) => {
+        if (url === 'https://mcp.facebook.com/.well-known/oauth-authorization-server/ads') {
+          return {
+            ok: true,
+            json: async () => ({
+              issuer: 'https://www.facebook.com',
+              authorization_endpoint: 'https://www.facebook.com/v26.0/dialog/oauth',
+              token_endpoint: 'https://graph.facebook.com/v26.0/oauth/access_token',
+              registration_endpoint: 'https://mcp.facebook.com/.well-known/register/ads',
+            }),
+          }
+        }
+        return { ok: false, status: 404 }
+      })
+      vi.stubGlobal('fetch', mockFetch)
+
+      const { discoverOAuthMetadata } = await import('@/lib/connectors/oauth-metadata')
+      const result = await discoverOAuthMetadata('https://mcp.facebook.com/ads')
+      expect(result).toEqual({
+        issuer: 'https://www.facebook.com',
+        authorizationEndpoint: 'https://www.facebook.com/v26.0/dialog/oauth',
+        tokenEndpoint: 'https://graph.facebook.com/v26.0/oauth/access_token',
+        registrationEndpoint: 'https://mcp.facebook.com/.well-known/register/ads',
       })
 
       vi.unstubAllGlobals()
