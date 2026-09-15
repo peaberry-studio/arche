@@ -62,7 +62,7 @@ const fakeInstance = {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('ok', { status: 200 })))
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{"healthy":true}', { status: 200 })))
   mockGetGatewayTokenTtlSeconds.mockReturnValue(3600)
   mockGetInstanceBasicAuth.mockResolvedValue(fakeInstance)
   mockInstanceService.findProviderSyncBySlug.mockResolvedValue({
@@ -160,7 +160,133 @@ describe('syncProviderAccessForInstance', () => {
     expect(disposeCalls).toHaveLength(1)
   })
 
-  it('skips dispose when disposeInstance is false', async () => {
+  it('skips the destructive dispose when a run starts during the sync', async () => {
+    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    mockGetEnabledCredentials.mockResolvedValue(enabledCredentials([
+      ['openai', { credentialId: '1', source: 'user', version: 1 }],
+    ]))
+    // A run registered while the auth PUTs were in flight: the keys are
+    // already updated, but disposing would abort the run's generation.
+    mockMessageRunService.hasActiveRunForSlug.mockResolvedValue(true)
+
+    const result = await syncProviderAccessForInstance({
+      instance: fakeInstance,
+      slug: 'alice',
+      userId: 'user-1',
+    })
+
+    expect(result).toEqual({ ok: true })
+    const mockFetch = vi.mocked(globalThis.fetch)
+    expect(mockFetch.mock.calls.some((call) => (call[1] as RequestInit)?.method === 'PUT')).toBe(true)
+    expect(mockFetch.mock.calls.some((call) => String(call[0]).endsWith('/instance/dispose'))).toBe(false)
+    // Withholding the sync record is the point: a later sync must re-put the
+    // keys and dispose once the workspace is idle instead of short-circuiting
+    // on a fresh timestamp.
+    expect(mockInstanceService.setProviderSyncState).not.toHaveBeenCalled()
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      '[opencode/providers] Deferred instance dispose because a run started during the sync',
+      expect.objectContaining({ slug: 'alice' }),
+    )
+
+    consoleWarnSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
+
+  it('waits for the instance to become healthy after disposing', async () => {
+    const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    mockGetEnabledCredentials.mockResolvedValue(enabledCredentials([
+      ['openai', { credentialId: '1', source: 'user', version: 1 }],
+    ]))
+
+    const healthResults = [false, false, true]
+    let healthCalls = 0
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async (url: unknown) => {
+      if (String(url).endsWith('/global/health')) {
+        const healthy = healthResults[Math.min(healthCalls, healthResults.length - 1)]!
+        healthCalls += 1
+        return healthy
+          ? new Response('{"healthy":true}', { status: 200 })
+          : new Response('{"healthy":false}', { status: 503 })
+      }
+      return new Response('{"healthy":true}', { status: 200 })
+    }))
+
+    const result = await syncProviderAccessForInstance({
+      instance: fakeInstance,
+      slug: 'alice',
+      userId: 'user-1',
+    })
+
+    expect(result).toEqual({ ok: true })
+    expect(healthCalls).toBeGreaterThanOrEqual(3)
+    expect(mockInstanceService.setProviderSyncState).toHaveBeenCalled()
+
+    consoleLogSpy.mockRestore()
+  })
+
+  it('warns when the instance never becomes healthy after disposing', async () => {
+    vi.useFakeTimers()
+    const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    mockGetEnabledCredentials.mockResolvedValue(enabledCredentials([
+      ['openai', { credentialId: '1', source: 'user', version: 1 }],
+    ]))
+
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async (url: unknown) => {
+      if (String(url).endsWith('/global/health')) {
+        return new Response('{"healthy":false}', { status: 503 })
+      }
+      return new Response('{"healthy":true}', { status: 200 })
+    }))
+
+    try {
+      const pending = syncProviderAccessForInstance({
+        instance: fakeInstance,
+        slug: 'alice',
+        userId: 'user-1',
+      })
+
+      await vi.advanceTimersByTimeAsync(35_000)
+
+      await expect(pending).resolves.toEqual({ ok: true })
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        '[opencode/providers] Instance did not report healthy after dispose',
+        expect.objectContaining({ slug: 'alice' }),
+      )
+      // The dispose did run, so the sync state is still recorded.
+      expect(mockInstanceService.setProviderSyncState).toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+      consoleLogSpy.mockRestore()
+      consoleWarnSpy.mockRestore()
+    }
+  })
+
+  it('disposes the instance and records sync state when no run started during the sync', async () => {
+    const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    mockGetEnabledCredentials.mockResolvedValue(enabledCredentials([
+      ['openai', { credentialId: '1', source: 'user', version: 1 }],
+    ]))
+
+    const result = await syncProviderAccessForInstance({
+      instance: fakeInstance,
+      slug: 'alice',
+      userId: 'user-1',
+    })
+
+    expect(result).toEqual({ ok: true })
+    expect(vi.mocked(globalThis.fetch).mock.calls.some((call) => String(call[0]).endsWith('/instance/dispose'))).toBe(true)
+    expect(mockInstanceService.setProviderSyncState).toHaveBeenCalledWith(
+      'alice',
+      await getProviderSyncHashForUser('user-1'),
+      expect.any(Date),
+    )
+
+    consoleLogSpy.mockRestore()
+  })
+
+  it('skips dispose but records sync state when disposeInstance is false', async () => {
     const mockFetch = vi.mocked(globalThis.fetch)
     mockGetEnabledCredentials.mockResolvedValue(enabledCredentials())
 
@@ -178,6 +304,11 @@ describe('syncProviderAccessForInstance', () => {
         (call[1] as RequestInit)?.method === 'POST',
     )
     expect(disposeCalls).toHaveLength(0)
+    expect(mockInstanceService.setProviderSyncState).toHaveBeenCalledWith(
+      'alice',
+      await getProviderSyncHashForUser('user-1'),
+      expect.any(Date),
+    )
   })
 
   it('returns sync_failed on network error', async () => {
@@ -268,6 +399,42 @@ describe('syncProviderAccessForInstance', () => {
     await ensureProviderAccessFreshForExecution({ slug: 'alice', userId: 'user-1' })
 
     expect(mockGetInstanceBasicAuth).not.toHaveBeenCalled()
+  })
+
+  it('forces a refresh even when the running instance matches the expected hash', async () => {
+    mockGetEnabledCredentials.mockResolvedValue(enabledCredentials([
+      ['openai', { credentialId: 'org-1', source: 'organization', version: 3 }],
+    ]))
+
+    mockInstanceService.findProviderSyncBySlug.mockResolvedValue({
+      providerSyncHash: await getProviderSyncHashForUser('user-1'),
+      providerSyncedAt: new Date(),
+      status: 'running',
+    })
+
+    await ensureProviderAccessFreshForExecution({ slug: 'alice', userId: 'user-1', force: true })
+
+    expect(mockGetInstanceBasicAuth).toHaveBeenCalledWith('alice')
+  })
+
+  it('still defers a forced refresh while the workspace has active runs', async () => {
+    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    mockGetEnabledCredentials.mockResolvedValue(enabledCredentials([
+      ['openai', { credentialId: 'org-1', source: 'organization', version: 3 }],
+    ]))
+    mockInstanceService.findProviderSyncBySlug.mockResolvedValue({
+      providerSyncHash: await getProviderSyncHashForUser('user-1'),
+      providerSyncedAt: new Date(),
+      status: 'running',
+    })
+    mockMessageRunService.hasActiveRunForSlug.mockResolvedValue(true)
+
+    await ensureProviderAccessFreshForExecution({ slug: 'alice', userId: 'user-1', force: true })
+
+    expect(mockGetInstanceBasicAuth).not.toHaveBeenCalled()
+    expect(mockInstanceService.setProviderSyncState).not.toHaveBeenCalled()
+
+    consoleWarnSpy.mockRestore()
   })
 
   it('refreshes provider access when the sync record is stale by age', async () => {
