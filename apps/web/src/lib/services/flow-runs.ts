@@ -2,6 +2,7 @@ import {
   FlowRunStatus,
   FlowRunStepStatus,
   FlowRunTrigger,
+  type Prisma,
 } from '@prisma/client'
 
 import {
@@ -129,8 +130,8 @@ export function markRunRetryScheduled(id: string, data: { attempt: number; error
 // early-returns for cancelled runs and executors skip step updates for
 // cancelled prompts — so cancellation must settle in-flight steps itself or
 // the run history spins on them forever.
-function cancelInFlightSteps(runId: string, cancelledAt: Date) {
-  return prisma.flowRunStep.updateMany({
+function cancelInFlightSteps(transaction: Prisma.TransactionClient, runId: string, cancelledAt: Date) {
+  return transaction.flowRunStep.updateMany({
     data: {
       error: 'flow_run_cancelled',
       finishedAt: cancelledAt,
@@ -146,38 +147,42 @@ function cancelInFlightSteps(runId: string, cancelledAt: Date) {
 }
 
 export async function cancelRunByIdForScope(id: string, scope: FlowActorScope, cancelledAt: Date): Promise<boolean> {
-  const result = await prisma.flowRun.updateMany({
-    data: {
-      finishedAt: cancelledAt,
-      status: FlowRunStatus.cancelled,
-    },
-    where: {
-      id,
-      ...runExecutesInWorkspaceWhere(scope),
-      status: { in: ACTIVE_RUN_STATUSES },
-    },
-  })
-  if (result.count !== 1) return false
+  return prisma.$transaction(async (transaction) => {
+    const result = await transaction.flowRun.updateMany({
+      data: {
+        finishedAt: cancelledAt,
+        status: FlowRunStatus.cancelled,
+      },
+      where: {
+        id,
+        ...runExecutesInWorkspaceWhere(scope),
+        status: { in: ACTIVE_RUN_STATUSES },
+      },
+    })
+    if (result.count !== 1) return false
 
-  await cancelInFlightSteps(id, cancelledAt)
-  return true
+    await cancelInFlightSteps(transaction, id, cancelledAt)
+    return true
+  })
 }
 
 export async function cancelRunById(id: string, cancelledAt: Date): Promise<boolean> {
-  const result = await prisma.flowRun.updateMany({
-    data: {
-      finishedAt: cancelledAt,
-      status: FlowRunStatus.cancelled,
-    },
-    where: {
-      id,
-      status: { in: ACTIVE_RUN_STATUSES },
-    },
-  })
-  if (result.count !== 1) return false
+  return prisma.$transaction(async (transaction) => {
+    const result = await transaction.flowRun.updateMany({
+      data: {
+        finishedAt: cancelledAt,
+        status: FlowRunStatus.cancelled,
+      },
+      where: {
+        id,
+        status: { in: ACTIVE_RUN_STATUSES },
+      },
+    })
+    if (result.count !== 1) return false
 
-  await cancelInFlightSteps(id, cancelledAt)
-  return true
+    await cancelInFlightSteps(transaction, id, cancelledAt)
+    return true
+  })
 }
 
 function runDetailInclude() {

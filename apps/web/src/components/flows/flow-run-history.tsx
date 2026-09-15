@@ -20,6 +20,7 @@ import { HumanStepResponseCard } from '@/components/flows/human-step-response-ca
 import { Button } from '@/components/ui/button'
 import { cancelFlowRunRequest } from '@/lib/flows/client'
 import { formatFlowRunDate } from '@/lib/flows/cron'
+import { getFlowErrorMessage } from '@/lib/flows/errors'
 import { cn } from '@/lib/utils'
 import type { FlowDetail, FlowRunListItem, FlowRunStepListItem } from '@/lib/flows/types'
 import { getWorkspaceHref } from '@/lib/workspace-hrefs'
@@ -190,6 +191,7 @@ function RunCard({
   now: Date
   onRefresh?: () => Promise<void> | void
 }) {
+  const [cancelError, setCancelError] = useState<string | null>(null)
   const [isCancelling, setIsCancelling] = useState(false)
   const tone = getRunTone(run.status)
   const startedDate = new Date(run.startedAt)
@@ -203,12 +205,16 @@ function RunCard({
 
   async function handleCancel() {
     setIsCancelling(true)
+    setCancelError(null)
     try {
       const result = await cancelFlowRunRequest(slug, run.id)
-      if (!result.ok) return
+      if (!result.ok) {
+        setCancelError(result.error)
+        return
+      }
       await onRefresh?.()
     } catch {
-      // API enforces permissions; silent on network error
+      setCancelError('network_error')
     } finally {
       setIsCancelling(false)
     }
@@ -237,6 +243,7 @@ function RunCard({
           </div>
           {executionUser ? <p className="ml-[22px] text-xs text-muted-foreground">Executed by {executionUser.slug}</p> : null}
           {run.error ? <p className="ml-[22px] text-xs text-destructive">{run.error}</p> : null}
+          {cancelError ? <p className="ml-[22px] text-xs text-destructive">{getFlowErrorMessage(cancelError)}</p> : null}
           {run.retryScheduledFor ? (
             <p className="ml-[22px] flex items-center gap-1 text-xs text-muted-foreground">
               <ClockCountdown size={12} weight="bold" className="text-amber-500" />

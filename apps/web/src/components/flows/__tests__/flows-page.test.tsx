@@ -7,6 +7,7 @@ import { FlowsPage } from '@/components/flows/flows-page'
 import type { FlowListItem } from '@/lib/flows/types'
 
 const clientMocks = vi.hoisted(() => ({
+  cancelFlowRunRequest: vi.fn(),
   fetchFlowList: vi.fn(),
   push: vi.fn(),
   runFlowRequest: vi.fn(),
@@ -14,6 +15,7 @@ const clientMocks = vi.hoisted(() => ({
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: clientMocks.push }) }))
 vi.mock('@/lib/flows/client', () => ({
+  cancelFlowRunRequest: clientMocks.cancelFlowRunRequest,
   fetchFlowList: clientMocks.fetchFlowList,
   runFlowRequest: clientMocks.runFlowRequest,
 }))
@@ -69,6 +71,7 @@ function createFlow(overrides: Partial<FlowListItem>): FlowListItem {
 describe('FlowsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    clientMocks.cancelFlowRunRequest.mockResolvedValue({ ok: true, data: { ok: true } })
     clientMocks.fetchFlowList.mockResolvedValue({ ok: true, data: { flows: [flow] } })
     clientMocks.runFlowRequest.mockResolvedValue({ ok: true, data: { ok: true, runId: 'run-1' } })
   })
@@ -214,6 +217,99 @@ describe('FlowsPage', () => {
     } finally {
       setIntervalSpy.mockRestore()
       clearIntervalSpy.mockRestore()
+    }
+  })
+
+  it('keeps active flow controls mounted when a silent poll fails', async () => {
+    const pollCallbacks: Array<() => void> = []
+    const setIntervalSpy = vi.spyOn(global, 'setInterval').mockImplementation(((callback: () => void) => {
+      pollCallbacks.push(callback)
+      return 0 as unknown as ReturnType<typeof setInterval>
+    }) as typeof setInterval)
+
+    try {
+      clientMocks.fetchFlowList
+        .mockResolvedValueOnce({ ok: true, data: { flows: [createFlow({ latestRun: createRun(FlowRunStatus.running) })] } })
+        .mockRejectedValueOnce(new Error('temporary outage'))
+
+      render(<FlowsPage slug="alice" />)
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Stop' })).toBeTruthy())
+
+      await act(async () => {
+        pollCallbacks[pollCallbacks.length - 1]!()
+      })
+      await waitFor(() => expect(clientMocks.fetchFlowList).toHaveBeenCalledTimes(2))
+
+      expect(screen.getByText('Weekly Review')).toBeTruthy()
+      expect(screen.getByRole('button', { name: 'Stop' })).toBeTruthy()
+      expect(screen.queryByText('Could not load flows')).toBeNull()
+    } finally {
+      setIntervalSpy.mockRestore()
+    }
+  })
+
+  it('restores the list when a later silent poll succeeds', async () => {
+    const pollCallbacks = new Map<number, () => void>()
+    let nextIntervalId = 0
+    const setIntervalSpy = vi.spyOn(global, 'setInterval').mockImplementation(((callback: () => void, delay?: number) => {
+      const intervalId = nextIntervalId
+      nextIntervalId += 1
+      if (delay === 5000) pollCallbacks.set(intervalId, callback)
+      return intervalId as unknown as ReturnType<typeof setInterval>
+    }) as typeof setInterval)
+    const clearIntervalSpy = vi.spyOn(global, 'clearInterval').mockImplementation(((intervalId: number) => {
+      pollCallbacks.delete(intervalId)
+    }) as typeof clearInterval)
+
+    try {
+      clientMocks.fetchFlowList
+        .mockResolvedValueOnce({ ok: true, data: { flows: [createFlow({ latestRun: createRun(FlowRunStatus.running) })] } })
+        .mockResolvedValueOnce({ ok: false, error: 'load_failed' })
+        .mockResolvedValue({ ok: true, data: { flows: [createFlow({ latestRun: createRun(FlowRunStatus.running) })] } })
+
+      const { rerender } = render(<FlowsPage slug="alice" />)
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Stop' })).toBeTruthy())
+
+      rerender(<FlowsPage slug="bob" />)
+      await waitFor(() => expect(screen.getByText('Could not load flows')).toBeTruthy())
+      await waitFor(() => expect(pollCallbacks.size).toBe(1))
+
+      await act(async () => {
+        [...pollCallbacks.values()][0]!()
+      })
+      await waitFor(() => expect(clientMocks.fetchFlowList.mock.calls.length).toBeGreaterThan(2))
+
+      expect(clientMocks.fetchFlowList).toHaveBeenLastCalledWith('bob')
+      expect(screen.getByText('Weekly Review')).toBeTruthy()
+      expect(screen.queryByText('Could not load flows')).toBeNull()
+    } finally {
+      setIntervalSpy.mockRestore()
+      clearIntervalSpy.mockRestore()
+      clientMocks.fetchFlowList.mockReset()
+      clientMocks.fetchFlowList.mockResolvedValue({ ok: true, data: { flows: [flow] } })
+    }
+  })
+
+  it('keeps the list mounted during a post-run refresh', async () => {
+    let resolveRefresh!: (value: { ok: true; data: { flows: FlowListItem[] } }) => void
+    const refresh = new Promise<{ ok: true; data: { flows: FlowListItem[] } }>((resolve) => {
+      resolveRefresh = resolve
+    })
+    clientMocks.fetchFlowList
+      .mockResolvedValueOnce({ ok: true, data: { flows: [flow] } })
+      .mockReturnValueOnce(refresh)
+
+    try {
+      render(<FlowsPage slug="alice" />)
+      await waitFor(() => expect(screen.getByText('Weekly Review')).toBeTruthy())
+
+      fireEvent.click(screen.getByRole('button', { name: 'Run' }))
+      await waitFor(() => expect(clientMocks.fetchFlowList).toHaveBeenCalledTimes(2))
+
+      expect(screen.getByText('Weekly Review')).toBeTruthy()
+      expect(screen.queryByText('Loading flows...')).toBeNull()
+    } finally {
+      resolveRefresh({ ok: true, data: { flows: [createFlow({ latestRun: createRun(FlowRunStatus.running) })] } })
     }
   })
 

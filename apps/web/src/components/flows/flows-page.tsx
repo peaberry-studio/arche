@@ -55,18 +55,21 @@ export function FlowsPage({ buildCreateHref, buildEditHref, buildHistoryHref, hi
   const [cancellingFlowId, setCancellingFlowId] = useState<string | null>(null)
 
   const loadFlows = useCallback(async (options: { silent?: boolean } = {}) => {
-    if (!options.silent) setIsLoading(true)
-    setLoadError(null)
+    if (!options.silent) {
+      setIsLoading(true)
+      setLoadError(null)
+    }
     try {
       const result = await fetchFlowList(slug)
       if (!result.ok) {
-        setLoadError(result.error)
+        if (!options.silent) setLoadError(result.error)
         return
       }
 
+      setLoadError(null)
       setFlows(result.data.flows)
     } catch {
-      setLoadError('network_error')
+      if (!options.silent) setLoadError('network_error')
     } finally {
       if (!options.silent) setIsLoading(false)
     }
@@ -92,7 +95,7 @@ export function FlowsPage({ buildCreateHref, buildEditHref, buildHistoryHref, hi
         return
       }
 
-      await loadFlows()
+      await loadFlows({ silent: true })
     } catch {
       setActionError('network_error')
     } finally {
@@ -109,7 +112,7 @@ export function FlowsPage({ buildCreateHref, buildEditHref, buildHistoryHref, hi
         setActionError(result.error)
         return
       }
-      await loadFlows()
+      await loadFlows({ silent: true })
     } catch {
       setActionError('network_error')
     } finally {

@@ -43,21 +43,22 @@ export async function recoverStaleRunningRuns(now: Date): Promise<number> {
 
   // The runner that owned these runs is gone, so nothing else settles their
   // in-flight steps; the run history would spin on them forever.
-  if (result.count > 0) {
-    await prisma.flowRunStep.updateMany({
-      data: {
+  await prisma.flowRunStep.updateMany({
+    data: {
+      error: 'flow_run_stale_recovered',
+      finishedAt: now,
+      status: FlowRunStepStatus.failed,
+    },
+    where: {
+      run: {
         error: 'flow_run_stale_recovered',
-        finishedAt: now,
-        status: FlowRunStepStatus.failed,
+        status: FlowRunStatus.failed,
       },
-      where: {
-        run: { error: 'flow_run_stale_recovered', finishedAt: now },
-        status: {
-          in: [FlowRunStepStatus.pending, FlowRunStepStatus.running, FlowRunStepStatus.waiting_for_human],
-        },
+      status: {
+        in: [FlowRunStepStatus.pending, FlowRunStepStatus.running, FlowRunStepStatus.waiting_for_human],
       },
-    })
-  }
+    },
+  })
 
   return result.count
 }
