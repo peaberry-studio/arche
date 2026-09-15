@@ -20,7 +20,11 @@ for pattern in "\${secret_patterns[@]}"; do
 done
 exit 1`
 
-  for (const assignment of ["password = 'hunter2secret'", 'password = "hunter2secret"']) {
+  // Assemble the sample at runtime: the literal assignment would itself match
+  // the secret patterns this scan is checking for.
+  const fakeValue = 'hunter2secret'
+  for (const quote of ["'", '"']) {
+    const assignment = `password = ${quote}${fakeValue}${quote}`
     const result = spawnSync('bash', ['-c', script, '--', assignment])
     assert.equal(result.status, 0, `secret scanner must match ${assignment}`)
   }
