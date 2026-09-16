@@ -2,6 +2,7 @@ import { FlowRunStatus } from '@prisma/client'
 
 import {
   captureSessionMessageCursor,
+  describeLatestAssistantReply,
   readLatestAssistantText,
   waitForSessionToComplete,
   type SessionExecutionClient,
@@ -394,6 +395,13 @@ export async function runFlowPromptAndReadOutput(params: {
   })
 
   if (completion.status === 'termination_unconfirmed') {
+    // Termination could not be confirmed, so the flow run stays preserved for
+    // lease-expiry recovery — but this run's message run is definitively over
+    // (abort was requested); leaving it `running` would block provider syncs
+    // until the 35-minute message-run timeout.
+    if (messageRunId) {
+      await messageRunService.markRunFailed(messageRunId, completion.cause).catch(() => undefined)
+    }
     return { ok: false, type: 'termination_unconfirmed', cause: completion.cause }
   }
 
@@ -410,7 +418,23 @@ export async function runFlowPromptAndReadOutput(params: {
 
   const output = await readLatestAssistantText(params.client, params.sessionId, cursor)
   if (!output) {
-    return { ok: false, type: 'failed', error: 'flow_no_assistant_output' }
+    const diagnostics = await describeLatestAssistantReply({
+      client: params.client,
+      cursor,
+      sessionId: params.sessionId,
+    }).catch(() => null)
+
+    if (diagnostics) {
+      console.warn('[flows] Step completed without assistant output', { ...diagnostics })
+    }
+
+    // Suffix mirrors flow_mcp_connector_unavailable:<name>: the code stays
+    // stable while naming the model and the part-type profile it returned
+    // (reasoning-only, tool-only, empty).
+    const suffix = diagnostics
+      ? `:${diagnostics.providerId ?? 'unknown'}/${diagnostics.modelId ?? 'unknown'}:${diagnostics.partTypes.join('+') || 'none'}`
+      : ''
+    return { ok: false, type: 'failed', error: `flow_no_assistant_output${suffix}` }
   }
 
   return { ok: true, output }

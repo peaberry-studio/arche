@@ -60,6 +60,9 @@ export function isRetryableFlowRunError(error: string): boolean {
     normalized.includes('instance_start_timeout') ||
     normalized.includes('instance_unavailable') ||
     normalized.includes('flow_mcp_connector_unavailable') ||
+    // Gateway token expiry surfaces as invalid_token mid-run; the retry
+    // re-syncs provider access at startup and re-runs only the failed step.
+    normalized.includes('invalid_token') ||
     normalized.includes('kb_unavailable') ||
     normalized.includes('user_data_unavailable') ||
     normalized.includes('fetch failed') ||

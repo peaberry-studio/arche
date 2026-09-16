@@ -48,6 +48,7 @@ describe('flow retry policy', () => {
     expect(isRetryableFlowRunError('healthcheck timeout while starting')).toBe(true)
     expect(isRetryableFlowRunError('INSTANCE_UNAVAILABLE')).toBe(true)
     expect(isRetryableFlowRunError('flow_mcp_connector_unavailable:Mixpanel')).toBe(true)
+    expect(isRetryableFlowRunError('APIError: Unauthorized: invalid_token')).toBe(true)
     expect(isRetryableFlowRunError('fetch failed: ECONNREFUSED')).toBe(true)
     expect(isRetryableFlowRunError('UND_ERR_CONNECT_TIMEOUT')).toBe(true)
     expect(isRetryableFlowRunError('container name /arche is already in use')).toBe(true)
