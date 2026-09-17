@@ -2,8 +2,8 @@ import { NextRequest } from "next/server"
 
 import { withAuth } from "@/lib/runtime/with-auth"
 import {
+  contentDispositionHeader,
   inferAttachmentMimeType,
-  sanitizeAttachmentFilename,
 } from "@/lib/workspace-attachments"
 import {
   isValidWorkspacePath,
@@ -51,13 +51,12 @@ export const GET = withAuth<{ error: string }>(
     }
 
     const filename = normalizedPath.split("/").pop() ?? "download"
-    const safeName = sanitizeAttachmentFilename(filename)
 
     return new Response(new Uint8Array(content), {
       status: 200,
       headers: {
         "Cache-Control": "no-store",
-        "Content-Disposition": `attachment; filename="${safeName}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+        "Content-Disposition": contentDispositionHeader(filename),
         "Content-Type": inferAttachmentMimeType(filename),
       },
     })

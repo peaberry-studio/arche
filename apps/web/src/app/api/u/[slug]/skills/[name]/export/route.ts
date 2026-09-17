@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
+import { withAuth } from '@/lib/runtime/with-auth'
 import { readSkillBundle } from '@/lib/skills/skill-store'
 import { createSkillArchive } from '@/lib/skills/skill-zip'
-import { withAuth } from '@/lib/runtime/with-auth'
+import { contentDispositionHeader } from '@/lib/workspace-attachments'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -35,7 +36,7 @@ export const GET = withAuth<{ error: string }, SkillExportRouteParams>(
       status: 200,
       headers: {
         'Cache-Control': 'no-store',
-        'Content-Disposition': `attachment; filename="${name}.zip"; filename*=UTF-8''${encodeURIComponent(`${name}.zip`)}`,
+        'Content-Disposition': contentDispositionHeader(`${name}.zip`),
         'Content-Type': 'application/zip',
       },
     })
