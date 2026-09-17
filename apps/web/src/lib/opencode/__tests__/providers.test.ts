@@ -106,12 +106,13 @@ describe('syncProviderAccessForInstance', () => {
     const deleteCalls = mockFetch.mock.calls.filter(
       (call) => (call[1] as RequestInit)?.method === 'DELETE',
     )
-    expect(deleteCalls).toHaveLength(5)
+    expect(deleteCalls).toHaveLength(6)
     expect(deleteCalls[0]![0]).toBe(`${fakeInstance.baseUrl}/auth/fireworks-ai`)
     expect(deleteCalls[1]![0]).toBe(`${fakeInstance.baseUrl}/auth/huggingface`)
     expect(deleteCalls[2]![0]).toBe(`${fakeInstance.baseUrl}/auth/openrouter`)
-    expect(deleteCalls[3]![0]).toBe(`${fakeInstance.baseUrl}/auth/opencode-go`)
-    expect(deleteCalls[4]![0]).toBe(`${fakeInstance.baseUrl}/auth/ollama`)
+    expect(deleteCalls[3]![0]).toBe(`${fakeInstance.baseUrl}/auth/zai`)
+    expect(deleteCalls[4]![0]).toBe(`${fakeInstance.baseUrl}/auth/opencode-go`)
+    expect(deleteCalls[5]![0]).toBe(`${fakeInstance.baseUrl}/auth/ollama`)
 
     // Verify gateway tokens were issued for enabled providers
     expect(mockIssueToken).toHaveBeenCalledTimes(3)

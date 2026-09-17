@@ -54,6 +54,13 @@ const providersResponse = {
         },
       },
       {
+        id: 'zai',
+        name: 'Z.ai',
+        models: {
+          'glm-5.3': { name: 'GLM-5.3' },
+        },
+      },
+      {
         id: 'opencode',
         name: 'OpenCode Zen',
         models: {
@@ -117,6 +124,7 @@ describe('listModelsAction', () => {
     )
     expect(result.models).not.toEqual(expect.arrayContaining([expect.objectContaining({ providerId: 'openai', modelId: 'gpt-5.2' })]))
     expect(result.models).not.toEqual(expect.arrayContaining([expect.objectContaining({ providerId: 'huggingface', modelId: 'openai/gpt-oss-120b' })]))
+    expect(result.models).not.toEqual(expect.arrayContaining([expect.objectContaining({ providerId: 'zai', modelId: 'glm-5.3' })]))
     expect(result.models).not.toEqual(expect.arrayContaining([expect.objectContaining({ providerId: 'opencode-go', modelId: 'go-model' })]))
     expect(result.models).not.toEqual(expect.arrayContaining([expect.objectContaining({ providerId: 'ollama', modelId: 'llama3.2' })]))
     expect(result.models).not.toEqual(expect.arrayContaining([expect.objectContaining({ providerId: 'opencode', modelId: 'scene-paid' })]))
@@ -167,6 +175,25 @@ describe('listModelsAction', () => {
         expect.objectContaining({ providerId: 'opencode-go', modelId: 'go-model' }),
         expect.objectContaining({ providerId: 'huggingface', modelId: 'openai/gpt-oss-120b' }),
         expect.objectContaining({ providerId: 'ollama', modelId: 'llama3.2' }),
+        expect.objectContaining({ providerId: 'opencode', modelId: 'scene-free' }),
+      ]),
+    )
+    expect(result.models).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ providerId: 'openai', modelId: 'gpt-5.2' }),
+      ]),
+    )
+  })
+
+  it('includes Z.ai GLM models only when a z.ai credential is configured', async () => {
+    mockGetEnabledProviderIdsForUser.mockResolvedValue(enabledProviders('zai'))
+
+    const result = await listModelsAction('alice')
+
+    expect(result.ok).toBe(true)
+    expect(result.models).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ providerId: 'zai', modelId: 'glm-5.3', providerName: 'Z.ai' }),
         expect.objectContaining({ providerId: 'opencode', modelId: 'scene-free' }),
       ]),
     )
