@@ -103,15 +103,27 @@ describe('Zendesk connector settings route', () => {
     const { status, body } = await callGetRoute()
 
     expect(status).toBe(200)
-    expect(body).toEqual({
-      permissions: {
-        allowRead: true,
-        allowCreateTickets: true,
-        allowUpdateTickets: true,
-        allowPublicComments: true,
-        allowInternalComments: true,
+    expect(body.permissions).toEqual({
+      allowRead: true,
+      allowCreateTickets: true,
+      allowUpdateTickets: true,
+      allowPublicComments: true,
+      allowInternalComments: true,
+    })
+    expect(body.zendeskActionPermissions).toEqual({
+      version: 1,
+      actions: {
+        search_tickets: 'allow',
+        get_ticket: 'allow',
+        list_ticket_comments: 'allow',
+        create_ticket_public: 'allow',
+        create_ticket_internal: 'allow',
+        update_ticket_fields: 'allow',
+        update_ticket_with_public_comment: 'allow',
+        update_ticket_with_internal_note: 'allow',
       },
     })
+    expect(JSON.stringify(body)).not.toContain('token-123')
   })
 
   it('updates Zendesk permissions while preserving the stored credentials', async () => {
@@ -122,16 +134,41 @@ describe('Zendesk connector settings route', () => {
       allowPublicComments: false,
       allowInternalComments: true,
     }
+    const canonicalActions = {
+      search_tickets: 'allow',
+      get_ticket: 'allow',
+      list_ticket_comments: 'allow',
+      create_ticket_public: 'deny',
+      create_ticket_internal: 'deny',
+      update_ticket_fields: 'allow',
+      update_ticket_with_public_comment: 'deny',
+      update_ticket_with_internal_note: 'allow',
+    }
 
     const { status, body } = await callPatchRoute({ permissions: nextPermissions })
 
     expect(status).toBe(200)
-    expect(body).toEqual({ permissions: nextPermissions })
+    expect(body.permissions).toEqual({
+      allowRead: true,
+      allowCreateTickets: false,
+      allowUpdateTickets: false,
+      allowPublicComments: false,
+      allowInternalComments: false,
+    })
+    expect(body.zendeskActionPermissions).toEqual({ version: 1, actions: canonicalActions })
     expect(mockEncryptConfig).toHaveBeenCalledWith({
       subdomain: 'acme',
       email: 'agent@example.com',
       apiToken: 'token-123',
-      permissions: nextPermissions,
+      permissions: body.permissions,
+      mcpToolPermissions: {
+        search_tickets: 'allow',
+        get_ticket: 'allow',
+        list_ticket_comments: 'allow',
+        create_ticket: 'deny',
+        update_ticket: 'deny',
+      },
+      zendeskActionPermissions: { version: 1, actions: canonicalActions },
     })
     expect(mockUpdateManyByIdAndUserId).toHaveBeenCalledWith('conn-zendesk-1', 'user-1', {
       config: 'encrypted-updated-config',
@@ -141,7 +178,8 @@ describe('Zendesk connector settings route', () => {
       action: 'connector.zendesk_settings_updated',
       metadata: {
         connectorId: 'conn-zendesk-1',
-        permissions: nextPermissions,
+        permissions: body.permissions,
+        zendeskActionPermissions: { version: 1, actions: canonicalActions },
       },
     })
   })
@@ -161,7 +199,7 @@ describe('Zendesk connector settings route', () => {
     expect(mockEncryptConfig).not.toHaveBeenCalled()
   })
 
-  it('rejects ticket creation without any allowed comment visibility', async () => {
+  it('accepts and normalizes a legacy request without any allowed comment visibility', async () => {
     const { status, body } = await callPatchRoute({
       permissions: {
         allowRead: true,
@@ -172,12 +210,18 @@ describe('Zendesk connector settings route', () => {
       },
     })
 
-    expect(status).toBe(400)
-    expect(body).toEqual({
-      error: 'invalid_permissions',
-      message: 'Ticket creation requires public comments or internal notes to stay enabled.',
+    expect(status).toBe(200)
+    expect(body.zendeskActionPermissions.actions).toEqual({
+      search_tickets: 'allow',
+      get_ticket: 'allow',
+      list_ticket_comments: 'allow',
+      create_ticket_public: 'deny',
+      create_ticket_internal: 'deny',
+      update_ticket_fields: 'allow',
+      update_ticket_with_public_comment: 'deny',
+      update_ticket_with_internal_note: 'deny',
     })
-    expect(mockEncryptConfig).not.toHaveBeenCalled()
+    expect(mockEncryptConfig).toHaveBeenCalled()
   })
 
   it('rejects non-Zendesk connectors', async () => {

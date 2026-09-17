@@ -4,22 +4,49 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ZendeskConnectorSettingsDialog } from '@/components/connectors/zendesk-connector-settings-dialog'
+import {
+  DEFAULT_ZENDESK_ACTION_PERMISSIONS,
+  ZENDESK_ACTION_KEYS,
+  type ZendeskActionName,
+  type ZendeskActionPermissions,
+  type ZendeskActionPolicy,
+} from '@/lib/connectors/zendesk-types'
 
-function getPermissionSwitch(label: string): HTMLButtonElement {
+const mocks = vi.hoisted(() => ({
+  notifyWorkspaceConfigChanged: vi.fn(),
+}))
+
+vi.mock('@/lib/runtime/config-status-events', () => ({
+  notifyWorkspaceConfigChanged: mocks.notifyWorkspaceConfigChanged,
+}))
+
+function getActionButtons(label: string): HTMLButtonElement[] {
   const labelElement = screen.getByText(label)
   const field = labelElement.parentElement?.parentElement
-  const switchElement = field?.querySelector('[role="switch"]')
+  const buttons = Array.from(field?.querySelectorAll('button') ?? [])
 
-  if (!(switchElement instanceof HTMLButtonElement)) {
-    throw new Error(`Switch not found for ${label}`)
+  if (buttons.length !== 3) {
+    throw new Error(`Policy selector not found for ${label}`)
   }
 
-  return switchElement
+  return buttons as HTMLButtonElement[]
+}
+
+function settingsResponse(actions: ZendeskActionPermissions) {
+  return {
+    permissions: {},
+    zendeskActionPermissions: { version: 1, actions },
+  }
+}
+
+function actionsWith(overrides: Partial<Record<ZendeskActionName, ZendeskActionPolicy>>): ZendeskActionPermissions {
+  return { ...DEFAULT_ZENDESK_ACTION_PERMISSIONS, ...overrides }
 }
 
 describe('ZendeskConnectorSettingsDialog', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
+    mocks.notifyWorkspaceConfigChanged.mockClear()
   })
 
   afterEach(() => {
@@ -80,8 +107,13 @@ describe('ZendeskConnectorSettingsDialog', () => {
     const saveButton = screen.getByRole('button', { name: 'Save settings' }) as HTMLButtonElement
     expect(saveButton.disabled).toBe(true)
 
-    for (const switchElement of screen.getAllByRole('switch')) {
-      expect((switchElement as HTMLButtonElement).disabled).toBe(true)
+    for (const selectorLabel of [
+      'Search tickets',
+      'Create tickets with a public comment',
+    ]) {
+      for (const button of getActionButtons(selectorLabel)) {
+        expect(button.disabled).toBe(true)
+      }
     }
 
     fireEvent.click(saveButton)
@@ -91,26 +123,11 @@ describe('ZendeskConnectorSettingsDialog', () => {
     })
   })
 
-  it('prevents enabling ticket creation without an allowed comment type', async () => {
+  it('renders a Deny/Ask/Allow selector for all eight actions without a generic tool section', async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce({
       ok: true,
-      json: async () => ({
-        permissions: {
-          allowRead: true,
-          allowCreateTickets: false,
-          allowUpdateTickets: true,
-          allowPublicComments: false,
-          allowInternalComments: false,
-        },
-      }),
-    }).mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        tools: [],
-        policyConfigured: false,
-      }),
+      json: async () => settingsResponse(DEFAULT_ZENDESK_ACTION_PERMISSIONS),
     })
-
     vi.stubGlobal('fetch', fetchMock)
 
     render(
@@ -124,63 +141,73 @@ describe('ZendeskConnectorSettingsDialog', () => {
     )
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledTimes(2)
+      expect(fetchMock).toHaveBeenCalledTimes(1)
     })
 
-    expect(screen.getByText('Enable public comments or internal notes before allowing ticket creation.')).toBeTruthy()
-
-    const createTicketsSwitch = getPermissionSwitch('Create tickets')
-    expect(createTicketsSwitch.disabled).toBe(true)
-
-    fireEvent.click(getPermissionSwitch('Public comments'))
-
-    expect(getPermissionSwitch('Public comments').getAttribute('aria-checked')).toBe('true')
-    expect(getPermissionSwitch('Create tickets').disabled).toBe(false)
-
-    fireEvent.click(getPermissionSwitch('Create tickets'))
-
-    expect(getPermissionSwitch('Create tickets').getAttribute('aria-checked')).toBe('true')
-    expect(getPermissionSwitch('Public comments').disabled).toBe(true)
-    expect(
-      screen.getByText(
-        'Ticket creation needs at least one comment option. Disable ticket creation first to turn off the last enabled comment type.'
-      )
-    ).toBeTruthy()
+    const labels = [
+      'Search tickets',
+      'Read ticket details',
+      'List ticket comments',
+      'Update ticket fields',
+      'Create tickets with a public comment',
+      'Update tickets with a public comment',
+      'Create tickets with an internal note',
+      'Update tickets with an internal note',
+    ]
+    for (const label of labels) {
+      const [deny, ask, allow] = getActionButtons(label)
+      expect(deny.textContent).toBe('Deny')
+      expect(ask.textContent).toBe('Ask')
+      expect(allow.textContent).toBe('Allow')
+    }
+    expect(screen.queryByText('Tool permissions')).toBeNull()
   })
 
-  it('saves loaded permissions and closes the dialog', async () => {
+  it('accepts all-denied creation actions without cross-field constraints', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => settingsResponse(DEFAULT_ZENDESK_ACTION_PERMISSIONS),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <ZendeskConnectorSettingsDialog
+        open
+        slug="alice"
+        connectorId="conn-zendesk-1"
+        connectorName="Zendesk"
+        onOpenChange={vi.fn()}
+      />
+    )
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    })
+
+    fireEvent.click(getActionButtons('Create tickets with a public comment')[0])
+    fireEvent.click(getActionButtons('Create tickets with an internal note')[0])
+    fireEvent.click(getActionButtons('Update tickets with a public comment')[0])
+    fireEvent.click(getActionButtons('Update tickets with an internal note')[0])
+
+    const saveButton = screen.getByRole('button', { name: 'Save settings' }) as HTMLButtonElement
+    expect(saveButton.disabled).toBe(false)
+    expect(screen.queryByText(/Ticket creation requires/)).toBeNull()
+  })
+
+  it('loads, edits, saves the complete canonical map, and closes the dialog', async () => {
     const onOpenChange = vi.fn()
+    const loaded = actionsWith({
+      create_ticket_public: 'ask',
+      update_ticket_fields: 'deny',
+    })
     const fetchMock = vi.fn()
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({
-          permissions: {
-            allowRead: true,
-            allowCreateTickets: false,
-            allowUpdateTickets: true,
-            allowPublicComments: true,
-            allowInternalComments: false,
-          },
-        }),
+        json: async () => settingsResponse(loaded),
       })
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({
-          tools: [],
-          policyConfigured: false,
-        }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          permissions: {
-            allowRead: false,
-            allowCreateTickets: false,
-            allowUpdateTickets: true,
-            allowPublicComments: true,
-            allowInternalComments: false,
-          },
-        }),
+        json: async () => settingsResponse(loaded),
       })
 
     vi.stubGlobal('fetch', fetchMock)
@@ -196,27 +223,30 @@ describe('ZendeskConnectorSettingsDialog', () => {
     )
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledTimes(2)
+      expect(fetchMock).toHaveBeenCalledTimes(1)
     })
 
-    fireEvent.click(getPermissionSwitch('Read tickets'))
+    fireEvent.click(getActionButtons('List ticket comments')[0])
+
     fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledTimes(3)
+      expect(fetchMock).toHaveBeenCalledTimes(2)
     })
-    const [, patchRequest] = fetchMock.mock.calls[2] as [string, RequestInit]
+    const [, patchRequest] = fetchMock.mock.calls[1] as [string, RequestInit]
     expect(patchRequest.method).toBe('PATCH')
     expect(JSON.parse(String(patchRequest.body))).toEqual({
-      permissions: {
-        allowRead: false,
-        allowCreateTickets: false,
-        allowUpdateTickets: true,
-        allowPublicComments: true,
-        allowInternalComments: false,
+      zendeskActionPermissions: {
+        version: 1,
+        actions: actionsWith({
+          create_ticket_public: 'ask',
+          update_ticket_fields: 'deny',
+          list_ticket_comments: 'deny',
+        }),
       },
     })
     expect(onOpenChange).toHaveBeenCalledWith(false)
+    expect(mocks.notifyWorkspaceConfigChanged).toHaveBeenCalledOnce()
   })
 
   it('shows save errors without closing the dialog', async () => {
@@ -224,22 +254,7 @@ describe('ZendeskConnectorSettingsDialog', () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({
-          permissions: {
-            allowRead: true,
-            allowCreateTickets: false,
-            allowUpdateTickets: true,
-            allowPublicComments: true,
-            allowInternalComments: false,
-          },
-        }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          tools: [],
-          policyConfigured: false,
-        }),
+        json: async () => settingsResponse(DEFAULT_ZENDESK_ACTION_PERMISSIONS),
       })
       .mockResolvedValueOnce({
         ok: false,
@@ -259,12 +274,75 @@ describe('ZendeskConnectorSettingsDialog', () => {
     )
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledTimes(2)
+      expect(fetchMock).toHaveBeenCalledTimes(1)
     })
 
+    fireEvent.click(getActionButtons('Search tickets')[0])
     fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
 
     expect(await screen.findByText('Failed to save connector changes.')).toBeTruthy()
     expect(onOpenChange).not.toHaveBeenCalled()
+    expect(mocks.notifyWorkspaceConfigChanged).not.toHaveBeenCalled()
+  })
+
+  it('preserves loaded policies across every action when saving unchanged state', async () => {
+    const onOpenChange = vi.fn()
+    const loaded = actionsWith(
+      Object.fromEntries(ZENDESK_ACTION_KEYS.map((key, index) => [key, (['deny', 'ask', 'allow'] as const)[index % 3]])) as
+        Partial<Record<ZendeskActionName, ZendeskActionPolicy>>
+    )
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => settingsResponse(loaded),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => settingsResponse(loaded),
+      })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <ZendeskConnectorSettingsDialog
+        open
+        slug="alice"
+        connectorId="conn-zendesk-1"
+        connectorName="Zendesk"
+        onOpenChange={onOpenChange}
+      />
+    )
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    })
+
+    for (const [action, policy] of Object.entries(loaded)) {
+      const policyIndex = policy === 'deny' ? 0 : policy === 'ask' ? 1 : 2
+      const buttons = getActionButtons(
+        {
+          search_tickets: 'Search tickets',
+          get_ticket: 'Read ticket details',
+          list_ticket_comments: 'List ticket comments',
+          create_ticket_public: 'Create tickets with a public comment',
+          create_ticket_internal: 'Create tickets with an internal note',
+          update_ticket_fields: 'Update ticket fields',
+          update_ticket_with_public_comment: 'Update tickets with a public comment',
+          update_ticket_with_internal_note: 'Update tickets with an internal note',
+        }[action as ZendeskActionName]
+      )
+      expect(buttons[policyIndex].className).toContain('bg-primary')
+    }
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+    })
+    const [, patchRequest] = fetchMock.mock.calls[1] as [string, RequestInit]
+    expect(JSON.parse(String(patchRequest.body))).toEqual({
+      zendeskActionPermissions: { version: 1, actions: loaded },
+    })
+    expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 })

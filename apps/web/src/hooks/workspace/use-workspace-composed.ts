@@ -9,11 +9,13 @@ import {
 import { useWorkspaceRuntime } from "@/contexts/workspace-runtime-context";
 import { useWorkspaceDiffs } from "@/hooks/use-workspace-diffs";
 import { useWorkspaceFiles } from "@/hooks/use-workspace-files";
+import { selectPermissionToolParts } from "@/lib/opencode/permission-tool-parts";
 import {
   useWorkspaceActiveSessionEffects,
   useWorkspaceConfigRefreshEffect,
   useWorkspaceFlowSeenEffect,
   useWorkspaceInitialRefreshEffect,
+  useWorkspacePermissionMessagesEffect,
   useWorkspacePollingEffect,
 } from "@/hooks/workspace/use-workspace-effects";
 import { useWorkspaceDerivedState } from "@/hooks/workspace/use-workspace-derived-state";
@@ -102,6 +104,7 @@ export function useWorkspace({
   });
   const {
     store,
+    hydrateSessionMessages,
     isLoadingMessages,
     refreshMessages,
     updateMessages,
@@ -127,6 +130,22 @@ export function useWorkspace({
     () => selectVisiblePermissions(store.permissions, sessions, activeSessionId),
     [activeSessionId, sessions, store.permissions],
   );
+
+  // Tool parts correlated to the visible permissions for approval previews,
+  // resolved across every cached session so delegated child sessions resolve.
+  const permissionToolParts = useMemo(
+    () => selectPermissionToolParts(store.messages, permissions),
+    [permissions, store.messages],
+  );
+
+  // Hydrate referenced sessions whose messages are not cached yet (delegated
+  // child sessions) so their previews resolve instead of stalling in loading.
+  useWorkspacePermissionMessagesEffect({
+    enabled: enabled && isConnected,
+    hydrateSessionMessages,
+    messagesBySession: store.messages,
+    permissions,
+  });
 
   const { createSession, deleteSession } = useWorkspaceSessionActions({
     createWorkspaceSession,
@@ -233,6 +252,7 @@ export function useWorkspace({
     abortSession,
     refreshMessages,
     permissions,
+    permissionToolParts,
     diffs: diffsHook.diffs,
     isLoadingDiffs: diffsHook.isLoadingDiffs,
     diffsError: diffsHook.diffsError,

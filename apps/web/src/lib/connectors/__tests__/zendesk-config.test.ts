@@ -5,59 +5,12 @@ vi.mock('@/lib/connectors/zendesk-shared', () => ({
 }))
 
 import {
-  getZendeskConnectorPermissionsConstraintMessage,
   parseZendeskConnectorPermissions,
   parseZendeskConnectorConfig,
   validateZendeskConnectorConfig,
 } from '@/lib/connectors/zendesk-config'
 
 describe('zendesk-config', () => {
-  describe('getZendeskConnectorPermissionsConstraintMessage', () => {
-    it('returns message when create tickets is allowed but both comment types are disabled', () => {
-      const result = getZendeskConnectorPermissionsConstraintMessage({
-        allowRead: true,
-        allowCreateTickets: true,
-        allowUpdateTickets: true,
-        allowPublicComments: false,
-        allowInternalComments: false,
-      })
-      expect(result).toBe('Ticket creation requires public comments or internal notes to stay enabled.')
-    })
-
-    it('returns null when constraint is satisfied with public comments', () => {
-      const result = getZendeskConnectorPermissionsConstraintMessage({
-        allowRead: true,
-        allowCreateTickets: true,
-        allowUpdateTickets: true,
-        allowPublicComments: true,
-        allowInternalComments: false,
-      })
-      expect(result).toBeNull()
-    })
-
-    it('returns null when constraint is satisfied with internal comments', () => {
-      const result = getZendeskConnectorPermissionsConstraintMessage({
-        allowRead: true,
-        allowCreateTickets: true,
-        allowUpdateTickets: true,
-        allowPublicComments: false,
-        allowInternalComments: true,
-      })
-      expect(result).toBeNull()
-    })
-
-    it('returns null when create tickets is disabled', () => {
-      const result = getZendeskConnectorPermissionsConstraintMessage({
-        allowRead: true,
-        allowCreateTickets: false,
-        allowUpdateTickets: true,
-        allowPublicComments: false,
-        allowInternalComments: false,
-      })
-      expect(result).toBeNull()
-    })
-  })
-
   describe('parseZendeskConnectorPermissions', () => {
     it('returns defaults when value is undefined and not required', () => {
       const result = parseZendeskConnectorPermissions(undefined)
@@ -183,7 +136,7 @@ describe('zendesk-config', () => {
       expect(result).toEqual({ valid: false, missing: ['subdomain', 'email', 'apiToken'] })
     })
 
-    it('returns invalid with constraint message', () => {
+    it('accepts a legacy config without any comment type enabled', () => {
       const result = validateZendeskConnectorConfig({
         subdomain: 'mycompany',
         email: 'admin@example.com',
@@ -196,10 +149,59 @@ describe('zendesk-config', () => {
           allowInternalComments: false,
         },
       })
-      expect(result).toEqual({
-        valid: false,
-        message: 'Ticket creation requires public comments or internal notes to stay enabled.',
+      expect(result).toEqual({ valid: true })
+    })
+  })
+
+  describe('canonical action permissions parsing', () => {
+    const canonicalActions = {
+      search_tickets: 'allow',
+      get_ticket: 'allow',
+      list_ticket_comments: 'allow',
+      create_ticket_public: 'deny',
+      create_ticket_internal: 'ask',
+      update_ticket_fields: 'allow',
+      update_ticket_with_public_comment: 'ask',
+      update_ticket_with_internal_note: 'allow',
+    }
+
+    it('exposes a valid canonical map on the parsed config', () => {
+      const result = parseZendeskConnectorConfig({
+        subdomain: 'mycompany',
+        email: 'admin@example.com',
+        apiToken: 'token123',
+        zendeskActionPermissions: { version: 1, actions: canonicalActions },
       })
+      expect(result.ok).toBe(true)
+      if (result.ok) {
+        expect(result.value.zendeskActionPermissions).toEqual(canonicalActions)
+      }
+    })
+
+    it('omits the canonical map when it is malformed instead of failing the connector', () => {
+      const result = parseZendeskConnectorConfig({
+        subdomain: 'mycompany',
+        email: 'admin@example.com',
+        apiToken: 'token123',
+        zendeskActionPermissions: { version: 1, actions: { search_tickets: 'block' } },
+      })
+      expect(result.ok).toBe(true)
+      if (result.ok) {
+        expect(result.value.zendeskActionPermissions).toBeUndefined()
+        expect(result.value.permissions.allowRead).toBe(true)
+      }
+    })
+
+    it('parses configs without a canonical map', () => {
+      const result = parseZendeskConnectorConfig({
+        subdomain: 'mycompany',
+        email: 'admin@example.com',
+        apiToken: 'token123',
+      })
+      expect(result.ok).toBe(true)
+      if (result.ok) {
+        expect(result.value.zendeskActionPermissions).toBeUndefined()
+      }
     })
   })
 })

@@ -3,21 +3,38 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auditEvent } from '@/lib/auth'
 import { decryptConfig, encryptConfig } from '@/lib/connectors/crypto'
 import {
-  getZendeskConnectorPermissionsConstraintMessage,
+  getStoredConnectorToolPermissions,
+} from '@/lib/connectors/tool-permissions'
+import {
+  buildLegacyProjectionFromActionPermissions,
+  mergeLegacyToolPermissions,
+  normalizeZendeskActionPermissions,
+  parseZendeskActionPermissionsConfig,
   parseZendeskConnectorConfig,
   parseZendeskConnectorPermissions,
-  type ZendeskConnectorPermissions,
+  type ZendeskActionPermissions,
 } from '@/lib/connectors/zendesk'
+import {
+  ZENDESK_ACTION_PERMISSIONS_CONFIG_KEY,
+  ZENDESK_ACTION_PERMISSIONS_VERSION,
+} from '@/lib/connectors/zendesk-types'
 import { requireCapability } from '@/lib/runtime/require-capability'
 import { withAuth } from '@/lib/runtime/with-auth'
 import { connectorService, userService } from '@/lib/services'
 
+type ZendeskActionPermissionsPayload = {
+  version: typeof ZENDESK_ACTION_PERMISSIONS_VERSION
+  actions: ZendeskActionPermissions
+}
+
 type ZendeskConnectorSettingsResponse = {
-  permissions: ZendeskConnectorPermissions
+  permissions: Record<string, unknown>
+  zendeskActionPermissions: ZendeskActionPermissionsPayload
 }
 
 type UpdateZendeskConnectorSettingsRequest = {
   permissions?: unknown
+  zendeskActionPermissions?: unknown
 }
 
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
@@ -66,8 +83,42 @@ export const GET = withAuth<
     )
   }
 
-  return NextResponse.json({ permissions: parsedConfig.value.permissions })
+  return NextResponse.json({
+    permissions: parsedConfig.value.permissions,
+    zendeskActionPermissions: {
+      version: ZENDESK_ACTION_PERMISSIONS_VERSION,
+      actions: normalizeZendeskActionPermissions(config),
+    },
+  })
 })
+
+function buildUpdatedConfig(input: {
+  config: Record<string, unknown>
+  parsedConfig: Extract<ReturnType<typeof parseZendeskConnectorConfig>, { ok: true }>['value']
+  actions: ZendeskActionPermissions
+}): {
+  config: Record<string, unknown>
+  permissions: Record<string, unknown>
+} {
+  const projection = buildLegacyProjectionFromActionPermissions(input.actions)
+
+  return {
+    config: {
+      ...input.config,
+      ...input.parsedConfig,
+      permissions: projection.permissions,
+      mcpToolPermissions: mergeLegacyToolPermissions(
+        getStoredConnectorToolPermissions(input.config),
+        projection.legacyToolPermissions
+      ),
+      [ZENDESK_ACTION_PERMISSIONS_CONFIG_KEY]: {
+        version: ZENDESK_ACTION_PERMISSIONS_VERSION,
+        actions: input.actions,
+      },
+    },
+    permissions: projection.permissions,
+  }
+}
 
 export const PATCH = withAuth<
   ZendeskConnectorSettingsResponse | { error: string; message?: string },
@@ -108,20 +159,30 @@ export const PATCH = withAuth<
     )
   }
 
-  const parsedPermissions = parseZendeskConnectorPermissions(body.permissions, { requireAll: true })
-  if (!parsedPermissions.ok) {
+  let update:
+    | { kind: 'canonical'; actions: ZendeskActionPermissions }
+    | { kind: 'legacy'; permissions: Record<string, unknown> }
+  if (body.zendeskActionPermissions !== undefined) {
+    const parsedActions = parseZendeskActionPermissionsConfig(body.zendeskActionPermissions)
+    if (!parsedActions.ok) {
+      return NextResponse.json(
+        { error: 'invalid_permissions', message: parsedActions.message },
+        { status: 400 }
+      )
+    }
+    update = { kind: 'canonical', actions: parsedActions.value.actions }
+  } else if (body.permissions !== undefined) {
+    const parsedPermissions = parseZendeskConnectorPermissions(body.permissions, { requireAll: true })
+    if (!parsedPermissions.ok) {
+      return NextResponse.json(
+        { error: 'invalid_permissions', message: parsedPermissions.message },
+        { status: 400 }
+      )
+    }
+    update = { kind: 'legacy', permissions: parsedPermissions.value }
+  } else {
     return NextResponse.json(
-      { error: 'invalid_permissions', message: parsedPermissions.message },
-      { status: 400 }
-    )
-  }
-
-  const permissionsMessage = getZendeskConnectorPermissionsConstraintMessage(
-    parsedPermissions.value
-  )
-  if (permissionsMessage) {
-    return NextResponse.json(
-      { error: 'invalid_permissions', message: permissionsMessage },
+      { error: 'invalid_permissions', message: 'permissions or zendeskActionPermissions is required' },
       { status: 400 }
     )
   }
@@ -147,15 +208,20 @@ export const PATCH = withAuth<
     )
   }
 
-  const updatedConfig = {
-    ...config,
-    ...parsedConfig.value,
-    permissions: parsedPermissions.value,
-  }
+  // A legacy boolean request is normalized into canonical actions before it is
+  // persisted, so both request shapes converge on the same stored state.
+  const actions = update.kind === 'canonical'
+    ? update.actions
+    : normalizeZendeskActionPermissions({
+        ...config,
+        permissions: update.permissions,
+      })
+
+  const updated = buildUpdatedConfig({ config, parsedConfig: parsedConfig.value, actions })
 
   let encryptedConfig: string
   try {
-    encryptedConfig = encryptConfig(updatedConfig)
+    encryptedConfig = encryptConfig(updated.config)
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to encrypt config'
     return NextResponse.json({ error: 'invalid_config', message }, { status: 400 })
@@ -173,9 +239,19 @@ export const PATCH = withAuth<
     action: 'connector.zendesk_settings_updated',
     metadata: {
       connectorId: id,
-      permissions: parsedPermissions.value,
+      permissions: updated.permissions,
+      zendeskActionPermissions: {
+        version: ZENDESK_ACTION_PERMISSIONS_VERSION,
+        actions,
+      },
     },
   })
 
-  return NextResponse.json({ permissions: parsedPermissions.value })
+  return NextResponse.json({
+    permissions: updated.permissions,
+    zendeskActionPermissions: {
+      version: ZENDESK_ACTION_PERMISSIONS_VERSION,
+      actions,
+    },
+  })
 })

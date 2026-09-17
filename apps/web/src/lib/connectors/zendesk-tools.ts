@@ -1,14 +1,14 @@
 import { ZENDESK_MCP_PROTOCOL_VERSION } from '@/lib/connectors/zendesk-shared'
 import { mapTicket, mapTicketComment, requestZendeskJson } from '@/lib/connectors/zendesk-client'
+import { resolveZendeskActionPermissions } from '@/lib/connectors/zendesk-action-permissions'
 import type {
+  ZendeskActionName,
   ZendeskApiResponse,
   ZendeskConnectorConfig,
-  ZendeskConnectorPermissions,
   ZendeskMcpTool,
   ZendeskMcpToolResult,
 } from '@/lib/connectors/zendesk-types'
 import {
-  getBoolean,
   getFiniteNumber,
   getPositiveInteger,
   getString,
@@ -23,16 +23,14 @@ const TICKET_STATUSES = ['new', 'open', 'pending', 'hold', 'solved', 'closed'] a
 const TICKET_PRIORITIES = ['urgent', 'high', 'normal', 'low'] as const
 const TICKET_TYPES = ['problem', 'incident', 'question', 'task'] as const
 
-type ZendeskToolPermission = 'read' | 'create' | 'update'
-
 type ZendeskMcpToolDefinition = ZendeskMcpTool & {
-  permission: ZendeskToolPermission
+  action: ZendeskActionName
 }
 
 const ZENDESK_MCP_TOOLS: ZendeskMcpToolDefinition[] = [
   {
     name: 'search_tickets',
-    permission: 'read',
+    action: 'search_tickets',
     description: 'Search Zendesk tickets using Zendesk search query syntax. The connector automatically scopes queries to tickets.',
     inputSchema: {
       type: 'object',
@@ -59,7 +57,7 @@ const ZENDESK_MCP_TOOLS: ZendeskMcpToolDefinition[] = [
   },
   {
     name: 'get_ticket',
-    permission: 'read',
+    action: 'get_ticket',
     description: 'Fetch a single Zendesk ticket by ID.',
     inputSchema: {
       type: 'object',
@@ -76,7 +74,7 @@ const ZENDESK_MCP_TOOLS: ZendeskMcpToolDefinition[] = [
   },
   {
     name: 'list_ticket_comments',
-    permission: 'read',
+    action: 'list_ticket_comments',
     description: 'List comments for a Zendesk ticket.',
     inputSchema: {
       type: 'object',
@@ -92,9 +90,9 @@ const ZENDESK_MCP_TOOLS: ZendeskMcpToolDefinition[] = [
     },
   },
   {
-    name: 'create_ticket',
-    permission: 'create',
-    description: 'Create a Zendesk ticket with an initial comment as the authenticated connector account.',
+    name: 'create_ticket_public',
+    action: 'create_ticket_public',
+    description: 'Create a Zendesk ticket whose initial comment is public and can notify the requester by email.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -104,7 +102,7 @@ const ZENDESK_MCP_TOOLS: ZendeskMcpToolDefinition[] = [
         },
         comment: {
           type: 'string',
-          description: 'Initial ticket comment body.',
+          description: 'Initial public ticket comment body.',
         },
         priority: {
           type: 'string',
@@ -121,9 +119,45 @@ const ZENDESK_MCP_TOOLS: ZendeskMcpToolDefinition[] = [
           enum: [...TICKET_TYPES],
           description: 'Optional ticket type.',
         },
-        publicComment: {
-          type: 'boolean',
-          description: 'Whether the initial comment should be public. Defaults to true.',
+        tags: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Optional ticket tags.',
+        },
+      },
+      required: ['subject', 'comment'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'create_ticket_internal',
+    action: 'create_ticket_internal',
+    description: 'Create a Zendesk ticket whose initial comment is an internal note visible only to Zendesk agents.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        subject: {
+          type: 'string',
+          description: 'Ticket subject line.',
+        },
+        comment: {
+          type: 'string',
+          description: 'Initial internal ticket comment body.',
+        },
+        priority: {
+          type: 'string',
+          enum: [...TICKET_PRIORITIES],
+          description: 'Optional ticket priority.',
+        },
+        status: {
+          type: 'string',
+          enum: [...TICKET_STATUSES],
+          description: 'Optional ticket status.',
+        },
+        type: {
+          type: 'string',
+          enum: [...TICKET_TYPES],
+          description: 'Optional ticket type.',
         },
         tags: {
           type: 'array',
@@ -136,9 +170,9 @@ const ZENDESK_MCP_TOOLS: ZendeskMcpToolDefinition[] = [
     },
   },
   {
-    name: 'update_ticket',
-    permission: 'update',
-    description: 'Update a Zendesk ticket and optionally add a comment.',
+    name: 'update_ticket_fields',
+    action: 'update_ticket_fields',
+    description: 'Update Zendesk ticket fields (subject, status, priority, type, assignee) without adding a comment.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -150,10 +184,6 @@ const ZENDESK_MCP_TOOLS: ZendeskMcpToolDefinition[] = [
         subject: {
           type: 'string',
           description: 'Optional new subject.',
-        },
-        comment: {
-          type: 'string',
-          description: 'Optional comment body to add while updating the ticket.',
         },
         priority: {
           type: 'string',
@@ -175,12 +205,98 @@ const ZENDESK_MCP_TOOLS: ZendeskMcpToolDefinition[] = [
           description: 'Optional assignee user ID.',
           minimum: 1,
         },
-        publicComment: {
-          type: 'boolean',
-          description: 'Whether the new comment should be public. Defaults to true.',
-        },
       },
       required: ['ticketId'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'update_ticket_with_public_comment',
+    action: 'update_ticket_with_public_comment',
+    description: 'Update a Zendesk ticket and add a public comment in the same request. The comment can notify the requester by email.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticketId: {
+          type: 'integer',
+          description: 'Zendesk ticket ID.',
+          minimum: 1,
+        },
+        comment: {
+          type: 'string',
+          description: 'Public comment body to add while updating the ticket.',
+        },
+        subject: {
+          type: 'string',
+          description: 'Optional new subject.',
+        },
+        priority: {
+          type: 'string',
+          enum: [...TICKET_PRIORITIES],
+          description: 'Optional new priority.',
+        },
+        status: {
+          type: 'string',
+          enum: [...TICKET_STATUSES],
+          description: 'Optional new status.',
+        },
+        type: {
+          type: 'string',
+          enum: [...TICKET_TYPES],
+          description: 'Optional new ticket type.',
+        },
+        assigneeId: {
+          type: 'integer',
+          description: 'Optional assignee user ID.',
+          minimum: 1,
+        },
+      },
+      required: ['ticketId', 'comment'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'update_ticket_with_internal_note',
+    action: 'update_ticket_with_internal_note',
+    description: 'Update a Zendesk ticket and add an internal note visible only to Zendesk agents in the same request.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticketId: {
+          type: 'integer',
+          description: 'Zendesk ticket ID.',
+          minimum: 1,
+        },
+        comment: {
+          type: 'string',
+          description: 'Internal note body to add while updating the ticket.',
+        },
+        subject: {
+          type: 'string',
+          description: 'Optional new subject.',
+        },
+        priority: {
+          type: 'string',
+          enum: [...TICKET_PRIORITIES],
+          description: 'Optional new priority.',
+        },
+        status: {
+          type: 'string',
+          enum: [...TICKET_STATUSES],
+          description: 'Optional new status.',
+        },
+        type: {
+          type: 'string',
+          enum: [...TICKET_TYPES],
+          description: 'Optional new ticket type.',
+        },
+        assigneeId: {
+          type: 'integer',
+          description: 'Optional assignee user ID.',
+          minimum: 1,
+        },
+      },
+      required: ['ticketId', 'comment'],
       additionalProperties: false,
     },
   },
@@ -237,10 +353,6 @@ function getOptionalIntegerArg(args: Record<string, unknown>, key: string): numb
   return getPositiveInteger(args[key])
 }
 
-function getOptionalBooleanArg(args: Record<string, unknown>, key: string): boolean | undefined {
-  return getBoolean(args[key])
-}
-
 function validateEnumArg<T extends readonly string[]>(
   value: string | undefined,
   values: T,
@@ -254,7 +366,7 @@ function validateEnumArg<T extends readonly string[]>(
   return { ok: false, message: `${label} must be one of: ${values.join(', ')}` }
 }
 
-function validateCreateOrUpdateEnums(args: Record<string, unknown>): { ok: true } | { ok: false; message: string } {
+function validateTicketFieldEnums(args: Record<string, unknown>): { ok: true } | { ok: false; message: string } {
   const status = validateEnumArg(getOptionalStringArg(args, 'status'), TICKET_STATUSES, 'status')
   if (!status.ok) return status
 
@@ -271,108 +383,41 @@ function getZendeskToolDefinition(toolName: string): ZendeskMcpToolDefinition | 
   return ZENDESK_MCP_TOOLS.find((tool) => tool.name === toolName)
 }
 
-function isZendeskToolEnabled(
-  permissions: ZendeskConnectorPermissions,
-  tool: ZendeskMcpToolDefinition
-): boolean {
-  switch (tool.permission) {
-    case 'read':
-      return permissions.allowRead
-    case 'create':
-      return permissions.allowCreateTickets
-    case 'update':
-      return permissions.allowUpdateTickets
-  }
+type ZendeskTicketFields = {
+  subject?: string
+  status?: string
+  priority?: string
+  type?: string
+  assigneeId?: number
 }
 
-function getZendeskToolDisabledMessage(
-  permissions: ZendeskConnectorPermissions,
-  toolName: string
-): string | null {
-  const tool = getZendeskToolDefinition(toolName)
-  if (!tool) {
-    return null
-  }
-
-  switch (tool.permission) {
-    case 'read':
-      return permissions.allowRead ? null : 'Read operations are disabled for this Zendesk connector'
-    case 'create':
-      return permissions.allowCreateTickets ? null : 'Ticket creation is disabled for this Zendesk connector'
-    case 'update':
-      return permissions.allowUpdateTickets ? null : 'Ticket updates are disabled for this Zendesk connector'
-  }
-}
-
-function buildTicketPayload(
-  config: ZendeskConnectorConfig,
-  args: Record<string, unknown>,
-  mode: 'create' | 'update'
-) {
-  const ticket: Record<string, unknown> = {}
+function buildTicketFieldPayload(args: Record<string, unknown>): ZendeskTicketFields {
+  const fields: ZendeskTicketFields = {}
 
   const subject = getOptionalStringArg(args, 'subject')
-  if (subject) ticket.subject = subject
+  if (subject) fields.subject = subject
 
   const status = getOptionalStringArg(args, 'status')
-  if (status) ticket.status = status
+  if (status) fields.status = status
 
   const priority = getOptionalStringArg(args, 'priority')
-  if (priority) ticket.priority = priority
+  if (priority) fields.priority = priority
 
   const type = getOptionalStringArg(args, 'type')
-  if (type) ticket.type = type
-
-  if (hasOwnProperty(args, 'assigneeId') && getOptionalIntegerArg(args, 'assigneeId') === undefined) {
-    return { ok: false, error: 'invalid_arguments', message: 'assigneeId must be a positive integer' } as const
-  }
+  if (type) fields.type = type
 
   const assigneeId = getOptionalIntegerArg(args, 'assigneeId')
-  if (assigneeId) ticket.assignee_id = assigneeId
+  if (assigneeId) fields.assigneeId = assigneeId
 
-  if (hasOwnProperty(args, 'tags') && !isStringArray(args.tags)) {
-    return { ok: false, error: 'invalid_arguments', message: 'tags must be a string array' } as const
+  return fields
+}
+
+function validateAssigneeIdArg(args: Record<string, unknown>): { ok: true } | { ok: false; message: string } {
+  if (hasOwnProperty(args, 'assigneeId') && getOptionalIntegerArg(args, 'assigneeId') === undefined) {
+    return { ok: false, message: 'assigneeId must be a positive integer' }
   }
 
-  const tags = getStringArray(args.tags)
-  if (mode === 'create' && tags) {
-    ticket.tags = tags
-  }
-
-  if (hasOwnProperty(args, 'publicComment') && getOptionalBooleanArg(args, 'publicComment') === undefined) {
-    return { ok: false, error: 'invalid_arguments', message: 'publicComment must be a boolean' } as const
-  }
-
-  const comment = getOptionalStringArg(args, 'comment')
-  if (comment) {
-    const isPublicComment = getOptionalBooleanArg(args, 'publicComment') ?? true
-    if (isPublicComment && !config.permissions.allowPublicComments) {
-      return {
-        ok: false,
-        error: 'operation_not_allowed',
-        message: 'Public comments are disabled for this Zendesk connector',
-      } as const
-    }
-
-    if (!isPublicComment && !config.permissions.allowInternalComments) {
-      return {
-        ok: false,
-        error: 'operation_not_allowed',
-        message: 'Internal comments are disabled for this Zendesk connector',
-      } as const
-    }
-
-    ticket.comment = {
-      body: comment,
-      public: isPublicComment,
-    }
-  }
-
-  if (mode === 'create') {
-    ticket.requester = { email: config.email }
-  }
-
-  return { ok: true, ticket } as const
+  return { ok: true }
 }
 
 function mapZendeskToolResponse(
@@ -406,7 +451,8 @@ export function getZendeskMcpProtocolVersion(): string {
 }
 
 export function getZendeskMcpTools(config: ZendeskConnectorConfig): ZendeskMcpTool[] {
-  return ZENDESK_MCP_TOOLS.filter((tool) => isZendeskToolEnabled(config.permissions, tool)).map(toZendeskMcpTool)
+  const actions = resolveZendeskActionPermissions(config)
+  return ZENDESK_MCP_TOOLS.filter((tool) => actions[tool.action] !== 'deny').map(toZendeskMcpTool)
 }
 
 export async function executeZendeskMcpTool(
@@ -415,9 +461,14 @@ export async function executeZendeskMcpTool(
   args: unknown
 ): Promise<ZendeskMcpToolResult> {
   const toolArgs = requireObjectArguments(args)
-  const permissionError = getZendeskToolDisabledMessage(config.permissions, toolName)
-  if (permissionError) {
-    return toToolError('operation_not_allowed', permissionError)
+  const tool = getZendeskToolDefinition(toolName)
+  if (!tool) {
+    return toToolError('unknown_tool', `Unknown Zendesk tool: ${toolName}`)
+  }
+
+  const actions = resolveZendeskActionPermissions(config)
+  if (actions[tool.action] === 'deny') {
+    return toToolError('operation_not_allowed', 'This Zendesk action is denied for this connector')
   }
 
   try {
@@ -496,21 +547,37 @@ export async function executeZendeskMcpTool(
         })
       }
 
-      case 'create_ticket': {
+      case 'create_ticket_public':
+      case 'create_ticket_internal': {
         const subject = requireStringArg(toolArgs, 'subject')
         const comment = requireStringArg(toolArgs, 'comment')
         if (!subject || !comment) {
           return toToolError('invalid_arguments', 'subject and comment are required')
         }
 
-        const enumValidation = validateCreateOrUpdateEnums(toolArgs)
+        const enumValidation = validateTicketFieldEnums(toolArgs)
         if (!enumValidation.ok) {
           return toToolError('invalid_arguments', enumValidation.message)
         }
 
-        const payload = buildTicketPayload(config, toolArgs, 'create')
-        if (!payload.ok) {
-          return toToolError(payload.error, payload.message)
+        if (hasOwnProperty(toolArgs, 'tags') && !isStringArray(toolArgs.tags)) {
+          return toToolError('invalid_arguments', 'tags must be a string array')
+        }
+
+        const isPublic = toolName === 'create_ticket_public'
+        const ticket: Record<string, unknown> = {
+          subject,
+          comment: {
+            body: comment,
+            public: isPublic,
+          },
+          requester: { email: config.email },
+        }
+        Object.assign(ticket, buildTicketFieldPayload(toolArgs))
+
+        const tags = getStringArray(toolArgs.tags)
+        if (tags) {
+          ticket.tags = tags
         }
 
         return runZendeskRequest(
@@ -518,7 +585,7 @@ export async function executeZendeskMcpTool(
           {
             path: '/tickets.json',
             method: 'POST',
-            body: { ticket: payload.ticket },
+            body: { ticket },
           },
           (data) => ({
             ok: true,
@@ -527,24 +594,33 @@ export async function executeZendeskMcpTool(
         )
       }
 
-      case 'update_ticket': {
+      case 'update_ticket_fields': {
         const ticketId = getOptionalIntegerArg(toolArgs, 'ticketId')
         if (!ticketId) {
           return toToolError('invalid_arguments', 'ticketId is required and must be a positive integer')
         }
 
-        const enumValidation = validateCreateOrUpdateEnums(toolArgs)
+        if (hasOwnProperty(toolArgs, 'comment')) {
+          return toToolError('invalid_arguments', 'comment is not supported by update_ticket_fields; use update_ticket_with_public_comment or update_ticket_with_internal_note')
+        }
+
+        if (hasOwnProperty(toolArgs, 'publicComment')) {
+          return toToolError('invalid_arguments', 'publicComment is not supported by update_ticket_fields')
+        }
+
+        const enumValidation = validateTicketFieldEnums(toolArgs)
         if (!enumValidation.ok) {
           return toToolError('invalid_arguments', enumValidation.message)
         }
 
-        const payload = buildTicketPayload(config, toolArgs, 'update')
-        if (!payload.ok) {
-          return toToolError(payload.error, payload.message)
+        const assigneeValidation = validateAssigneeIdArg(toolArgs)
+        if (!assigneeValidation.ok) {
+          return toToolError('invalid_arguments', assigneeValidation.message)
         }
 
-        if (Object.keys(payload.ticket).length === 0) {
-          return toToolError('invalid_arguments', 'At least one ticket field or comment must be provided')
+        const fields = buildTicketFieldPayload(toolArgs)
+        if (Object.keys(fields).length === 0) {
+          return toToolError('invalid_arguments', 'At least one ticket field must be provided')
         }
 
         return runZendeskRequest(
@@ -552,7 +628,51 @@ export async function executeZendeskMcpTool(
           {
             path: `/tickets/${ticketId}.json`,
             method: 'PUT',
-            body: { ticket: payload.ticket },
+            body: { ticket: fields },
+          },
+          (data) => ({
+            ok: true,
+            ticket: mapTicket(data?.ticket, config.subdomain),
+          })
+        )
+      }
+
+      case 'update_ticket_with_public_comment':
+      case 'update_ticket_with_internal_note': {
+        const ticketId = getOptionalIntegerArg(toolArgs, 'ticketId')
+        const comment = requireStringArg(toolArgs, 'comment')
+        if (!ticketId) {
+          return toToolError('invalid_arguments', 'ticketId is required and must be a positive integer')
+        }
+        if (!comment) {
+          return toToolError('invalid_arguments', 'comment is required')
+        }
+
+        const enumValidation = validateTicketFieldEnums(toolArgs)
+        if (!enumValidation.ok) {
+          return toToolError('invalid_arguments', enumValidation.message)
+        }
+
+        const assigneeValidation = validateAssigneeIdArg(toolArgs)
+        if (!assigneeValidation.ok) {
+          return toToolError('invalid_arguments', assigneeValidation.message)
+        }
+
+        const isPublic = toolName === 'update_ticket_with_public_comment'
+        const ticket: Record<string, unknown> = {
+          comment: {
+            body: comment,
+            public: isPublic,
+          },
+          ...buildTicketFieldPayload(toolArgs),
+        }
+
+        return runZendeskRequest(
+          config,
+          {
+            path: `/tickets/${ticketId}.json`,
+            method: 'PUT',
+            body: { ticket },
           },
           (data) => ({
             ok: true,

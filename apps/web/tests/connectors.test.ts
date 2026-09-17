@@ -388,7 +388,7 @@ describe('connectors/validators', () => {
       })
     })
 
-    it('rejects Zendesk ticket creation without any allowed comment visibility', () => {
+    it('accepts Zendesk ticket creation without any allowed comment visibility', () => {
       expect(validateConnectorConfig('zendesk', {
         subdomain: 'acme',
         email: 'agent@example.com',
@@ -401,8 +401,7 @@ describe('connectors/validators', () => {
           allowInternalComments: false,
         },
       })).toEqual({
-        valid: false,
-        message: 'Ticket creation requires public comments or internal notes to stay enabled.',
+        valid: true,
       })
     })
 

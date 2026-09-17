@@ -288,4 +288,53 @@ describe('/api/u/[slug]/connectors/[id]/tool-permissions', () => {
     expect(res.status).toBe(404)
     await expect(res.json()).resolves.toEqual({ error: 'connector_not_found' })
   })
+
+  describe('zendesk connectors', () => {
+    const ZENDESK_CONNECTOR = { id: 'c1', type: 'zendesk', config: 'encrypted', enabled: true }
+
+    beforeEach(() => {
+      mocks.connectorService.findByIdAndUserId.mockResolvedValue(ZENDESK_CONNECTOR)
+      mocks.decryptConfig.mockReturnValue({
+        subdomain: 'test',
+        email: 'a@b.com',
+        apiToken: 'tok',
+        permissions: {
+          allowRead: true,
+          allowCreateTickets: true,
+          allowUpdateTickets: true,
+          allowPublicComments: false,
+          allowInternalComments: true,
+        },
+      })
+    })
+
+    it('GET projects the normalized canonical actions instead of stored tool permissions', async () => {
+      const res = await GET(makeGetRequest(), params())
+      const body = await res.json()
+
+      expect(res.status).toBe(200)
+      expect(body.policyConfigured).toBe(true)
+      expect(body.tools).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ name: 'create_ticket_public', permission: 'deny' }),
+          expect.objectContaining({ name: 'create_ticket_internal', permission: 'allow' }),
+          expect.objectContaining({ name: 'search_tickets', permission: 'allow' }),
+        ])
+      )
+      expect(body.tools).toHaveLength(8)
+    })
+
+    it('PATCH rejects writes so no independent Zendesk policy state can be created', async () => {
+      const res = await PATCH(
+        makePatchRequest({ permissions: { create_ticket_public: 'allow' } }),
+        params(),
+      )
+      const body = await res.json()
+
+      expect(res.status).toBe(409)
+      expect(body.error).toBe('unsupported_connector')
+      expect(mocks.encryptConfig).not.toHaveBeenCalled()
+      expect(mocks.connectorService.updateManyByIdAndUserId).not.toHaveBeenCalled()
+    })
+  })
 })
