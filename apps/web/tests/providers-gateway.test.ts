@@ -646,7 +646,7 @@ describe('providers gateway', () => {
     mockGetActiveCredentialForUser.mockResolvedValue({
       id: 'cred-zai',
       type: 'api',
-      secret: 'encrypted',
+      secret: 'enc',
       version: 1,
     })
     mockDecryptProviderSecret.mockReturnValue({ apiKey: 'zai-key' })
