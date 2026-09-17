@@ -19,5 +19,5 @@
 ## 3. Final verification
 
 - [x] 3.1 Run `pnpm test` and `pnpm lint` from `apps/web/` — both green.
-- [ ] 3.2 Run `bash scripts/check-podman-images.sh` from the repo root — images build.
+- [x] 3.2 Run `bash scripts/check-podman-images.sh` from the repo root — images build.
 - [x] 3.3 Run `openspec validate add-zai-provider --strict` — change validates.
