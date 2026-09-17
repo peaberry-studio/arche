@@ -51,3 +51,201 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions" \
             -d '{"content": "+1"}'
+
+  handle-lgtm-command:
+    if: |
+      startsWith(github.event.comment.body, '/lgtm') &&
+      github.event.issue.pull_request != null
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+
+    steps:
+      - name: Approve PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.comment.body.trim();
+            if (body !== '/lgtm') {
+              core.info('Ignoring — not an exact /lgtm command');
+              return;
+            }
+
+            const commenter = context.payload.comment.user.login;
+
+            const { data: permission } = await github.rest.repos.getCollaboratorPermissionLevel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              username: commenter,
+            });
+
+            if (!['admin', 'write'].includes(permission.permission)) {
+              core.setFailed(`User ${commenter} does not have write access to approve.`);
+              return;
+            }
+
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+            });
+
+            if (commenter === pr.user.login) {
+              core.setFailed('Cannot approve your own PR via /lgtm.');
+              return;
+            }
+
+            await github.rest.pulls.createReview({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+              event: 'APPROVE',
+              body: `Approved via \`/lgtm\` by @${commenter}`,
+            });
+
+            await github.rest.reactions.createForIssueComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: context.payload.comment.id,
+              content: '+1',
+            });
+
+  handle-rerun-command:
+    if: |
+      startsWith(github.event.comment.body, '/rerun') &&
+      github.event.issue.pull_request != null
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      checks: read
+      pull-requests: read
+
+    steps:
+      - name: Re-run failed checks
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.comment.body.trim();
+            if (body !== '/rerun') {
+              core.info('Ignoring — not an exact /rerun command');
+              return;
+            }
+
+            const commenter = context.payload.comment.user.login;
+
+            const { data: permission } = await github.rest.repos.getCollaboratorPermissionLevel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              username: commenter,
+            });
+
+            if (!['admin', 'write'].includes(permission.permission)) {
+              core.setFailed(`User ${commenter} does not have write access to re-run checks.`);
+              return;
+            }
+
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+            });
+
+            const checkRuns = await github.paginate(
+              github.rest.checks.listForRef,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: pr.head.sha,
+                filter: 'latest',
+                per_page: 100,
+              },
+              response => response.data
+            );
+
+            const failed = checkRuns.filter(
+              cr => cr.conclusion === 'failure' || cr.conclusion === 'cancelled'
+            );
+
+            if (failed.length === 0) {
+              core.info('No failed checks to re-run.');
+              await github.rest.reactions.createForIssueComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: context.payload.comment.id,
+                content: 'confused',
+              });
+              return;
+            }
+
+            const runIds = [...new Set(
+              failed
+                .filter(cr => cr.app?.slug === 'github-actions')
+                .map(cr => cr.html_url?.match(/runs\/(\d+)/)?.[1])
+                .filter(Boolean)
+            )];
+
+            let reran = 0;
+            for (const runId of runIds) {
+              try {
+                await github.rest.actions.reRunWorkflowFailedJobs({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  run_id: parseInt(runId, 10),
+                });
+                reran++;
+                core.info(`Re-ran failed jobs for workflow run ${runId}`);
+              } catch (e) {
+                core.warning(`Could not re-run workflow ${runId}: ${e.message}`);
+              }
+            }
+
+            await github.rest.reactions.createForIssueComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: context.payload.comment.id,
+              content: reran > 0 ? '+1' : 'confused',
+            });
+
+  handle-help-command:
+    if: |
+      startsWith(github.event.comment.body, '/help') &&
+      github.event.issue.pull_request != null
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+
+    steps:
+      - name: Post available commands
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.comment.body.trim();
+            if (body !== '/help') {
+              core.info('Ignoring — not an exact /help command');
+              return;
+            }
+
+            const helpText = [
+              '### Available PR Commands',
+              '',
+              '| Command | Description |',
+              '|---------|-------------|',
+              '| `/build` | Build and push a container image for this PR |',
+              '| `/lgtm` | Approve this PR (requires write access) |',
+              '| `/rerun` | Re-run failed CI checks |',
+              '| `/help` | Show this help message |',
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: helpText,
+            });
+
+            await github.rest.reactions.createForIssueComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: context.payload.comment.id,
+              content: '+1',
+            });

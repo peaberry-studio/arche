@@ -120,6 +120,9 @@ describe('docker', () => {
       expect(writtenConfig.provider?.huggingface?.options?.baseURL).toBe(
         'http://web:3000/api/internal/providers/huggingface'
       )
+      expect(writtenConfig.provider?.zai?.options?.baseURL).toBe(
+        'http://web:3000/api/internal/providers/zai'
+      )
 
       expect(mockDockerConstructor).toHaveBeenCalledWith({
         host: 'test-proxy',

@@ -44,10 +44,14 @@ describe('providers catalog', () => {
     expect(config.provider.huggingface?.options.baseURL).toBe(
       'http://web:3000/api/internal/providers/huggingface',
     )
+    expect(config.provider.zai?.options.baseURL).toBe(
+      'http://web:3000/api/internal/providers/zai',
+    )
     expect(config.provider.ollama?.name).toBe('Ollama')
     expect(config.provider.ollama?.npm).toBe('@ai-sdk/openai-compatible')
     expect(getProviderLabel('fireworks-ai')).toBe('Fireworks AI')
     expect(getProviderLabel('huggingface')).toBe('Hugging Face')
+    expect(getProviderLabel('zai')).toBe('Z.ai')
     expect(getProviderLabel('opencode-go')).toBe('OpenCode Go')
     expect(getProviderLabel('ollama')).toBe('Ollama')
   })
@@ -55,6 +59,7 @@ describe('providers catalog', () => {
   it('declares which providers require managed credentials', () => {
     expect(providerRequiresCredential('openai')).toBe(true)
     expect(providerRequiresCredential('huggingface')).toBe(true)
+    expect(providerRequiresCredential('zai')).toBe(true)
     expect(providerRequiresCredential('opencode')).toBe(false)
     expect(providerRequiresCredential('opencode-go')).toBe(true)
     expect(providerRequiresCredential('ollama')).toBe(true)

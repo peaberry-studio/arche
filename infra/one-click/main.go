@@ -1382,6 +1382,7 @@ set_env ARCHE_VERSION %s
 set_env ARCHE_RELEASE_VERSION %s
 set_env ARCHE_WEB_IMAGE %s
 set_env OPENCODE_IMAGE %s
+set_env ARCHE_FLOW_SCHEDULER_MODE daemon
 set -a
 . /opt/%s/.env
 set +a
@@ -1389,8 +1390,8 @@ log "Pulling ${ARCHE_WEB_IMAGE}"
 docker pull "${ARCHE_WEB_IMAGE}"
 log "Pulling ${OPENCODE_IMAGE}"
 docker pull "${OPENCODE_IMAGE}"
-log 'Recreating web service'
-docker compose up -d web
+log 'Recreating web, flows, and reaper services'
+docker compose up -d web flows reaper
 docker compose ps
 log 'Update complete'
 `, appName, appName, appName, shellQuote(b64(compose)), shellQuote(version), shellQuote(version), shellQuote(appImageForVersion(version)), shellQuote(workspaceImageForVersion(version)), appName)
@@ -1901,6 +1902,7 @@ ARCHE_GATEWAY_TOKEN_SECRET=%s
 
 ARCHE_COOKIE_SECURE=true
 ARCHE_SESSION_TTL_DAYS=7
+ARCHE_FLOW_SCHEDULER_MODE=daemon
 
 ARCHE_SEED_ADMIN_EMAIL=%s
 ARCHE_SEED_ADMIN_PASSWORD=%s
@@ -2012,6 +2014,50 @@ services:
       - traefik.http.routers.arche.tls.certresolver=letsencrypt
       - traefik.http.services.arche-web.loadbalancer.server.port=%d
 
+  flows:
+    image: "${ARCHE_WEB_IMAGE}"
+    restart: unless-stopped
+    command:
+      - ./node_modules/.bin/tsx
+      - src/flow-daemon.ts
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      docker-socket-proxy:
+        condition: service_healthy
+    networks:
+      - default
+      - arche-internal
+    volumes:
+      - /opt/arche/users:/opt/arche/users
+      - /opt/arche/kb-content:/kb-content
+      - /opt/arche/kb-config:/kb-config
+    healthcheck:
+      disable: true
+
+  reaper:
+    image: "${ARCHE_WEB_IMAGE}"
+    restart: "on-failure:5"
+    command:
+      - ./node_modules/.bin/tsx
+      - src/reaper-daemon.ts
+    env_file:
+      - .env
+    # Reaper only reconciles database state with container lifecycle via Docker.
+    # It does not read KB config/content or write user workspace data.
+    networks:
+      - default
+      - arche-internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+      docker-socket-proxy:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+
 networks:
   default:
   arche-internal:
@@ -2122,6 +2168,7 @@ ARCHE_GATEWAY_TOKEN_SECRET=${ARCHE_GATEWAY_TOKEN_SECRET}
 
 ARCHE_COOKIE_SECURE=true
 ARCHE_SESSION_TTL_DAYS=7
+ARCHE_FLOW_SCHEDULER_MODE=daemon
 
 ARCHE_SEED_ADMIN_EMAIL=${ADMIN_EMAIL}
 ARCHE_SEED_ADMIN_PASSWORD=${ARCHE_SEED_ADMIN_PASSWORD}
