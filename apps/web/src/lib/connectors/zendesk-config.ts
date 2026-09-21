@@ -1,8 +1,12 @@
 import type { ConnectorConfigValidationResult } from '@/lib/connectors/config-validation'
+import { getStoredConnectorToolPermissions } from '@/lib/connectors/tool-permissions'
+import { parseZendeskActionPermissionsConfig } from '@/lib/connectors/zendesk-action-permissions'
 import { normalizeZendeskSubdomain } from '@/lib/connectors/zendesk-shared'
 import {
   DEFAULT_ZENDESK_CONNECTOR_PERMISSIONS,
+  ZENDESK_ACTION_PERMISSIONS_CONFIG_KEY,
   ZENDESK_CONNECTOR_PERMISSION_KEYS,
+  type ZendeskActionPermissions,
   type ZendeskConnectorConfig,
   type ZendeskConnectorPermissions,
 } from '@/lib/connectors/zendesk-types'
@@ -15,20 +19,6 @@ type ParsedZendeskConnectorConfig =
 type ParsedZendeskConnectorPermissions =
   | { ok: true; value: ZendeskConnectorPermissions }
   | { ok: false; message: string }
-
-export function getZendeskConnectorPermissionsConstraintMessage(
-  permissions: ZendeskConnectorPermissions
-): string | null {
-  if (
-    permissions.allowCreateTickets &&
-    !permissions.allowPublicComments &&
-    !permissions.allowInternalComments
-  ) {
-    return 'Ticket creation requires public comments or internal notes to stay enabled.'
-  }
-
-  return null
-}
 
 function isValidZendeskSubdomain(subdomain: string): boolean {
   return /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(subdomain)
@@ -43,7 +33,7 @@ export function parseZendeskConnectorPermissions(
       return { ok: false, message: 'permissions is required' }
     }
 
-    return { ok: true, value: { ...DEFAULT_ZENDESK_CONNECTOR_PERMISSIONS } }
+    return { ok: true, value: DEFAULT_ZENDESK_CONNECTOR_PERMISSIONS }
   }
 
   if (!isRecord(value)) {
@@ -99,6 +89,17 @@ function parseZendeskConnectorFields(config: Record<string, unknown>): ParsedZen
     return permissions
   }
 
+  const canonical = config[ZENDESK_ACTION_PERMISSIONS_CONFIG_KEY]
+  let zendeskActionPermissions: ZendeskActionPermissions | undefined
+  if (canonical !== undefined) {
+    const parsedCanonical = parseZendeskActionPermissionsConfig(canonical)
+    // An invalid canonical map is ignored so the connector keeps working from
+    // the legacy permission fields; normalization falls back to migrating them.
+    zendeskActionPermissions = parsedCanonical.ok ? parsedCanonical.value.actions : undefined
+  }
+
+  const storedToolPermissions = getStoredConnectorToolPermissions(config) ?? undefined
+
   return {
     ok: true,
     value: {
@@ -106,6 +107,8 @@ function parseZendeskConnectorFields(config: Record<string, unknown>): ParsedZen
       email,
       apiToken,
       permissions: permissions.value,
+      ...(zendeskActionPermissions ? { zendeskActionPermissions } : {}),
+      ...(storedToolPermissions ? { storedToolPermissions } : {}),
     },
   }
 }
@@ -119,16 +122,6 @@ export function validateZendeskConnectorConfig(
       valid: false,
       missing: parsed.missing,
       message: parsed.message,
-    }
-  }
-
-  const permissionsMessage = getZendeskConnectorPermissionsConstraintMessage(
-    parsed.value.permissions
-  )
-  if (permissionsMessage) {
-    return {
-      valid: false,
-      message: permissionsMessage,
     }
   }
 

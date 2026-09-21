@@ -114,7 +114,9 @@ describe("SessionsPanel", () => {
     renderPanel([
       { id: "today-session", title: "Today chat", status: "idle", updatedAt: "now", updatedAtRaw: now },
       { id: "yesterday-session", title: "Yesterday chat", status: "idle", updatedAt: "1d", updatedAtRaw: now - dayMs },
-      { id: "old-session", title: "Old chat", status: "idle", updatedAt: "30d", updatedAtRaw: now - 30 * dayMs },
+      // 62 days back always lands in a previous calendar month, so the bucket
+      // is deterministically "Older" regardless of the current date.
+      { id: "old-session", title: "Old chat", status: "idle", updatedAt: "62d", updatedAtRaw: now - 62 * dayMs },
     ]);
 
     expect(screen.getByText("Today")).toBeTruthy();

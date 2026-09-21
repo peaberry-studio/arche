@@ -883,6 +883,46 @@ describe('remapAgentConnectorTools', () => {
     expect(permission['arche_custom_sameconnector_sync']).toBe('deny')
   })
 
+  it('expands atomic Zendesk actions into independent exact permission entries', () => {
+    const config = {
+      agent: {
+        support: {
+          tools: {
+            'arche_zendesk_z1_*': true,
+          },
+        },
+      },
+    }
+    const permissions = {
+      search_tickets: 'deny',
+      get_ticket: 'ask',
+      list_ticket_comments: 'allow',
+      create_ticket_public: 'deny',
+      create_ticket_internal: 'ask',
+      update_ticket_fields: 'allow',
+      update_ticket_with_public_comment: 'ask',
+      update_ticket_with_internal_note: 'allow',
+    } as const
+
+    const result = remapAgentConnectorTools(
+      config,
+      new Set(['arche_zendesk_z1']),
+      { arche_zendesk_z1: permissions },
+    )
+    const agent = (result.agent as Record<string, Record<string, unknown>>).support
+    const tools = agent.tools as Record<string, boolean>
+    const permission = agent.permission as Record<string, unknown>
+
+    expect(tools['arche_zendesk_z1_*']).toBeUndefined()
+    for (const [action, policy] of Object.entries(permissions)) {
+      expect(tools[`arche_zendesk_z1_${action}`]).toBe(true)
+      expect(permission[`arche_zendesk_z1_${action}`]).toBe(policy)
+    }
+    // Session-level `always` is scoped to the exact atomic tool name, so an
+    // approval of one action never authorizes a differently named action.
+    expect(new Set(Object.keys(permission).filter((key) => key.startsWith('arche_zendesk_z1_'))).size).toBe(8)
+  })
+
   it('preserves non-MCP tools', () => {
     const config = {
       agent: {

@@ -1,6 +1,7 @@
 "use client";
 
 import type { WorkspacePermission } from "@/lib/opencode/permission";
+import type { ResolvedPermissionToolPart } from "@/lib/opencode/permission-tool-parts";
 import type {
   AvailableModel,
   PermissionResponse,
@@ -249,6 +250,9 @@ export type UseWorkspaceReturn = {
   // Permissions (pending) visible for the active session, from the event-bus
   // store: the active session plus its known child sessions.
   permissions: WorkspacePermission[];
+  // Tool parts correlated to pending permissions by call id, resolved across
+  // every cached session (parent + delegated children) for approval previews.
+  permissionToolParts: Record<string, ResolvedPermissionToolPart>;
 
   // Diffs
   diffs: import("@/hooks/use-workspace-diffs").WorkspaceDiff[];

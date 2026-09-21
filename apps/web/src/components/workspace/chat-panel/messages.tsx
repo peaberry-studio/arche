@@ -30,6 +30,7 @@ import {
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { formatTimestamp } from "@/lib/format-timestamp";
 import type { WorkspacePermission } from "@/lib/opencode/permission";
+import type { ResolvedPermissionToolPart } from "@/lib/opencode/permission-tool-parts";
 import type { MessagePart, PermissionResponse } from "@/lib/opencode/types";
 import { cn } from "@/lib/utils";
 import type { ChatMessage } from "@/types/workspace";
@@ -45,6 +46,7 @@ type ChatPanelMessagesProps = {
   isStreaming?: boolean;
   messages: ChatMessage[];
   permissions?: WorkspacePermission[];
+  permissionToolParts?: Record<string, ResolvedPermissionToolPart>;
   messagesEndRef: RefObject<HTMLDivElement | null>;
   onAnswerPermission?: (
     sessionId: string,
@@ -399,6 +401,7 @@ export function ChatPanelMessages({
   isStreaming = false,
   messages,
   permissions = [],
+  permissionToolParts = {},
   messagesEndRef,
   onAnswerPermission,
   onOpenFile,
@@ -617,6 +620,7 @@ export function ChatPanelMessages({
                   key={permission.id}
                   onAnswerPermission={onAnswerPermission}
                   permission={permission}
+                  toolPart={permissionToolParts[permission.id] ?? undefined}
                 />
               ))}
 

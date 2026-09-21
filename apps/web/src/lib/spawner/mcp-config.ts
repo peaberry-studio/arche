@@ -8,6 +8,7 @@ import {
 } from '@/lib/connectors/tool-permissions'
 import type { ConnectorType } from '@/lib/connectors/types'
 import { validateConnectorConfig, validateConnectorType } from '@/lib/connectors/validators'
+import { getZendeskRuntimeToolPermissions } from '@/lib/connectors/zendesk'
 import {
   buildConnectorMcpServerConfig,
   shouldExposeConnectorViaGateway,
@@ -54,6 +55,20 @@ export function buildMcpServerKey(type: ConnectorType, id: string): string {
   return `arche_${type}_${id}`
 }
 
+// Connector-type policy adapter: Zendesk derives its runtime permissions from
+// the normalized canonical action map; every other connector keeps reading the
+// generic stored `mcpToolPermissions`.
+function getRuntimeConnectorToolPermissions(
+  type: ConnectorType,
+  config: Record<string, unknown>
+): ConnectorToolPermissionMap | null {
+  if (type === 'zendesk') {
+    return getZendeskRuntimeToolPermissions(config)
+  }
+
+  return getStoredConnectorToolPermissions(config)
+}
+
 export function buildMcpConfigFromConnectors(
   connectors: ConnectorRecord[],
   options?: { gatewayTargets?: Record<string, GatewayTarget> },
@@ -88,7 +103,7 @@ export function buildMcpConfigFromConnectors(
       mcp[serverKey] = serverConfig
       connectorDisplayNames[serverKey] = connector.name.trim() || connector.id
 
-      const toolPermissions = getStoredConnectorToolPermissions(config)
+      const toolPermissions = getRuntimeConnectorToolPermissions(connector.type, config)
       if (toolPermissions) {
         connectorToolPermissions[serverKey] = toolPermissions
       }

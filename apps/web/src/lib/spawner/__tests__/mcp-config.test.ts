@@ -34,7 +34,8 @@ vi.mock('@/lib/connectors/ahrefs', () => ({
   parseAhrefsConnectorConfig: connectorMocks.parseAhrefsConnectorConfig,
 }))
 
-vi.mock('@/lib/connectors/zendesk', () => ({
+vi.mock('@/lib/connectors/zendesk', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/connectors/zendesk')>()),
   parseZendeskConnectorConfig: connectorMocks.parseZendeskConnectorConfig,
 }))
 
@@ -648,6 +649,101 @@ describe('mcp-config', () => {
           })
         })
       }
+    })
+
+    // -----------------------------------------------------------------------
+    // Zendesk action-policy adapter
+    // -----------------------------------------------------------------------
+
+    describe('Zendesk action-policy adapter', () => {
+      const ZENDESK_CONFIG_BASE = {
+        subdomain: 'acme',
+        email: 'a@b.com',
+        apiToken: 'tok',
+        permissions: {
+          allowRead: true,
+          allowCreateTickets: true,
+          allowUpdateTickets: true,
+          allowPublicComments: true,
+          allowInternalComments: true,
+        },
+      }
+
+      function buildWithZendeskConfig(config: Record<string, unknown>) {
+        connectorMocks.validateConnectorType.mockReturnValue(true)
+        connectorMocks.validateConnectorConfig.mockReturnValue({ valid: true })
+        connectorMocks.decryptConfig.mockReturnValue(config)
+        connectorMocks.parseZendeskConnectorConfig.mockReturnValue({ ok: true })
+        const connector = makeConnector({ type: 'zendesk', id: 'z1' })
+
+        return buildMcpConfigFromConnectors([connector], {
+          gatewayTargets: { z1: { url: 'http://gateway/z1/mcp', token: 'gw-token' } },
+        })
+      }
+
+      it('derives runtime permissions from legacy booleans and stored tool policies with deny entries included', () => {
+        const result = buildWithZendeskConfig({
+          ...ZENDESK_CONFIG_BASE,
+          permissions: { ...ZENDESK_CONFIG_BASE.permissions, allowPublicComments: false },
+          mcpToolPermissions: { update_ticket: 'ask' },
+        })
+
+        expect(result.connectorToolPermissions['arche_zendesk_z1']).toEqual({
+          search_tickets: 'allow',
+          get_ticket: 'allow',
+          list_ticket_comments: 'allow',
+          create_ticket_public: 'deny',
+          create_ticket_internal: 'allow',
+          update_ticket_fields: 'ask',
+          update_ticket_with_public_comment: 'deny',
+          update_ticket_with_internal_note: 'ask',
+        })
+      })
+
+      it('prefers stored canonical actions over legacy fields', () => {
+        const actions = {
+          search_tickets: 'deny' as const,
+          get_ticket: 'allow' as const,
+          list_ticket_comments: 'allow' as const,
+          create_ticket_public: 'ask' as const,
+          create_ticket_internal: 'deny' as const,
+          update_ticket_fields: 'allow' as const,
+          update_ticket_with_public_comment: 'ask' as const,
+          update_ticket_with_internal_note: 'allow' as const,
+        }
+        const result = buildWithZendeskConfig({
+          ...ZENDESK_CONFIG_BASE,
+          permissions: { ...ZENDESK_CONFIG_BASE.permissions, allowRead: false },
+          zendeskActionPermissions: { version: 1, actions },
+        })
+
+        expect(result.connectorToolPermissions['arche_zendesk_z1']).toEqual(actions)
+      })
+
+      it('never emits retired composite tool names in runtime permissions', () => {
+        const result = buildWithZendeskConfig({
+          ...ZENDESK_CONFIG_BASE,
+          mcpToolPermissions: { create_ticket: 'deny', update_ticket: 'ask' },
+        })
+
+        const permissions = result.connectorToolPermissions['arche_zendesk_z1'] ?? {}
+        expect(permissions.create_ticket).toBeUndefined()
+        expect(permissions.update_ticket).toBeUndefined()
+      })
+
+      it('keeps other connectors on generic stored tool permissions', () => {
+        connectorMocks.validateConnectorType.mockReturnValue(true)
+        connectorMocks.validateConnectorConfig.mockReturnValue({ valid: true })
+        connectorMocks.decryptConfig.mockReturnValue({
+          apiKey: 'linear-key',
+          mcpToolPermissions: { list_issues: 'ask' },
+        })
+        const connector = makeConnector({ type: 'linear', id: 'l1' })
+
+        const result = buildMcpConfigFromConnectors([connector])
+
+        expect(result.connectorToolPermissions['arche_linear_l1']).toEqual({ list_issues: 'ask' })
+      })
     })
 
     // -----------------------------------------------------------------------
