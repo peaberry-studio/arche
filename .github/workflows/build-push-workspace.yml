@@ -20,11 +20,15 @@ env:
 
 jobs:
   build-and-push:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
-        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     permissions:
       contents: read
       packages: write
@@ -35,9 +39,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.client_payload.ref || github.ref }}
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -109,16 +110,36 @@ jobs:
             ${{ steps.tags.outputs.MODE == 'main' && steps.tags.outputs.DEFAULT_ARCH_TAGS == 'true' && format('{0}/{1}:latest', env.REGISTRY, env.IMAGE_NAME) || '' }}
             ${{ steps.tags.outputs.MODE == 'main' && steps.tags.outputs.DEFAULT_ARCH_TAGS == 'true' && format('{0}/{1}:{2}', env.REGISTRY, env.IMAGE_NAME, steps.tags.outputs.SHA_TAG) || '' }}
 
-      - name: Comment PR with image info
-        if: steps.tags.outputs.MODE == 'pr' && matrix.arch == 'amd64'
+  comment-pr:
+    name: Comment PR with image info
+    needs: build-and-push
+    if: github.event_name == 'repository_dispatch' || github.event.inputs.pr_number != ''
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Resolve PR number
+        id: pr
         run: |
-          IMAGE="$REGISTRY/$IMAGE_NAME:${{ steps.tags.outputs.PR_TAG }}"
-          ARM_IMAGE="$REGISTRY/$IMAGE_NAME:${{ steps.tags.outputs.PR_TAG }}-arm64"
-          BODY=$(printf '📦 **PR Workspace Image Built Successfully**\n\nDefault (amd64):\n```\n%s\n```\n\nOptional arm64:\n```\n%s\n```' "$IMAGE" "$ARM_IMAGE")
+          PR_NUM="${{ github.event.client_payload.pr_number || github.event.inputs.pr_number }}"
+          if [[ -z "$PR_NUM" ]]; then
+            echo "No PR number resolved" >&2
+            exit 1
+          fi
+          echo "PR_NUMBER=$PR_NUM" >> "$GITHUB_OUTPUT"
+          echo "PR_TAG=pr-$PR_NUM" >> "$GITHUB_OUTPUT"
+
+      - name: Comment PR with image info
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          IMAGE="$REGISTRY/$IMAGE_NAME:${{ steps.pr.outputs.PR_TAG }}"
+          ARM_IMAGE="$REGISTRY/$IMAGE_NAME:${{ steps.pr.outputs.PR_TAG }}-arm64"
+          BODY=$(printf '📦 **PR Workspace Image Built Successfully**\n\namd64 (default):\n```\n%s\n```\n\narm64:\n```\n%s\n```' "$IMAGE" "$ARM_IMAGE")
           PAYLOAD=$(jq -nc --arg body "$BODY" '{body: $body}')
 
           curl -X POST \
-            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Authorization: token $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{ github.repository }}/issues/${{ steps.tags.outputs.PR_NUMBER }}/comments" \
+            "https://api.github.com/repos/${{ github.repository }}/issues/${{ steps.pr.outputs.PR_NUMBER }}/comments" \
             -d "$PAYLOAD"
