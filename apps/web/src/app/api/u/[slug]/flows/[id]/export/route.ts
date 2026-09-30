@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
+import { contentDispositionHeader } from '@/lib/workspace-attachments'
 import { resolveFlowRouteContext } from '@/lib/flows/api'
 import { createFlowActorScope } from '@/lib/flows/authorization'
 import { createFlowTemplate, type FlowTemplate } from '@/lib/flows/import-export'
@@ -57,7 +58,7 @@ export const GET = withAuth<FlowTemplate | { error: string }, FlowExportRoutePar
       timezone: flow.timezone,
     }), {
       headers: {
-        'Content-Disposition': `attachment; filename="${flowExportFileName(flow.name)}"`,
+        'Content-Disposition': contentDispositionHeader(flowExportFileName(flow.name)),
       },
     })
   },
