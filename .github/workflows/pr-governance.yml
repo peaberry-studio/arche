@@ -69,11 +69,6 @@ jobs:
           check_package() {
             local pkg="$1"
 
-            if ! jq empty "$pkg" 2>/dev/null; then
-              echo "::warning file=${pkg}::Malformed package.json — skipped"
-              return 1
-            fi
-
             local unpinned
             unpinned=$(jq -r '
               [(.dependencies // {}), (.devDependencies // {})]
@@ -102,6 +97,11 @@ jobs:
             -not -path '*/generated/*' \
             -not -path '*/.pnpm/*' \
             | sort); do
+
+            if ! jq empty "$pkg" 2>/dev/null; then
+              echo "::warning file=${pkg}::Malformed package.json — skipped"
+              continue
+            fi
 
             deps=$(jq -r '(.dependencies // {} | length) + (.devDependencies // {} | length)' "$pkg" 2>/dev/null)
             if [[ "$deps" == "0" ]] || [[ -z "$deps" ]]; then
@@ -136,8 +136,8 @@ jobs:
       - name: Get changed files
         id: changes
         run: |
-          changed=$(git diff --name-only --diff-filter=ACR origin/main...HEAD 2>/dev/null \
-            || git diff --name-only --diff-filter=ACR HEAD~1 2>/dev/null \
+          changed=$(git diff --name-only --diff-filter=ACMR origin/main...HEAD 2>/dev/null \
+            || git diff --name-only --diff-filter=ACMR HEAD~1 2>/dev/null \
             || echo "")
           EOF_MARKER=$(dd if=/dev/urandom bs=15 count=1 2>/dev/null | base64)
           echo "files<<${EOF_MARKER}" >> "$GITHUB_OUTPUT"
@@ -146,6 +146,8 @@ jobs:
 
       - name: Check for sensitive files
         if: steps.changes.outputs.files != ''
+        env:
+          CHANGED_FILES: ${{ steps.changes.outputs.files }}
         run: |
           sensitive_patterns=(
             '\.env$'
@@ -170,7 +172,7 @@ jobs:
           )
 
           found=0
-          changed_files="${{ steps.changes.outputs.files }}"
+          changed_files="$CHANGED_FILES"
 
           for pattern in "${sensitive_patterns[@]}"; do
             matches=$(echo "$changed_files" | grep -iE "$pattern" || true)
@@ -192,8 +194,10 @@ jobs:
 
       - name: Scan for hardcoded secrets
         if: steps.changes.outputs.files != ''
+        env:
+          CHANGED_FILES: ${{ steps.changes.outputs.files }}
         run: |
-          changed_files="${{ steps.changes.outputs.files }}"
+          changed_files="$CHANGED_FILES"
 
           # Only scan text files
           scannable=$(echo "$changed_files" | grep -vE '\.(png|jpg|jpeg|gif|ico|svg|woff2?|ttf|eot|mp[34]|webm|webp|zip|tar|gz|lock)$' || true)
@@ -226,10 +230,10 @@ jobs:
             'glpat-[a-zA-Z0-9_-]{20,}'
             'xox[bsapr]-[a-zA-Z0-9-]+'
             'BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY'
-            'password\s*[:=]\s*["\x27][^"\x27]{8,}'
-            'secret\s*[:=]\s*["\x27][^"\x27]{8,}'
-            'api[_-]?key\s*[:=]\s*["\x27][^"\x27]{8,}'
-            'access[_-]?token\s*[:=]\s*["\x27][^"\x27]{8,}'
+            "password\\s*[:=]\\s*[\"'][^\"']{8,}"
+            "secret\\s*[:=]\\s*[\"'][^\"']{8,}"
+            "api[_-]?key\\s*[:=]\\s*[\"'][^\"']{8,}"
+            "access[_-]?token\\s*[:=]\\s*[\"'][^\"']{8,}"
           )
 
           for pattern in "${secret_patterns[@]}"; do

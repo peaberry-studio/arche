@@ -171,6 +171,7 @@ describe('GET /api/u/[slug]/providers', () => {
       { providerId: 'fireworks', status: 'missing' },
       { providerId: 'huggingface', status: 'missing' },
       { providerId: 'openrouter', status: 'missing' },
+      { providerId: 'zai', status: 'missing' },
       { providerId: 'opencode', status: 'missing' },
       { providerId: 'opencode-go', status: 'missing' },
       { providerId: 'ollama', status: 'missing' },

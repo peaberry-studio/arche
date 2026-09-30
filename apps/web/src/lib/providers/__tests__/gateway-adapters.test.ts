@@ -97,12 +97,14 @@ describe('provider gateway adapters', () => {
   it('applies bearer auth headers and supports Opencode x-api-key fallback', () => {
     const huggingface = getProviderGatewayAdapter('huggingface')
     const openRouter = getProviderGatewayAdapter('openrouter')
+    const zai = getProviderGatewayAdapter('zai')
     const opencode = getProviderGatewayAdapter('opencode')
     const opencodeGo = getProviderGatewayAdapter('opencode-go')
     const headers = new Headers({ authorization: 'Bearer old-key' })
 
     expect(openRouter.baseUrl()).toBe('https://openrouter.ai/api/v1')
     expect(huggingface.baseUrl()).toBe('https://router.huggingface.co/v1')
+    expect(zai.baseUrl()).toBe('https://api.z.ai/api/paas/v4')
     expect(huggingface.extractGatewayToken(new Headers({ authorization: 'Bearer hf-gateway-token ' }))).toBe('hf-gateway-token')
     expect(openRouter.resolveCredentialAuth({ apiKey: ' provider-key ' })).toEqual({
       ok: true,
@@ -116,6 +118,9 @@ describe('provider gateway adapters', () => {
     expect(headers.get('authorization')).toBe('Bearer new-key')
     expect(applyProviderAuthHeaders(headers, huggingface, 'hf-provider-key')).toBe(true)
     expect(headers.get('authorization')).toBe('Bearer hf-provider-key')
+    expect(zai.extractGatewayToken(new Headers({ authorization: 'Bearer zai-gateway-token' }))).toBe('zai-gateway-token')
+    expect(applyProviderAuthHeaders(headers, zai, 'zai-provider-key')).toBe(true)
+    expect(headers.get('authorization')).toBe('Bearer zai-provider-key')
 
     expect(opencode.baseUrl()).toBe('https://opencode.ai/zen/v1')
     expect(opencode.extractGatewayToken(new Headers({ 'x-api-key': 'gateway-key' }))).toBe('gateway-key')

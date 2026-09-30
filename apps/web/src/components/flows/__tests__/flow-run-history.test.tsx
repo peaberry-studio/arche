@@ -1,9 +1,17 @@
 /** @vitest-environment jsdom */
-import { cleanup, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { FlowRunHistory } from '@/components/flows/flow-run-history'
 import type { FlowDetail } from '@/lib/flows/types'
+
+const clientMocks = vi.hoisted(() => ({
+  cancelFlowRunRequest: vi.fn(),
+}))
+
+vi.mock('@/lib/flows/client', () => ({
+  cancelFlowRunRequest: clientMocks.cancelFlowRunRequest,
+}))
 
 const flow: FlowDetail = {
   createdAt: '2026-05-12T10:00:00.000Z',
@@ -59,6 +67,10 @@ const flow: FlowDetail = {
 }
 
 describe('FlowRunHistory', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
   afterEach(() => cleanup())
 
   it('renders run history and session link', () => {
@@ -89,5 +101,39 @@ describe('FlowRunHistory', () => {
     render(<FlowRunHistory flow={{ ...flow, runs: [] }} slug="alice" />)
 
     expect(screen.getByText('No runs recorded yet.')).toBeTruthy()
+  })
+
+  it('surfaces a rejected card Stop request', async () => {
+    clientMocks.cancelFlowRunRequest.mockResolvedValue({ ok: false, error: 'forbidden' })
+    render(<FlowRunHistory flow={{
+      ...flow,
+      runs: [{
+        ...flow.runs[0]!,
+        executionUser: { slug: 'alice' },
+        finishedAt: null,
+        status: 'running',
+      }],
+    }} slug="alice" />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
+
+    expect(await screen.findByText('forbidden')).toBeTruthy()
+  })
+
+  it('surfaces a card Stop network failure', async () => {
+    clientMocks.cancelFlowRunRequest.mockRejectedValue(new Error('offline'))
+    render(<FlowRunHistory flow={{
+      ...flow,
+      runs: [{
+        ...flow.runs[0]!,
+        executionUser: { slug: 'alice' },
+        finishedAt: null,
+        status: 'running',
+      }],
+    }} slug="alice" />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
+
+    expect(await screen.findByText('Network error. Try again.')).toBeTruthy()
   })
 })

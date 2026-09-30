@@ -2,11 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { Lightning, PencilSimple, SpinnerGap } from '@phosphor-icons/react'
+import { Lightning, PencilSimple, SpinnerGap, Stop } from '@phosphor-icons/react'
 
 import { FlowRunHistory } from '@/components/flows/flow-run-history'
 import { Button } from '@/components/ui/button'
-import { fetchFlowDetail, runFlowRequest } from '@/lib/flows/client'
+import { cancelFlowRunRequest, fetchFlowDetail, runFlowRequest } from '@/lib/flows/client'
 import { formatConnectorRequirement, getFlowErrorMessage } from '@/lib/flows/errors'
 import type { FlowDetail } from '@/lib/flows/types'
 
@@ -24,6 +24,7 @@ export function FlowRunHistoryView({ editHref, flowId, slug }: FlowRunHistoryVie
   const [error, setError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [isRunning, setIsRunning] = useState(false)
+  const [isCancelling, setIsCancelling] = useState(false)
   const loadRequestIdRef = useRef(0)
   const mountedRef = useRef(false)
 
@@ -110,6 +111,25 @@ export function FlowRunHistoryView({ editHref, flowId, slug }: FlowRunHistoryVie
     }
   }, [flow, flowId, loadFlow, slug])
 
+  const activeRun = flow?.runs.find((run) => run.status === 'running' || run.status === 'waiting_for_human') ?? null
+
+  const cancelRun = useCallback(async (runId: string) => {
+    setIsCancelling(true)
+    setActionError(null)
+    try {
+      const result = await cancelFlowRunRequest(slug, runId)
+      if (!result.ok) {
+        setActionError(result.error)
+        return
+      }
+      await loadFlow()
+    } catch {
+      setActionError('network_error')
+    } finally {
+      setIsCancelling(false)
+    }
+  }, [loadFlow, slug])
+
   const resolvedEditHref = editHref ?? `/u/${slug}/flows/${flowId}`
 
   return (
@@ -128,14 +148,26 @@ export function FlowRunHistoryView({ editHref, flowId, slug }: FlowRunHistoryVie
               {flow?.permissions.canEdit ? 'Edit flow' : 'View flow'}
             </Link>
           </Button>
-          <Button
-            onClick={() => void runFlow()}
-            disabled={isRunning || !flow?.permissions.canRun || (flow.missingConnectorRequirements ?? []).length > 0}
-            className="gap-2"
-          >
-            <Lightning size={14} weight="fill" />
-            {isRunning ? 'Starting...' : 'Run flow'}
-          </Button>
+          {activeRun ? (
+            <Button
+              variant="outline"
+              onClick={() => void cancelRun(activeRun.id)}
+              disabled={isCancelling}
+              className="gap-2 text-destructive hover:bg-destructive/10 hover:text-destructive"
+            >
+              {isCancelling ? <SpinnerGap size={14} className="animate-spin" /> : <Stop size={14} weight="fill" />}
+              {isCancelling ? 'Stopping...' : 'Stop run'}
+            </Button>
+          ) : (
+            <Button
+              onClick={() => void runFlow()}
+              disabled={isRunning || !flow?.permissions.canRun || (flow.missingConnectorRequirements ?? []).length > 0}
+              className="gap-2"
+            >
+              <Lightning size={14} weight="fill" />
+              {isRunning ? 'Starting...' : 'Run flow'}
+            </Button>
+          )}
         </div>
       </div>
 

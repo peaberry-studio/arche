@@ -2,6 +2,7 @@ import { FlowNodeType, FlowRunStatus, FlowRunStepStatus, FlowRunTrigger } from '
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const prismaMock = vi.hoisted(() => ({
+  $transaction: vi.fn(),
   flow: {
     create: vi.fn(),
     findFirst: vi.fn(),
@@ -18,6 +19,7 @@ const prismaMock = vi.hoisted(() => ({
   },
   flowRunStep: {
     update: vi.fn(),
+    updateMany: vi.fn(),
     upsert: vi.fn(),
   },
 }))
@@ -83,10 +85,12 @@ function createRunRecord(overrides: Record<string, unknown> = {}) {
 describe('flowService', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    prismaMock.$transaction.mockImplementation(async (callback: (transaction: typeof prismaMock) => Promise<unknown>) => callback(prismaMock))
   })
 
   it('marks stale running runs failed when their flow lease has expired', async () => {
     prismaMock.flowRun.updateMany.mockResolvedValue({ count: 2 })
+    prismaMock.flowRunStep.updateMany.mockResolvedValue({ count: 3 })
 
     await expect(flowService.recoverStaleRunningRuns(now)).resolves.toBe(2)
 
@@ -99,12 +103,107 @@ describe('flowService', () => {
       },
       where: {
         flow: {
-          leaseExpiresAt: { lt: now },
+          OR: [
+            { leaseExpiresAt: null },
+            { leaseExpiresAt: { lt: now } },
+          ],
         },
         retryScheduledFor: null,
         status: FlowRunStatus.running,
       },
     })
+
+    expect(prismaMock.flowRunStep.updateMany).toHaveBeenCalledWith({
+      data: {
+        error: 'flow_run_stale_recovered',
+        finishedAt: now,
+        status: FlowRunStepStatus.failed,
+      },
+      where: {
+        run: {
+          error: 'flow_run_stale_recovered',
+          status: FlowRunStatus.failed,
+        },
+        status: {
+          in: [FlowRunStepStatus.pending, FlowRunStepStatus.running, FlowRunStepStatus.waiting_for_human],
+        },
+      },
+    })
+  })
+
+  it('settles stale run steps even when no runs transition on this recovery tick', async () => {
+    prismaMock.flowRun.updateMany.mockResolvedValue({ count: 0 })
+    prismaMock.flowRunStep.updateMany.mockResolvedValue({ count: 0 })
+
+    await expect(flowService.recoverStaleRunningRuns(now)).resolves.toBe(0)
+
+    expect(prismaMock.flowRunStep.updateMany).toHaveBeenCalledWith({
+      data: {
+        error: 'flow_run_stale_recovered',
+        finishedAt: now,
+        status: FlowRunStepStatus.failed,
+      },
+      where: {
+        run: {
+          error: 'flow_run_stale_recovered',
+          status: FlowRunStatus.failed,
+        },
+        status: {
+          in: [FlowRunStepStatus.pending, FlowRunStepStatus.running, FlowRunStepStatus.waiting_for_human],
+        },
+      },
+    })
+  })
+
+  it('retries in-flight step settlement after an interrupted stale-run recovery', async () => {
+    prismaMock.flowRun.updateMany
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 0 })
+    prismaMock.flowRunStep.updateMany
+      .mockRejectedValueOnce(new Error('temporary database error'))
+      .mockResolvedValueOnce({ count: 1 })
+
+    await expect(flowService.recoverStaleRunningRuns(now)).rejects.toThrow('temporary database error')
+    await expect(flowService.recoverStaleRunningRuns(new Date('2026-05-12T10:05:00.000Z'))).resolves.toBe(0)
+
+    expect(prismaMock.flowRunStep.updateMany).toHaveBeenCalledTimes(2)
+  })
+
+  it('rolls back a cancellation when step settlement fails', async () => {
+    const run = { finishedAt: null as Date | null, status: FlowRunStatus.running }
+    prismaMock.flowRun.updateMany.mockImplementation(async ({ data }: { data: Partial<typeof run> }) => {
+      Object.assign(run, data)
+      return { count: 1 }
+    })
+    prismaMock.flowRunStep.updateMany.mockRejectedValue(new Error('temporary database error'))
+    prismaMock.$transaction.mockImplementation(async (callback: (transaction: typeof prismaMock) => Promise<unknown>) => {
+      const stagedRun = { ...run }
+      const transaction = {
+        ...prismaMock,
+        flowRun: {
+          ...prismaMock.flowRun,
+          updateMany: vi.fn(async ({ data }: { data: Partial<typeof run> }) => {
+            Object.assign(stagedRun, data)
+            return { count: 1 }
+          }),
+        },
+        flowRunStep: {
+          ...prismaMock.flowRunStep,
+          updateMany: vi.fn().mockRejectedValue(new Error('temporary database error')),
+        },
+      }
+      return callback(transaction)
+    })
+
+    try {
+      await expect(flowService.cancelRunById('run-1', now)).rejects.toThrow('temporary database error')
+
+      expect(prismaMock.$transaction).toHaveBeenCalledTimes(1)
+      expect(run).toEqual({ finishedAt: null, status: FlowRunStatus.running })
+    } finally {
+      prismaMock.flowRun.updateMany.mockReset()
+      prismaMock.flowRunStep.updateMany.mockReset()
+    }
   })
 
   it('recovers stale running runs before claiming an immediate run', async () => {
@@ -225,6 +324,27 @@ describe('flowService', () => {
     await expect(flowService.findRunStatusById('run-1')).resolves.toEqual({ status: FlowRunStatus.running })
     await expect(flowService.cancelRunByIdForScope('run-1', createScope(), now)).resolves.toBe(true)
     await expect(flowService.cancelRunById('run-1', now)).resolves.toBe(true)
+    expect(prismaMock.flowRunStep.updateMany).toHaveBeenCalledWith({
+      data: {
+        error: 'flow_run_cancelled',
+        finishedAt: now,
+        status: FlowRunStepStatus.failed,
+      },
+      where: {
+        runId: 'run-1',
+        status: {
+          in: [FlowRunStepStatus.pending, FlowRunStepStatus.running, FlowRunStepStatus.waiting_for_human],
+        },
+      },
+    })
+  })
+
+  it('leaves run steps untouched when the run was already settled', async () => {
+    prismaMock.flowRun.updateMany.mockResolvedValue({ count: 0 })
+
+    await expect(flowService.cancelRunById('run-1', now)).resolves.toBe(false)
+
+    expect(prismaMock.flowRunStep.updateMany).not.toHaveBeenCalled()
   })
 
   it('normalizes private flow organization execution in the service layer', async () => {

@@ -48,6 +48,12 @@ const PROVIDER_METADATA: Record<ProviderId, ProviderMetadata> = {
     runtimeId: 'openrouter',
     gatewayPath: 'openrouter',
   },
+  zai: {
+    label: 'Z.ai',
+    requiresCredential: true,
+    runtimeId: 'zai',
+    gatewayPath: 'zai',
+  },
   opencode: {
     label: 'OpenCode Zen',
     requiresCredential: false,
