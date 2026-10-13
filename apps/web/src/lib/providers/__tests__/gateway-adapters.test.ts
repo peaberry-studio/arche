@@ -14,6 +14,12 @@ import {
   getProviderGatewayAdapter,
 } from '@/lib/providers/gateway-adapters'
 
+const CHAT_CONTEXT = {
+  contentType: 'application/json',
+  method: 'POST',
+  pathSegments: ['chat', 'completions'],
+}
+
 describe('provider gateway adapters', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -60,9 +66,9 @@ describe('provider gateway adapters', () => {
 
     expect(adapter.baseUrl()).toBe('https://api.anthropic.com/v1')
     expect(adapter.extractGatewayToken(new Headers({ 'x-api-key': ' anthropic-key ' }))).toBe('anthropic-key')
-    expect(applyProviderAuthHeaders(headers, adapter, null)).toBe(false)
+    expect(applyProviderAuthHeaders(headers, adapter, null, CHAT_CONTEXT)).toBe(false)
 
-    expect(applyProviderAuthHeaders(headers, adapter, 'provider-key')).toBe(true)
+    expect(applyProviderAuthHeaders(headers, adapter, 'provider-key', CHAT_CONTEXT)).toBe(true)
     expect(headers.get('x-api-key')).toBe('provider-key')
     expect(headers.get('anthropic-version')).toBe('2023-06-01')
   })
@@ -112,19 +118,48 @@ describe('provider gateway adapters', () => {
       apiKey: 'provider-key',
     })
     expect(openRouter.resolveCredentialAuth({ apiKey: ' ' })).toEqual({ ok: false })
-    expect(applyProviderAuthHeaders(headers, openRouter, null)).toBe(true)
+    expect(applyProviderAuthHeaders(headers, openRouter, null, CHAT_CONTEXT)).toBe(true)
     expect(headers.has('authorization')).toBe(false)
-    expect(applyProviderAuthHeaders(headers, openRouter, 'new-key')).toBe(true)
+    expect(applyProviderAuthHeaders(headers, openRouter, 'new-key', CHAT_CONTEXT)).toBe(true)
     expect(headers.get('authorization')).toBe('Bearer new-key')
-    expect(applyProviderAuthHeaders(headers, huggingface, 'hf-provider-key')).toBe(true)
+    expect(applyProviderAuthHeaders(headers, huggingface, 'hf-provider-key', CHAT_CONTEXT)).toBe(true)
     expect(headers.get('authorization')).toBe('Bearer hf-provider-key')
     expect(zai.extractGatewayToken(new Headers({ authorization: 'Bearer zai-gateway-token' }))).toBe('zai-gateway-token')
-    expect(applyProviderAuthHeaders(headers, zai, 'zai-provider-key')).toBe(true)
+    expect(applyProviderAuthHeaders(headers, zai, 'zai-provider-key', CHAT_CONTEXT)).toBe(true)
     expect(headers.get('authorization')).toBe('Bearer zai-provider-key')
 
     expect(opencode.baseUrl()).toBe('https://opencode.ai/zen/v1')
     expect(opencode.extractGatewayToken(new Headers({ 'x-api-key': 'gateway-key' }))).toBe('gateway-key')
     expect(opencodeGo.baseUrl()).toBe('https://opencode.ai/zen/go/v1')
+  })
+
+  it('authenticates OpenCode Go /messages with x-api-key and other paths with bearer', () => {
+    const adapter = getProviderGatewayAdapter('opencode-go')
+    const messagesHeaders = new Headers()
+    const chatHeaders = new Headers()
+
+    expect(adapter.extractGatewayToken(new Headers({ 'x-api-key': 'gateway-key' }))).toBe('gateway-key')
+    expect(adapter.extractGatewayToken(new Headers({ authorization: 'Bearer gateway-token' }))).toBe('gateway-token')
+
+    expect(applyProviderAuthHeaders(messagesHeaders, adapter, 'go-key', { ...CHAT_CONTEXT, pathSegments: ['messages'] })).toBe(true)
+    expect(messagesHeaders.get('x-api-key')).toBe('go-key')
+    expect(messagesHeaders.has('authorization')).toBe(false)
+
+    expect(applyProviderAuthHeaders(chatHeaders, adapter, 'go-key', CHAT_CONTEXT)).toBe(true)
+    expect(chatHeaders.get('authorization')).toBe('Bearer go-key')
+    expect(chatHeaders.has('x-api-key')).toBe(false)
+  })
+
+  it('removes only the top-level display_name from OpenCode Go payloads', () => {
+    const adapter = getProviderGatewayAdapter('opencode-go')
+    const tools = [{
+      type: 'function',
+      function: { name: 'rename', parameters: { properties: { display_name: { type: 'string' } } } },
+    }]
+
+    expect(adapter.shouldNormalizeJsonPayload(CHAT_CONTEXT)).toBe(true)
+    expect(adapter.normalizeJsonPayload({ display_name: 'Assistant', model: 'glm-5.3-flash', tools }, CHAT_CONTEXT))
+      .toEqual({ model: 'glm-5.3-flash', tools })
   })
 
   it('uses Ollama credential base URLs and optional bearer auth', () => {
@@ -151,10 +186,10 @@ describe('provider gateway adapters', () => {
       mode: 'remote',
       models: [{ id: 'gpt-oss:20b-cloud', name: 'gpt-oss:20b-cloud' }],
     })).toEqual({ ok: true, allowMissingApiKey: false, apiKey: 'remote-token' })
-    expect(applyProviderAuthHeaders(localHeaders, ollama, null)).toBe(true)
+    expect(applyProviderAuthHeaders(localHeaders, ollama, null, CHAT_CONTEXT)).toBe(true)
     expect(localHeaders.has('authorization')).toBe(false)
 
-    expect(applyProviderAuthHeaders(remoteHeaders, ollama, 'remote-token')).toBe(true)
+    expect(applyProviderAuthHeaders(remoteHeaders, ollama, 'remote-token', CHAT_CONTEXT)).toBe(true)
     expect(remoteHeaders.get('authorization')).toBe('Bearer remote-token')
   })
 

@@ -242,7 +242,10 @@ async function handleProxy(
   // downstream clients to attempt decoding a second time.
   headers.set('accept-encoding', 'identity')
 
-  if (!applyProviderAuthHeaders(headers, adapter, apiKey)) {
+  const contentType = headers.get('content-type') ?? ''
+  const requestContext = { contentType, method: request.method, pathSegments }
+
+  if (!applyProviderAuthHeaders(headers, adapter, apiKey, requestContext)) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
 
@@ -256,9 +259,7 @@ async function handleProxy(
     init.redirect = 'error'
   }
 
-  const contentType = headers.get('content-type') ?? ''
   const requestModelId = await extractRequestModelId(request, contentType)
-  const requestContext = { contentType, method: request.method, pathSegments }
 
   if (hasBody) {
     if (adapter.shouldNormalizeJsonPayload(requestContext)) {

@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   getE2eFakeProviderUrl: vi.fn(),
   getCanonicalProviderId: vi.fn((id: string) =>
-    ['openai', 'anthropic', 'fireworks', 'huggingface', 'openrouter', 'zai', 'opencode', 'ollama'].includes(id) ? id : null,
+    ['openai', 'anthropic', 'fireworks', 'huggingface', 'openrouter', 'zai', 'opencode', 'opencode-go', 'ollama'].includes(id) ? id : null,
   ),
   getEffectiveCredentialForUser: vi.fn(),
   verifyGatewayToken: vi.fn(),
@@ -49,7 +49,7 @@ describe('/api/internal/providers/[provider]/[...path]', () => {
     mocks.checkRateLimit.mockReturnValue({ allowed: true, remaining: 99, resetAt: Date.now() + 60_000 })
     mocks.getRuntimeCapabilities.mockReturnValue({ auth: true })
     mocks.getCanonicalProviderId.mockImplementation((id: string) =>
-      ['openai', 'anthropic', 'fireworks', 'huggingface', 'openrouter', 'zai', 'opencode', 'ollama'].includes(id) ? id : null,
+      ['openai', 'anthropic', 'fireworks', 'huggingface', 'openrouter', 'zai', 'opencode', 'opencode-go', 'ollama'].includes(id) ? id : null,
     )
     fetchMock = vi.fn()
     global.fetch = fetchMock
@@ -428,6 +428,31 @@ describe('/api/internal/providers/[provider]/[...path]', () => {
     const sentHeaders = fetchMock.mock.calls[0][1].headers as Headers
     expect(sentHeaders.get('x-api-key')).toBe('anthropic-key')
     expect(sentHeaders.get('anthropic-version')).toBe('2023-06-01')
+  })
+
+  it('proxies OpenCode Go /messages with an x-api-key gateway token and strips display_name', async () => {
+    mocks.verifyGatewayToken.mockReturnValue({ ...GATEWAY_PAYLOAD, providerId: 'opencode-go' })
+    mocks.decryptProviderSecret.mockReturnValue({ apiKey: 'go-key' })
+    fetchMock.mockResolvedValue(
+      new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }),
+    )
+    const res = await POST(
+      makeRequest('POST', 'http://localhost/api/internal/providers/opencode-go/messages', {
+        headers: {
+          'x-api-key': 'valid-token',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ display_name: 'Assistant', model: 'qwen3.7-plus' }),
+      }),
+      { params: Promise.resolve({ provider: 'opencode-go', path: ['messages'] }) },
+    )
+    expect(res.status).toBe(200)
+    expect(mocks.verifyGatewayToken).toHaveBeenCalledWith('valid-token')
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('https://opencode.ai/zen/go/v1/messages')
+    expect((init.headers as Headers).get('x-api-key')).toBe('go-key')
+    expect((init.headers as Headers).has('authorization')).toBe(false)
+    expect(JSON.parse(init.body)).toEqual({ model: 'qwen3.7-plus' })
   })
 
   it('successfully proxies a Hugging Face models request with bearer auth', async () => {

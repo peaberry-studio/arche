@@ -16,7 +16,7 @@ type ProviderCredentialAuthResult =
   | { ok: false }
 
 export type ProviderGatewayAdapter = {
-  authScheme: ProviderAuthScheme
+  authScheme: ProviderAuthScheme | ((context: ProviderRequestContext) => ProviderAuthScheme)
   baseUrl: (secret?: ProviderSecret) => string
   defaultHeaders?: Record<string, string>
   extractGatewayToken: (headers: Headers) => string | null
@@ -187,6 +187,15 @@ function normalizeFireworksPayload(payload: unknown): unknown {
   return stripObjectKeys(payload, new Set(['display_name']))
 }
 
+function stripTopLevelDisplayName(payload: unknown): unknown {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload) || !('display_name' in payload)) {
+    return payload
+  }
+
+  const { display_name: _displayName, ...rest } = payload as Record<string, unknown>
+  return rest
+}
+
 function isOpenAiResponsesRequest(context: ProviderRequestContext): boolean {
   return (
     context.method === 'POST' &&
@@ -195,7 +204,7 @@ function isOpenAiResponsesRequest(context: ProviderRequestContext): boolean {
   )
 }
 
-function isFireworksJsonRequest(context: ProviderRequestContext): boolean {
+function isJsonRequest(context: ProviderRequestContext): boolean {
   return context.contentType.includes('application/json')
 }
 
@@ -222,7 +231,7 @@ const PROVIDER_ADAPTERS: Record<ProviderId, ProviderGatewayAdapter> = {
     baseUrl: staticBaseUrl('fireworks'),
     extractGatewayToken: extractBearerToken,
     normalizeJsonPayload: normalizeFireworksPayload,
-    shouldNormalizeJsonPayload: isFireworksJsonRequest,
+    shouldNormalizeJsonPayload: isJsonRequest,
   },
   huggingface: {
     ...DEFAULT_PROVIDER_ADAPTER,
@@ -250,9 +259,11 @@ const PROVIDER_ADAPTERS: Record<ProviderId, ProviderGatewayAdapter> = {
   },
   'opencode-go': {
     ...DEFAULT_PROVIDER_ADAPTER,
-    authScheme: 'bearer',
+    authScheme: (context) => context.pathSegments.includes('messages') ? 'x-api-key' : 'bearer',
     baseUrl: staticBaseUrl('opencode-go'),
-    extractGatewayToken: extractBearerToken,
+    extractGatewayToken: extractOpencodeGatewayToken,
+    normalizeJsonPayload: stripTopLevelDisplayName,
+    shouldNormalizeJsonPayload: isJsonRequest,
   },
   ollama: {
     ...DEFAULT_PROVIDER_ADAPTER,
@@ -317,8 +328,10 @@ export function applyProviderAuthHeaders(
   headers: Headers,
   adapter: ProviderGatewayAdapter,
   apiKey: string | null,
+  context: ProviderRequestContext,
 ): boolean {
-  if (adapter.authScheme === 'bearer') {
+  const authScheme = typeof adapter.authScheme === 'function' ? adapter.authScheme(context) : adapter.authScheme
+  if (authScheme === 'bearer') {
     if (apiKey) {
       headers.set('authorization', `Bearer ${apiKey}`)
     } else {
