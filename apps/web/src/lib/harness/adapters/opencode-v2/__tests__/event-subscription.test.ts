@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { SESSION_ID, textEvents } from '@/lib/harness/adapters/opencode-v2/__tests__/fixtures'
 import { connectOpenCodeEvents, subscribeOpenCodeEvents, V2_EVENT_STREAM_UNVERIFIED } from '@/lib/harness/adapters/opencode-v2/events'
+import { createOpenCodeV2Runtime } from '@/lib/harness/adapters/opencode-v2/runtime'
 
 const auth = vi.hoisted(() => vi.fn())
 vi.mock('@/lib/harness/adapters/opencode-v1/connection-resolver', () => ({ getInstanceBasicAuth: auth }))
@@ -24,13 +25,16 @@ function stream() {
 }
 
 describe('V2 event transport using the installed client', () => {
-  beforeEach(() => auth.mockImplementation(async (slug: string) => ({ baseUrl: `http://${slug}`, authHeader: `Basic ${slug}` })))
+  beforeEach(() => { auth.mockImplementation(async (slug: string) => ({ baseUrl: `http://${slug}`, authHeader: `Basic ${slug}` })) })
   afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); vi.useRealTimers() })
 
-  it('keeps production subscription unsupported without resolving credentials or opening transport', async () => {
+  it.each([
+    { name: 'adapter', subscribe: subscribeOpenCodeEvents },
+    { name: 'runtime contract', subscribe: (slug: string, signal: AbortSignal) => createOpenCodeV2Runtime(slug).subscribeEvents(signal) },
+  ])('keeps $name subscription unsupported without resolving credentials or opening transport', async ({ subscribe }) => {
     const fetch = vi.fn().mockRejectedValue(new Error('must not connect'))
     vi.stubGlobal('fetch', fetch)
-    expect(await subscribeOpenCodeEvents('alice', new AbortController().signal)).toEqual({ ok: false, error: { code: 'runtime_unsupported', detail: V2_EVENT_STREAM_UNVERIFIED } })
+    expect(await subscribe('alice', new AbortController().signal)).toEqual({ ok: false, error: { code: 'runtime_unsupported', detail: V2_EVENT_STREAM_UNVERIFIED } })
     expect(auth).not.toHaveBeenCalled()
     expect(fetch).not.toHaveBeenCalled()
   })

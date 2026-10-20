@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createMockHarnessRuntime } from '@/actions/__tests__/helpers/harness-runtime'
-import { listSessionFamilyAction, listSessionsAction } from '@/actions/workspace-sessions'
+import { listMessagesAction, listSessionFamilyAction, listSessionsAction } from '@/actions/workspace-sessions'
 import type { HarnessSession } from '@/lib/harness/contract'
 import { getRuntimeForSlug } from '@/lib/harness/registry'
 import { getSession } from '@/lib/runtime/session'
@@ -73,10 +73,11 @@ describe('session listing actions', () => {
     runtime.listSessions.mockRejectedValue(new Error('connection refused'))
     expect(await listSessionsAction('alice')).toEqual({ ok: true, hasMore: false, sessions: [archive] })
   })
-  it.each([listSessionsAction, (slug: string) => listSessionFamilyAction(slug, 's1')])('rejects another user before archive reads', async (action) => {
-    expect(await action('bob')).toEqual({ ok: false, error: 'forbidden' })
+  it.each([listSessionsAction, (slug: string) => listSessionFamilyAction(slug, 's1'), (slug: string) => listMessagesAction(slug, 's1')])('conceals another workspace before archive reads', async (action) => {
+    expect(await action('bob')).toEqual({ ok: false, error: 'not_found' })
     expect(legacySessionArchive.listSessions).not.toHaveBeenCalled()
     expect(legacySessionArchive.findSession).not.toHaveBeenCalled()
+    expect(getRuntimeForSlug).not.toHaveBeenCalled()
   })
   it('lists normalized root sessions with optimistic pagination and flow metadata', async () => {
     runtime.listSessions.mockResolvedValue(success([{ ...record('root', 'Daily brief', 200), share: { url: 'https://share.test/root', version: 1 } }]))
@@ -159,9 +160,11 @@ describe('session listing actions', () => {
     runtime.listSessions.mockResolvedValue({ ok: false, error: { code: 'runtime_error', detail: 'wire' } })
     expect(await listSessionsAction('alice')).toEqual({ ok: false, error: 'runtime_error' })
   })
-  it.each([listSessionsAction, (slug: string) => listSessionFamilyAction(slug, 's1')])('authorizes before resolving a runtime', async (action) => {
+  it.each([listSessionsAction, (slug: string) => listSessionFamilyAction(slug, 's1'), (slug: string) => listMessagesAction(slug, 's1')])('authorizes before resolving a runtime', async (action) => {
     vi.mocked(getSession).mockResolvedValue(null)
     expect(await action('alice')).toEqual({ ok: false, error: 'unauthorized' })
     expect(getRuntimeForSlug).not.toHaveBeenCalled()
+    expect(legacySessionArchive.listSessions).not.toHaveBeenCalled()
+    expect(legacySessionArchive.findSession).not.toHaveBeenCalled()
   })
 })

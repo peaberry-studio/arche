@@ -115,17 +115,69 @@ HTTP transport. They do not prove every possible concurrent hydration race.
 the package also declaring a broader `V2Event`, it does not admit
 `session.message.content.updated`; that 2.1 spike mapping is not claimed here.
 
-## Still UNVERIFIED
+## Native replay/cursor recheck (SC-2 / SC-9, 2026-10-20)
+
+The same capture command above now asserts a concrete unfinished-text reconnect
+counterexample against **2.0.32**, not only completed-conversation parity. Its
+synthetic provider pauses after each of two text chunks, so both snapshots/logs
+are read while the same assistant message remains unfinished. These are probe
+barriers, not production buffering.
+
+| Observation | Verified result |
+| --- | --- |
+| Global stream contract | The running server's `/openapi.json` declares no parameters for `/api/event`. The native client accepts subscriber cancellation/activity, not a replay cursor. |
+| Continuous subscriber | Receives `Hello ` then `fixture`, immediately. |
+| Native message snapshots after each chunk | Both contain the same unfinished assistant text part with `text:""`; neither contains the streamed prefix. The envelope has `data` and pagination `cursor`, not a snapshot event watermark. |
+| Reconnect with `Last-Event-ID` set to the first delta's actual ID | Receives a fresh connection marker and only `fixture`, not the earlier `Hello `. Snapshot plus this live continuation cannot equal the continuously connected prefix before text completion. |
+| Native `session.log({sessionID, follow:false})` | Exists and returns `log.synced` with an aggregate sequence. Before and after the second delta the entire response is the same marker (`seq:6` in this capture). The delta has no durable sequence. |
+| Log after completion, with omitted `after`, `after:0`, or `after:1` | Each returns only `log.synced` (`seq:10`), with no historical event payloads, even though the global capture contains enqueue at seq 1 and delivery at seq 4. Reading after the earlier sync sequence likewise works but does not recover missing text. |
+
+Thus the previous statement that no native replay cursor was verified was too
+broad: **a per-session durable log cursor and sync marker are verified**, but
+they do not supply the required transient text replay, snapshot watermark or
+missed enqueue payload in this production-style foreground launch. Do not
+treat `log.synced` as a boundary for `message.list` or global SSE.
+
+Supplementary source at the `v2.0.32` tag explains the log result:
+[`packages/core/src/bus.ts`](https://github.com/anomalyco/opencode/blob/v2.0.32/packages/core/src/bus.ts)
+defaults `configured`'s `persist` option to false, gates historical event writes
+on it, and implements `log` over stored durable events.
+[`packages/core/src/session.ts`](https://github.com/anomalyco/opencode/blob/v2.0.32/packages/core/src/session.ts)
+filters that log to durable session events and `log.synced`. The installed
+`SessionEventDurable` declaration excludes text/reasoning/tool-input deltas and
+tool progress. Source is explanatory, not proof of an additional supported
+foreground configuration; no persistence switch or embedded-runtime workaround
+was added or assumed. Even durable persistence would not alone recover the
+missing transient prefix.
+
+The [native client guide](https://opencode.ai/v2/docs/build/client) explicitly
+documents global subscriptions as live-only, without replay or automatic
+reconnect. Production subscription therefore **remains unsupported**. A
+deterministic test now checks both the adapter wrapper and the actual runtime
+contract refuse before auth lookup/fetch. There is no production success-path
+test or acceptance claim: enabling the partial internal transport would violate
+the reconnect requirement. Waiting for ended text, cross-event payload buffering,
+per-event snapshot reads, timestamp/content-overlap guessing, upgrading the pin,
+or adding a durable Arche relay are not implemented as workarounds.
+
+Full session/control parity also remains incomplete independently of this
+counterexample: current translation does not reconstruct complete session
+timestamps/outcomes or every agent/model/location, skill/shell, compaction and
+revert history/control record. This recheck does not broaden that implementation
+or relax any startup/provider/family-idle gate.
+
+## Remaining boundaries
 
 - Late/nested/tool-created child discovery; queued-input drain/cancellation;
   retry and background subagent termination beyond the explicitly created child.
 - MCP direct/Code Mode metadata and actual chart/document/file tool results;
   identity propagation. Synthetic metadata preservation tests are not evidence
   of MCP transport behavior.
-- Arbitrary in-flight snapshot/live overlap has no verified replay cursor or
-  snapshot watermark in 2.0.32. Millisecond timestamps do not prove delta
-  deduplication for an unfinished snapshot. Completed snapshots reject old
-  message-addressed events, but that is not a universal overlap solution.
+- Arbitrary in-flight snapshot/live overlap is incompatible with the verified
+  native surfaces above: unfinished text can be absent from both snapshots and
+  replay. Durable log cursors do not watermark snapshot contents or transient
+  deltas. Completed snapshots rejecting old message-addressed events is not a
+  universal overlap solution.
 - A reconnect that misses inbox enqueue and observes only delivery lacks the
   payload until normal history hydration. Full session timestamp/outcome parity
   and all control-record/content-replacement cases remain unproven. Thus SC-2's

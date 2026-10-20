@@ -50,6 +50,28 @@ describe('V2 runtime config renderer', () => {
     expect(result).not.toHaveProperty('data')
   })
 
+  it.each([
+    { name: 'an overridable agent permission', source: { agent: { worker: {
+      mode: 'all', tools: { task: true }, permission: { task: { '*': 'allow', worker: 'deny' } },
+    } } } },
+    { name: 'a global delegation target ban', source: {
+      policies: [{ action: 'tool.use', resource: 'subagent:*', effect: 'deny' }],
+      agent: { worker: { mode: 'all', tools: { task: true } } },
+    } },
+    { name: 'a prompt-only delegation constraint', source: { agent: { worker: {
+      mode: 'all', tools: { task: true }, prompt: 'Never delegate to yourself.',
+    } } } },
+  ])('does not mistake $name for the protected caller-scoped guard', ({ source }) => {
+    const model = createRuntimeConfigModel(source)
+    const original = structuredClone(model)
+
+    const result = renderRuntimeConfig(model)
+
+    expect(result).toMatchObject({ ok: false, error: { code: 'runtime_config_unsupported', path: 'guards.selfDelegation' } })
+    expect(result).not.toHaveProperty('data')
+    expect(model).toEqual(original)
+  })
+
   it('does not accept caller predicates or agent policies absent from the 2.0.32 schema', () => {
     expect(renderRuntimeConfig(unprotectedModel({
       policies: [{ action: 'tool.use', resource: 'subagent:worker', effect: 'deny', agent: 'worker' }],

@@ -122,13 +122,68 @@ describe('V2 adapter with the real matched HTTP client', () => {
   })
 
   it('acknowledges only the interrupt primitive, never family idle', async () => {
-    const { requests } = transport([Response.json({ data: nativeSession() }), Response.json({ interrupted: true })])
+    const { requests } = transport([Response.json({ data: nativeSession() }), Response.json({ interrupted: true }), Response.json({ data: [] }), Response.json({ data: [] })])
     const runtime = createOpenCodeV2Runtime('alice')
     expect(await runtime.abortSession(SESSION_ID)).toEqual({ ok: true, data: undefined })
     expect(requests[1].path).toBe(`/api/session/${SESSION_ID}/interrupt`)
     expect(Object.fromEntries(requests[1].query)).toEqual({ resume: 'false' })
     expect(await runtime.sessionStatus()).toMatchObject({ ok: false, error: { code: 'runtime_unsupported' } })
-    expect(requests).toHaveLength(2)
+    expect(requests).toHaveLength(4)
+  })
+
+  it('cancels the queued input that native interrupt leaves behind and verifies the inbox again', async () => {
+    const { requests, responses } = transport([
+      Response.json({ data: nativeSession() }), Response.json({ interrupted: true }),
+      Response.json({ data: [{ id: 'msg_queued', type: 'user', text: 'queued', time: { created: 1 } }] }),
+      empty(), Response.json({ data: [] }),
+    ])
+    expect(await createOpenCodeV2Runtime('alice').abortSession(SESSION_ID)).toEqual({ ok: true, data: undefined })
+    expect(requests.slice(2).map(({ method, path }) => ({ method, path }))).toEqual([
+      { method: 'GET', path: `/api/session/${SESSION_ID}/inbox` },
+      { method: 'DELETE', path: `/api/session/${SESSION_ID}/inbox/msg_queued` },
+      { method: 'GET', path: `/api/session/${SESSION_ID}/inbox` },
+    ])
+    expect(responses).toHaveLength(0)
+  })
+
+  it('fails an unconfirmed late queue instead of inferring idle from an interrupt acknowledgement', async () => {
+    transport([
+      Response.json({ data: nativeSession() }), Response.json({ interrupted: false }),
+      Response.json({ data: [] }), Response.json({ data: [{ id: 'msg_late' }] }),
+    ])
+    expect(await createOpenCodeV2Runtime('alice').abortSession(SESSION_ID)).toMatchObject({ ok: false, error: { code: 'execution_termination_unconfirmed' } })
+  })
+
+  it('submits verified workspace and inline attachments without dropping names, URIs, text or caller identity', async () => {
+    const { requests } = transport([Response.json({ data: nativeSession() }), Response.json({ data: { id: 'msg_files' } })])
+    const files = [
+      { mime: 'text/plain', filename: 'note ü.txt', url: 'file:///workspace/context/note%20%C3%BC.txt' },
+      { mime: 'application/x-directory', filename: 'context', url: 'file:///workspace/context' },
+      { mime: 'image/png', filename: 'pixel.png', url: 'file:///workspace/pixel.png' },
+      { mime: 'image/png', filename: 'inline.png', url: 'data:image/png;base64,aW1hZ2U=' },
+    ]
+    const signal = new AbortController().signal
+    expect(await createOpenCodeV2Runtime('alice').prompt({ sessionId: SESSION_ID, messageId: 'msg_files', parts: [{ type: 'text', text: 'Attachments' }, ...files.map((file) => ({ type: 'file' as const, ...file }))] }, { signal })).toEqual({ ok: true, data: undefined })
+    expect(requests[1]).toMatchObject({ path: `/api/session/${SESSION_ID}/prompt`, body: { id: 'msg_files', text: 'Attachments', files: files.map((file) => ({ uri: file.url, name: file.filename })) }, signal })
+  })
+
+  it.each([
+    ['https://example.invalid/image.png', 'image/png'],
+    ['file:///etc/passwd', 'text/plain'],
+    ['file:///workspace/../etc/passwd', 'text/plain'],
+    ['file:///workspace/a%2f..%2f..%2fsecret.txt', 'text/plain'],
+    ['file:///workspace/a%5csecret.txt', 'text/plain'],
+    ['file:///workspace/%invalid.txt', 'text/plain'],
+    ['file:///workspace/note.txt?ignored', 'text/plain'],
+    ['file:///workspace/note.txt#ignored', 'text/plain'],
+    ['file://remote/workspace/note.txt', 'text/plain'],
+    ['file:///workspace/document.pdf', 'application/pdf'],
+    ['data:image/jpeg;base64,aW1hZ2U=', 'image/jpeg'],
+    ['data:image/png;base64,aW1hZ2U=', 'image/jpeg'],
+  ])('rejects unverified or out-of-workspace file input %s (%s) before selection or prompt mutation', async (url, mime) => {
+    const { requests } = transport([Response.json({ data: nativeSession() })])
+    expect(await createOpenCodeV2Runtime('alice').prompt({ sessionId: SESSION_ID, agent: 'alternate', parts: [{ type: 'file', mime, url }] })).toMatchObject({ ok: false, error: { code: 'runtime_unsupported' } })
+    expect(requests).toHaveLength(1)
   })
 
   it.each(['once', 'always', 'reject'] as const)('lists a recorded permission and sends native decision %s', async (response) => {

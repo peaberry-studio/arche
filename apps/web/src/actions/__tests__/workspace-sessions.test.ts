@@ -79,7 +79,7 @@ beforeEach(() => {
 describe('workspace action authorization', () => {
   const calls = [
     () => createSessionAction('alice'), () => deleteSessionAction('alice', 's1'),
-    () => updateSessionAction('alice', 's1', 'title'), () => listMessagesAction('alice', 's1'),
+    () => updateSessionAction('alice', 's1', 'title'),
     () => sendMessageAction('alice', 's1', 'Hello'), () => abortSessionAction('alice', 's1'),
     () => listPermissionsAction('alice'), () => listAgentsAction('alice'),
     () => getSessionDiffsAction('alice', 's1'), () => getWorkspaceDiffsAction('alice'),

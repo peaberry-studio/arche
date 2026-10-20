@@ -1,5 +1,39 @@
 # OpenCode V2 contract spike (task 1.1)
 
+## Second goal-fix execution verification (2026-10-20; updates gates 4–5 below)
+
+`node src/lib/harness/adapters/opencode-v2/__tests__/execution-local.mjs`
+from `apps/web/` passed against the isolated 2.0.32 pair (exit **0**). Workspace
+`.txt` files, directory references and PNGs retain their URI/name in history;
+inline PNGs retain bytes/MIME/name. Text and both PNG sources reached the
+loopback fixture provider. The adapter now maps these verified file forms,
+rejecting other MIME/URI forms explicitly before selection or prompt mutation.
+Desktop-specific file URIs, other image/document formats, no-reply and synchronous
+completion remain unsupported; this is not complete prompt acceptance.
+
+The probe also verified nested/background activity, then showed that an empty
+`active()` map after leaf-first interrupts still leaves queued input. Explicit
+inbox cancellation removes that input without delivery. The adapter's abort
+primitive now cancels the observed inbox and rechecks it, returning
+`execution_termination_unconfirmed` if input remains. This is not atomic family
+termination: retry, late/tool-created descendants and complete idle confirmation
+remain unverified, so `sessionStatus` and startup gates remain closed.
+Real-adapter HTTP/shared-execution regressions cover these primitives, cursor
+and reply/accounting transforms, and refusal to create/book usage for unverified
+execution; successful production run settlement is not claimed.
+
+## Second goal-fix provider verification (2026-10-20)
+
+Reran `node src/lib/harness/adapters/opencode-v2/__tests__/providers.probe.mjs`
+from `apps/web/` with the installed 2.0.32 pair: exit **0**. The disposable
+store purge, gateway replacement and revocation assertions passed, and the
+location-scoped endpoint-override assertion still reproduced a successful
+`/bypass/fixture/chat/completions` request using the project-supplied fixture
+credential. This is evidence for keeping the production sync gate closed, not
+successful production refresh/revocation acceptance. No real provider key or
+workspace store was used. Protected routing and managed-store ownership still
+require a verified solution before production token issuance or freshness writes.
+
 ## Bounded credential-purge follow-up (2026-10-20)
 
 **Correction to the earlier deferral:** removing one active credential is unsafe,

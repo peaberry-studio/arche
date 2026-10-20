@@ -506,7 +506,7 @@ export async function listSessionsAction(
   options: ListWorkspaceSessionsOptions = {},
 ): Promise<ListWorkspaceSessionsResult> {
   const authorization = await authorizeWorkspaceFiles(slug);
-  if (authorization.error) return { ok: false, error: authorization.error };
+  if (authorization.error) return { ok: false, error: authorization.error === "forbidden" ? "not_found" : authorization.error };
 
   try {
     const query = options.query?.trim().toLowerCase();
@@ -547,7 +547,7 @@ export async function listSessionFamilyAction(
   sessionId: string,
 ): Promise<ListWorkspaceSessionFamilyResult> {
   const authorization = await authorizeWorkspaceFiles(slug);
-  if (authorization.error) return { ok: false, error: authorization.error };
+  if (authorization.error) return { ok: false, error: authorization.error === "forbidden" ? "not_found" : authorization.error };
 
   try {
     const archived = await legacySessionArchive.findSession(slug, sessionId);
@@ -718,7 +718,7 @@ export async function listMessagesAction(
   error?: string;
 }> {
   const authorization = await authorizeWorkspaceFiles(slug);
-  if (authorization.error) return { ok: false, error: authorization.error };
+  if (authorization.error) return { ok: false, error: authorization.error === "forbidden" ? "not_found" : authorization.error };
 
   try {
     const archived = await legacySessionArchive.findSession(slug, sessionId);

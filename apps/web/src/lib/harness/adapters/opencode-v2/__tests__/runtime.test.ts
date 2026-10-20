@@ -112,7 +112,7 @@ describe('V2 runtime', () => {
 
   it('does not turn interrupt acknowledgement into family-idle confirmation', async () => {
     const interrupt = vi.fn().mockResolvedValue({ interrupted: false })
-    mocks.client.mockResolvedValue({ session: { get: vi.fn().mockResolvedValue(session('s1')), interrupt } })
+    mocks.client.mockResolvedValue({ session: { get: vi.fn().mockResolvedValue(session('s1')), interrupt, inbox: { list: vi.fn().mockResolvedValue([]) } } })
     const runtime = createOpenCodeV2Runtime('alice')
     expect(await runtime.abortSession('s1')).toEqual({ ok: true, data: undefined })
     expect(interrupt).toHaveBeenCalledWith({ sessionID: 's1', resume: false })
@@ -124,6 +124,31 @@ describe('V2 runtime', () => {
     mocks.client.mockResolvedValue({ session: { get: vi.fn().mockRejectedValue({ _tag: 'SessionNotFoundError' }), interrupt } })
     expect(await createOpenCodeV2Runtime('alice').abortSession('missing')).toMatchObject({ ok: false, error: { code: 'session_not_found' } })
     expect(interrupt).not.toHaveBeenCalled()
+  })
+
+  it('cancels retained inbox items after interrupt before acknowledging the abort primitive', async () => {
+    const list = vi.fn().mockResolvedValueOnce([{ id: 'queued' }]).mockResolvedValueOnce([])
+    const cancel = vi.fn().mockResolvedValue(undefined)
+    const interrupt = vi.fn().mockResolvedValue({ interrupted: true })
+    mocks.client.mockResolvedValue({ session: { get: vi.fn().mockResolvedValue(session('s1')), interrupt, inbox: { list, cancel } } })
+    expect(await createOpenCodeV2Runtime('alice').abortSession('s1')).toEqual({ ok: true, data: undefined })
+    expect(cancel).toHaveBeenCalledWith({ sessionID: 's1', inboxID: 'queued' })
+    expect(interrupt.mock.invocationCallOrder[0]).toBeLessThan(list.mock.invocationCallOrder[0])
+    expect(list).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not acknowledge abort when a late inbox item remains', async () => {
+    mocks.client.mockResolvedValue({ session: { get: vi.fn().mockResolvedValue(session('s1')), interrupt: vi.fn().mockResolvedValue({ interrupted: true }), inbox: {
+      list: vi.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 'late' }]),
+    } } })
+    expect(await createOpenCodeV2Runtime('alice').abortSession('s1')).toEqual({ ok: false, error: { code: 'execution_termination_unconfirmed', detail: 'v2_inbox_not_empty_after_interrupt' } })
+  })
+
+  it('preserves inbox cancellation failure rather than claiming the queue was drained', async () => {
+    mocks.client.mockResolvedValue({ session: { get: vi.fn().mockResolvedValue(session('s1')), interrupt: vi.fn().mockResolvedValue({ interrupted: true }), inbox: {
+      list: vi.fn().mockResolvedValue([{ id: 'queued' }]), cancel: vi.fn().mockRejectedValue({ reason: 'Transport', message: 'Disconnected' }),
+    } } })
+    expect(await createOpenCodeV2Runtime('alice').abortSession('s1')).toMatchObject({ ok: false, error: { code: 'fetch_failed' } })
   })
 
   it('fails unsupported prompt behavior explicitly without submitting a lossy prompt', async () => {

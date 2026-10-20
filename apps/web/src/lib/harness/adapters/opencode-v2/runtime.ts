@@ -1,4 +1,4 @@
-import type { SessionInfo, SessionMessageInfo } from '@opencode/client'
+import type { SessionInfo, SessionMessageInfo, SessionPromptInput } from '@opencode/client'
 
 import { checkHealth, createInstanceClient, normalizeOpenCodeError, type OpenCodeV2Client } from '@/lib/harness/adapters/opencode-v2/client'
 import { subscribeOpenCodeEvents } from '@/lib/harness/adapters/opencode-v2/events'
@@ -84,7 +84,25 @@ export function createOpenCodeV2Runtime(slug: string): HarnessRuntime {
       const session = await withClient((client) => client.session.get({ sessionID: input.sessionId }, options))
       if (!session.ok) return session
       if (input.noReply) return harnessFailure('runtime_unsupported', 'v2_no_reply_unavailable:resume_false_queues_without_delivery')
-      if (input.parts.some((part) => part.type !== 'text')) return harnessFailure('runtime_unsupported', 'v2_prompt_file_parts_unverified')
+      const files: Array<NonNullable<SessionPromptInput['files']>[number]> = []
+      for (const part of input.parts) {
+        if (part.type !== 'file') continue
+        if (part.url.startsWith('data:image/png;base64,') && part.mime === 'image/png') {
+          files.push({ uri: part.url, name: part.filename })
+          continue
+        }
+        let url: URL
+        try { url = new URL(part.url) } catch { return harnessFailure('runtime_unsupported', 'v2_prompt_file_uri_unverified') }
+        let path: string
+        try { path = decodeURIComponent(url.pathname) } catch { return harnessFailure('runtime_unsupported', 'v2_prompt_file_uri_unverified') }
+        if (url.protocol !== 'file:' || url.host || url.search || url.hash || !path.startsWith('/workspace/') || path.includes('\\') || path.split('/').some((segment) => segment === '.' || segment === '..')) {
+          return harnessFailure('runtime_unsupported', 'v2_prompt_file_uri_unverified')
+        }
+        if (!((part.mime === 'text/plain' && path.endsWith('.txt')) || (part.mime === 'image/png' && path.endsWith('.png')) || part.mime === 'application/x-directory')) {
+          return harnessFailure('runtime_unsupported', 'v2_prompt_file_mime_unverified')
+        }
+        files.push({ uri: part.url, name: part.filename })
+      }
       return withClient(async (client) => {
         if (input.agent && input.agent !== session.data.agent) await client.session.switchAgent({ sessionID: input.sessionId, agent: input.agent }, options)
         const model = input.model ? { providerID: resolveRuntimeProviderId(input.model.providerId), id: input.model.modelId } : undefined
@@ -94,14 +112,23 @@ export function createOpenCodeV2Runtime(slug: string): HarnessRuntime {
         await client.session.prompt({
           sessionID: input.sessionId, id: input.messageId,
           text: input.parts.flatMap((part) => part.type === 'text' ? [part.text] : []).join('\n\n'),
+          ...(files.length > 0 && { files }),
         }, options)
       })
     },
     sendMessage: async () => harnessFailure('runtime_unsupported', 'v2_synchronous_prompt_unverified'),
-    abortSession: (sessionId) => withClient(async (client) => {
-      await client.session.get({ sessionID: sessionId })
-      await client.session.interrupt({ sessionID: sessionId, resume: false })
-    }),
+    abortSession: async (sessionId) => {
+      const result = await withClient(async (client) => {
+        await client.session.get({ sessionID: sessionId })
+        await client.session.interrupt({ sessionID: sessionId, resume: false })
+        for (const item of await client.session.inbox.list({ sessionID: sessionId })) {
+          await client.session.inbox.cancel({ sessionID: sessionId, inboxID: item.id })
+        }
+        return client.session.inbox.list({ sessionID: sessionId })
+      })
+      if (!result.ok) return result
+      return result.data.length === 0 ? { ok: true, data: undefined } : harnessFailure('execution_termination_unconfirmed', 'v2_inbox_not_empty_after_interrupt')
+    },
     listPermissions: () => withClient(async (client) => (await client.permission.request.list()).data.flatMap((permission) => {
       const normalized = toArchePermission(permission)
       if (!normalized) return []
