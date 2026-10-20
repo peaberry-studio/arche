@@ -38,6 +38,22 @@ Rules:
   rollback path design D3/D7 depend on. Do not delete `adapters/opencode-v1/`, `@opencode-ai/sdk`, or the
   legacy image/binary.
 
+## Branch state and tool limits (read first)
+
+- Phases 1 and 2 are committed. Phase 3 is partly committed (`feat(spawner): record runtime kind…`):
+  5.1 and 5.3 are ticked; 5.2, 5.4 (partial) and 5.5, 5.6 (not started) remain. `impl-v2` continues from
+  there.
+- `@opencode/client@2.0.32` is already in `apps/web/package.json` (it matches the local `opencode`
+  2.0.32 binary). `infra/workspace-image/arche-tools/pnpm-lock.yaml` exists, and
+  `bash scripts/check-podman-images.sh` passes on this branch.
+- **Convoy blocks dependency installs.** If your phase needs a package that is not installed, do not
+  work around it: implement everything else, and list the exact `pnpm add …` command under
+  "Needs a human".
+- **Do not modify `apps/web/.env.example`**: Convoy's secret guard refuses to commit it and the step
+  fails. Document new environment variables in `infra/README.md` instead.
+- The legacy v1 image must be a pinned OpenCode **1.18.18** build (today's `versions/opencode.version`),
+  not the `v6.0.0` release tag (that ships 1.17.9).
+
 ## Phase notes
 
 - **Phase 3**: `@opencode/client` (2.x) is added to `apps/web` here. Re-check every `UNVERIFIED` item in
