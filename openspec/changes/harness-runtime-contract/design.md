@@ -96,7 +96,7 @@ This applies to both runtime kinds: the v1 image can also load stdio MCP, so pha
 | permission maps (`bash`, `edit`, `write`, `task`) | ordered `[{action, resource, effect}]` with `shell`, `edit`, `subagent` |
 | (implicit ask) | explicit `{action:"external_directory", resource:"*", effect:"ask"}` |
 
-Configuration that must not be overridable (deny writes to KB paths, self-delegation guards) goes into `policies`, not `permissions`, because the migration guide says overrides cannot stop users from adding servers or agents.
+Configuration that must not be overridable and needs no caller predicate (deny writes to KB paths, workspace and runtime-config paths) goes into `policies`, not `permissions`, because the migration guide says overrides cannot stop users from adding servers or agents. Self-delegation is caller-dependent and v2 policies have no caller predicate, so it follows D9: the same prompt-level delegation constraint v1 uses, plus a per-agent `{action:"subagent", resource:"<self>", effect:"deny"}` permission rule placed last. That is stronger than v1, which only has the prompt constraint.
 
 Splitting the intermediate model from rendering is the step that makes a later Codex `config.toml` or Claude Code `.mcp.json`/`CLAUDE.md` renderer a local addition.
 
@@ -121,6 +121,16 @@ Export is idempotent (upsert on `(slug, sessionId)`) and resumable.
 ### D8. Enforce the seam with lint
 
 `eslint.config.mjs` gets a `no-restricted-imports` rule: `@opencode-ai/*`, `@opencode/*` and `@/lib/harness/adapters/**` are forbidden outside `src/lib/harness/adapters/**` and `src/lib/harness/registry.ts`. `src/lib/opencode/` is deleted at the end of phase 1. Any leftover import fails the build.
+
+### D9. The v2 acceptance bar is parity with what v1 guarantees today
+
+*Added 2026-10-21, after phase 3–5 implementation.* The v2 adapter is accepted when it provides at least the guarantees the v1 adapter actually provides in production, plus anything stronger OpenCode 2 offers natively. It is not held to guarantees v1 never had. The earlier phases blocked v2 startup by requiring, among other things, caller-scoped non-overridable self-delegation enforcement (v1 only has a prompt constraint), gap-free event replay across arbitrary reconnect cut points (v1's stream is live-only; the client re-hydrates from snapshots), and gateway-endpoint pinning against project config overrides (v1 merges project config too).
+
+How to apply it:
+- For each gate, the v2 adapter documents what v1 does, shows v2 does at least the same against the pinned runtime (live probe or captured fixture), and records any remaining shared weakness as a known risk instead of a v2 blocker.
+- A v2 behavior that is weaker than v1 is still a blocker: it stays a typed refusal (`runtime_unsupported` / `runtime_config_unsupported`) until fixed.
+- Security guards are never weakened to reach parity. Where OpenCode 2 can express a stronger guard cheaply (ordered permissions, `policies`), v2 uses it.
+- Shared weaknesses found this way (for example, project config overriding a provider endpoint) are tracked as follow-ups for both adapters, not fixed by refusing v2.
 
 ## Risks / Trade-offs
 
