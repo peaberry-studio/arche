@@ -286,6 +286,20 @@ export function setRunningIfCurrentDesktopStart(
   })
 }
 
+export function setRuntimeKindIfCurrentDesktopStart(slug: string, startedAt: Date, runtimeKind: string): Promise<{ count: number }> {
+  return prisma.instance.updateMany({
+    where: { slug, status: 'starting', containerId: null, startedAt },
+    data: { runtimeKind },
+  })
+}
+
+export function setErrorIfCurrentDesktopStart(slug: string, startedAt: Date): Promise<{ count: number }> {
+  return prisma.instance.updateMany({
+    where: { slug, status: 'starting', containerId: null, startedAt },
+    data: { status: 'error', providerSyncHash: null, providerSyncedAt: null },
+  })
+}
+
 export function setErrorIfCurrentContainer(
   slug: string,
   containerId: string,

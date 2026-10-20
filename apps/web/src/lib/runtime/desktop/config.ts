@@ -2,7 +2,7 @@ import { randomBytes } from 'crypto'
 import { existsSync } from 'fs'
 import { join } from 'path'
 
-import { getRuntimeResourceCandidate } from '@arche/desktop-runtime/binaries'
+import { getRuntimeResourceCandidate, type RuntimeBinaryName } from '@arche/desktop-runtime/binaries'
 
 import { buildProviderGatewayConfig } from '@/lib/providers/catalog'
 import { buildWorkspaceRuntimeConfig } from '@/lib/spawner/runtime-artifacts'
@@ -85,7 +85,7 @@ export function createSafeEnv(): NodeJS.ProcessEnv {
   }
 }
 
-function resolveBundledBinary(binaryName: 'node' | 'opencode' | 'workspace-agent'): string | null {
+function resolveBundledBinary(binaryName: RuntimeBinaryName): string | null {
   const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath
   if (!resourcesPath) {
     return null
@@ -99,12 +99,16 @@ function resolveBundledBinary(binaryName: 'node' | 'opencode' | 'workspace-agent
   return existsSync(bundledPath) ? bundledPath : null
 }
 
-export function getOpencodeBinary(): string {
-  if (process.env.ARCHE_OPENCODE_BIN) {
-    return process.env.ARCHE_OPENCODE_BIN
+export function getOpencodeBinary(runtimeKind: string = 'opencode-v1'): string {
+  const binaryName = runtimeKind === 'opencode-v1' ? 'opencode-v1' : 'opencode'
+  const explicitPath = runtimeKind === 'opencode-v1'
+    ? process.env.ARCHE_OPENCODE_V1_BIN
+    : process.env.ARCHE_OPENCODE_BIN
+  if (explicitPath) {
+    return explicitPath
   }
 
-  return resolveBundledBinary('opencode') ?? 'opencode'
+  return resolveBundledBinary(binaryName) ?? binaryName
 }
 
 export function getWorkspaceAgentBinary(): string {

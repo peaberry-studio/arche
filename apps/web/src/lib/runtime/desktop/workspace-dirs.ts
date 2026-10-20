@@ -10,7 +10,7 @@ import {
 import { getKbContentRoot } from '@/lib/runtime/paths'
 import { assertValidSlug } from '@/lib/validation/slug'
 
-const WORKSPACE_GIT_EXCLUDE_ENTRIES = ['opencode.json', 'AGENTS.md', 'node_modules/'] as const
+const WORKSPACE_GIT_EXCLUDE_ENTRIES = ['opencode.json', 'AGENTS.md', 'node_modules/', '.opencode/skills/'] as const
 
 function getRequiredVaultRoot(): string {
   const vaultRoot = process.env.ARCHE_DATA_DIR?.trim()
@@ -76,8 +76,9 @@ function ensureWorkspaceExcludes(workspaceDir: string): void {
   writeFileSync(excludePath, `${Array.from(currentEntries).join('\n')}\n`, 'utf-8')
 }
 
-export function getArcheOpencodeDataDir(): string {
-  const runtimeDir = getRequiredOpencodeRuntimeDir()
+export function getArcheOpencodeDataDir(runtimeKind = 'opencode-v1'): string {
+  const legacyDir = getRequiredOpencodeRuntimeDir()
+  const runtimeDir = runtimeKind === 'opencode-v2' ? `${legacyDir}-v2` : legacyDir
   if (!existsSync(runtimeDir)) {
     mkdirSync(runtimeDir, { recursive: true })
   }

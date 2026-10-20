@@ -1,4 +1,4 @@
-export type RuntimeBinaryName = 'node' | 'opencode' | 'workspace-agent'
+export type RuntimeBinaryName = 'node' | 'opencode' | 'opencode-v1' | 'workspace-agent'
 export type RuntimeResourceName = RuntimeBinaryName | 'arche-tools'
 
 export type RuntimeBinaryOptions = {

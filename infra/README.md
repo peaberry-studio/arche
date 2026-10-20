@@ -73,6 +73,70 @@ sessionless flows awaiting startup are preserved. Bound runs are settled even if
 their source session was deleted; they are not resumed as V2 executions. Staging deployment, rollback acceptance
 and the default flip are deliberately left to an operator, not this branch.
 
+### Retiring V1 share volumes (contract phase only)
+
+`scripts/cleanup-legacy-volumes.mjs` is preparation for task 8.2, **not a deploy
+step**. Do not apply it during this branch's rollout or while V1 rollback is still
+required. Deletion permanently removes the original runnable V1 history. Keep the
+V1 adapter, image/binary and volumes until separate contract-phase approval.
+
+Run on the workspace Podman host with Node.js and access to its PostgreSQL
+container (`psql` runs inside that container). Select the correct Podman
+connection and database explicitly; the defaults are database `arche`, role
+`postgres` (override with `--database` / `--db-user`). First inspect the dry run
+(replace `arche-postgres` with the actual database container name):
+
+```bash
+node scripts/cleanup-legacy-volumes.mjs --postgres-container arche-postgres
+```
+
+The script only considers exact `arche-opencode-share-<slug>` volumes. It retains
+missing/non-V2 instances, error/starting instances, missing or structurally
+incomplete archives, and volumes referenced by **any** container, even stopped
+containers or archive helpers. Any starting workspace or running non-V2 instance
+blocks eligibility globally. Query/Podman failures abort cleanup.
+
+Archive rows can be partial pre-archive output: there is no final-export marker
+in the database, and a row count cannot prove completeness. A human must verify
+the final export against the original V1 root/child session inventory and messages,
+verify archived conversations in the UI, back up both database and original volume,
+and record only verified workspaces in an approvals file, for example:
+
+```json
+[
+  { "slug": "alice", "archiveComplete": true, "archivedSessionCount": 40 }
+]
+```
+
+Zero-session workspaces are deliberately retained; this script cannot verify an
+empty export. Preserve any workspace with uncertain or incomplete history. The
+approvals file is an operator attestation, not an automatically generated proof.
+Do not commit it. Then review and retain the staging dry-run output:
+
+```bash
+node scripts/cleanup-legacy-volumes.mjs --postgres-container arche-postgres --approvals /secure/verified-archives.json
+```
+
+Only after V2 acceptance, rollback retirement approval and backup verification:
+pause **all** starts/restarts (including web, flows, reaper and external automation),
+confirm V2 defaults across deployments and that no old web build can start V1,
+then repeat the reviewed command with explicit destructive-operation guards:
+
+```bash
+node scripts/cleanup-legacy-volumes.mjs --postgres-container arche-postgres --approvals /secure/verified-archives.json --apply --confirm-retire-v1-rollback --confirm-starts-paused
+```
+
+The script rechecks database eligibility, approvals and attachments immediately
+before each deletion and never uses forced removal. The pause is an operator
+precondition, not an automated deployment lock: checks cannot prevent a concurrent
+start by themselves. Capture the output as the operator cleanup record. Archive
+rows, workspace data, V2 volumes and runtime configuration are never changed.
+Staging dry-run verification and any actual deletion remain human-owned; task 8.2
+stays unchecked until its staging verification is performed.
+
+Local regression checks use fake Podman/database responses only:
+`node --test scripts/__tests__/cleanup-legacy-volumes.test.mjs`.
+
 ## Knowledge Base (KB)
 
 The system includes a shared Knowledge Base injected into each user workspace.

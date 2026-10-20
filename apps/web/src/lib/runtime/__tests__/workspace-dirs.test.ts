@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mockExecFileSync = vi.fn()
 const mockExistsSync = vi.fn()
@@ -34,6 +34,23 @@ describe('desktop workspace dirs', () => {
       ARCHE_DESKTOP_WEB_HOST: '127.0.0.1',
       ARCHE_RUNTIME_MODE: 'desktop',
     }
+    delete process.env.ARCHE_OPENCODE_DATA_DIR
+  })
+
+  afterEach(() => { process.env = originalEnv })
+
+  it('keeps the legacy data directory and allocates independent V2 state', async () => {
+    const { getArcheOpencodeDataDir } = await import('@/lib/runtime/desktop/workspace-dirs')
+    expect(getArcheOpencodeDataDir()).toBe('/tmp/arche/.runtime/opencode')
+    expect(getArcheOpencodeDataDir('opencode-v2')).toBe('/tmp/arche/.runtime/opencode-v2')
+    expect(getArcheOpencodeDataDir('opencode-v1')).toBe('/tmp/arche/.runtime/opencode')
+  })
+
+  it('uses the configured data root for V1 and a distinct suffixed root for V2', async () => {
+    process.env.ARCHE_OPENCODE_DATA_DIR = '/custom/runtime'
+    const { getArcheOpencodeDataDir } = await import('@/lib/runtime/desktop/workspace-dirs')
+    expect(getArcheOpencodeDataDir('opencode-v1')).toBe('/custom/runtime')
+    expect(getArcheOpencodeDataDir('opencode-v2')).toBe('/custom/runtime-v2')
   })
 
   it('bootstraps the workspace repo only once and stays idempotent on repeated calls', async () => {
@@ -104,7 +121,7 @@ describe('desktop workspace dirs', () => {
     expect(remoteAddCalls).toHaveLength(1)
     expect(remoteSetUrlCalls).toHaveLength(0)
     expect(mockWriteFileSync).toHaveBeenCalledTimes(1)
-    expect(fileContents.get(excludePath)).toBe('opencode.json\nAGENTS.md\nnode_modules/\n')
+    expect(fileContents.get(excludePath)).toBe('opencode.json\nAGENTS.md\nnode_modules/\n.opencode/skills/\n')
   })
 
   it('rejects invalid slugs before resolving the shared workspace path', async () => {

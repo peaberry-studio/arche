@@ -69,6 +69,24 @@ describe('instanceService', () => {
       serverPassword: 'encrypted-fixture', appliedConfigSha: null, providerSyncHash: null, providerSyncedAt: null,
     }
 
+    it('records desktop runtime kind only for the current starting attempt before health checks', async () => {
+      const startedAt = new Date(3)
+      await transitions.setRuntimeKindIfCurrentDesktopStart('alice', startedAt, 'opencode-v2')
+      expect(mockPrisma.instance.updateMany).toHaveBeenCalledWith({
+        where: { slug: 'alice', status: 'starting', containerId: null, startedAt },
+        data: { runtimeKind: 'opencode-v2' },
+      })
+    })
+
+    it('fails desktop preparation only while the same attempt is starting', async () => {
+      const startedAt = new Date(3)
+      await transitions.setErrorIfCurrentDesktopStart('alice', startedAt)
+      expect(mockPrisma.instance.updateMany).toHaveBeenCalledWith({
+        where: { slug: 'alice', status: 'starting', containerId: null, startedAt },
+        data: { status: 'error', providerSyncHash: null, providerSyncedAt: null },
+      })
+    })
+
     it('claims only the exact state seen before exporting or stopping', async () => {
       const startedAt = new Date(3)
       await transitions.claimStartingTransition(instance, startedAt)

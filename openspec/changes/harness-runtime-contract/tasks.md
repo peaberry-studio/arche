@@ -149,11 +149,27 @@ the V1 adapter, SDK, binary/image and volumes. -->
 
 ## 7. Desktop on OpenCode 2
 
-- [ ] 7.1 Bundle both `opencode` (v2) and `opencode-v1` in `prepare-desktop-runtime.sh` and resolve them in `runtime/desktop/config.ts`; verify desktop config tests.
+- [x] 7.1 Bundle both `opencode` (v2) and `opencode-v1` in `prepare-desktop-runtime.sh` and resolve them in `runtime/desktop/config.ts`; verify desktop config tests.
 - [ ] 7.2 Run archive-then-switch in the desktop host using the local v1 binary and a separate v2 data dir; verify desktop host tests and a manual upgrade of a desktop vault with existing sessions.
 
 ## 8. Contract phase (after all running instances are v2)
 
 - [ ] 8.1 Remove `adapters/opencode-v1/`, `@opencode-ai/sdk`, the `opencode-v1` image tag/desktop binary and `OPENCODE_V1_IMAGE`; verify `pnpm test`, `pnpm lint`, `pnpm build` and `bash scripts/check-podman-images.sh`.
 - [ ] 8.2 Add a script that lists `arche-opencode-share-<slug>` v1 volumes for archived workspaces (dry run by default, `--apply` to delete); verify dry-run output on staging before applying.
-- [ ] 8.3 Run `openspec validate harness-runtime-contract --strict`; verify it passes.
+- [x] 8.3 Run `openspec validate harness-runtime-contract --strict`; verify it passes.
+
+<!-- Phase-5 handoff (2026-10-20): 7.1 bundles independently pinned V2 and
+V1 binaries, including Electron resources and explicit per-kind overrides.
+7.2 code and desktop host tests cover archive-before-switch, V1 fallback,
+confirmed helper cleanup, independent V2 data/state, kind recording before
+health/provider sync, restart, rollback and concurrent-start fencing. Unconfirmed
+helper shutdown retains process ownership and fences retries/rollback starts;
+orphaned starting records and eventual managed-process exits can recover. The
+existing 5.4/5.5 startup gate is preserved before any migration effect; the
+committed default remains V1. Manual existing-vault acceptance keeps 7.2 open.
+8.2 adds dry-run-first cleanup with fake-Podman tests, explicit operator-verified
+archive approvals, rollback-retirement/start-pause acknowledgements, database
+and attachment rechecks and non-forced deletion. No real volumes were removed;
+staging dry-run verification keeps 8.2 open. 8.3 strict validation passes.
+8.1 stays out of scope: both adapters, SDKs, binaries/images and state families
+remain. Resolve the V2 gates before the desktop walkthrough or staging flip. -->

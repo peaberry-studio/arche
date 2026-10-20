@@ -4,7 +4,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 OUTPUT_DIR="$ROOT_DIR/apps/desktop/bin"
-OPENCODE_VERSION_FILE="$ROOT_DIR/versions/opencode-v1.version"
+OPENCODE_VERSION_FILE="$ROOT_DIR/versions/opencode.version"
+OPENCODE_V1_VERSION_FILE="$ROOT_DIR/versions/opencode-v1.version"
 NODE_VERSION_FILE="$ROOT_DIR/.node-version"
 ARCHE_TOOLS_SOURCE_DIR="$ROOT_DIR/infra/workspace-image/arche-tools"
 ARCHE_TOOLS_OUTPUT_DIR="$OUTPUT_DIR/arche-tools"
@@ -61,6 +62,17 @@ if [[ -z "$RESOLVED_OPENCODE_VERSION" ]]; then
   exit 1
 fi
 
+if [[ ! -f "$OPENCODE_V1_VERSION_FILE" ]]; then
+  echo "Error: Missing legacy OpenCode version file at $OPENCODE_V1_VERSION_FILE" >&2
+  exit 1
+fi
+RESOLVED_OPENCODE_V1_VERSION="$(tr -d '[:space:]' < "$OPENCODE_V1_VERSION_FILE")"
+
+if [[ "$RESOLVED_OPENCODE_VERSION" != 2.* || "$RESOLVED_OPENCODE_V1_VERSION" != "1.18.18" ]]; then
+  echo "Error: Desktop requires OpenCode v2 and legacy OpenCode 1.18.18" >&2
+  exit 1
+fi
+
 mkdir -p "$OUTPUT_DIR"
 
 prepare_arche_tools_dir() {
@@ -111,6 +123,7 @@ echo "==> Preparing desktop runtime binaries"
 echo "==> Using Node.js runtime v$RESOLVED_NODE_RUNTIME_VERSION"
 bash "$SCRIPT_DIR/download-node.sh" "$RESOLVED_NODE_RUNTIME_VERSION" "$OUTPUT_DIR"
 bash "$SCRIPT_DIR/download-opencode.sh" "$RESOLVED_OPENCODE_VERSION" "$OUTPUT_DIR"
+bash "$SCRIPT_DIR/download-opencode.sh" "$RESOLVED_OPENCODE_V1_VERSION" "$OUTPUT_DIR" "opencode-v1"
 bash "$SCRIPT_DIR/build-workspace-agent.sh" "$OUTPUT_DIR"
 prepare_arche_tools_dir
 

@@ -49,6 +49,10 @@ module.exports = {
       to: 'bin/opencode',
     },
     {
+      from: 'bin/opencode-v1',
+      to: 'bin/opencode-v1',
+    },
+    {
       from: 'bin/workspace-agent',
       to: 'bin/workspace-agent',
     },

@@ -6,6 +6,7 @@ const { join } = require('path')
 const ENV_VAR_BY_RESOURCE = {
   node: 'ARCHE_NODE_BIN',
   opencode: 'ARCHE_OPENCODE_BIN',
+  'opencode-v1': 'ARCHE_OPENCODE_V1_BIN',
   'workspace-agent': 'ARCHE_WORKSPACE_AGENT_BIN',
   'arche-tools': 'ARCHE_TOOLS_DIR',
 }
@@ -21,8 +22,8 @@ function getBinaryFileName(binaryName, platform) {
   if (binaryName === 'workspace-agent') {
     return `workspace-agent${extension}`
   }
-  if (binaryName === 'opencode') {
-    return `opencode${extension}`
+  if (binaryName === 'opencode' || binaryName === 'opencode-v1') {
+    return `${binaryName}${extension}`
   }
   return `node${extension}`
 }
@@ -62,12 +63,14 @@ function resolveRuntimeToolsDirPath(options) {
 
 function getRuntimeBinaryEnv(options) {
   const opencode = resolveRuntimeBinaryPath('opencode', options)
+  const opencodeV1 = resolveRuntimeBinaryPath('opencode-v1', options)
   const node = resolveRuntimeBinaryPath('node', options)
   const archeToolsDir = resolveRuntimeToolsDirPath(options)
   const workspaceAgent = resolveRuntimeBinaryPath('workspace-agent', options)
 
   return {
     ...(opencode ? { ARCHE_OPENCODE_BIN: opencode } : {}),
+    ...(opencodeV1 ? { ARCHE_OPENCODE_V1_BIN: opencodeV1 } : {}),
     ...(node ? { ARCHE_NODE_BIN: node } : {}),
     ...(archeToolsDir ? { ARCHE_TOOLS_DIR: archeToolsDir } : {}),
     ...(workspaceAgent ? { ARCHE_WORKSPACE_AGENT_BIN: workspaceAgent } : {}),
@@ -83,7 +86,7 @@ function getPackagedNodeBinaryPath(options) {
 }
 
 function getMissingPackagedRuntimeBinaries(options) {
-  const runtimeResources = ['node', 'opencode', 'workspace-agent', 'arche-tools']
+  const runtimeResources = ['node', 'opencode', 'opencode-v1', 'workspace-agent', 'arche-tools']
   return runtimeResources.filter((resourceName) => !resolveRuntimeResourcePath(resourceName, options))
 }
 

@@ -2,11 +2,12 @@
 set -euo pipefail
 
 # Downloads the OpenCode binary for the target platform.
-# Usage: ./scripts/download-opencode.sh [version] [output-dir]
+# Usage: ./scripts/download-opencode.sh [version] [output-dir] [output-name]
 #
 # Defaults:
 #   version:    versions/opencode.version
 #   output-dir: apps/desktop/bin
+#   output-name: opencode
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -75,9 +76,15 @@ fi
 
 mkdir -p "$OUTPUT_DIR"
 
-OUTPUT_NAME="opencode"
+OUTPUT_NAME="${3:-opencode}"
+case "$OUTPUT_NAME" in
+  opencode|opencode-v1) ;;
+  *) echo "Unsupported OpenCode output name: $OUTPUT_NAME" >&2; exit 1 ;;
+esac
+BINARY_NAME="opencode"
 if [[ "$PLATFORM" == windows-* ]]; then
-  OUTPUT_NAME="opencode.exe"
+  OUTPUT_NAME="$OUTPUT_NAME.exe"
+  BINARY_NAME="opencode.exe"
 fi
 
 VERSION_STAMP="$OUTPUT_DIR/$OUTPUT_NAME.version"
@@ -143,7 +150,7 @@ esac
 
 # Find the binary — it's either 'opencode' or 'opencode.exe'
 BINARY=""
-for candidate in "$TMPDIR_DL/opencode" "$TMPDIR_DL/opencode.exe" "$TMPDIR_DL/package/bin/$OUTPUT_NAME"; do
+for candidate in "$TMPDIR_DL/opencode" "$TMPDIR_DL/opencode.exe" "$TMPDIR_DL/package/bin/$BINARY_NAME"; do
   if [ -f "$candidate" ]; then
     BINARY="$candidate"
     break

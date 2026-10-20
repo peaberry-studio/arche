@@ -14,6 +14,21 @@ const mockRandomBytes = vi.fn()
 const mockMkdir = vi.fn()
 const mockRm = vi.fn()
 const mockWriteFile = vi.fn()
+const mockArchiveDesktopLegacySessions = vi.fn()
+const mockCleanupDesktopLegacyArchive = vi.fn()
+
+vi.mock('@/lib/runtime/desktop/legacy-archive', () => ({
+  archiveDesktopLegacySessions: (...args: unknown[]) => mockArchiveDesktopLegacySessions(...args),
+  cleanupDesktopLegacyArchive: (...args: unknown[]) => mockCleanupDesktopLegacyArchive(...args),
+}))
+
+vi.mock('@/lib/services/runtime-migration', () => ({
+  settleRuntimeMigratedRuns: vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock('@/lib/spawner/legacy-archive', () => ({
+  withHistoryMigrationProgress: vi.fn((_slug: string, work: () => Promise<unknown>) => work()),
+}))
 
 vi.mock('crypto', async (importOriginal) => {
   const actual = await importOriginal<typeof import('crypto')>()
@@ -63,6 +78,9 @@ vi.mock('@/lib/services', () => ({
     setError: vi.fn().mockResolvedValue(undefined),
     setRunning: vi.fn().mockResolvedValue(undefined),
     setRunningIfCurrentDesktopStart: vi.fn().mockResolvedValue({ count: 1 }),
+    setRuntimeKindIfCurrentDesktopStart: vi.fn().mockResolvedValue({ count: 1 }),
+    setErrorIfCurrentDesktopStart: vi.fn().mockResolvedValue({ count: 1 }),
+    setStoppedIfCurrentSnapshot: vi.fn().mockResolvedValue({ count: 1 }),
     setStopped: vi.fn().mockResolvedValue(undefined),
     findStatusBySlug: vi.fn().mockResolvedValue(null),
     findActiveInstances: vi.fn().mockResolvedValue([]),
@@ -108,6 +126,7 @@ vi.mock('@/lib/config-repo-store', () => ({
 }))
 
 vi.mock('@/lib/spawner/config', () => ({
+  getDefaultRuntimeKind: vi.fn(() => process.env.ARCHE_DEFAULT_RUNTIME_KIND ?? 'opencode-v1'),
   getWorkspaceAgentPort: vi.fn(() => 4097),
 }))
 
@@ -116,11 +135,15 @@ vi.mock('@/lib/spawner/crypto', () => ({
   encryptPassword: vi.fn((p: string) => `enc:${p}`),
 }))
 
-vi.mock('@/lib/harness/registry', async (importOriginal) => ({
-  ...await importOriginal<typeof import('@/lib/harness/registry')>(),
-  checkRuntimeHealth: vi.fn().mockResolvedValue({ ok: true, data: {} }),
-  syncRuntimeProviderAccess: vi.fn().mockResolvedValue({ ok: true, data: undefined }),
-}))
+vi.mock('@/lib/harness/registry', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/harness/registry')>()
+  return {
+    ...actual,
+    checkRuntimeStartupSupport: vi.fn(actual.checkRuntimeStartupSupport),
+    checkRuntimeHealth: vi.fn().mockResolvedValue({ ok: true, data: {} }),
+    syncRuntimeProviderAccess: vi.fn().mockResolvedValue({ ok: true, data: undefined }),
+  }
+})
 
 vi.mock('@/lib/spawner/mcp-config', () => ({
   buildMcpConfigForSlug: vi.fn().mockResolvedValue(null),
@@ -150,8 +173,12 @@ function makeChildProcess(overrides: Partial<ChildProcess> = {}): ChildProcess {
     killed: false,
     exitCode: null as number | null,
     signalCode: null as string | null,
-    kill: vi.fn(function kill(this: ChildProcess) {
+    kill: vi.fn(function kill(this: ChildProcess, signal?: string) {
       child.killed = true
+      if (signal === 'SIGKILL') {
+        Object.defineProperty(child, 'signalCode', { value: 'SIGKILL', configurable: true })
+        child.emit('exit', null, 'SIGKILL')
+      }
       return true
     }),
     on: vi.fn((event: string, cb: Listener) => {
@@ -222,6 +249,8 @@ describe('desktopWorkspaceHost', () => {
     process.env.ARCHE_DESKTOP_WEB_HOST = '127.0.0.1'
     process.env.ARCHE_DATA_DIR = '/tmp/arche'
     delete process.env.ARCHE_OPENCODE_BIN
+    delete process.env.ARCHE_OPENCODE_V1_BIN
+    delete process.env.ARCHE_DEFAULT_RUNTIME_KIND
     delete process.env.ARCHE_TOOLS_DIR
     delete process.env.ARCHE_NODE_BIN
     delete process.env.ARCHE_OPENCODE_DATA_DIR
@@ -262,11 +291,16 @@ describe('desktopWorkspaceHost', () => {
     mockRm.mockResolvedValue(undefined)
     mockWriteFile.mockResolvedValue(undefined)
     mockHealthyFetch()
+    mockArchiveDesktopLegacySessions.mockResolvedValue({ ok: true, data: { archived: 2 } })
+    mockCleanupDesktopLegacyArchive.mockResolvedValue(undefined)
 
     const { instanceService } = await import('@/lib/services')
     vi.mocked(instanceService.findStatusBySlug).mockResolvedValue(null)
-    const { checkRuntimeHealth } = await import('@/lib/harness/registry')
+    const { checkRuntimeHealth, checkRuntimeStartupSupport, syncRuntimeProviderAccess } = await import('@/lib/harness/registry')
     vi.mocked(checkRuntimeHealth).mockResolvedValue({ ok: true, data: {} })
+    const actualRegistry = await vi.importActual<typeof import('@/lib/harness/registry')>('@/lib/harness/registry')
+    vi.mocked(checkRuntimeStartupSupport).mockImplementation(actualRegistry.checkRuntimeStartupSupport)
+    vi.mocked(syncRuntimeProviderAccess).mockResolvedValue({ ok: true, data: undefined })
   })
 
   afterEach(() => {
@@ -336,14 +370,15 @@ describe('desktopWorkspaceHost', () => {
     )
   })
 
-  it('records v1 and keeps the existing binary even if the deployment default is v2', async () => {
+  it('refuses the unresolved V2 gate before changing state, files or processes', async () => {
     process.env.ARCHE_DEFAULT_RUNTIME_KIND = 'opencode-v2'
-    mockSpawn.mockReturnValueOnce(makeChildProcess()).mockReturnValueOnce(makeChildProcess())
     const { desktopWorkspaceHost } = await import('../workspace-host-desktop')
-    await expect(desktopWorkspaceHost.start('local', 'user-1')).resolves.toEqual({ ok: true, status: 'started' })
-    expect(mockSpawn.mock.calls[0][0]).toBe('opencode')
+    await expect(desktopWorkspaceHost.start('local', 'user-1')).resolves.toMatchObject({ ok: false, error: 'runtime_unsupported' })
+    expect(mockSpawn).not.toHaveBeenCalled()
+    expect(mockWriteFileSync).not.toHaveBeenCalled()
+    expect(mockArchiveDesktopLegacySessions).not.toHaveBeenCalled()
     const { instanceService } = await import('@/lib/services')
-    expect(instanceService.setRunningIfCurrentDesktopStart).toHaveBeenCalledWith('local', expect.any(Date), expect.any(String), 'opencode-v1')
+    expect(instanceService.upsertStarting).not.toHaveBeenCalled()
   })
 
   it('does not publish running when the desktop start was superseded', async () => {
@@ -361,6 +396,138 @@ describe('desktopWorkspaceHost', () => {
     expect(instanceService.setError).not.toHaveBeenCalled()
   })
 
+  async function prepareFutureV2() {
+    process.env.ARCHE_DEFAULT_RUNTIME_KIND = 'opencode-v2'
+    const registry = await import('@/lib/harness/registry')
+    vi.mocked(registry.checkRuntimeStartupSupport).mockReturnValue({ ok: true, data: undefined })
+    const artifacts = await import('@/lib/spawner/runtime-artifacts')
+    const build = vi.spyOn(artifacts, 'buildWorkspaceRuntimeArtifacts').mockResolvedValue({
+      owner: null, skills: [], opencodeConfigContent: '{"agents":{}}',
+    })
+    return { build }
+  }
+
+  it('archives before selecting V2, keeps legacy data intact and records the kind before health', async () => {
+    const { build } = await prepareFutureV2()
+    mockSpawn.mockReturnValueOnce(makeChildProcess()).mockReturnValueOnce(makeChildProcess())
+    const { desktopWorkspaceHost } = await import('@/lib/runtime/workspace-host-desktop')
+    const { instanceService } = await import('@/lib/services')
+    const { settleRuntimeMigratedRuns } = await import('@/lib/services/runtime-migration')
+    const { checkRuntimeHealth } = await import('@/lib/harness/registry')
+
+    await expect(desktopWorkspaceHost.start('local', 'user-1')).resolves.toEqual({ ok: true, status: 'started' })
+    expect(mockArchiveDesktopLegacySessions).toHaveBeenCalledWith(expect.objectContaining({
+      dataDir: '/tmp/arche/.runtime/opencode', workspaceDir: '/tmp/arche/workspace', slug: 'local',
+    }))
+    expect(mockSpawn.mock.calls[0][0]).toBe('opencode')
+    expect(mockSpawn.mock.calls[0][2].env).toMatchObject({
+      HOME: '/tmp/arche/.runtime/opencode-v2',
+      XDG_DATA_HOME: '/tmp/arche/.runtime/opencode-v2/.local/share',
+      XDG_STATE_HOME: '/tmp/arche/.runtime/opencode-v2/.local/state',
+      OPENCODE_PASSWORD: 'generated-password',
+    })
+    expect(build).toHaveBeenCalledWith('local', expect.any(Object), expect.objectContaining({ runtimeKind: 'opencode-v2' }))
+    expect(settleRuntimeMigratedRuns).toHaveBeenCalledWith('local')
+    expect(instanceService.setRuntimeKindIfCurrentDesktopStart).toHaveBeenCalledWith('local', expect.any(Date), 'opencode-v2')
+    expect(mockArchiveDesktopLegacySessions.mock.invocationCallOrder[0]).toBeLessThan(mockSpawn.mock.invocationCallOrder[0])
+    expect(vi.mocked(instanceService.setRuntimeKindIfCurrentDesktopStart).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(checkRuntimeHealth).mock.invocationCallOrder[0])
+    expect(instanceService.setRunningIfCurrentDesktopStart).toHaveBeenCalledWith('local', expect.any(Date), expect.any(String), 'opencode-v2')
+  })
+
+  it('falls back to V1 after an export error without settling runs or using V2 data', async () => {
+    await prepareFutureV2()
+    mockArchiveDesktopLegacySessions.mockResolvedValue({ ok: false, error: { code: 'runtime_error' } })
+    mockSpawn.mockReturnValueOnce(makeChildProcess()).mockReturnValueOnce(makeChildProcess())
+    const { desktopWorkspaceHost } = await import('@/lib/runtime/workspace-host-desktop')
+    await expect(desktopWorkspaceHost.start('local', 'user-1')).resolves.toEqual({ ok: true, status: 'started' })
+    expect(mockSpawn.mock.calls[0][0]).toBe('opencode-v1')
+    expect(mockSpawn.mock.calls[0][2].env.HOME).toBe('/tmp/arche/.runtime/opencode')
+    const { settleRuntimeMigratedRuns } = await import('@/lib/services/runtime-migration')
+    expect(settleRuntimeMigratedRuns).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['opencode-v2', 'opencode', '/tmp/arche/.runtime/opencode-v2'],
+    ['opencode-v1', 'opencode-v1', '/tmp/arche/.runtime/opencode'],
+  ])('starts recorded V2 history as %s without re-exporting and preserves rollback state', async (kind, binary, home) => {
+    await prepareFutureV2()
+    process.env.ARCHE_DEFAULT_RUNTIME_KIND = kind
+    const { instanceService } = await import('@/lib/services')
+    vi.mocked(instanceService.findStatusBySlug).mockResolvedValue({
+      status: 'stopped', startedAt: new Date(1), stoppedAt: new Date(2), lastActivityAt: null,
+      containerId: null, serverPassword: 'enc:fixture-password', runtimeKind: 'opencode-v2',
+      providerSyncHash: null, providerSyncedAt: null,
+    })
+    mockSpawn.mockReturnValueOnce(makeChildProcess()).mockReturnValueOnce(makeChildProcess())
+    const { desktopWorkspaceHost } = await import('@/lib/runtime/workspace-host-desktop')
+    await expect(desktopWorkspaceHost.start('local', 'user-1')).resolves.toEqual({ ok: true, status: 'started' })
+    expect(mockArchiveDesktopLegacySessions).not.toHaveBeenCalled()
+    expect(mockSpawn.mock.calls[0][0]).toBe(binary)
+    expect(mockSpawn.mock.calls[0][2].env.HOME).toBe(home)
+    expect(instanceService.setRunningIfCurrentDesktopStart).toHaveBeenCalledWith('local', expect.any(Date), expect.any(String), kind)
+  })
+
+  it('fails config preparation as a typed error without leaving a running process', async () => {
+    const { build } = await prepareFutureV2()
+    build.mockRejectedValue(new Error('runtime_config_unsupported'))
+    const { desktopWorkspaceHost } = await import('@/lib/runtime/workspace-host-desktop')
+    await expect(desktopWorkspaceHost.start('local', 'user-1')).resolves.toEqual({
+      ok: false, error: 'start_failed', detail: 'runtime_config_unsupported',
+    })
+    const { instanceService } = await import('@/lib/services')
+    expect(instanceService.setErrorIfCurrentDesktopStart).toHaveBeenCalledWith('local', expect.any(Date))
+    expect(mockSpawn).not.toHaveBeenCalled()
+  })
+
+  it('blocks both runtime kinds when the archive helper cannot confirm cleanup', async () => {
+    await prepareFutureV2()
+    mockArchiveDesktopLegacySessions.mockRejectedValue(new Error('desktop_legacy_archive_cleanup_unconfirmed'))
+    const { desktopWorkspaceHost } = await import('@/lib/runtime/workspace-host-desktop')
+    await expect(desktopWorkspaceHost.start('local', 'user-1')).resolves.toEqual({
+      ok: false, error: 'start_failed', detail: 'desktop_legacy_archive_cleanup_unconfirmed',
+    })
+    expect(mockSpawn).not.toHaveBeenCalled()
+  })
+
+  it('keeps rollback starts fenced while a prior archive helper is still alive', async () => {
+    mockCleanupDesktopLegacyArchive.mockRejectedValueOnce(new Error('desktop_legacy_archive_cleanup_unconfirmed'))
+    const { desktopWorkspaceHost } = await import('@/lib/runtime/workspace-host-desktop')
+    await expect(desktopWorkspaceHost.start('local', 'user-1')).resolves.toEqual({
+      ok: false, error: 'start_failed', detail: 'desktop_legacy_archive_cleanup_unconfirmed',
+    })
+    expect(mockSpawn).not.toHaveBeenCalled()
+    expect(mockWriteFileSync).not.toHaveBeenCalled()
+    const { instanceService } = await import('@/lib/services')
+    expect(instanceService.upsertStarting).not.toHaveBeenCalled()
+  })
+
+  it('never publishes V2 running when provider synchronization fails', async () => {
+    await prepareFutureV2()
+    process.env.ARCHE_DESKTOP_START_TIMEOUT_MS = '1'
+    mockSpawn.mockReturnValueOnce(makeChildProcess({ exitCode: 0 })).mockReturnValueOnce(makeChildProcess({ exitCode: 0 }))
+    const { syncRuntimeProviderAccess } = await import('@/lib/harness/registry')
+    vi.mocked(syncRuntimeProviderAccess).mockResolvedValue({ ok: false, error: { code: 'runtime_error' } })
+    const { desktopWorkspaceHost } = await import('@/lib/runtime/workspace-host-desktop')
+    await expect(desktopWorkspaceHost.start('local', 'user-1')).resolves.toMatchObject({ ok: false, error: 'start_failed' })
+    const { instanceService } = await import('@/lib/services')
+    expect(instanceService.setRunningIfCurrentDesktopStart).not.toHaveBeenCalled()
+  })
+
+  it('coalesces concurrent starts and refuses stop until archive preparation finishes', async () => {
+    await prepareFutureV2()
+    let finish!: (result: { ok: true; data: { archived: number } }) => void
+    mockArchiveDesktopLegacySessions.mockReturnValue(new Promise((resolve) => { finish = resolve }))
+    mockSpawn.mockReturnValueOnce(makeChildProcess()).mockReturnValueOnce(makeChildProcess())
+    const { desktopWorkspaceHost } = await import('@/lib/runtime/workspace-host-desktop')
+    const first = desktopWorkspaceHost.start('local', 'user-1')
+    const second = desktopWorkspaceHost.start('local', 'user-1')
+    await vi.waitFor(() => expect(mockArchiveDesktopLegacySessions).toHaveBeenCalledTimes(1))
+    expect(await desktopWorkspaceHost.stop('local', 'user-1')).toEqual({ ok: false, error: 'stop_failed' })
+    finish({ ok: true, data: { archived: 2 } })
+    expect(await first).toEqual(await second)
+    expect(mockSpawn).toHaveBeenCalledTimes(2)
+  })
+
   it('spawns opencode with serve command and workspace-agent with loopback addr', async () => {
     const opencodeChild = makeChildProcess()
     const workspaceAgentChild = makeChildProcess()
@@ -371,7 +538,7 @@ describe('desktopWorkspaceHost', () => {
 
     expect(mockSpawn).toHaveBeenNthCalledWith(
       1,
-      'opencode',
+      'opencode-v1',
       ['serve', '--hostname', '127.0.0.1', '--port', expect.any(String)],
       expect.objectContaining({ stdio: 'pipe', detached: false }),
     )
@@ -403,7 +570,7 @@ describe('desktopWorkspaceHost', () => {
 
     expect(mockSpawn).toHaveBeenNthCalledWith(
       1,
-      'opencode',
+      'opencode-v1',
       expect.any(Array),
       expect.objectContaining({ env: expect.objectContaining({ NODE_ENV: 'production' }) }),
     )
@@ -427,7 +594,7 @@ describe('desktopWorkspaceHost', () => {
 
     expect(mockSpawn).toHaveBeenNthCalledWith(
       1,
-      'opencode',
+      'opencode-v1',
       expect.any(Array),
       expect.objectContaining({
         env: expect.objectContaining({
@@ -774,6 +941,39 @@ describe('desktopWorkspaceHost', () => {
     })
   })
 
+  it('reconciles an orphaned starting record instead of blocking the next startup indefinitely', async () => {
+    const { instanceService } = await import('@/lib/services')
+    const snapshot = {
+      status: 'starting' as const, startedAt: new Date(1), stoppedAt: null, lastActivityAt: null,
+      containerId: null, serverPassword: 'enc:fixture-password', runtimeKind: 'opencode-v1',
+      providerSyncHash: null, providerSyncedAt: null,
+    }
+    vi.mocked(instanceService.findStatusBySlug).mockResolvedValue(snapshot)
+    const { desktopWorkspaceHost } = await import('@/lib/runtime/workspace-host-desktop')
+    await expect(desktopWorkspaceHost.getStatus('local')).resolves.toMatchObject({ status: 'stopped' })
+    expect(instanceService.setStoppedIfCurrentSnapshot).toHaveBeenCalledWith('local', snapshot)
+  })
+
+  it('can retry cleanup after an unconfirmed shutdown and recover once the process exits', async () => {
+    vi.useFakeTimers()
+    try {
+      const opencodeChild = makeChildProcess()
+      const workspaceAgentChild = makeChildProcess({ exitCode: 0 })
+      vi.mocked(opencodeChild.kill).mockReturnValue(true)
+      mockSpawn.mockReturnValueOnce(opencodeChild).mockReturnValueOnce(workspaceAgentChild)
+      const { desktopWorkspaceHost } = await import('@/lib/runtime/workspace-host-desktop')
+      await desktopWorkspaceHost.start('local', 'user-1')
+      const first = desktopWorkspaceHost.stop('local', 'user-1')
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(await first).toEqual({ ok: false, error: 'stop_failed' })
+
+      Object.defineProperty(opencodeChild, 'exitCode', { value: 0 })
+      await expect(desktopWorkspaceHost.stop('local', 'user-1')).resolves.toEqual({ ok: true, status: 'stopped' })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('rebuilds running status from persisted desktop instance state when the in-memory runtime is missing', async () => {
     const { instanceService } = await import('@/lib/services')
     vi.mocked(instanceService.findStatusBySlug).mockResolvedValue({
@@ -974,6 +1174,7 @@ describe('binary resolution', () => {
     vi.clearAllMocks()
     process.env = { ...originalEnv }
     delete process.env.ARCHE_OPENCODE_BIN
+    delete process.env.ARCHE_OPENCODE_V1_BIN
     delete process.env.ARCHE_WORKSPACE_AGENT_BIN
     // @ts-expect-error test isolation
     process.resourcesPath = undefined
@@ -986,11 +1187,11 @@ describe('binary resolution', () => {
     process.resourcesPath = originalResourcesPath
   })
 
-  it('returns ARCHE_OPENCODE_BIN when set', async () => {
-    process.env.ARCHE_OPENCODE_BIN = '/custom/path/opencode'
+  it('returns ARCHE_OPENCODE_V1_BIN for the default runtime when set', async () => {
+    process.env.ARCHE_OPENCODE_V1_BIN = '/custom/path/opencode-v1'
 
     const { getOpencodeBinary } = await import('../workspace-host-desktop')
-    expect(getOpencodeBinary()).toBe('/custom/path/opencode')
+    expect(getOpencodeBinary()).toBe('/custom/path/opencode-v1')
   })
 
   it('returns ARCHE_WORKSPACE_AGENT_BIN when set', async () => {
@@ -1006,13 +1207,13 @@ describe('binary resolution', () => {
     mockExistsSync.mockReturnValue(true)
 
     const { getOpencodeBinary, getWorkspaceAgentBinary } = await import('../workspace-host-desktop')
-    expect(getOpencodeBinary()).toBe('/Applications/Arche.app/Contents/Resources/bin/opencode')
+    expect(getOpencodeBinary()).toBe('/Applications/Arche.app/Contents/Resources/bin/opencode-v1')
     expect(getWorkspaceAgentBinary()).toBe('/Applications/Arche.app/Contents/Resources/bin/workspace-agent')
   })
 
   it('falls back to PATH lookup when bundled binaries are unavailable', async () => {
     const { getOpencodeBinary, getWorkspaceAgentBinary } = await import('../workspace-host-desktop')
-    expect(getOpencodeBinary()).toBe('opencode')
+    expect(getOpencodeBinary()).toBe('opencode-v1')
     expect(getWorkspaceAgentBinary()).toBe('workspace-agent')
   })
 
