@@ -50,7 +50,9 @@ Rules:
   work around it: implement everything else, and list the exact `pnpm add …` command under
   "Needs a human".
 - **Do not modify `apps/web/.env.example`**: Convoy's secret guard refuses to commit it and the step
-  fails. Document new environment variables in `infra/README.md` instead.
+  fails. Document new environment variables in `infra/README.md` instead. It already lists
+  `ARCHE_DEFAULT_RUNTIME_KIND` and `OPENCODE_V1_IMAGE`, but its `OPENCODE_V1_IMAGE` value (`…:v6.0.0`) is
+  wrong; if you settle the correct tag, put the exact replacement line under "Needs a human".
 - The legacy v1 image must be a pinned OpenCode **1.18.18** build (today's `versions/opencode.version`),
   not the `v6.0.0` release tag (that ships 1.17.9).
 
