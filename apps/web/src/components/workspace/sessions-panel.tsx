@@ -6,8 +6,8 @@ import { ChatCircle, Circle, Plus, SpinnerGap, XCircle } from "@phosphor-icons/r
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { groupByDateBucket } from "@/lib/date-buckets";
-import type { WorkspaceSession } from "@/lib/opencode/types";
 import { excludeSubagentSessions, hasUnseenFlowResult, isFlowSession } from "@/lib/workspace-session-utils";
+import type { WorkspaceSession } from "@/types/workspace-runtime";
 
 type SessionsPanelProps = {
   sessions: WorkspaceSession[];

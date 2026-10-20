@@ -49,10 +49,10 @@ import {
   workspaceRemarkPlugins,
 } from '@/components/workspace/markdown-plugins'
 import { copyTextToClipboard } from '@/lib/clipboard'
-import type { MessagePart, PermissionResponse } from '@/lib/opencode/types'
 import { isRecord } from '@/lib/records'
 import { cn } from '@/lib/utils'
 import { getWorkspaceToolDisplay } from '@/lib/workspace-tool-display'
+import type { MessagePart, PermissionResponse } from '@/types/workspace-runtime'
 
 export type ToolPart = Extract<MessagePart, { type: 'tool' }>
 export type FilePart = Extract<MessagePart, { type: 'file' }>

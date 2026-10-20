@@ -4,20 +4,20 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useWorkspaceMessageActions } from "@/hooks/workspace/use-workspace-message-actions";
-import { createEmptyChatStore, type ChatStore } from "@/lib/opencode/event-reducer";
-import type { WorkspacePermission } from "@/lib/opencode/permission";
+import type { ArchePermission } from "@/lib/harness/events";
+import { createEmptyChatStore, type ChatStore } from "@/lib/workspace-events/reducer";
 
 const opencodeMocks = vi.hoisted(() => ({
   abortSessionAction: vi.fn(),
   listPermissionsAction: vi.fn(),
 }));
 
-vi.mock("@/actions/opencode", () => ({
+vi.mock("@/actions/workspace-sessions", () => ({
   abortSessionAction: opencodeMocks.abortSessionAction,
   listPermissionsAction: opencodeMocks.listPermissionsAction,
 }));
 
-function permission(id: string, sessionId: string): WorkspacePermission {
+function permission(id: string, sessionId: string): ArchePermission {
   return { id, sessionId, title: `Approve ${id}`, state: "pending" };
 }
 

@@ -5,7 +5,7 @@ import { join } from 'path'
 import { findAvailablePort } from '@arche/desktop-runtime/network'
 
 import { isE2eFakeRuntimeEnabled } from '@/lib/e2e/runtime'
-import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
+import { syncRuntimeProviderAccess } from '@/lib/harness/registry'
 import { getKbContentRoot } from '@/lib/runtime/paths'
 import { desktopWorkspaceHostE2e } from '@/lib/runtime/workspace-host-desktop-e2e'
 import {
@@ -111,17 +111,16 @@ async function syncProvidersWithRetry(input: {
   slug: string
   timeoutMs: number
   userId: string
-}): Promise<Awaited<ReturnType<typeof syncProviderAccessForInstance>>> {
+}): Promise<Awaited<ReturnType<typeof syncRuntimeProviderAccess>>> {
   const deadline = Date.now() + input.timeoutMs
   let attempt = 1
 
   while (true) {
-    const result = await syncProviderAccessForInstance({
-      instance: {
+    const result = await syncRuntimeProviderAccess(input.slug, {
+      connection: {
         baseUrl: `http://${LOOPBACK_HOST}:${input.port}`,
         authHeader: input.authHeader,
       },
-      slug: input.slug,
       userId: input.userId,
     })
 
@@ -133,7 +132,7 @@ async function syncProvidersWithRetry(input: {
       input.slug,
       'providers',
       'sync_retry',
-      `attempt=${String(attempt)} error=${result.error}`,
+      `attempt=${String(attempt)} error=${result.error.code}`,
     )
     attempt += 1
 
@@ -468,7 +467,7 @@ const desktopWorkspaceHostReal: WorkspaceHost = {
 
     try {
       const [opencodeReady, workspaceAgentReady] = await Promise.all([
-        waitForOpenCodeHealthy(port, password, timeoutMs, intervalMs),
+        waitForOpenCodeHealthy(port, password, timeoutMs, intervalMs, slug),
         workspaceAgentProcess
           ? waitForHttpReady(`http://${LOOPBACK_HOST}:${agentPort}/health`, {
               Authorization: authHeader,
@@ -554,7 +553,7 @@ const desktopWorkspaceHostReal: WorkspaceHost = {
       if (instance.status === 'running' || instance.status === 'starting') {
         try {
           const password = decryptPassword(instance.serverPassword)
-          const healthy = await checkOpenCodeHealthy(getDesktopRuntimePortFromEnv(), password)
+          const healthy = await checkOpenCodeHealthy(getDesktopRuntimePortFromEnv(), password, slug)
           if (healthy) {
             return {
               status: 'running',

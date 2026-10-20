@@ -1,14 +1,13 @@
-import { createInstanceClient } from '@/lib/opencode/client'
+import type { HarnessRuntime } from '@/lib/harness/contract'
 import {
   captureSessionMessageCursor,
   createSessionPromptRun,
   EXECUTION_TERMINATION_UNCONFIRMED_ERROR,
   ensureWorkspaceRunningForExecution,
-  isOpenCodeSessionNotFoundError,
   readLatestAssistantText,
   waitForSessionToComplete,
-} from '@/lib/opencode/session-execution'
-import { openCodeSessionExists } from '@/lib/opencode/session-utils'
+} from '@/lib/harness/execution'
+import { getRuntimeForSlug } from '@/lib/harness/registry'
 import { messageRunService, slackService } from '@/lib/services'
 import { buildSlackContext } from '@/lib/slack/context'
 import { formatSlackMessages } from '@/lib/slack/formatter'
@@ -53,17 +52,17 @@ export async function handleSlackThreadEvent(args: {
 
       await ensureWorkspaceRunningForExecution(serviceUser.user.slug, serviceUser.user.id)
 
-      const opencodeClient = await createInstanceClient(serviceUser.user.slug)
-      if (!opencodeClient) {
-        throw new Error('instance_unavailable')
-      }
+      const runtimeResult = await getRuntimeForSlug(serviceUser.user.slug)
+      if (!runtimeResult.ok) throw new Error(runtimeResult.error.code)
+      const opencodeClient = runtimeResult.data
 
       let sessionId = existingBinding?.openCodeSessionId ?? null
       let messagePrefix: string | undefined
 
       if (sessionId) {
-        const sessionExists = await openCodeSessionExists(opencodeClient, sessionId)
-        if (!sessionExists) {
+        const session = await opencodeClient.getSession(sessionId)
+        if (!session.ok && session.error.code !== 'session_not_found') throw new Error(session.error.code)
+        if (!session.ok) {
           await slackService.deleteSessionBindingsByOpenCodeSessionId(sessionId).catch((error) => {
             console.warn('[slack] Failed to delete stale thread session bindings', {
               error,
@@ -106,7 +105,7 @@ export async function handleSlackThreadEvent(args: {
           userId: serviceUser.user.id,
         })
       } catch (error) {
-        if (!isOpenCodeSessionNotFoundError(error)) {
+        if (!(error instanceof Error && error.message === 'session_not_found')) {
           throw error
         }
 
@@ -157,16 +156,11 @@ export async function handleSlackThreadEvent(args: {
 async function createSlackThreadSession(args: {
   channelId: string
   executionUserId: string
-  opencodeClient: NonNullable<Awaited<ReturnType<typeof createInstanceClient>>>
+  opencodeClient: HarnessRuntime
   threadTs: string
 }): Promise<string> {
-  const sessionResult = await args.opencodeClient.session.create(
-    { title: buildSlackSessionTitle(args.channelId, args.threadTs) },
-    { throwOnError: true },
-  )
-  if (!sessionResult.data) {
-    throw new Error('slack_session_create_failed')
-  }
+  const sessionResult = await args.opencodeClient.createSession({ title: buildSlackSessionTitle(args.channelId, args.threadTs) })
+  if (!sessionResult.ok) throw new Error(sessionResult.error.code)
 
   await slackService.upsertThreadBinding({
     channelId: args.channelId,
@@ -180,7 +174,7 @@ async function createSlackThreadSession(args: {
 
 async function sendSlackThreadPromptToSession(args: {
   agentId: string | null
-  opencodeClient: NonNullable<Awaited<ReturnType<typeof createInstanceClient>>>
+  opencodeClient: HarnessRuntime
   prompt: string
   sessionId: string
   slug: string
@@ -199,14 +193,12 @@ async function sendSlackThreadPromptToSession(args: {
   const runId = runResult.run.id
   try {
     const sessionCursor = await captureSessionMessageCursor(args.opencodeClient, args.sessionId)
-    await args.opencodeClient.session.promptAsync(
-      {
-        agent: args.agentId ?? undefined,
-        parts: [{ type: 'text', text: args.prompt }],
-        sessionID: args.sessionId,
-      },
-      { throwOnError: true },
-    )
+    const submitted = await args.opencodeClient.prompt({
+      agent: args.agentId ?? undefined,
+      parts: [{ type: 'text', text: args.prompt }],
+      sessionId: args.sessionId,
+    })
+    if (!submitted.ok) throw new Error(submitted.error.code)
 
     const completion = await waitForSessionToComplete({
       client: args.opencodeClient,

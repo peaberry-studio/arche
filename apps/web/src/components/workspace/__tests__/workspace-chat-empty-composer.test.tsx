@@ -7,7 +7,7 @@ import { EMPTY_COMPOSER_INTENTS } from '@/components/workspace/empty-composer-in
 import { WorkspaceChatEmptyComposer } from '@/components/workspace/workspace-chat-empty-composer'
 import { AgentCatalogItem } from '@/hooks/use-workspace'
 import { SkillListItem } from '@/hooks/use-skills-catalog'
-import type { AvailableModel } from '@/lib/opencode/types'
+import type { AvailableModel } from '@/types/workspace-runtime'
 
 const sendMessageMock = vi.fn().mockResolvedValue(true)
 const selectModelMock = vi.fn()

@@ -4,14 +4,14 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useWorkspaceEventBus } from "@/hooks/workspace/use-workspace-event-bus";
-import { isSending } from "@/lib/opencode/event-reducer";
+import { isSending } from "@/lib/workspace-events/reducer";
 
 const opencodeMocks = vi.hoisted(() => ({
   listMessagesAction: vi.fn(),
   listPermissionsAction: vi.fn(),
 }));
 
-vi.mock("@/actions/opencode", () => ({
+vi.mock("@/actions/workspace-sessions", () => ({
   listMessagesAction: opencodeMocks.listMessagesAction,
   listPermissionsAction: opencodeMocks.listPermissionsAction,
 }));
@@ -52,15 +52,13 @@ function sseResponse(stream: ControlledEventStream) {
 
 function busyEvent(sessionId: string) {
   return {
-    type: "session.status",
-    properties: { sessionID: sessionId, status: { type: "busy" } },
+    v: 1, type: "session.status", sessionId, status: "busy",
   };
 }
 
 function idleEvent(sessionId: string) {
   return {
-    type: "session.status",
-    properties: { sessionID: sessionId, status: { type: "idle" } },
+    v: 1, type: "session.status", sessionId, status: "idle",
   };
 }
 
@@ -139,15 +137,12 @@ describe("useWorkspaceEventBus", () => {
 
     await act(async () => {
       stream.sendEvent({
-        type: "message.updated",
-        properties: {
-          info: {
+        v: 1, type: "message.upserted",
+          message: {
             id: "m1",
             role: "assistant",
-            sessionID: "s1",
-            time: { created: 1 },
+            sessionId: "s1", timestamp: "", timestampRaw: 1, content: "Hola",
             parts: [{ type: "text", text: "Hola" }],
-          },
         },
       });
       await vi.advanceTimersByTimeAsync(0);
@@ -156,10 +151,8 @@ describe("useWorkspaceEventBus", () => {
 
     await act(async () => {
       stream.sendEvent({
-        type: "permission.asked",
-        properties: {
-          permission: { id: "perm-1", sessionID: "s1", permission: "Edit file", pattern: "Edit(*)" },
-        },
+        v: 1, type: "permission.asked",
+        permission: { id: "perm-1", sessionId: "s1", title: "Edit file", pattern: "Edit(*)", state: "pending" },
       });
       await vi.advanceTimersByTimeAsync(0);
     });
@@ -182,9 +175,13 @@ describe("useWorkspaceEventBus", () => {
 
     await act(async () => {
       stream.sendRaw("data: not-json{\n\n");
+      stream.sendEvent({ v: 1, type: "future.event" });
+      stream.sendEvent({ v: 2, type: "session.status", sessionId: "s1", status: "busy" });
+      stream.sendEvent({ type: "session.status", properties: { sessionID: "s1", status: { type: "busy" } } });
       await vi.advanceTimersByTimeAsync(0);
     });
     expect(hook.result.current.isBusConnected).toBe(true);
+    expect(hook.result.current.store.sessionStatus).toEqual({});
 
     // The loop survives and keeps applying well-formed events.
     await act(async () => {
@@ -242,22 +239,17 @@ describe("useWorkspaceEventBus", () => {
     await flush();
 
     const messageUpdated = {
-      type: "message.updated",
-      properties: {
-        info: {
+      v: 1, type: "message.upserted",
+        message: {
           id: "m1",
           role: "assistant",
-          sessionID: "s1",
-          time: { created: 1 },
+          sessionId: "s1", timestamp: "", timestampRaw: 1, content: "",
           parts: [],
-        },
       },
     };
     const partUpdated = {
-      type: "message.part.updated",
-      properties: {
-        part: { id: "p1", type: "text", text: "Hola", messageID: "m1", sessionID: "s1" },
-      },
+      v: 1, type: "part.upserted", messageId: "m1", sessionId: "s1",
+      part: { id: "p1", type: "text", text: "Hola" },
     };
 
     await act(async () => {
@@ -395,9 +387,9 @@ describe("useWorkspaceEventBus", () => {
     await flush();
 
     await act(async () => {
-      stream.sendEvent({ type: "todo.updated", properties: { sessionID: "s1" } });
-      stream.sendEvent({ type: "file.edited", properties: { sessionID: "s1" } });
-      stream.sendEvent({ type: "todo.updated", properties: { sessionID: "s1" } });
+      stream.sendEvent({ v: 1, type: "workspace.touched" });
+      stream.sendEvent({ v: 1, type: "workspace.touched" });
+      stream.sendEvent({ v: 1, type: "workspace.touched" });
       await vi.advanceTimersByTimeAsync(249);
     });
     expect(refreshDiffs).not.toHaveBeenCalled();
@@ -424,9 +416,9 @@ describe("useWorkspaceEventBus", () => {
 
     const storeBefore = hook.result.current.store;
     await act(async () => {
-      stream.sendEvent({ type: "knowledge.proposals_changed" });
-      stream.sendEvent({ type: "knowledge.proposals_changed" });
-      stream.sendEvent({ type: "knowledge.proposals_changed" });
+      stream.sendEvent({ v: 1, type: "knowledge.proposals_changed" });
+      stream.sendEvent({ v: 1, type: "knowledge.proposals_changed" });
+      stream.sendEvent({ v: 1, type: "knowledge.proposals_changed" });
       await vi.advanceTimersByTimeAsync(499);
     });
     expect(onKnowledgeProposalsChanged).not.toHaveBeenCalled();
@@ -498,12 +490,10 @@ describe("useWorkspaceEventBus", () => {
     });
 
     await act(async () => {
-      stream.sendEvent({ type: "knowledge.proposals_changed" });
+      stream.sendEvent({ v: 1, type: "knowledge.proposals_changed" });
       stream.sendEvent({
-        type: "message.part.updated",
-        properties: {
-          part: { id: "p1", type: "text", text: "Hola", messageID: "m1", sessionID: "s1" },
-        },
+        v: 1, type: "part.upserted", messageId: "m1", sessionId: "s1",
+        part: { id: "p1", type: "text", text: "Hola" },
       });
       await vi.advanceTimersByTimeAsync(0);
     });
@@ -605,10 +595,8 @@ describe("useWorkspaceEventBus", () => {
 
     await act(async () => {
       stream.sendEvent({
-        type: "permission.asked",
-        properties: {
-          permission: { id: "perm-live", sessionID: "s1", permission: "Edit file" },
-        },
+        v: 1, type: "permission.asked",
+        permission: { id: "perm-live", sessionId: "s1", title: "Edit file", state: "pending" },
       });
       await vi.advanceTimersByTimeAsync(0);
     });

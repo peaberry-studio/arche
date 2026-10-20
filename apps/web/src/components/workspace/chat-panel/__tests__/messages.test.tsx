@@ -5,8 +5,8 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ChatPanelMessages } from "@/components/workspace/chat-panel/messages";
-import type { MessagePart } from "@/lib/opencode/types";
 import type { ChatMessage } from "@/types/workspace";
+import type { MessagePart } from "@/types/workspace-runtime";
 
 vi.mock("next/image", () => ({
   default: () => null,

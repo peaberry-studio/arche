@@ -1,0 +1,321 @@
+import crypto from 'node:crypto'
+
+import { getInstanceBasicAuth } from '@/lib/harness/adapters/opencode-v1/client'
+import { toRuntimeProviderId } from '@/lib/providers/catalog'
+import { getGatewayTokenTtlSeconds } from '@/lib/providers/config'
+import { getEnabledProviderCredentialsForUser, type EnabledProviderCredentials } from '@/lib/providers/store'
+import { issueGatewayToken } from '@/lib/providers/tokens'
+import { PROVIDERS } from '@/lib/providers/types'
+import { instanceService, messageRunService } from '@/lib/services'
+import { isRecord } from '@/lib/records'
+
+export type SyncProviderAccessResult =
+  | { ok: true }
+  | { ok: false; error: 'instance_unavailable' | 'sync_failed' }
+
+type SyncProviderAccessInput = {
+  instance: { baseUrl: string; authHeader: string }
+  slug: string
+  userId: string
+  disposeInstance?: boolean
+}
+
+// Refresh slightly before the gateway token expires so long-running runs do not
+// reuse credentials that are about to age out.
+const PROVIDER_SYNC_REFRESH_SKEW_MS = 60_000
+// Dispose exits the OpenCode process and the container restarts (5-15s), so
+// health probes after a dispose need a generous budget before giving up.
+const DISPOSE_HEALTH_TIMEOUT_MS = 30_000
+const DISPOSE_HEALTH_POLL_INTERVAL_MS = 1_000
+const DISPOSE_HEALTH_PROBE_TIMEOUT_MS = 3_000
+const providerSyncLocks = new Map<string, Promise<void>>()
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function buildProviderSyncHash(enabledByProvider: EnabledProviderCredentials): string {
+  // Only configured providers affect runtime auth. Missing credentials and
+  // providers that require no managed sync intentionally hash to the same state.
+  const payload = Array.from(enabledByProvider.entries())
+    .map(([providerId, value]) => ({
+      credentialId: value.credentialId,
+      providerId,
+      source: value.source,
+      version: value.version,
+    }))
+    .sort((left, right) => left.providerId.localeCompare(right.providerId))
+
+  return crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex')
+}
+
+function shouldRefreshProviderAccess(args: {
+  expectedHash: string
+  providerSyncHash: string | null
+  providerSyncedAt: Date | null
+}): boolean {
+  if (args.providerSyncHash !== args.expectedHash) {
+    return true
+  }
+
+  if (!args.providerSyncedAt) {
+    return true
+  }
+
+  const ttlMs = getGatewayTokenTtlSeconds() * 1000
+  const refreshAgeMs = Math.max(0, ttlMs - PROVIDER_SYNC_REFRESH_SKEW_MS)
+  return Date.now() - args.providerSyncedAt.getTime() >= refreshAgeMs
+}
+
+async function withProviderSyncLock<T>(slug: string, work: () => Promise<T>): Promise<T> {
+  const previous = providerSyncLocks.get(slug) ?? Promise.resolve()
+  let releaseCurrent!: () => void
+  const current = new Promise<void>((resolve) => {
+    releaseCurrent = resolve
+  })
+
+  providerSyncLocks.set(slug, current)
+  await previous.catch(() => undefined)
+
+  try {
+    return await work()
+  } finally {
+    releaseCurrent()
+
+    if (providerSyncLocks.get(slug) === current) {
+      providerSyncLocks.delete(slug)
+    }
+  }
+}
+
+export async function getProviderSyncHashForUser(userId: string): Promise<string> {
+  return buildProviderSyncHash(await getEnabledProviderCredentialsForUser(userId))
+}
+
+export async function ensureProviderAccessFreshForExecution(args: {
+  slug: string
+  userId: string
+  ignoreActiveRunId?: string
+  // Flow runs force a refresh at start so they never inherit a partially aged
+  // gateway token from earlier interactive activity. The active-run deferral
+  // below still applies, so a concurrent generation is never aborted.
+  force?: boolean
+}): Promise<void> {
+  await withProviderSyncLock(args.slug, async () => {
+    const expectedHash = await getProviderSyncHashForUser(args.userId)
+    const current = await instanceService.findProviderSyncBySlug(args.slug)
+
+    if (
+      !args.force &&
+      current?.status === 'running' &&
+      !shouldRefreshProviderAccess({
+        expectedHash,
+        providerSyncHash: current.providerSyncHash,
+        providerSyncedAt: current.providerSyncedAt,
+      })
+    ) {
+      return
+    }
+
+    // Syncing disposes the OpenCode instance, which aborts any in-flight
+    // generation. Defer the refresh while other runs are active; a later
+    // call retries once the workspace is idle.
+    if (await messageRunService.hasActiveRunForSlug(args.slug, { ignoreRunId: args.ignoreActiveRunId })) {
+      console.warn('[opencode/providers] Deferred provider sync while workspace runs are active', {
+        slug: args.slug,
+      })
+      return
+    }
+
+    const instance = await getInstanceBasicAuth(args.slug)
+    if (!instance) {
+      throw new Error('instance_unavailable')
+    }
+
+    const syncResult = await syncProviderAccessForInstance({
+      instance,
+      slug: args.slug,
+      userId: args.userId,
+    })
+
+    if (!syncResult.ok) {
+      throw new Error(syncResult.error)
+    }
+  })
+}
+
+async function fetchRequired(
+  url: string,
+  init: RequestInit,
+  allowedStatuses: number[] = [],
+): Promise<void> {
+  const response = await fetch(url, init)
+  if (response.ok || allowedStatuses.includes(response.status)) {
+    return
+  }
+
+  throw new Error(`provider_sync_failed:${init.method ?? 'GET'}:${url}:${response.status}`)
+}
+
+// Dispose exits the OpenCode process and Docker restarts the container, so
+// callers that immediately create sessions would otherwise hit a dead or
+// restarting instance. Poll the health endpoint until it reports healthy.
+async function waitForInstanceHealthyAfterDispose(
+  instance: { baseUrl: string; authHeader: string },
+): Promise<boolean> {
+  const deadline = Date.now() + DISPOSE_HEALTH_TIMEOUT_MS
+  while (Date.now() < deadline) {
+    const controller = new AbortController()
+    const probeTimeout = setTimeout(() => controller.abort(), DISPOSE_HEALTH_PROBE_TIMEOUT_MS)
+    try {
+      const response = await fetch(`${instance.baseUrl}/global/health`, {
+        headers: {
+          Authorization: instance.authHeader,
+          Accept: 'application/json',
+        },
+        cache: 'no-store',
+        signal: controller.signal,
+      })
+      if (response.ok) {
+        const data: unknown = await response.json().catch(() => null)
+        if (isRecord(data) && data.healthy === true) {
+          return true
+        }
+      }
+    } catch {
+      // Connection refused or probe timeout while the container restarts — retry.
+    } finally {
+      clearTimeout(probeTimeout)
+    }
+
+    await sleep(DISPOSE_HEALTH_POLL_INTERVAL_MS)
+  }
+
+  return false
+}
+
+export async function syncProviderAccessForInstance(
+  input: SyncProviderAccessInput,
+): Promise<SyncProviderAccessResult> {
+  const instance = input.instance
+
+  try {
+    const enabledByProvider = await getEnabledProviderCredentialsForUser(input.userId)
+    const providerSyncHash = buildProviderSyncHash(enabledByProvider)
+
+    for (const providerId of PROVIDERS) {
+      const enabled = enabledByProvider.get(providerId)
+      const url = `${instance.baseUrl}/auth/${toRuntimeProviderId(providerId)}`
+
+      if (!enabled) {
+        if (providerId === 'opencode') {
+          const token = issueGatewayToken({
+            userId: input.userId,
+            workspaceSlug: input.slug,
+            providerId: 'opencode',
+            version: 0,
+          })
+
+          await fetchRequired(url, {
+            method: 'PUT',
+            headers: {
+              Authorization: instance.authHeader,
+              Accept: 'application/json',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ type: 'api', key: token }),
+            cache: 'no-store',
+          })
+          continue
+        }
+
+        await fetchRequired(
+          url,
+          {
+            method: 'DELETE',
+            headers: {
+              Authorization: instance.authHeader,
+              Accept: 'application/json',
+            },
+            cache: 'no-store',
+          },
+          [404],
+        )
+        continue
+      }
+
+      const token = issueGatewayToken({
+        userId: input.userId,
+        workspaceSlug: input.slug,
+        providerId,
+        version: enabled.version,
+        credentialId: enabled.credentialId,
+        credentialSource: enabled.source,
+      })
+
+      await fetchRequired(url, {
+        method: 'PUT',
+        headers: {
+          Authorization: instance.authHeader,
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ type: 'api', key: token }),
+        cache: 'no-store',
+      })
+    }
+
+    let disposed = false
+    if (input.disposeInstance !== false) {
+      // OpenCode caches provider discovery; dispose to reload with updated auth.
+      // The active-run deferral ran before the auth PUTs, so a run may have
+      // started since: dispose aborts any in-flight generation, and the keys
+      // are already updated by now, so skip the destructive part and let a
+      // later sync reload discovery instead of killing the run. Unlike the
+      // deferral, this check does not exclude the caller's own run — an
+      // in-flight generation must never be disposed underneath itself.
+      if (await messageRunService.hasActiveRunForSlug(input.slug)) {
+        console.warn('[opencode/providers] Deferred instance dispose because a run started during the sync', {
+          slug: input.slug,
+        })
+      } else {
+        console.log('[opencode/providers] Disposing instance to reload provider discovery', {
+          slug: input.slug,
+        })
+        await fetchRequired(`${instance.baseUrl}/instance/dispose`, {
+          method: 'POST',
+          headers: {
+            Authorization: instance.authHeader,
+            Accept: 'application/json',
+          },
+          cache: 'no-store',
+        })
+        disposed = true
+
+        if (!(await waitForInstanceHealthyAfterDispose(instance))) {
+          console.warn('[opencode/providers] Instance did not report healthy after dispose', {
+            slug: input.slug,
+          })
+        }
+      }
+    }
+
+    // Record the sync only when the instance is consistent with the keys we
+    // just wrote. A skipped dispose leaves the previous state so the next
+    // sync re-puts the keys and disposes once the workspace is idle —
+    // recording here would make later syncs short-circuit on the fresh
+    // timestamp while the instance still runs on stale cached discovery.
+    if (disposed || input.disposeInstance === false) {
+      try {
+        await instanceService.setProviderSyncState(input.slug, providerSyncHash, new Date())
+      } catch (error) {
+        console.error('[opencode/providers] Failed to persist provider sync state', error)
+      }
+    }
+
+    return { ok: true }
+  } catch (error) {
+    console.error('[opencode/providers] Failed to sync providers', error)
+    return { ok: false, error: 'sync_failed' }
+  }
+}

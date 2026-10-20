@@ -13,8 +13,8 @@ import {
   resolveModelEntry,
   selectVisiblePermissions,
 } from "@/hooks/workspace/workspace-types";
-import type { WorkspacePermission } from "@/lib/opencode/permission";
-import type { AvailableModel, WorkspaceSession } from "@/lib/opencode/types";
+import type { ArchePermission } from "@/lib/harness/events";
+import type { AvailableModel, WorkspaceSession } from "@/types/workspace-runtime";
 
 function session(
   id: string,
@@ -76,7 +76,7 @@ describe("workspace-types session helpers", () => {
   });
 
   it("selects visible pending permissions for the active session family", () => {
-    const permission = (id: string, sessionId: string): WorkspacePermission => ({
+    const permission = (id: string, sessionId: string): ArchePermission => ({
       id,
       sessionId,
       title: `Approve ${id}`,

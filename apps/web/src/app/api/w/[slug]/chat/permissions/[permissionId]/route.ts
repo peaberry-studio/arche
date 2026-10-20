@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
-import { getInstanceUrl } from '@/lib/opencode/client'
+import { getRuntimeForSlug } from '@/lib/harness/registry'
 import { withAuth } from '@/lib/runtime/with-auth'
-import { instanceService } from '@/lib/services'
-import { decryptPassword } from '@/lib/spawner/crypto'
 
 type PermissionReplyResponse = 'once' | 'always' | 'reject'
 
@@ -25,11 +23,9 @@ export const POST = withAuth<
   { ok: true } | { error: string },
   { slug: string; permissionId: string }
 >({ csrf: true }, async (request: NextRequest, { slug, params: { permissionId }, user }) => {
-  const instance = await instanceService.findCredentialsBySlug(slug)
-
-  if (!instance || !instance.serverPassword || instance.status !== 'running') {
-    return jsonErrorResponse(503, 'instance_unavailable')
-  }
+  const runtimeResult = await getRuntimeForSlug(slug)
+  if (!runtimeResult.ok) return jsonErrorResponse(503, runtimeResult.error.code)
+  const client = runtimeResult.data
 
   let body: ReplyPermissionRequest
   try {
@@ -45,24 +41,16 @@ export const POST = withAuth<
     return jsonErrorResponse(400, 'missing_fields')
   }
 
-  const password = decryptPassword(instance.serverPassword)
-  const authHeader = `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}`
-  const baseUrl = getInstanceUrl(slug)
-  const response = await fetch(
-    `${baseUrl}/permission/${encodeURIComponent(permissionId)}/reply`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: authHeader,
-      },
-      body: JSON.stringify({ reply: body.response }),
-      signal: request.signal,
-    },
-  )
+  const response = await client.replyPermission({
+    sessionId,
+    permissionId,
+    response: body.response,
+  }, { signal: request.signal })
 
   if (!response.ok) {
-    return jsonErrorResponse(response.status >= 400 && response.status < 500 ? response.status : 502, 'permission_reply_failed')
+    if (response.error.code === 'instance_unavailable') return jsonErrorResponse(503, response.error.code)
+    const status = response.error.status
+    return jsonErrorResponse(status && status >= 400 && status < 500 ? status : 502, 'permission_reply_failed')
   }
 
   await auditEvent({

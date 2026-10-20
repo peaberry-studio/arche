@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 import {
   isSending as isSessionSending,
   overlaySessionRuntimeStatus,
-} from "@/lib/opencode/event-reducer";
+} from "@/lib/workspace-events/reducer";
 import { useWorkspaceRuntime } from "@/contexts/workspace-runtime-context";
 import { useWorkspaceDiffs } from "@/hooks/use-workspace-diffs";
 import { useWorkspaceFiles } from "@/hooks/use-workspace-files";

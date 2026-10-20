@@ -12,20 +12,21 @@ import {
   type SetStateAction,
 } from "react";
 
-import { listMessagesAction, listPermissionsAction } from "@/actions/opencode";
+import { listMessagesAction, listPermissionsAction } from "@/actions/workspace-sessions";
 import { EMPTY_WORKSPACE_MESSAGES } from "@/hooks/workspace/workspace-types";
+import type { ArcheEvent } from "@/lib/harness/events";
+import { KNOWLEDGE_PROPOSALS_CHANGED_EVENT } from "@/lib/runtime/workspace-broadcast-events";
+import { INITIAL_SSE_PARSE_STATE, parseSseChunk } from "@/lib/sse-parser";
+import { parseArcheEvent } from "@/lib/workspace-events/parse-event";
 import {
   createEmptyChatStore,
   hydratePermissionsIntoStore,
   hydrateSessionIntoStore,
-  reduceOpenCodeEvent,
+  reduceArcheEvent,
   type ChatStore,
   type SessionRuntimeStatus,
-} from "@/lib/opencode/event-reducer";
-import type { WorkspaceMessage, WorkspaceSession } from "@/lib/opencode/types";
-import { isRecord } from "@/lib/records";
-import { KNOWLEDGE_PROPOSALS_CHANGED_EVENT } from "@/lib/runtime/workspace-broadcast-events";
-import { INITIAL_SSE_PARSE_STATE, parseSseChunk } from "@/lib/sse-parser";
+} from "@/lib/workspace-events/reducer";
+import type { WorkspaceMessage, WorkspaceSession } from "@/types/workspace-runtime";
 
 const BUS_RECONNECT_BASE_DELAY_MS = 1_000;
 const BUS_RECONNECT_MAX_DELAY_MS = 30_000;
@@ -43,29 +44,15 @@ type UseWorkspaceEventBusOptions = {
   onKnowledgeProposalsChanged?: () => void;
 };
 
-function parseSseEvent(data: string): { type: string; properties?: Record<string, unknown> } | null {
-  if (!data) return null;
-  try {
-    const parsed = JSON.parse(data);
-    if (!isRecord(parsed)) return null;
-    return {
-      type: typeof parsed.type === "string" ? parsed.type : "",
-      ...(isRecord(parsed.properties) ? { properties: parsed.properties } : {}),
-    };
-  } catch {
-    return null;
-  }
-}
-
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
  * Owns the workspace ChatStore: messages, session status, and permissions are
- * all read from here. A single persistent SSE pipe to the BFF applies OpenCode
+ * all read from here. A single persistent SSE pipe to the BFF applies Arche
  * events through the pure reducer; a hydration pass runs on connect and on
- * each reconnect. OpenCode is the source of truth for completion.
+ * each reconnect. The runtime is the source of truth for completion.
  */
 export function useWorkspaceEventBus({
   slug,
@@ -235,9 +222,9 @@ export function useWorkspaceEventBus({
   }, [commitStore]);
 
   const dispatchReducerEvent = useCallback(
-    (event: { type: string; properties?: Record<string, unknown> }) => {
+    (event: ArcheEvent) => {
       const previousStatuses = getStore().sessionStatus;
-      const result = reduceOpenCodeEvent(getStore(), event);
+      const result = reduceArcheEvent(getStore(), event);
       commitStore(result.store);
       if (result.workspaceTouched) {
         scheduleWorkspaceRefresh();
@@ -285,7 +272,7 @@ export function useWorkspaceEventBus({
           const parsed = parseSseChunk(parseState, decoder.decode(value, { stream: true }));
           parseState = parsed.state;
           for (const parsedEvent of parsed.events) {
-            const event = parseSseEvent(parsedEvent.data);
+            const event = parseArcheEvent(parsedEvent.data);
             if (!event) continue;
             // Badge notifications are intercepted before the reducer: they
             // must never mutate chat/session state.

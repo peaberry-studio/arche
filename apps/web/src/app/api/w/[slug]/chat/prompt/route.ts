@@ -1,18 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import { getInstanceUrl } from '@/lib/opencode/client'
-import { ensureProviderAccessFreshForExecution } from '@/lib/opencode/providers'
+import type { HarnessRuntime } from '@/lib/harness/contract'
 import {
   buildWorkspacePromptParts,
+  getRuntimeForSlug,
   normalizeContextPaths,
   normalizeMessageAttachments,
-} from '@/lib/opencode/workspace-prompt'
-import { resolveRuntimeProviderId } from '@/lib/providers/catalog'
+} from '@/lib/harness/registry'
 import { getString, isRecord } from '@/lib/records'
 import { withAuth } from '@/lib/runtime/with-auth'
-import { instanceService, messageRunService } from '@/lib/services'
-import { decryptPassword } from '@/lib/spawner/crypto'
-import { getWorkspaceAgentUrl } from '@/lib/workspace-agent/client'
+import { getWorkspaceAgentConnection } from '@/lib/runtime/workspace-host'
+import { messageRunService } from '@/lib/services'
 import { MAX_ATTACHMENTS_PER_MESSAGE } from '@/lib/workspace-attachments'
 
 export const runtime = 'nodejs'
@@ -27,30 +25,20 @@ type ParsedPromptRequest = {
   contextPaths?: unknown
 }
 
-type OpenCodePromptBody = {
-  id?: string
-  parts: unknown[]
-  model?: { providerID: string; modelID: string }
-}
-
 function jsonErrorResponse(status: number, error: string) {
   return NextResponse.json({ error }, { status })
 }
 
 type SessionRuntimeState = 'busy' | 'idle' | 'unknown'
 
-async function readSessionRuntimeState(baseUrl: string, authHeader: string, sessionId: string): Promise<SessionRuntimeState> {
+async function readSessionRuntimeState(client: HarnessRuntime, sessionId: string): Promise<SessionRuntimeState> {
   try {
-    const response = await fetch(`${baseUrl}/session/status`, {
-      headers: { Authorization: authHeader, Accept: 'application/json' },
-      cache: 'no-store',
+    const response = await client.sessionStatus({
       signal: AbortSignal.timeout(8_000),
     })
     if (!response.ok) return 'unknown'
-    const data: unknown = await response.json()
-    if (!isRecord(data)) return 'unknown'
-    const record = data[sessionId]
-    if (!isRecord(record)) return 'idle'
+    const record = response.data[sessionId]
+    if (!record) return 'idle'
     if (record.type === 'busy' || record.type === 'retry') return 'busy'
     if (record.type === 'idle') return 'idle'
     return 'unknown'
@@ -76,18 +64,18 @@ function parsePromptBody(body: unknown): ParsedPromptRequest | null {
 
 /**
  * Fire-and-forget prompt. The handler opens no /event pipe, waits for no
- * tokens, and never emits `done`. OpenCode keeps the session running; the
+ * tokens, and never emits `done`. The runtime keeps the session running; the
  * client's event bus applies the outcome.
  */
 export const POST = withAuth<
   { ok: true } | { error: string },
   { slug: string }
 >({ csrf: true }, async (request: NextRequest, { slug, user }) => {
-  const instance = await instanceService.findCredentialsBySlug(slug)
-
-  if (!instance || !instance.serverPassword || instance.status !== 'running') {
-    return jsonErrorResponse(503, 'instance_unavailable')
-  }
+  const runtimeResult = await getRuntimeForSlug(slug)
+  if (!runtimeResult.ok) return jsonErrorResponse(503, runtimeResult.error.code)
+  const client = runtimeResult.data
+  const agent = await getWorkspaceAgentConnection(slug)
+  if (!agent) return jsonErrorResponse(503, 'instance_unavailable')
 
   let body: unknown
   try {
@@ -121,17 +109,12 @@ export const POST = withAuth<
     return jsonErrorResponse(400, 'too_many_attachments')
   }
 
-  const password = decryptPassword(instance.serverPassword)
-  const authHeader = `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}`
-  const baseUrl = getInstanceUrl(slug)
-  const workspaceAgentUrl = getWorkspaceAgentUrl(slug)
-
-  const runtimeState = await readSessionRuntimeState(baseUrl, authHeader, sessionId)
+  const runtimeState = await readSessionRuntimeState(client, sessionId)
   if (runtimeState === 'busy') {
     return jsonErrorResponse(409, 'session_busy')
   }
 
-  // Respect the slack/flow lock. If OpenCode is idle and only a stale lock
+  // Respect the slack/flow lock. If the runtime is idle and only a stale lock
   // remains, reap it (the run finished) and continue. If status is unknown,
   // skip the reap but still refuse when a run is actively locked.
   const activeRun = await messageRunService.findActiveRun(slug, sessionId)
@@ -143,7 +126,7 @@ export const POST = withAuth<
   }
 
   const built = await buildWorkspacePromptParts({
-    agent: { baseUrl: workspaceAgentUrl, authHeader },
+    agent,
     attachments,
     contextPaths,
     text,
@@ -152,43 +135,25 @@ export const POST = withAuth<
     return jsonErrorResponse(400, built.error)
   }
 
-  const promptBody: OpenCodePromptBody = {
-    id: messageId,
-    parts: built.parts,
-    ...(model?.providerId && model.modelId
-      ? {
-          model: {
-            providerID: resolveRuntimeProviderId(model.providerId),
-            modelID: model.modelId,
-          },
-        }
-      : {}),
+  try {
+    await client.syncProviderAccess({ userId: user.id })
+  } catch {
+    // Provider sync is best-effort here; the prompt still reaches the runtime.
   }
 
   try {
-    await ensureProviderAccessFreshForExecution({ slug, userId: user.id })
+    const submitted = await client.prompt({
+      sessionId,
+      messageId,
+      parts: built.parts,
+      ...(model?.providerId && model.modelId ? { model } : {}),
+    }, { signal: AbortSignal.timeout(60_000) })
+    if (!submitted.ok) {
+      if (submitted.error.code === 'session_not_found') return jsonErrorResponse(404, submitted.error.code)
+      if (submitted.error.code === 'session_busy') return jsonErrorResponse(409, submitted.error.code)
+      return jsonErrorResponse(502, 'prompt_failed')
+    }
   } catch {
-    // Provider sync is best-effort here; the prompt still reaches OpenCode.
-  }
-
-  let promptResponse: Response
-  try {
-    // sessionId is client-supplied; encode it so it cannot alter the upstream
-    // path (e.g. "../" or query separators).
-    promptResponse = await fetch(
-      `${baseUrl}/session/${encodeURIComponent(sessionId)}/prompt_async`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: authHeader },
-        body: JSON.stringify(promptBody),
-        signal: AbortSignal.timeout(60_000),
-      },
-    )
-  } catch {
-    return jsonErrorResponse(502, 'prompt_failed')
-  }
-
-  if (!promptResponse.ok) {
     return jsonErrorResponse(502, 'prompt_failed')
   }
 

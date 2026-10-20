@@ -1,3 +1,11 @@
+import {
+  captureSessionMessageCursor,
+  createSessionPromptRun,
+  EXECUTION_TERMINATION_UNCONFIRMED_ERROR,
+  ensureWorkspaceRunningForExecution,
+  waitForSessionToComplete,
+} from '@/lib/harness/execution'
+import { getRuntimeForSlug } from '@/lib/harness/registry'
 import { KNOWLEDGE_CURATOR_SYSTEM_INSTRUCTIONS } from '@/lib/learning/curator-prompt'
 import {
   claimLearningRunForExecution,
@@ -6,14 +14,6 @@ import {
   markLearningRunSucceeded,
   setLearningRunInternalSessionId,
 } from '@/lib/learning/repository'
-import { createInstanceClient } from '@/lib/opencode/client'
-import {
-  captureSessionMessageCursor,
-  createSessionPromptRun,
-  EXECUTION_TERMINATION_UNCONFIRMED_ERROR,
-  ensureWorkspaceRunningForExecution,
-  waitForSessionToComplete,
-} from '@/lib/opencode/session-execution'
 import { messageRunService } from '@/lib/services'
 import { SYSTEM_KNOWLEDGE_CURATOR_AGENT_ID } from '@/lib/workspace-config'
 import type { KnowledgeReviewRegenerationContext, LearningTrigger } from '@/types/learning'
@@ -97,19 +97,13 @@ export async function executeLearningRun(input: LearningRunExecutionInput): Prom
   try {
     await ensureWorkspaceRunningForExecution(input.slug, input.userId)
 
-    const client = await createInstanceClient(input.slug)
-    if (!client) {
-      throw new Error('instance_unavailable')
-    }
+    const runtimeResult = await getRuntimeForSlug(input.slug)
+    if (!runtimeResult.ok) throw new Error(runtimeResult.error.code)
+    const client = runtimeResult.data
 
-    const sessionResult = await client.session.create(
-      { title: buildLearningSessionTitle(input.title) },
-      { throwOnError: true },
-    )
-    const sessionId = sessionResult.data?.id
-    if (!sessionId) {
-      throw new Error('learning_session_create_failed')
-    }
+    const sessionResult = await client.createSession({ title: buildLearningSessionTitle(input.title) })
+    if (!sessionResult.ok) throw new Error(sessionResult.error.code)
+    const sessionId = sessionResult.data.id
 
     await setLearningRunInternalSessionId({ runId: input.runId, internalSessionId: sessionId })
 
@@ -133,14 +127,12 @@ export async function executeLearningRun(input: LearningRunExecutionInput): Prom
     let completion: Awaited<ReturnType<typeof waitForSessionToComplete>>
     try {
       const cursor = await captureSessionMessageCursor(client, sessionId)
-      await client.session.promptAsync(
-        {
-          agent: SYSTEM_KNOWLEDGE_CURATOR_AGENT_ID,
-          parts: [{ text: buildCuratorPrompt(input), type: 'text' }],
-          sessionID: sessionId,
-        },
-        { throwOnError: true },
-      )
+      const submitted = await client.prompt({
+        agent: SYSTEM_KNOWLEDGE_CURATOR_AGENT_ID,
+        parts: [{ text: buildCuratorPrompt(input), type: 'text' }],
+        sessionId,
+      })
+      if (!submitted.ok) throw new Error(submitted.error.code)
 
       completion = await waitForSessionToComplete({
         client,

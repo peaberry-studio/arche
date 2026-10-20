@@ -9,8 +9,7 @@ import {
   deleteSessionAction,
   markFlowRunSeenAction,
   updateSessionAction,
-} from "@/actions/opencode";
-import type { WorkspaceSession } from "@/lib/opencode/types";
+} from "@/actions/workspace-sessions";
 import {
   ROOT_SESSION_LIMIT_STEP,
 } from "@/hooks/workspace/workspace-types";
@@ -25,6 +24,7 @@ import {
   updateSessionById,
   type WorkspaceSessionStore,
 } from "@/hooks/workspace/workspace-session-store";
+import type { WorkspaceSession } from "@/types/workspace-runtime";
 
 type UseWorkspaceSessionsOptions = {
   slug: string;

@@ -18,12 +18,12 @@ import { useInstanceHeartbeat } from "@/hooks/use-instance-heartbeat";
 import { useInstanceStartup, type UseInstanceStartupReturn } from "@/hooks/use-instance-startup";
 import { useWorkspaceConnection } from "@/hooks/use-workspace-connection";
 import { useWorkspaceSessions } from "@/hooks/workspace/use-workspace-sessions";
-import type { WorkspaceConnectionState } from "@/lib/opencode/types";
 import {
   parseWorkspaceLayoutState,
   persistWorkspacePanelState,
   readWorkspacePanelState,
 } from "@/lib/workspace-panel-state";
+import type { WorkspaceConnectionState } from "@/types/workspace-runtime";
 
 type WorkspaceRuntimeContextValue = Omit<UseInstanceStartupReturn, "instanceStatus"> & {
   instanceStatus: "starting" | "running" | "error" | null;

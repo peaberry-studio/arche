@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
+import type { WorkspaceMessage } from '@/types/workspace-runtime'
+
 import {
   clampSessionHistoryBounds,
   getMessageRole,
@@ -23,17 +25,22 @@ describe('session history helpers', () => {
     expect(getSessionId({ id: 1 })).toBeNull()
   })
 
-  it('extracts message role and text from OpenCode-like parts', () => {
-    expect(getMessageRole({ info: { role: 'assistant' } })).toBe('assistant')
-    expect(getMessageRole({ info: {} })).toBe('unknown')
-    expect(getMessageText({
+  it('extracts message role and text from normalized workspace messages', () => {
+    const message: WorkspaceMessage = {
+      id: 'message-1',
+      sessionId: 'session-1',
+      role: 'assistant',
+      content: 'hello\nworld',
+      timestamp: '',
       parts: [
         { id: 'part-1', text: 'hello', type: 'text' },
-        { content: 'world', id: 'part-2' },
+        { type: 'unknown', originalType: 'custom', data: { content: 'ignored' } },
         { id: 'part-3', text: 'world', type: 'text' },
       ],
-    })).toBe('hello\nworld')
-    expect(getMessageText({ parts: [] })).toBe('')
+    }
+    expect(getMessageRole(message)).toBe('assistant')
+    expect(getMessageText(message)).toBe('hello\nworld')
+    expect(getMessageText({ ...message, parts: [] })).toBe('')
   })
 
   it('clamps query bounds', () => {

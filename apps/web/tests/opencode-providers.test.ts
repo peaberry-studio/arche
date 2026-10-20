@@ -17,7 +17,7 @@ vi.mock('@/lib/providers/tokens', () => ({
   issueGatewayToken: vi.fn(),
 }))
 
-import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
+import { syncRuntimeProviderAccess } from '@/lib/harness/registry'
 import { getEnabledProviderCredentialsForUser, type EnabledProviderCredentials } from '@/lib/providers/store'
 import { issueGatewayToken } from '@/lib/providers/tokens'
 import type { ProviderId } from '@/lib/providers/types'
@@ -45,7 +45,7 @@ const fakeInstance = {
   authHeader: 'Basic abc',
 }
 
-describe('syncProviderAccessForInstance', () => {
+describe('syncRuntimeProviderAccess', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockHasActiveRunForSlug.mockResolvedValue(false)
@@ -55,13 +55,12 @@ describe('syncProviderAccessForInstance', () => {
   it('returns sync_failed when credential lookup throws', async () => {
     mockGetEnabledProviderCredentialsForUser.mockRejectedValue(new Error('db error'))
 
-    const result = await syncProviderAccessForInstance({
-      instance: fakeInstance,
-      slug: 'alice',
+    const result = await syncRuntimeProviderAccess('alice', {
+      connection: fakeInstance,
       userId: 'user-1',
     })
 
-    expect(result).toEqual({ ok: false, error: 'sync_failed' })
+    expect(result).toEqual({ ok: false, error: { code: 'sync_failed' } })
   })
 
   it('sets auth for active credentials and keeps OpenCode gateway auth', async () => {
@@ -75,9 +74,8 @@ describe('syncProviderAccessForInstance', () => {
       ({ providerId }) => `token-${providerId}`
     )
 
-    const result = await syncProviderAccessForInstance({
-      instance: fakeInstance,
-      slug: 'alice',
+    const result = await syncRuntimeProviderAccess('alice', {
+      connection: fakeInstance,
       userId: 'user-1',
     })
 
@@ -110,6 +108,6 @@ describe('syncProviderAccessForInstance', () => {
     // Dispose refresh
     expect(urls).toContain('http://opencode-alice:4096/instance/dispose')
 
-    expect(result).toEqual({ ok: true })
+    expect(result).toEqual({ ok: true, data: undefined })
   })
 })

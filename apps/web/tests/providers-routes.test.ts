@@ -9,14 +9,11 @@ vi.mock('@/lib/auth', () => ({
   auditEvent: (...args: unknown[]) => mockAuditEvent(...args),
 }))
 
-const mockSyncProviderAccessForInstance = vi.fn()
-vi.mock('@/lib/opencode/providers', () => ({
-  syncProviderAccessForInstance: (...args: unknown[]) => mockSyncProviderAccessForInstance(...args),
-}))
-
-const mockGetInstanceUrl = vi.fn((slug: string) => `http://${slug}.test`)
-vi.mock('@/lib/opencode/client', () => ({
-  getInstanceUrl: (...args: unknown[]) => mockGetInstanceUrl(...args),
+const mockSyncRuntimeProviderAccess = vi.fn()
+const mockGetRuntimeBaseUrl = vi.fn((slug: string) => `http://${slug}.test`)
+vi.mock('@/lib/harness/registry', () => ({
+  getRuntimeBaseUrl: (...args: unknown[]) => mockGetRuntimeBaseUrl(...args),
+  syncRuntimeProviderAccess: (...args: unknown[]) => mockSyncRuntimeProviderAccess(...args),
 }))
 
 const mockDecryptPassword = vi.fn((value: string) => value.replace(/^enc:/, ''))
@@ -117,7 +114,7 @@ describe('GET /api/u/[slug]/providers', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.resetModules()
-    mockSyncProviderAccessForInstance.mockResolvedValue({ ok: true })
+    mockSyncRuntimeProviderAccess.mockResolvedValue({ ok: true, data: undefined })
     mockFindOrganizationMany.mockResolvedValue([])
     mockDecryptPassword.mockImplementation((value: string) => value.replace(/^enc:/, ''))
     mockEncryptPassword.mockImplementation((value: string) => `enc:${value}`)
@@ -183,7 +180,7 @@ describe('POST /api/u/[slug]/providers/[provider]', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.resetModules()
-    mockSyncProviderAccessForInstance.mockResolvedValue({ ok: true })
+    mockSyncRuntimeProviderAccess.mockResolvedValue({ ok: true, data: undefined })
     mockDecryptPassword.mockImplementation((value: string) => value.replace(/^enc:/, ''))
     mockEncryptPassword.mockImplementation((value: string) => `enc:${value}`)
     mockTransaction.mockImplementation(async (callback: (tx: ReturnType<typeof createProviderTransactionClient>) => unknown) =>
@@ -279,9 +276,8 @@ describe('POST /api/u/[slug]/providers/[provider]', () => {
       action: 'provider_credential.created',
       metadata: { providerId: 'openai', credentialId: 'cred-1' },
     })
-    expect(mockSyncProviderAccessForInstance).toHaveBeenCalledWith({
-      instance: { baseUrl: 'http://alice.test', authHeader: 'Basic b3BlbmNvZGU6c2VjcmV0' },
-      slug: 'alice',
+    expect(mockSyncRuntimeProviderAccess).toHaveBeenCalledWith('alice', {
+      connection: { baseUrl: 'http://alice.test', authHeader: 'Basic b3BlbmNvZGU6c2VjcmV0' },
       userId: 'user-1',
     })
   })
@@ -337,7 +333,7 @@ describe('POST /api/u/[slug]/providers/[provider]', () => {
       status: 'enabled',
       version: 1,
     })
-    mockSyncProviderAccessForInstance.mockResolvedValueOnce({ ok: false, error: 'sync_failed' })
+    mockSyncRuntimeProviderAccess.mockResolvedValueOnce({ ok: false, error: { code: 'sync_failed' } })
 
     const { status, body } = await callPostProvider('alice', 'openai', { apiKey: 'sk-123' })
 
@@ -398,7 +394,7 @@ describe('DELETE /api/u/[slug]/providers/[provider]', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.resetModules()
-    mockSyncProviderAccessForInstance.mockResolvedValue({ ok: true })
+    mockSyncRuntimeProviderAccess.mockResolvedValue({ ok: true, data: undefined })
     mockTransaction.mockImplementation(async (callback: (tx: ReturnType<typeof createProviderTransactionClient>) => unknown) =>
       callback(createProviderTransactionClient())
     )
@@ -433,9 +429,8 @@ describe('DELETE /api/u/[slug]/providers/[provider]', () => {
         targetSlug: 'alice',
       },
     })
-    expect(mockSyncProviderAccessForInstance).toHaveBeenCalledWith({
-      instance: { baseUrl: 'http://alice.test', authHeader: 'Basic b3BlbmNvZGU6c2VjcmV0' },
-      slug: 'alice',
+    expect(mockSyncRuntimeProviderAccess).toHaveBeenCalledWith('alice', {
+      connection: { baseUrl: 'http://alice.test', authHeader: 'Basic b3BlbmNvZGU6c2VjcmV0' },
       userId: 'user-1',
     })
   })

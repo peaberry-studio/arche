@@ -5,9 +5,9 @@ import { useCallback, useState } from 'react'
 import { Warning } from '@phosphor-icons/react'
 
 import { Button } from '@/components/ui/button'
-import type { WorkspacePermission } from '@/lib/opencode/permission'
-import type { PermissionResponse } from '@/lib/opencode/types'
+import type { ArchePermission } from '@/lib/harness/events'
 import { cn } from '@/lib/utils'
+import type { PermissionResponse } from '@/types/workspace-runtime'
 
 type PermissionCardProps = {
   onAnswerPermission?: (
@@ -15,7 +15,7 @@ type PermissionCardProps = {
     permissionId: string,
     response: PermissionResponse,
   ) => Promise<boolean>
-  permission: WorkspacePermission
+  permission: ArchePermission
 }
 
 const ACTION_SIZE_CLASS = 'h-7 w-auto px-2.5 text-xs'
@@ -24,7 +24,7 @@ const SECONDARY_ACTION_CLASS =
 
 const getString = (value: unknown) => (typeof value === 'string' && value.trim() ? value : undefined)
 
-function getPermissionSubtitle(permission: WorkspacePermission): string | undefined {
+function getPermissionSubtitle(permission: ArchePermission): string | undefined {
   const command = getString(permission.metadata?.command)
   if (command) return command
 

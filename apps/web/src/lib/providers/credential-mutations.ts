@@ -1,6 +1,5 @@
 import { auditEvent } from '@/lib/auth'
-import { getInstanceUrl } from '@/lib/opencode/client'
-import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
+import { getRuntimeBaseUrl, syncRuntimeProviderAccess } from '@/lib/harness/registry'
 import { instanceService, providerService } from '@/lib/services'
 import { decryptPassword } from '@/lib/spawner/crypto'
 
@@ -48,15 +47,14 @@ async function syncUserWorkspaceProviderAccessBestEffort(
 
     const password = decryptPassword(instance.serverPassword)
 
-    const result = await syncProviderAccessForInstance({
-      instance: {
-        baseUrl: getInstanceUrl(slug),
+    const result = await syncRuntimeProviderAccess(slug, {
+      connection: {
+        baseUrl: getRuntimeBaseUrl(slug),
         authHeader: `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}`,
       },
-      slug,
       userId,
     })
-    if (!result.ok && result.error !== 'instance_unavailable') {
+    if (!result.ok && result.error.code !== 'instance_unavailable') {
       console.error('[providers] Failed to sync provider access', result.error)
       await providerService.markWorkspaceRestartRequired(userId)
       return true

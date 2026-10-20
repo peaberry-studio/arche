@@ -57,8 +57,7 @@ import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
 import { useAgentMentionAutocomplete } from "@/hooks/use-agent-mention-autocomplete";
 import type { SkillListItem } from "@/hooks/use-skills-catalog";
 import type { AgentCatalogItem } from "@/hooks/use-workspace";
-import type { WorkspacePermission } from "@/lib/opencode/permission";
-import type { AvailableModel, PermissionResponse } from "@/lib/opencode/types";
+import type { ArchePermission } from "@/lib/harness/events";
 import { getDesktopPlatform, getOptionalDesktopBridge } from "@/lib/runtime/desktop/client";
 import {
   buildWorkspaceSessionMarkdown,
@@ -77,6 +76,7 @@ import type {
   MessageAttachmentInput,
   WorkspaceAttachment,
 } from "@/types/workspace";
+import type { AvailableModel, PermissionResponse } from "@/types/workspace-runtime";
 
 type ChatPanelProps = {
   slug: string;
@@ -87,7 +87,7 @@ type ChatPanelProps = {
   sessions: ChatSession[];
   skills?: SkillListItem[];
   messages: ChatMessage[];
-  permissions?: WorkspacePermission[];
+  permissions?: ArchePermission[];
   activeSessionId: string | null;
   sessionTabs?: SessionTabInfo[];
   openFilePaths: string[];
@@ -139,7 +139,7 @@ const MAX_CONTEXT_PATHS_PER_MESSAGE = 20;
 const EMPTY_AGENTS: AgentCatalogItem[] = [];
 const EMPTY_CONTEXT_FILE_PATHS: string[] = [];
 const EMPTY_MODELS: AvailableModel[] = [];
-const EMPTY_PERMISSIONS: WorkspacePermission[] = [];
+const EMPTY_PERMISSIONS: ArchePermission[] = [];
 const EMPTY_SESSION_TABS: SessionTabInfo[] = [];
 const EMPTY_SKILLS: SkillListItem[] = [];
 

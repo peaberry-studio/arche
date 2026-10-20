@@ -1,14 +1,13 @@
-import { createInstanceClient } from '@/lib/opencode/client'
+import type { HarnessRuntime } from '@/lib/harness/contract'
 import {
   captureSessionMessageCursor,
   createSessionPromptRun,
   EXECUTION_TERMINATION_UNCONFIRMED_ERROR,
   ensureWorkspaceRunningForExecution,
-  isOpenCodeSessionNotFoundError,
   readLatestAssistantText,
   waitForSessionToComplete,
-} from '@/lib/opencode/session-execution'
-import { openCodeSessionExists } from '@/lib/opencode/session-utils'
+} from '@/lib/harness/execution'
+import { getRuntimeForSlug } from '@/lib/harness/registry'
 import { auditService, messageRunService, slackService, userService } from '@/lib/services'
 import type { SlackPendingDmDecisionRecord } from '@/lib/services/slack'
 import { buildSlackDmPrompt } from '@/lib/slack/dm-prompt'
@@ -479,18 +478,18 @@ async function prepareSlackDmContinuation(args: {
   user: { id: string; slug: string }
 }): Promise<{
   bindingId: string
-  opencodeClient: NonNullable<Awaited<ReturnType<typeof createInstanceClient>>>
+  opencodeClient: HarnessRuntime
   sessionId: string
   messagePrefix?: string
 }> {
   await ensureWorkspaceRunningForExecution(args.user.slug, args.user.id)
-  const opencodeClient = await createInstanceClient(args.user.slug)
-  if (!opencodeClient) {
-    throw new Error('instance_unavailable')
-  }
+  const runtimeResult = await getRuntimeForSlug(args.user.slug)
+  if (!runtimeResult.ok) throw new Error(runtimeResult.error.code)
+  const opencodeClient = runtimeResult.data
 
-  const sessionExists = await openCodeSessionExists(opencodeClient, args.binding.openCodeSessionId)
-  if (sessionExists) {
+  const sessionResult = await opencodeClient.getSession(args.binding.openCodeSessionId)
+  if (!sessionResult.ok && sessionResult.error.code !== 'session_not_found') throw new Error(sessionResult.error.code)
+  if (sessionResult.ok) {
     return {
       bindingId: args.binding.id,
       opencodeClient,
@@ -528,22 +527,16 @@ async function createSlackDmSession(args: {
   user: { id: string; slug: string }
 }): Promise<{
   binding: { id: string }
-  opencodeClient: NonNullable<Awaited<ReturnType<typeof createInstanceClient>>>
+  opencodeClient: HarnessRuntime
   sessionId: string
 }> {
   await ensureWorkspaceRunningForExecution(args.user.slug, args.user.id)
-  const opencodeClient = await createInstanceClient(args.user.slug)
-  if (!opencodeClient) {
-    throw new Error('instance_unavailable')
-  }
+  const runtimeResult = await getRuntimeForSlug(args.user.slug)
+  if (!runtimeResult.ok) throw new Error(runtimeResult.error.code)
+  const opencodeClient = runtimeResult.data
 
-  const sessionResult = await opencodeClient.session.create(
-    { title: buildSlackDmSessionTitle(args.profile) },
-    { throwOnError: true },
-  )
-  if (!sessionResult.data) {
-    throw new Error('slack_dm_session_create_failed')
-  }
+  const sessionResult = await opencodeClient.createSession({ title: buildSlackDmSessionTitle(args.profile) })
+  if (!sessionResult.ok) throw new Error(sessionResult.error.code)
 
   const binding = await slackService.createDmSessionBinding({
     channelId: args.channelId,
@@ -565,7 +558,7 @@ async function executeSlackDmPromptAndReply(args: {
   channel: string
   client: SlackChatClient
   messageText: string
-  opencodeClient: NonNullable<Awaited<ReturnType<typeof createInstanceClient>>>
+  opencodeClient: HarnessRuntime
   sessionId: string
   slackUserId: string
   slug: string
@@ -597,7 +590,7 @@ async function executeSlackDmPromptAndReply(args: {
     await finalizeSlackDmReply(args.client, args.channel, placeholderTs, messages)
     await slackService.markLastError(null).catch(() => undefined)
   } catch (error) {
-    if (args.staleSessionRecovery && isOpenCodeSessionNotFoundError(error)) {
+    if (args.staleSessionRecovery && error instanceof Error && error.message === 'session_not_found') {
       try {
         const session = await recoverStaleSlackDmSession({
           channelId: args.channel,
@@ -670,7 +663,7 @@ function formatSlackReply(replyText: string, prefixes: Array<string | undefined>
 
 async function sendSlackDmPromptToSession(args: {
   messageText: string
-  opencodeClient: NonNullable<Awaited<ReturnType<typeof createInstanceClient>>>
+  opencodeClient: HarnessRuntime
   sessionId: string
   slug: string
   userId: string
@@ -689,14 +682,12 @@ async function sendSlackDmPromptToSession(args: {
   const runId = runResult.run.id
   try {
     const sessionCursor = await captureSessionMessageCursor(args.opencodeClient, args.sessionId)
-    await args.opencodeClient.session.promptAsync(
-      {
-        agent: agentId ?? undefined,
-        parts: [{ type: 'text', text: buildSlackDmPrompt({ text: args.messageText }) }],
-        sessionID: args.sessionId,
-      },
-      { throwOnError: true },
-    )
+    const submitted = await args.opencodeClient.prompt({
+      agent: agentId ?? undefined,
+      parts: [{ type: 'text', text: buildSlackDmPrompt({ text: args.messageText }) }],
+      sessionId: args.sessionId,
+    })
+    if (!submitted.ok) throw new Error(submitted.error.code)
 
     const completion = await waitForSessionToComplete({
       client: args.opencodeClient,

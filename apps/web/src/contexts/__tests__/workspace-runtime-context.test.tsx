@@ -7,7 +7,7 @@ import {
   useWorkspaceRuntime,
   WorkspaceRuntimeProvider,
 } from "@/contexts/workspace-runtime-context";
-import type { WorkspaceConnectionState } from "@/lib/opencode/types";
+import type { WorkspaceConnectionState } from "@/types/workspace-runtime";
 
 const ensureInstanceRunningActionMock = vi.hoisted(() => vi.fn());
 

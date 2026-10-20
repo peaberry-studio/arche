@@ -1,4 +1,4 @@
-import type { WorkspaceSession } from "@/lib/opencode/types";
+import type { WorkspaceSession } from "@/types/workspace-runtime";
 
 type FlowWorkspaceSession = WorkspaceSession & {
   flow: NonNullable<WorkspaceSession["flow"]>;

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { getInternalLearningContext } from '@/app/api/internal/learning/auth'
+import { getRuntimeForSlug } from '@/lib/harness/registry'
 import {
   clampSessionHistoryBounds,
   getMessageRole,
@@ -10,7 +11,6 @@ import {
   type SessionHistoryRequest,
 } from '@/lib/learning/session-history'
 import { isLearningSessionTitle } from '@/lib/learning/session-title'
-import { createInstanceClient } from '@/lib/opencode/client'
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const context = await getInternalLearningContext(request)
@@ -21,14 +21,20 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const body = (await request.json().catch(() => null)) as SessionHistoryRequest | null
   const { limit, maxMessages } = clampSessionHistoryBounds(body)
   const query = body?.query?.trim().toLowerCase()
-  const client = await createInstanceClient(context.slug)
-  if (!client) {
-    return NextResponse.json({ error: 'instance_unavailable' }, { status: 503 })
+  const runtimeResult = await getRuntimeForSlug(context.slug)
+  if (!runtimeResult.ok) {
+    return NextResponse.json({ error: runtimeResult.error.code }, { status: 503 })
   }
+  const client = runtimeResult.data
 
-  const sessionsResult = await client.session.list({ limit: body?.sessionIds?.length ? 100 : limit })
+  const sessionsResult = await client.listSessions({ limit: body?.sessionIds?.length ? 100 : limit })
+  if (!sessionsResult.ok) {
+    return NextResponse.json({ error: sessionsResult.error.code }, {
+      status: sessionsResult.error.code === 'instance_unavailable' ? 503 : 502,
+    })
+  }
   const requestedIds = new Set(body?.sessionIds ?? [])
-  const sessions = (sessionsResult.data ?? [])
+  const sessions = sessionsResult.data
     .filter((session) => {
       const id = getSessionId(session)
       const title = getSessionTitle(session)
@@ -49,8 +55,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     } = { id, title: getSessionTitle(session) }
 
     if (body?.includeMessages) {
-      const messagesResult = await client.session.messages({ sessionID: id })
-      entry.messages = (messagesResult.data ?? [])
+      const messagesResult = await client.listMessages(id)
+      if (!messagesResult.ok) {
+        return NextResponse.json({ error: messagesResult.error.code }, {
+          status: messagesResult.error.code === 'instance_unavailable' ? 503 : 502,
+        })
+      }
+      entry.messages = messagesResult.data
         .map((message) => ({ role: getMessageRole(message), text: getMessageText(message).slice(0, 4000) }))
         .filter((message) => message.text.trim().length > 0)
         .slice(-maxMessages)

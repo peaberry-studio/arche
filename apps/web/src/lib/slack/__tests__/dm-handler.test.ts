@@ -17,14 +17,13 @@ const mocks = vi.hoisted(() => ({
     createEvent: vi.fn(),
   },
   opencode: {
-    createInstanceClient: vi.fn(),
+    getRuntimeForSlug: vi.fn(),
   },
   sessionExecution: {
     captureSessionMessageCursor: vi.fn(),
     createSessionPromptRun: vi.fn(),
     EXECUTION_TERMINATION_UNCONFIRMED_ERROR: 'execution_termination_unconfirmed',
     ensureWorkspaceRunningForExecution: vi.fn(),
-    isOpenCodeSessionNotFoundError: vi.fn(),
     readLatestAssistantText: vi.fn(),
     waitForSessionToComplete: vi.fn(),
   },
@@ -68,16 +67,15 @@ const mocks = vi.hoisted(() => ({
   },
 }))
 
-vi.mock('@/lib/opencode/client', () => ({
-  createInstanceClient: (...args: unknown[]) => mocks.opencode.createInstanceClient(...args),
+vi.mock('@/lib/harness/registry', () => ({
+  getRuntimeForSlug: (...args: unknown[]) => mocks.opencode.getRuntimeForSlug(...args),
 }))
 
-vi.mock('@/lib/opencode/session-execution', () => ({
+vi.mock('@/lib/harness/execution', () => ({
   captureSessionMessageCursor: (...args: unknown[]) => mocks.sessionExecution.captureSessionMessageCursor(...args),
   createSessionPromptRun: (...args: unknown[]) => mocks.sessionExecution.createSessionPromptRun(...args),
   EXECUTION_TERMINATION_UNCONFIRMED_ERROR: mocks.sessionExecution.EXECUTION_TERMINATION_UNCONFIRMED_ERROR,
   ensureWorkspaceRunningForExecution: (...args: unknown[]) => mocks.sessionExecution.ensureWorkspaceRunningForExecution(...args),
-  isOpenCodeSessionNotFoundError: (...args: unknown[]) => mocks.sessionExecution.isOpenCodeSessionNotFoundError(...args),
   readLatestAssistantText: (...args: unknown[]) => mocks.sessionExecution.readLatestAssistantText(...args),
   waitForSessionToComplete: (...args: unknown[]) => mocks.sessionExecution.waitForSessionToComplete(...args),
 }))
@@ -163,7 +161,6 @@ describe('Slack DM handler', () => {
       run: { id: 'run-1' },
     })
     mocks.sessionExecution.waitForSessionToComplete.mockResolvedValue({ status: 'completed' })
-    mocks.sessionExecution.isOpenCodeSessionNotFoundError.mockReturnValue(false)
     mocks.messageRunService.markRunFailed.mockResolvedValue(undefined)
     mocks.messageRunService.markRunSucceeded.mockResolvedValue(undefined)
     mocks.slackService.deleteSessionBindingsByOpenCodeSessionId.mockResolvedValue({ dm: 0, thread: 0 })
@@ -241,12 +238,10 @@ describe('Slack DM handler', () => {
 
   it('formats and splits DM replies while authorizing only the DM participant mention', async () => {
     const client = createClient()
-    mocks.opencode.createInstanceClient.mockResolvedValue({
-      session: {
-        create: vi.fn().mockResolvedValue({ data: { id: 'session-1' } }),
-        promptAsync: vi.fn().mockResolvedValue({}),
-      },
-    })
+    mocks.opencode.getRuntimeForSlug.mockResolvedValue({ ok: true, data: {
+      createSession: vi.fn().mockResolvedValue({ ok: true, data: { id: 'session-1' } }),
+      prompt: vi.fn().mockResolvedValue({ ok: true }),
+    } })
     mocks.slackService.createDmSessionBinding.mockResolvedValue({ id: 'binding-1' })
     mocks.sessionExecution.captureSessionMessageCursor.mockResolvedValue({ messageCount: 0 })
     mocks.sessionExecution.readLatestAssistantText.mockResolvedValue(`**Bold** <@U123> <@U999>\n\n${'x'.repeat(3_501)}`)

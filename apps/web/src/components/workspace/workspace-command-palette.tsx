@@ -16,16 +16,17 @@ import {
   Sparkle,
 } from "@phosphor-icons/react";
 
-import { listSessionsAction, searchFilesAction } from "@/actions/opencode";
+import { listSessionsAction, searchFilesAction } from "@/actions/workspace-sessions";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
 import { useFlowRunner } from "@/hooks/use-flow-runner";
-import type { WorkspaceFileNode, WorkspaceSession } from "@/lib/opencode/types";
 import { cn } from "@/lib/utils";
 import { flattenWorkspaceFileNodes, rankWorkspaceFileSearchCandidates } from "@/lib/workspace-file-search";
 import { isFlowSession } from "@/lib/workspace-session-utils";
 import type { WorkspaceThemeId } from "@/lib/workspace-theme";
+import type { WorkspaceFileNode } from "@/types/workspace";
+import type { WorkspaceSession } from "@/types/workspace-runtime";
 
 type WorkspaceCommandPaletteProps = {
   fileNodes?: WorkspaceFileNode[];

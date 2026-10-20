@@ -89,3 +89,6 @@ pipelines:
                 reports: [score]
                 verify: true
                 diff: true
+
+features:
+  worktrees: false

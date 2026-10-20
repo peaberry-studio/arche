@@ -4,7 +4,7 @@ import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useWorkspaceSessions } from "@/hooks/workspace/use-workspace-sessions";
-import type { WorkspaceSession } from "@/lib/opencode/types";
+import type { WorkspaceSession } from "@/types/workspace-runtime";
 
 const opencodeMocks = vi.hoisted(() => ({
   createSessionAction: vi.fn(),
@@ -15,7 +15,7 @@ const opencodeMocks = vi.hoisted(() => ({
   updateSessionAction: vi.fn(),
 }));
 
-vi.mock("@/actions/opencode", () => opencodeMocks);
+vi.mock("@/actions/workspace-sessions", () => opencodeMocks);
 
 function createStorageMock() {
   let store: Record<string, string> = {};

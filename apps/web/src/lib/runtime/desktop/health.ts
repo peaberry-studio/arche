@@ -1,31 +1,14 @@
+import { checkRuntimeHealth } from '@/lib/harness/registry'
+
 const LOOPBACK_HOST = '127.0.0.1'
-const DEFAULT_USERNAME = 'opencode'
 
-function makeAuthHeader(username: string, password: string): string {
-  return `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`
-}
-
-export async function checkOpenCodeHealthy(port: number, password: string): Promise<boolean> {
-  const authHeader = makeAuthHeader(DEFAULT_USERNAME, password)
-
-  try {
-    const response = await fetch(`http://${LOOPBACK_HOST}:${port}/global/health`, {
-      headers: {
-        Authorization: authHeader,
-        Accept: 'application/json',
-      },
-      signal: AbortSignal.timeout(3_000),
-    })
-
-    if (!response.ok) {
-      return false
-    }
-
-    const data = await response.json().catch(() => null)
-    return data?.healthy === true
-  } catch {
-    return false
-  }
+export async function checkOpenCodeHealthy(port: number, password: string, slug = 'desktop'): Promise<boolean> {
+  const result = await checkRuntimeHealth(slug, {
+    baseUrl: `http://${LOOPBACK_HOST}:${port}`,
+    password,
+    timeoutMs: 3_000,
+  })
+  return result.ok
 }
 
 export async function waitForHttpReady(
@@ -62,11 +45,12 @@ export async function waitForOpenCodeHealthy(
   password: string,
   timeoutMs: number,
   intervalMs: number,
+  slug = 'desktop',
 ): Promise<boolean> {
   const deadline = Date.now() + timeoutMs
 
   while (Date.now() < deadline) {
-    if (await checkOpenCodeHealthy(port, password)) {
+    if (await checkOpenCodeHealthy(port, password, slug)) {
       return true
     }
 

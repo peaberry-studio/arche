@@ -24,8 +24,8 @@ import { getEmptyComposerGlyph } from '@/components/workspace/empty-composer-gly
 import { pickEmptyComposerIntent } from '@/components/workspace/empty-composer-intents'
 import type { AgentCatalogItem } from '@/hooks/use-workspace'
 import type { SkillListItem } from '@/hooks/use-skills-catalog'
-import type { AvailableModel } from '@/lib/opencode/types'
 import { cn } from '@/lib/utils'
+import type { AvailableModel } from '@/types/workspace-runtime'
 
 type RecentUpdate = {
   fileName: string

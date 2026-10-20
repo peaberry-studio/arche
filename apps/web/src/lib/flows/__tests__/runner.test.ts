@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
   claimFlowLeaseById: vi.fn(),
   claimFlowForImmediateRun: vi.fn(),
   createFlowLeaseOwner: vi.fn(),
-  createInstanceClient: vi.fn(),
+  getRuntimeForSlug: vi.fn(),
   createRun: vi.fn(),
   extendFlowLease: vi.fn(),
   ensureProviderAccessFreshForExecution: vi.fn(),
@@ -45,15 +45,11 @@ vi.mock('@/lib/flows/route-auth', () => ({
   validateFlowSlackNodeAccess: mocks.validateFlowSlackNodeAccess,
 }))
 
-vi.mock('@/lib/opencode/client', () => ({
-  createInstanceClient: mocks.createInstanceClient,
+vi.mock('@/lib/harness/registry', () => ({
+  getRuntimeForSlug: mocks.getRuntimeForSlug,
 }))
 
-vi.mock('@/lib/opencode/providers', () => ({
-  ensureProviderAccessFreshForExecution: mocks.ensureProviderAccessFreshForExecution,
-}))
-
-vi.mock('@/lib/opencode/session-execution', () => ({
+vi.mock('@/lib/harness/execution', () => ({
   ensureWorkspaceRunningForExecution: mocks.ensureWorkspaceRunningForExecution,
 }))
 
@@ -219,7 +215,7 @@ describe('triggerFlowNow', () => {
     mocks.findRunByIdForScope.mockResolvedValue(null)
     mocks.findRunStatusById.mockResolvedValue({ status: FlowRunStatus.running })
     mocks.extendFlowLease.mockResolvedValue({ count: 1 })
-    mocks.ensureProviderAccessFreshForExecution.mockResolvedValue(undefined)
+    mocks.ensureProviderAccessFreshForExecution.mockResolvedValue({ ok: true })
     mocks.ensureWorkspaceRunningForExecution.mockResolvedValue(undefined)
     mocks.markRunFailed.mockResolvedValue({ count: 1 })
     mocks.markRunRunning.mockResolvedValue(undefined)
@@ -242,11 +238,10 @@ describe('triggerFlowNow', () => {
       nodeType: step.nodeType ?? FlowNodeType.agent,
     }))
     mocks.runFlowPromptAndReadOutput.mockResolvedValue({ ok: true, output: 'assistant output' })
-    mocks.createInstanceClient.mockResolvedValue({
-      session: {
-        create: vi.fn().mockResolvedValue({ data: { id: 'session-1' } }),
-      },
-    })
+    mocks.getRuntimeForSlug.mockResolvedValue({ ok: true, data: {
+      createSession: vi.fn().mockResolvedValue({ ok: true, data: { id: 'session-1' } }),
+      syncProviderAccess: mocks.ensureProviderAccessFreshForExecution,
+    } })
     mocks.auditCreateEvent.mockResolvedValue(undefined)
     mocks.touchActivity.mockResolvedValue(undefined)
     mocks.userFindByIdSelect.mockResolvedValue(null)
@@ -377,7 +372,7 @@ describe('triggerFlowNow', () => {
     await runClaimedFlow(flow, FlowRunTrigger.manual)
 
     expect(mocks.ensureProviderAccessFreshForExecution).toHaveBeenCalledTimes(1)
-    expect(mocks.ensureProviderAccessFreshForExecution).toHaveBeenCalledWith({ slug: 'alice', userId: 'user-1', force: true })
+    expect(mocks.ensureProviderAccessFreshForExecution).toHaveBeenCalledWith({ userId: 'user-1', force: true })
     expect(mocks.runFlowPromptAndReadOutput).toHaveBeenCalledTimes(2)
     expect(mocks.markRunSucceeded).toHaveBeenCalledWith('run-1', expect.objectContaining({ openCodeSessionId: 'session-1' }))
   })

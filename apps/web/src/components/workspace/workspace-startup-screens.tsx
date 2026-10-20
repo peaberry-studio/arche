@@ -3,7 +3,7 @@
 import { XCircle } from "@phosphor-icons/react";
 
 import type { InstanceStartupStatus } from "@/hooks/use-instance-startup";
-import type { WorkspaceConnectionState } from "@/lib/opencode/types";
+import type { WorkspaceConnectionState } from "@/types/workspace-runtime";
 
 import { ArcLoader } from "./arc-loader";
 

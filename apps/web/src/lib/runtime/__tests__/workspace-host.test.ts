@@ -6,8 +6,8 @@ vi.mock('@/lib/spawner/core', () => ({
   getInstanceStatus: vi.fn().mockResolvedValue(null),
 }))
 
-vi.mock('@/lib/opencode/client', () => ({
-  getInstanceBasicAuth: vi.fn().mockResolvedValue(null),
+vi.mock('@/lib/harness/registry', () => ({
+  getRuntimeConnection: vi.fn().mockResolvedValue(null),
 }))
 
 vi.mock('@/lib/workspace-agent/client', () => ({
@@ -99,9 +99,9 @@ describe('workspace-host dispatcher', () => {
       expect(await getWorkspaceStatus('unknown')).toBeNull()
     })
 
-    it('delegates getWorkspaceConnection to getInstanceBasicAuth', async () => {
-      const { getInstanceBasicAuth } = await import('@/lib/opencode/client')
-      vi.mocked(getInstanceBasicAuth).mockResolvedValue({
+    it('delegates getWorkspaceConnection to getRuntimeConnection', async () => {
+      const { getRuntimeConnection } = await import('@/lib/harness/registry')
+      vi.mocked(getRuntimeConnection).mockResolvedValue({
         baseUrl: 'http://opencode-alice:4096',
         authHeader: 'Basic abc',
       })
@@ -109,6 +109,7 @@ describe('workspace-host dispatcher', () => {
       const { getWorkspaceConnection } = await import('../workspace-host')
       const conn = await getWorkspaceConnection('alice')
       expect(conn).toEqual({ baseUrl: 'http://opencode-alice:4096', authHeader: 'Basic abc' })
+      expect(getRuntimeConnection).toHaveBeenCalledWith('alice')
     })
 
     it('uses the fake E2E runtime without calling the spawner', async () => {

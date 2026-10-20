@@ -4,7 +4,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { WorkspaceConnectingBanner } from "@/components/workspace/workspace-startup-screens";
-import type { WorkspaceConnectionState } from "@/lib/opencode/types";
+import type { WorkspaceConnectionState } from "@/types/workspace-runtime";
 
 function renderBanner({
   connection = { status: "connecting" } satisfies WorkspaceConnectionState,

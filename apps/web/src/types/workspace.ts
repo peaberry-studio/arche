@@ -3,9 +3,23 @@
  * These are the shapes expected by UI components, independent of the OpenCode SDK types.
  */
 
-import type { MessagePart, MessageStatusInfo } from "@/lib/opencode/types";
+import type { MessagePart, MessageStatusInfo } from "@/types/workspace-runtime";
 
-export type { MessageStatus, MessageStatusInfo } from "@/lib/opencode/types";
+export type { MessageStatus, MessageStatusInfo } from "@/types/workspace-runtime";
+
+export type WorkspaceFileNode = {
+  id: string;
+  name: string;
+  path: string;
+  type: "file" | "directory";
+  children?: WorkspaceFileNode[];
+};
+
+export type WorkspaceFileContent = {
+  path: string;
+  content: string;
+  type: "raw" | "patch";
+};
 
 export type WorkspaceAttachment = {
   id: string;

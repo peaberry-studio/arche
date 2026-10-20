@@ -2,8 +2,7 @@
 
 import { useCallback, useMemo, useRef, useState, type SetStateAction } from "react";
 
-import { listModelsAction } from "@/actions/opencode";
-import type { WorkspaceMessage, AvailableModel } from "@/lib/opencode/types";
+import { listModelsAction } from "@/actions/workspace-sessions";
 import { normalizeProviderId } from "@/lib/providers/catalog";
 import {
   createDefaultSessionSelectionState,
@@ -17,6 +16,7 @@ import {
   type AgentCatalogItem,
   type SessionSelectionState,
 } from "@/hooks/workspace/workspace-types";
+import type { AvailableModel, WorkspaceMessage } from "@/types/workspace-runtime";
 
 type UseWorkspaceModelSelectionOptions = {
   slug: string;

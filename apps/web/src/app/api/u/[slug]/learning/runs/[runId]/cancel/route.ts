@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
+import { abortSessionFamilyAndConfirmIdle } from '@/lib/harness/execution'
+import { getRuntimeForSlug } from '@/lib/harness/registry'
 import { cancelLearningRun, findLearningRunForUser } from '@/lib/learning/service'
-import { createInstanceClient } from '@/lib/opencode/client'
-import { abortSessionFamilyAndConfirmIdle } from '@/lib/opencode/session-execution'
 import { withAuth } from '@/lib/runtime/with-auth'
-import { findIdBySlug } from '@/lib/services/user'
 import { messageRunService } from '@/lib/services'
+import { findIdBySlug } from '@/lib/services/user'
 import type { LearningRun } from '@/types/learning'
 
 type CancelRunParams = {
@@ -19,22 +19,23 @@ function cancellationLogError(error: unknown): string {
 }
 
 async function abortInternalSessionBestEffort(slug: string, runId: string, sessionId: string): Promise<boolean> {
-  const client = await createInstanceClient(slug).catch((error) => {
-    console.warn('[learning/cancel] Failed to create OpenCode client', { error: cancellationLogError(error), runId })
+  const runtimeResult = await getRuntimeForSlug(slug).catch((error) => {
+    console.warn('[learning/cancel] Failed to resolve runtime', { error: cancellationLogError(error), runId })
     return null
   })
 
-  if (!client) return false
+  if (!runtimeResult?.ok) return false
+  const client = runtimeResult.data
 
   const terminated = await abortSessionFamilyAndConfirmIdle({ client, rootSessionId: sessionId }).catch((error) => {
-    console.warn('[learning/cancel] Failed to terminate OpenCode session family', {
+    console.warn('[learning/cancel] Failed to terminate runtime session family', {
       error: cancellationLogError(error),
       runId,
     })
     return false
   })
   if (!terminated) {
-    console.warn('[learning/cancel] OpenCode session family could not be confirmed idle', { runId })
+    console.warn('[learning/cancel] Runtime session family could not be confirmed idle', { runId })
     return false
   }
 

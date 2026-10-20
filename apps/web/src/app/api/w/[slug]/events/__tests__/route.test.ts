@@ -1,337 +1,174 @@
 import { NextRequest } from 'next/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import type { ArcheEvent } from '@/lib/harness/events'
+
 const mocks = vi.hoisted(() => ({
   getRuntimeCapabilities: vi.fn(() => ({ csrf: false })),
   isDesktop: vi.fn(() => false),
   getSession: vi.fn(),
   validateSameOrigin: vi.fn(() => ({ ok: true })),
   validateDesktopToken: vi.fn(() => true),
-  instanceService: { findCredentialsBySlug: vi.fn() },
-  decryptPassword: vi.fn(() => 'secret'),
-  getInstanceUrl: vi.fn(() => 'http://test-slug:3000'),
+  getRuntimeForSlug: vi.fn(),
+  subscribeEvents: vi.fn(),
+  abortSession: vi.fn(),
   subscribeWorkspaceEvents: vi.fn(),
 }))
-
 const broadcast = vi.hoisted(() => ({
   listener: null as ((event: { type: string }) => void) | null,
-  unsubscribed: false,
+  unsubscribe: vi.fn(),
 }))
-
 vi.mock('@/lib/runtime/capabilities', () => ({ getRuntimeCapabilities: mocks.getRuntimeCapabilities }))
 vi.mock('@/lib/runtime/mode', () => ({ isDesktop: mocks.isDesktop }))
 vi.mock('@/lib/runtime/session', () => ({ getSession: mocks.getSession }))
 vi.mock('@/lib/csrf', () => ({ validateSameOrigin: mocks.validateSameOrigin }))
-vi.mock('@/lib/runtime/desktop/token', () => ({
-  DESKTOP_TOKEN_HEADER: 'x-arche-desktop-token',
-  validateDesktopToken: mocks.validateDesktopToken,
-}))
-vi.mock('@/lib/services', () => ({ instanceService: mocks.instanceService }))
-vi.mock('@/lib/spawner/crypto', () => ({ decryptPassword: mocks.decryptPassword }))
-vi.mock('@/lib/opencode/client', () => ({ getInstanceUrl: mocks.getInstanceUrl }))
-vi.mock('@/lib/runtime/workspace-broadcast', () => ({
-  subscribeWorkspaceEvents: mocks.subscribeWorkspaceEvents,
-  publishWorkspaceEvent: vi.fn(),
-}))
-vi.mock('@/lib/runtime/workspace-broadcast-events', () => ({
-  KNOWLEDGE_PROPOSALS_CHANGED_EVENT: 'knowledge.proposals_changed',
-}))
+vi.mock('@/lib/runtime/desktop/token', () => ({ DESKTOP_TOKEN_HEADER: 'x-arche-desktop-token', validateDesktopToken: mocks.validateDesktopToken }))
+vi.mock('@/lib/harness/registry', () => ({ getRuntimeForSlug: mocks.getRuntimeForSlug }))
+vi.mock('@/lib/runtime/workspace-broadcast', () => ({ subscribeWorkspaceEvents: mocks.subscribeWorkspaceEvents }))
 
-import { GET } from '../route'
+import { GET } from '@/app/api/w/[slug]/events/route'
 
-function sseBody(chunks: string[]): ReadableStream<Uint8Array> {
-  const encoder = new TextEncoder()
-  return new ReadableStream({
-    start(controller) {
-      for (const chunk of chunks) {
-        controller.enqueue(encoder.encode(chunk))
-      }
-      controller.close()
-    },
-  })
+function request(signal?: AbortSignal) {
+  return GET(new NextRequest('http://localhost/api/w/alice/events', { signal }), { params: Promise.resolve({ slug: 'alice' }) })
 }
 
-function params() {
-  return { params: Promise.resolve({ slug: 'alice' }) }
+function pendingSubscription() {
+  mocks.subscribeEvents.mockImplementation(async (signal: AbortSignal) => ({
+    ok: true,
+    data: (async function* () {
+      await new Promise<void>((resolve) => {
+        if (signal.aborted) resolve()
+        else signal.addEventListener('abort', () => resolve(), { once: true })
+      })
+      yield* []
+    })(),
+  }))
 }
 
-async function readAll(res: Response): Promise<string> {
-  const reader = res.body?.getReader()
-  if (!reader) return ''
-  const decoder = new TextDecoder()
-  let text = ''
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    text += decoder.decode(value, { stream: true })
-  }
-  decoder.decode()
-  return text
+function eventSubscription(events: ArcheEvent[]) {
+  mocks.subscribeEvents.mockResolvedValue({ ok: true, data: (async function* () { yield* events })() })
 }
 
 describe('GET /api/w/[slug]/events', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.useRealTimers()
-    broadcast.listener = null
-    broadcast.unsubscribed = false
-    mocks.subscribeWorkspaceEvents.mockImplementation(
-      (_userId: string, listener: (event: { type: string }) => void) => {
-        broadcast.listener = listener
-        return () => {
-          broadcast.unsubscribed = true
-        }
-      },
-    )
-    mocks.getSession.mockResolvedValue({
-      user: { id: 'u1', email: 'alice@test.com', slug: 'alice', role: 'USER' },
-      sessionId: 's1',
+    mocks.getSession.mockResolvedValue({ user: { id: 'u1', email: 'alice@test.com', slug: 'alice', role: 'USER' }, sessionId: 's1' })
+    mocks.getRuntimeForSlug.mockResolvedValue({ ok: true, data: { subscribeEvents: mocks.subscribeEvents, abortSession: mocks.abortSession } })
+    mocks.subscribeWorkspaceEvents.mockImplementation((_userId: string, listener: (event: { type: string }) => void) => {
+      broadcast.listener = listener
+      return broadcast.unsubscribe
     })
-    mocks.instanceService.findCredentialsBySlug.mockResolvedValue({
-      status: 'running',
-      serverPassword: 'enc:pw',
-    })
-    mocks.decryptPassword.mockReturnValue('secret')
-    mocks.getInstanceUrl.mockReturnValue('http://test-slug:3000')
+    pendingSubscription()
   })
+  afterEach(() => { vi.useRealTimers() })
 
-  afterEach(() => {
-    vi.useRealTimers()
-  })
-
-  it('returns 401 when unauthenticated', async () => {
+  it('returns 401 before resolving a runtime when unauthenticated', async () => {
     mocks.getSession.mockResolvedValue(null)
-    const res = await GET(new NextRequest('http://localhost/api/w/alice/events'), params())
-    expect(res.status).toBe(401)
+    expect((await request()).status).toBe(401)
+    expect(mocks.getRuntimeForSlug).not.toHaveBeenCalled()
   })
 
-  it('returns 403 for another workspace without ADMIN', async () => {
-    mocks.getSession.mockResolvedValue({
-      user: { id: 'u2', email: 'bob@test.com', slug: 'bob', role: 'USER' },
-      sessionId: 's2',
-    })
-    const res = await GET(new NextRequest('http://localhost/api/w/alice/events'), params())
-    expect(res.status).toBe(403)
+  it('returns 403 for another workspace', async () => {
+    mocks.getSession.mockResolvedValue({ user: { id: 'u2', slug: 'bob', role: 'USER' }, sessionId: 's2' })
+    expect((await request()).status).toBe(403)
+    expect(mocks.subscribeEvents).not.toHaveBeenCalled()
   })
 
-  it('returns 503 when the instance is not running', async () => {
-    mocks.instanceService.findCredentialsBySlug.mockResolvedValue({ status: 'stopped', serverPassword: null })
-    const res = await GET(new NextRequest('http://localhost/api/w/alice/events'), params())
-    expect(res.status).toBe(503)
-    expect((await res.json()).error).toBe('instance_unavailable')
+  it('returns 503 when the runtime is unsupported', async () => {
+    mocks.getRuntimeForSlug.mockResolvedValue({ ok: false, error: { code: 'runtime_unsupported' } })
+    const response = await request()
+    expect(response.status).toBe(503)
+    expect(await response.json()).toEqual({ error: 'runtime_unsupported' })
   })
 
-  it('returns 502 when the upstream event stream cannot connect', async () => {
-    vi.stubGlobal('fetch', vi.fn(() => Promise.reject(Object.assign(new Error('timeout'), { name: 'TimeoutError' }))))
-    const res = await GET(new NextRequest('http://localhost/api/w/alice/events'), params())
-    expect(res.status).toBe(502)
-    expect((await res.json()).error).toBe('event_stream_unavailable')
-    vi.unstubAllGlobals()
+  it('returns 503 when the instance is unavailable', async () => {
+    mocks.subscribeEvents.mockResolvedValue({ ok: false, error: { code: 'instance_unavailable' } })
+    const response = await request()
+    expect(response.status).toBe(503)
+    expect(await response.json()).toEqual({ error: 'instance_unavailable' })
   })
 
-  it('returns 502 when the upstream connect exceeds the timeout window', async () => {
+  it('returns 502 when the upstream cannot connect', async () => {
+    mocks.subscribeEvents.mockResolvedValue({ ok: false, error: { code: 'event_stream_unavailable' } })
+    const response = await request()
+    expect(response.status).toBe(502)
+    expect(await response.json()).toEqual({ error: 'event_stream_unavailable' })
+  })
+
+  it('bounds only the upstream connect deadline', async () => {
     vi.useFakeTimers()
-    try {
-      const fetchMock = vi.fn((_url: string | URL, init?: RequestInit) =>
-        new Promise<Response>((_, reject) => {
-          init?.signal?.addEventListener('abort', () => {
-            reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))
-          })
-        }),
-      )
-      vi.stubGlobal('fetch', fetchMock)
-
-      const resPromise = GET(new NextRequest('http://localhost/api/w/alice/events'), params())
-      await vi.advanceTimersByTimeAsync(8_000)
-      const res = await resPromise
-
-      expect(res.status).toBe(502)
-      expect((await res.json()).error).toBe('event_stream_unavailable')
-    } finally {
-      vi.unstubAllGlobals()
-    }
-  })
-
-  it('keeps the upstream pipe open beyond the connect timeout window', async () => {
-    vi.useFakeTimers()
-    try {
-      const pendingBody = new ReadableStream<Uint8Array>({
-        start() { /* never enqueues or closes */ },
-      })
-      const fetchMock = vi.fn().mockResolvedValue(new Response(pendingBody))
-      vi.stubGlobal('fetch', fetchMock)
-
-      const res = await GET(new NextRequest('http://localhost/api/w/alice/events'), params())
-      const upstreamSignal = fetchMock.mock.calls[0][1]?.signal as AbortSignal
-
-      // The connect timeout must not abort the persistent body read.
-      await vi.advanceTimersByTimeAsync(60_000)
-      expect(upstreamSignal.aborted).toBe(false)
-
-      await res.body?.cancel()
-    } finally {
-      vi.unstubAllGlobals()
-    }
-  })
-
-  it('aborts the upstream /event fetch when the browser disconnects', async () => {
-    const pendingBody = new ReadableStream<Uint8Array>({
-      start() { /* never enqueues or closes */ },
-    })
-    const fetchMock = vi.fn().mockResolvedValue(new Response(pendingBody))
-    vi.stubGlobal('fetch', fetchMock)
-
-    const controller = new AbortController()
-    await GET(
-      new NextRequest('http://localhost/api/w/alice/events', { signal: controller.signal }),
-      params(),
-    )
-    const upstreamSignal = fetchMock.mock.calls[0][1]?.signal as AbortSignal
-    expect(upstreamSignal.aborted).toBe(false)
-
-    controller.abort()
-    await vi.waitFor(() => {
-      expect(upstreamSignal.aborted).toBe(true)
-    })
-
-    // Only the /event pipe of this connection is aborted; no OpenCode session
-    // endpoint is ever touched.
-    const openCodeCalls = fetchMock.mock.calls.map(([input]) => String(input))
-    expect(openCodeCalls).toHaveLength(1)
-    expect(openCodeCalls[0]).toContain('/event')
-  })
-
-  it('forwards the OpenCode JSON unchanged', async () => {
-    const eventJson = JSON.stringify({
-      type: 'session.status',
-      properties: { sessionID: 's1', status: { type: 'busy' } },
-    })
-    const fetchMock = vi.fn().mockResolvedValue(new Response(sseBody([`data: ${eventJson}\n\n`]), {
-      headers: { 'Content-Type': 'text/event-stream' },
+    mocks.subscribeEvents.mockImplementation((signal: AbortSignal) => new Promise((resolve) => {
+      signal.addEventListener('abort', () => resolve({ ok: false, error: { code: 'event_stream_unavailable' } }), { once: true })
     }))
-    vi.stubGlobal('fetch', fetchMock)
-
-    const res = await GET(new NextRequest('http://localhost/api/w/alice/events'), params())
-    expect(res.headers.get('content-type')).toBe('text/event-stream')
-    const body = await readAll(res)
-    expect(body).toContain(`data: ${eventJson}`)
-    expect(fetchMock).toHaveBeenCalledWith(
-      'http://test-slug:3000/event',
-      expect.objectContaining({ headers: expect.objectContaining({ Authorization: expect.stringContaining('Basic ') }) }),
-    )
+    const response = request()
+    await vi.advanceTimersByTimeAsync(8_000)
+    expect((await response).status).toBe(502)
+    expect(mocks.subscribeEvents.mock.calls[0][0].aborted).toBe(true)
   })
 
-  it('sends heartbeat comments every 10s', async () => {
+  it('keeps the subscription alive beyond the connect deadline and sends 10-second heartbeats', async () => {
     vi.useFakeTimers()
-    const pendingBody = new ReadableStream<Uint8Array>({
-      start() { /* never enqueues or closes */ },
-    })
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(pendingBody)))
-    const res = await GET(new NextRequest('http://localhost/api/w/alice/events'), params())
-
-    const reader = res.body?.getReader()
-    expect(reader).toBeTruthy()
-    const readPromise = reader!.read()
+    const response = await request()
+    const reader = response.body!.getReader()
+    const firstRead = reader.read()
     await vi.advanceTimersByTimeAsync(10_000)
-    const first = await readPromise
-    const chunk = new TextDecoder().decode(first.value)
-    expect(chunk).toMatch(/^: heartbeat \d+/)
+    expect(new TextDecoder().decode((await firstRead).value)).toMatch(/^: heartbeat \d+\n\n$/)
+    await vi.advanceTimersByTimeAsync(50_000)
+    expect(mocks.subscribeEvents.mock.calls[0][0].aborted).toBe(false)
+    await reader.cancel()
   })
 
-  it('aborting the request does not abort the OpenCode session', async () => {
-    const pendingBody = new ReadableStream<Uint8Array>({
-      start() { /* never resolves */ },
-    })
-    const fetchMock = vi.fn().mockResolvedValue(new Response(pendingBody))
-    vi.stubGlobal('fetch', fetchMock)
+  it('writes normalized Arche frames and closes on upstream EOF', async () => {
+    const events: ArcheEvent[] = [{ v: 1, type: 'session.status', sessionId: 's1', status: 'busy' }, { v: 1, type: 'workspace.touched' }]
+    eventSubscription(events)
+    const response = await request()
+    expect(response.headers.get('content-type')).toBe('text/event-stream')
+    expect(await response.text()).toBe(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(''))
+    expect(mocks.getRuntimeForSlug).toHaveBeenCalledWith('alice')
+  })
 
+  it('forwards a delta without waiting for the next upstream event', async () => {
+    let release: () => void = () => {}
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    mocks.subscribeEvents.mockResolvedValue({ ok: true, data: (async function* () {
+      yield { v: 1, type: 'workspace.touched' }
+      await gate
+      yield { v: 1, type: 'workspace.touched' }
+    })() })
+    const response = await request()
+    const reader = response.body!.getReader()
+    expect(new TextDecoder().decode((await reader.read()).value)).toContain('workspace.touched')
+    release()
+    expect(new TextDecoder().decode((await reader.read()).value)).toContain('workspace.touched')
+    expect((await reader.read()).done).toBe(true)
+  })
+
+  it.each(['request', 'body'])('releases the subscription and broadcast on %s cancellation without aborting a session', async (kind) => {
     const controller = new AbortController()
-    const res = await GET(
-      new NextRequest('http://localhost/api/w/alice/events', { signal: controller.signal }),
-      params(),
-    )
-    const reader = res.body?.getReader()
-    controller.abort()
-    await reader!.read().catch(() => undefined)
-
-    const openCodeCalls = fetchMock.mock.calls.map(([input]) => String(input))
-    expect(openCodeCalls).toHaveLength(1)
-    expect(openCodeCalls[0]).toContain('/event')
-    expect(openCodeCalls[0]).not.toContain('/abort')
-    expect(openCodeCalls[0]).not.toContain('/session/')
+    const response = await request(controller.signal)
+    expect(mocks.subscribeEvents.mock.calls[0][0].aborted).toBe(false)
+    if (kind === 'request') controller.abort()
+    else await response.body!.cancel()
+    expect(mocks.subscribeEvents.mock.calls[0][0].aborted).toBe(true)
+    expect(broadcast.unsubscribe).toHaveBeenCalledOnce()
+    expect(mocks.abortSession).not.toHaveBeenCalled()
   })
 
-  it('closes the response when the upstream stream ends', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(sseBody(['data: {"type":"session.idle","properties":{"sessionID":"s1"}}\n\n']))))
-    const res = await GET(new NextRequest('http://localhost/api/w/alice/events'), params())
-    const body = await readAll(res)
-    expect(body).toContain('session.idle')
-  })
-
-  it('injects broker events for the authenticated user into the pipe', async () => {
-    let upstreamController: ReadableStreamDefaultController<Uint8Array> | null = null
-    const upstream = new ReadableStream<Uint8Array>({
-      start(controller) {
-        upstreamController = controller
-      },
-    })
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(upstream)))
-    const decoder = new TextDecoder()
-
-    const res = await GET(new NextRequest('http://localhost/api/w/alice/events'), params())
-    const reader = res.body?.getReader()
-    expect(reader).toBeTruthy()
-    expect(mocks.subscribeWorkspaceEvents).toHaveBeenCalledWith('u1', expect.any(Function))
-
-    const injectedRead = reader!.read()
+  it('injects only modeled workspace broadcasts with a schema version', async () => {
+    const response = await request()
+    const reader = response.body!.getReader()
+    broadcast.listener?.({ type: 'unmodeled.notification' })
     broadcast.listener?.({ type: 'knowledge.proposals_changed' })
-    const injected = await injectedRead
-    expect(decoder.decode(injected.value)).toBe(
-      `data: ${JSON.stringify({ type: 'knowledge.proposals_changed' })}\n\n`,
-    )
-
-    // Upstream OpenCode frames keep flowing unchanged next to injections.
-    const opencodeEvent = JSON.stringify({
-      type: 'session.status',
-      properties: { sessionID: 's1', status: { type: 'busy' } },
-    })
-    upstreamController?.enqueue(new TextEncoder().encode(`data: ${opencodeEvent}\n\n`))
-    const redispatched = await reader!.read()
-    expect(decoder.decode(redispatched.value)).toBe(`data: ${opencodeEvent}\n\n`)
-    vi.unstubAllGlobals()
+    expect(new TextDecoder().decode((await reader.read()).value)).toBe('data: {"v":1,"type":"knowledge.proposals_changed"}\n\n')
+    expect(mocks.subscribeWorkspaceEvents).toHaveBeenCalledWith('u1', expect.any(Function))
+    await reader.cancel()
   })
 
-  it('unsubscribes the broadcast listener when the browser disconnects', async () => {
-    const pendingBody = new ReadableStream<Uint8Array>({
-      start() { /* never enqueues or closes */ },
-    })
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(pendingBody)))
-
-    const controller = new AbortController()
-    await GET(
-      new NextRequest('http://localhost/api/w/alice/events', { signal: controller.signal }),
-      params(),
-    )
-    expect(broadcast.unsubscribed).toBe(false)
-
-    controller.abort()
-    await vi.waitFor(() => {
-      expect(broadcast.unsubscribed).toBe(true)
-    })
-    vi.unstubAllGlobals()
-  })
-
-  it('unsubscribes the broadcast listener when the downstream cancels the body', async () => {
-    const pendingBody = new ReadableStream<Uint8Array>({
-      start() { /* never enqueues or closes */ },
-    })
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(pendingBody)))
-
-    const res = await GET(new NextRequest('http://localhost/api/w/alice/events'), params())
-    expect(broadcast.unsubscribed).toBe(false)
-
-    await res.body?.cancel()
-    expect(broadcast.unsubscribed).toBe(true)
-    vi.unstubAllGlobals()
+  it('closes on upstream failure without aborting execution', async () => {
+    mocks.subscribeEvents.mockResolvedValue({ ok: true, data: (async function* () { throw new Error('disconnected'); yield* [] })() })
+    const response = await request()
+    expect(await response.text()).toBe('')
+    expect(mocks.abortSession).not.toHaveBeenCalled()
+    expect(broadcast.unsubscribe).toHaveBeenCalledOnce()
   })
 })

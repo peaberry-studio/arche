@@ -50,16 +50,11 @@ vi.mock('@/lib/services', () => ({
   },
 }))
 
-// Mock opencode client
-vi.mock('@/lib/opencode/client', () => ({
+vi.mock('@/lib/harness/registry', () => ({
+  checkRuntimeHealth: vi.fn(),
   DEFAULT_HEALTH_TIMEOUT_MS: 5_000,
-  getInstanceUrl: vi.fn((slug: string) => `http://opencode-${slug}:4096`),
-  isInstanceHealthyWithPassword: vi.fn(),
-}))
-
-// Mock opencode providers
-vi.mock('@/lib/opencode/providers', () => ({
-  syncProviderAccessForInstance: vi.fn().mockResolvedValue({ ok: true }),
+  getRuntimeBaseUrl: vi.fn((slug: string) => `http://opencode-${slug}:4096`),
+  syncRuntimeProviderAccess: vi.fn().mockResolvedValue({ ok: true, data: undefined }),
 }))
 
 // Mock workspace config store
@@ -117,8 +112,7 @@ vi.mock('../crypto', () => ({
   decryptPassword: vi.fn(() => 'test-password-123'),
 }))
 
-import { isInstanceHealthyWithPassword } from '@/lib/opencode/client'
-import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
+import { checkRuntimeHealth, syncRuntimeProviderAccess } from '@/lib/harness/registry'
 import { auditService, instanceService, providerService, userService } from '@/lib/services'
 import { startInstance, stopInstance, getInstanceStatus, isSlowStart, listActiveInstances } from '../core'
 import * as crypto from '../crypto'
@@ -132,8 +126,8 @@ const mockAudit = vi.mocked(auditService)
 const mockCrypto = vi.mocked(crypto)
 const mockDocker = vi.mocked(docker)
 const mockBuildMcpConfigForSlug = vi.mocked(buildMcpConfigForSlug)
-const mockHealth = vi.mocked(isInstanceHealthyWithPassword)
-const mockSync = vi.mocked(syncProviderAccessForInstance)
+const mockHealth = vi.mocked(checkRuntimeHealth)
+const mockSync = vi.mocked(syncRuntimeProviderAccess)
 
 beforeEach(async () => {
   vi.clearAllMocks()
@@ -170,8 +164,8 @@ beforeEach(async () => {
       },
     },
   })
-  mockHealth.mockResolvedValue({ ok: true })
-  mockSync.mockResolvedValue({ ok: true })
+  mockHealth.mockResolvedValue({ ok: true, data: {} })
+  mockSync.mockResolvedValue({ ok: true, data: undefined })
   mockBuildMcpConfigForSlug.mockResolvedValue(null)
   mockInstance.setRunningIfCurrentContainer.mockResolvedValue({ count: 1 })
   mockInstance.setErrorIfCurrentContainer.mockResolvedValue({ count: 1 })
@@ -237,7 +231,7 @@ describe('startInstance', () => {
       mockDocker.createContainer.mockResolvedValue({ id: 'container-123' } as never)
       mockDocker.startContainer.mockResolvedValue(undefined)
       mockDocker.isContainerRunning.mockResolvedValue(true)
-      mockHealth.mockResolvedValue({ ok: true })
+      mockHealth.mockResolvedValue({ ok: true, data: {} })
 
       const result = await startInstance('alice', 'user-1')
 
@@ -281,9 +275,8 @@ describe('startInstance', () => {
     ])
     expect(gitAuthor).toEqual({ name: 'alice', email: 'alice@example.com' })
     expect(mockDocker.startContainer).toHaveBeenCalledWith('container-123')
-    expect(mockSync).toHaveBeenCalledWith({
-      instance: { baseUrl: expect.any(String), authHeader: expect.any(String) },
-      slug: 'alice',
+    expect(mockSync).toHaveBeenCalledWith('alice', {
+      connection: { baseUrl: expect.any(String), authHeader: expect.any(String) },
       userId: 'owner-1',
     })
     expect(mockAudit.createEvent).toHaveBeenCalledWith({
@@ -368,7 +361,7 @@ describe('startInstance', () => {
     let syncCalledBeforeRunning = false
     mockSync.mockImplementation(async () => {
       syncCalledBeforeRunning = !mockInstance.setRunningIfCurrentContainer.mock.calls.length
-      return { ok: true }
+      return { ok: true, data: undefined }
     })
 
     await startInstance('alice', 'user-1')
@@ -389,7 +382,7 @@ describe('startInstance', () => {
 
     await startInstance('alice', 'user-1')
 
-    const syncCall = mockSync.mock.calls[0]?.[0] as { disposeInstance?: boolean } | undefined
+    const syncCall = mockSync.mock.calls[0]?.[1]
     expect(syncCall).not.toHaveProperty('disposeInstance', false)
   })
 
@@ -406,23 +399,22 @@ describe('startInstance', () => {
       mockDocker.createContainer.mockResolvedValue({ id: 'container-123' } as never)
       mockDocker.startContainer.mockResolvedValue(undefined)
       mockDocker.isContainerRunning.mockResolvedValue(true)
-      mockHealth.mockImplementation(async (_slug, _password, baseUrl) => {
-        if (baseUrl === 'http://10.88.0.12:4096') {
-          return { ok: true }
+      mockHealth.mockImplementation(async (_slug, options) => {
+        if (options?.baseUrl === 'http://10.88.0.12:4096') {
+          return { ok: true, data: {} }
         }
 
-        return { ok: false, detail: 'dns_resolution_error' }
+        return { ok: false, error: { code: 'unhealthy_response', detail: 'dns_resolution_error' } }
       })
 
       await expect(startInstance('alice', 'user-1')).resolves.toEqual({ ok: true, status: 'running' })
-      expect(mockSync).toHaveBeenCalledWith({
-        instance: { baseUrl: 'http://10.88.0.12:4096', authHeader: expect.any(String) },
-        slug: 'alice',
+      expect(mockSync).toHaveBeenCalledWith('alice', {
+        connection: { baseUrl: 'http://10.88.0.12:4096', authHeader: expect.any(String) },
         userId: 'user-1',
       })
       expect(warnSpy).toHaveBeenCalledWith(
         '[spawner] DNS healthcheck unavailable after direct IP success; continuing startup',
-        expect.objectContaining({ detail: 'dns_resolution_error', directBaseUrl: 'http://10.88.0.12:4096' }),
+        expect.objectContaining({ detail: 'unhealthy_response', message: 'dns_resolution_error', directBaseUrl: 'http://10.88.0.12:4096' }),
       )
     } finally {
       logSpy.mockRestore()
@@ -441,8 +433,8 @@ describe('startInstance', () => {
     mockDocker.isContainerRunning.mockResolvedValue(true)
 
     let directSignal: AbortSignal | undefined
-    mockHealth.mockImplementation(async (_slug, _password, baseUrl, options) => {
-      if (baseUrl === 'http://10.88.0.12:4096') {
+    mockHealth.mockImplementation(async (_slug, options) => {
+      if (options?.baseUrl === 'http://10.88.0.12:4096') {
         directSignal = options?.signal
         // Mirror the real client: a stuck request never settles on its own and
         // only resolves once its signal is aborted.
@@ -453,10 +445,10 @@ describe('startInstance', () => {
           }
           options?.signal?.addEventListener('abort', () => resolve(), { once: true })
         })
-        return { ok: false, detail: 'healthcheck_timeout' }
+        return { ok: false, error: { code: 'healthcheck_timeout' } }
       }
 
-      return { ok: true }
+      return { ok: true, data: {} }
     })
 
     const result = await startInstance('alice', 'user-1')
@@ -465,9 +457,8 @@ describe('startInstance', () => {
     // The DNS winner cancelled the stuck direct-IP request.
     expect(directSignal?.aborted).toBe(true)
     // Startup proceeded over the DNS hostname, not the stuck direct IP.
-    expect(mockSync).toHaveBeenCalledWith({
-      instance: { baseUrl: 'http://opencode-alice:4096', authHeader: expect.any(String) },
-      slug: 'alice',
+    expect(mockSync).toHaveBeenCalledWith('alice', {
+      connection: { baseUrl: 'http://opencode-alice:4096', authHeader: expect.any(String) },
       userId: 'user-1',
     })
   })
@@ -483,7 +474,7 @@ describe('startInstance', () => {
     mockDocker.isContainerRunning.mockResolvedValue(true)
     mockDocker.stopContainer.mockResolvedValue(undefined)
     mockDocker.removeContainer.mockResolvedValue(undefined)
-    mockHealth.mockResolvedValue({ ok: false, detail: 'dns_resolution_error' })
+    mockHealth.mockResolvedValue({ ok: false, error: { code: 'unhealthy_response', detail: 'dns_resolution_error' } })
     vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     vi.stubEnv('ARCHE_START_TIMEOUT_MS', '100')
 
@@ -493,7 +484,7 @@ describe('startInstance', () => {
       expect(result).toMatchObject({ ok: false, error: 'timeout' })
 
       const probeTimeouts = mockHealth.mock.calls
-        .map((call) => call[3]?.timeoutMs)
+        .map((call) => call[1]?.timeoutMs)
         .filter((value): value is number => typeof value === 'number')
       expect(probeTimeouts.length).toBeGreaterThan(0)
       for (const timeoutMs of probeTimeouts) {
@@ -514,7 +505,7 @@ describe('startInstance', () => {
     mockDocker.createContainer.mockResolvedValue({ id: 'container-123' } as never)
     mockDocker.startContainer.mockResolvedValue(undefined)
     mockDocker.isContainerRunning.mockResolvedValue(true)
-    mockSync.mockResolvedValue({ ok: false, error: 'sync_failed' })
+    mockSync.mockResolvedValue({ ok: false, error: { code: 'sync_failed' } })
     vi.spyOn(console, 'error').mockImplementation(() => undefined)
 
     await expect(startInstance('alice', 'user-1')).resolves.toEqual({ ok: true, status: 'running' })
@@ -531,7 +522,7 @@ describe('startInstance', () => {
     mockDocker.createContainer.mockResolvedValue({ id: 'container-123' } as never)
     mockDocker.startContainer.mockResolvedValue(undefined)
     mockDocker.isContainerRunning.mockResolvedValue(false)
-    mockHealth.mockResolvedValue({ ok: false, detail: 'connection_refused', message: 'ECONNREFUSED' })
+    mockHealth.mockResolvedValue({ ok: false, error: { code: 'unhealthy_response', detail: 'ECONNREFUSED' } })
     mockDocker.stopContainer.mockResolvedValue(undefined)
     mockDocker.removeContainer.mockResolvedValue(undefined)
 
@@ -555,7 +546,7 @@ describe('startInstance', () => {
     mockDocker.createContainer.mockResolvedValue({ id: 'container-123' } as never)
     mockDocker.startContainer.mockResolvedValue(undefined)
     mockDocker.isContainerRunning.mockResolvedValue(true)
-    mockHealth.mockResolvedValue({ ok: false, detail: 'connection_refused' })
+    mockHealth.mockResolvedValue({ ok: false, error: { code: 'unhealthy_response', detail: 'connection_refused' } })
     vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     // Another flow already moved the same container to running: the conditional
     // error transition affects zero rows and the DB still references our id.
@@ -584,7 +575,7 @@ describe('startInstance', () => {
     mockDocker.createContainer.mockResolvedValue({ id: 'container-123' } as never)
     mockDocker.startContainer.mockResolvedValue(undefined)
     mockDocker.isContainerRunning.mockResolvedValue(true)
-    mockHealth.mockResolvedValue({ ok: false, detail: 'connection_refused' })
+    mockHealth.mockResolvedValue({ ok: false, error: { code: 'unhealthy_response', detail: 'connection_refused' } })
     vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     mockInstance.setErrorIfCurrentContainer.mockResolvedValue({ count: 0 })
     // A newer attempt replaced this startup's container.
@@ -611,7 +602,7 @@ describe('startInstance', () => {
     mockDocker.createContainer.mockResolvedValue({ id: 'container-123' } as never)
     mockDocker.startContainer.mockResolvedValue(undefined)
     mockDocker.isContainerRunning.mockResolvedValue(true)
-    mockHealth.mockResolvedValue({ ok: true })
+    mockHealth.mockResolvedValue({ ok: true, data: {} })
     mockInstance.setRunningIfCurrentContainer.mockResolvedValue({ count: 0 })
     mockInstance.findStatusBySlug.mockResolvedValue({
       status: 'running', startedAt: new Date(), stoppedAt: null, lastActivityAt: new Date(), containerId: 'container-123',
@@ -723,7 +714,7 @@ describe('getInstanceStatus', () => {
       serverPassword: 'enc',
     })
     mockDocker.isContainerRunning.mockResolvedValue(true)
-    mockHealth.mockResolvedValue({ ok: true })
+    mockHealth.mockResolvedValue({ ok: true, data: {} })
 
     const result = await getInstanceStatus('alice')
 
@@ -778,7 +769,7 @@ describe('getInstanceStatus', () => {
       serverPassword: 'enc',
     })
     mockDocker.isContainerRunning.mockResolvedValue(true)
-    mockHealth.mockResolvedValue({ ok: true })
+    mockHealth.mockResolvedValue({ ok: true, data: {} })
 
     await expect(getInstanceStatus('alice')).resolves.toMatchObject({ status: 'starting', containerId: 'abc' })
     expect(mockInstance.correctToRunningIfCurrentContainer).not.toHaveBeenCalled()
@@ -791,14 +782,15 @@ describe('getInstanceStatus', () => {
       serverPassword: 'enc',
     })
     mockDocker.isContainerRunning.mockResolvedValue(true)
-    mockHealth.mockResolvedValue({ ok: true })
+    mockHealth.mockResolvedValue({ ok: true, data: {} })
     mockUser.findIdBySlug.mockResolvedValue({ id: 'owner-1' })
 
     await expect(getInstanceStatus('alice')).resolves.toMatchObject({ status: 'running', containerId: 'abc' })
 
     expect(mockUser.findIdBySlug).toHaveBeenCalledWith('alice')
     expect(mockSync).toHaveBeenCalledWith(
-      expect.objectContaining({ slug: 'alice', userId: 'owner-1', instance: expect.any(Object) }),
+      'alice',
+      expect.objectContaining({ userId: 'owner-1', connection: expect.any(Object) }),
     )
     expect(mockInstance.correctToRunningIfCurrentContainer).toHaveBeenCalledWith('alice', 'abc')
   })
@@ -810,9 +802,9 @@ describe('getInstanceStatus', () => {
       serverPassword: 'enc',
     })
     mockDocker.isContainerRunning.mockResolvedValue(true)
-    mockHealth.mockResolvedValue({ ok: true })
+    mockHealth.mockResolvedValue({ ok: true, data: {} })
     mockUser.findIdBySlug.mockResolvedValue({ id: 'owner-1' })
-    mockSync.mockResolvedValue({ ok: false, error: 'sync_failed' })
+    mockSync.mockResolvedValue({ ok: false, error: { code: 'sync_failed' } })
 
     await expect(getInstanceStatus('alice')).resolves.toMatchObject({ status: 'starting', containerId: 'abc' })
     expect(mockInstance.correctToRunningIfCurrentContainer).not.toHaveBeenCalled()
@@ -825,7 +817,7 @@ describe('getInstanceStatus', () => {
       serverPassword: 'enc',
     })
     mockDocker.isContainerRunning.mockResolvedValue(true)
-    mockHealth.mockResolvedValue({ ok: false, detail: 'connection_refused' })
+    mockHealth.mockResolvedValue({ ok: false, error: { code: 'unhealthy_response', detail: 'connection_refused' } })
 
     await expect(getInstanceStatus('alice')).resolves.toMatchObject({ status: 'starting', containerId: 'abc' })
   })

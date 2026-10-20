@@ -9,7 +9,6 @@ import { useWorkspace } from "@/hooks/use-workspace";
 import { useConfigStatus } from "@/hooks/use-config-status";
 import { useSkillsCatalog } from "@/hooks/use-skills-catalog";
 import { useViewportWidth } from "@/hooks/use-viewport-width";
-import type { WorkspaceSession } from "@/lib/opencode/types";
 import {
   getWorkspaceFlowsHref,
   getWorkspaceHref,
@@ -30,6 +29,7 @@ import {
 } from "@/lib/workspace-panel-state";
 import { cn } from "@/lib/utils";
 import { flattenWorkspaceFileNodes, resolveWorkspaceFilePath } from "@/lib/workspace-file-search";
+import type { WorkspaceSession } from "@/types/workspace-runtime";
 
 import { ChatPanel } from "./chat-panel";
 import { ConfigChangeBanner } from "./config-change-banner";

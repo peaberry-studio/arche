@@ -1,6 +1,6 @@
 'use server'
 
-import { ensureProviderAccessFreshForExecution } from '@/lib/opencode/providers'
+import { syncRuntimeProviderAccess } from '@/lib/harness/registry'
 import { getSession } from '@/lib/runtime/session'
 import { getWorkspaceStatus, startWorkspace, stopWorkspace } from '@/lib/runtime/workspace-host'
 import { providerService, userService } from '@/lib/services'
@@ -120,7 +120,8 @@ export async function ensureInstanceRunningAction(slug: string): Promise<{
           // Hash/TTL-guarded: only syncs (and disposes OpenCode) when provider
           // credentials changed or the gateway token aged out, and defers while
           // the workspace has active runs so generations are never aborted.
-          await ensureProviderAccessFreshForExecution({ slug, userId: syncUserId })
+          const refreshed = await syncRuntimeProviderAccess(slug, { userId: syncUserId })
+          if (!refreshed.ok) throw new Error(refreshed.error.detail ?? refreshed.error.code)
           await providerService.clearWorkspaceRestartRequired(syncUserId)
         }
       } catch (err) {

@@ -4,8 +4,8 @@ import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
-import type { WorkspaceSession } from '@/lib/opencode/types'
 import { excludeSubagentSessions, hasUnseenFlowResult } from '@/lib/workspace-session-utils'
+import type { WorkspaceSession } from '@/types/workspace-runtime'
 
 const ROW_HEIGHT = 22
 const FADE_END_INDEX = 6

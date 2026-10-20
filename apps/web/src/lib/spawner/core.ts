@@ -1,12 +1,12 @@
 import { auditService, instanceService, providerService, userService } from '@/lib/services'
 import type { InstanceStatusDetails } from '@/lib/services/instance'
+import type { HarnessHealthOptions } from '@/lib/harness/contract'
 import {
+  checkRuntimeHealth,
   DEFAULT_HEALTH_TIMEOUT_MS,
-  getInstanceUrl,
-  isInstanceHealthyWithPassword,
-  type InstanceHealthResult,
-} from '@/lib/opencode/client'
-import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
+  getRuntimeBaseUrl,
+  syncRuntimeProviderAccess,
+} from '@/lib/harness/registry'
 import * as docker from './docker'
 import { decryptPassword, generatePassword, encryptPassword } from './crypto'
 import { getStartExpectedMs, getStartTimeoutMs } from './config'
@@ -35,7 +35,22 @@ type ContainerNetworkInspect = {
   }
 }
 
+type InstanceHealthResult = { ok: true } | { ok: false; detail: string; message?: string }
 type StartupHealthResult = InstanceHealthResult & { baseUrl?: string }
+
+async function checkInstanceHealth(
+  slug: string,
+  password: string,
+  baseUrl?: string,
+  options?: HarnessHealthOptions,
+): Promise<InstanceHealthResult> {
+  const result = await checkRuntimeHealth(slug, { ...options, password, baseUrl })
+  return result.ok ? { ok: true } : {
+    ok: false,
+    detail: result.error.code,
+    message: result.error.detail,
+  }
+}
 
 function getErrorDetail(err: unknown): string | undefined {
   if (!err || typeof err !== 'object') return undefined
@@ -139,12 +154,11 @@ export async function startInstance(slug: string, userId: string): Promise<Start
     // 'running'. The DB status gates all frontend connections, so providers
     // must be ready before it flips.
     const syncUserId = owner?.id ?? userId
-    const syncResult = await syncProviderAccessForInstance({
-      instance: {
-        baseUrl: healthy.baseUrl ?? getInstanceUrl(slug),
+    const syncResult = await syncRuntimeProviderAccess(slug, {
+      connection: {
+        baseUrl: healthy.baseUrl ?? getRuntimeBaseUrl(slug),
         authHeader: `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}`,
       },
-      slug,
       userId: syncUserId,
     })
     if (!syncResult.ok) {
@@ -254,7 +268,7 @@ export async function getInstanceStatus(slug: string) {
       }
 
       const password = decryptPassword(instance.serverPassword)
-      const health = await isInstanceHealthyWithPassword(slug, password)
+      const health = await checkInstanceHealth(slug, password)
 
       if (health.ok) {
         return { ...instance, status: 'running' as const }
@@ -288,7 +302,7 @@ async function reconcileStartingInstance(
 
   try {
     const password = decryptPassword(instance.serverPassword)
-    const health = await isInstanceHealthyWithPassword(slug, password)
+    const health = await checkInstanceHealth(slug, password)
     if (!health.ok) {
       return instance
     }
@@ -298,12 +312,11 @@ async function reconcileStartingInstance(
       return instance
     }
 
-    const syncResult = await syncProviderAccessForInstance({
-      instance: {
-        baseUrl: getInstanceUrl(slug),
+    const syncResult = await syncRuntimeProviderAccess(slug, {
+      connection: {
+        baseUrl: getRuntimeBaseUrl(slug),
         authHeader: `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}`,
       },
-      slug,
       userId: owner.id,
     })
     if (!syncResult.ok) {
@@ -451,7 +464,7 @@ async function probeDnsAndDirect(
   const results: { dns?: InstanceHealthResult; direct?: InstanceHealthResult } = {}
 
   const runDns = async () => {
-    const result = await isInstanceHealthyWithPassword(slug, password, undefined, {
+    const result = await checkInstanceHealth(slug, password, undefined, {
       timeoutMs,
       signal: dnsController.signal,
     })
@@ -461,7 +474,7 @@ async function probeDnsAndDirect(
 
   const runDirect = direct
     ? async () => {
-        const result = await isInstanceHealthyWithPassword(slug, password, directBaseUrl!, {
+        const result = await checkInstanceHealth(slug, password, directBaseUrl!, {
           timeoutMs,
           signal: direct.controller.signal,
         })

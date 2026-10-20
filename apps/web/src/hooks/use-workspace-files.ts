@@ -4,7 +4,7 @@ import { useCallback, useState } from "react";
 import {
   loadFileTreeAction,
   readFileAction,
-} from "@/actions/opencode";
+} from "@/actions/workspace-sessions";
 import {
   readWorkspaceFileAction,
   writeWorkspaceFileAction,
@@ -12,7 +12,7 @@ import {
   applyWorkspacePatchAction,
   discardWorkspaceFileChangesAction,
 } from "@/actions/workspace-agent";
-import type { WorkspaceFileNode } from "@/lib/opencode/types";
+import type { WorkspaceFileNode } from "@/types/workspace";
 
 export type UseWorkspaceFilesReturn = {
   fileTree: WorkspaceFileNode[];

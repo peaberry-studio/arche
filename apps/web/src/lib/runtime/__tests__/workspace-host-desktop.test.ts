@@ -115,8 +115,9 @@ vi.mock('@/lib/spawner/crypto', () => ({
   encryptPassword: vi.fn((p: string) => `enc:${p}`),
 }))
 
-vi.mock('@/lib/opencode/providers', () => ({
-  syncProviderAccessForInstance: vi.fn().mockResolvedValue({ ok: true }),
+vi.mock('@/lib/harness/registry', () => ({
+  checkRuntimeHealth: vi.fn().mockResolvedValue({ ok: true, data: {} }),
+  syncRuntimeProviderAccess: vi.fn().mockResolvedValue({ ok: true, data: undefined }),
 }))
 
 vi.mock('@/lib/spawner/mcp-config', () => ({
@@ -261,6 +262,8 @@ describe('desktopWorkspaceHost', () => {
 
     const { instanceService } = await import('@/lib/services')
     vi.mocked(instanceService.findStatusBySlug).mockResolvedValue(null)
+    const { checkRuntimeHealth } = await import('@/lib/harness/registry')
+    vi.mocked(checkRuntimeHealth).mockResolvedValue({ ok: true, data: {} })
   })
 
   afterEach(() => {
@@ -805,16 +808,20 @@ describe('desktopWorkspaceHost', () => {
     mockSpawn.mockReturnValueOnce(opencodeChild).mockReturnValueOnce(workspaceAgentChild)
 
     const { desktopWorkspaceHost } = await import('../workspace-host-desktop')
-    const { syncProviderAccessForInstance } = await import('@/lib/opencode/providers')
+    const { checkRuntimeHealth, syncRuntimeProviderAccess } = await import('@/lib/harness/registry')
     await desktopWorkspaceHost.start('local', 'user-1')
 
-    expect(syncProviderAccessForInstance).toHaveBeenCalledWith({
-      instance: {
+    expect(syncRuntimeProviderAccess).toHaveBeenCalledWith('local', {
+      connection: {
         baseUrl: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+$/),
         authHeader: expect.stringMatching(/^Basic /),
       },
-      slug: 'local',
       userId: 'local',
+    })
+    expect(checkRuntimeHealth).toHaveBeenCalledWith('local', {
+      baseUrl: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+$/),
+      password: 'generated-password',
+      timeoutMs: 3_000,
     })
   })
 
@@ -826,17 +833,17 @@ describe('desktopWorkspaceHost', () => {
     process.env.ARCHE_DESKTOP_START_TIMEOUT_MS = '20'
 
     const { desktopWorkspaceHost } = await import('../workspace-host-desktop')
-    const { syncProviderAccessForInstance } = await import('@/lib/opencode/providers')
+    const { syncRuntimeProviderAccess } = await import('@/lib/harness/registry')
     const { providerService } = await import('@/lib/services')
 
-    vi.mocked(syncProviderAccessForInstance)
-      .mockResolvedValueOnce({ ok: false, error: 'sync_failed' })
-      .mockResolvedValueOnce({ ok: true })
+    vi.mocked(syncRuntimeProviderAccess)
+      .mockResolvedValueOnce({ ok: false, error: { code: 'sync_failed' } })
+      .mockResolvedValueOnce({ ok: true, data: undefined })
 
     const result = await desktopWorkspaceHost.start('local', 'user-1')
 
     expect(result).toEqual({ ok: true, status: 'started' })
-    expect(syncProviderAccessForInstance).toHaveBeenCalledTimes(2)
+    expect(syncRuntimeProviderAccess).toHaveBeenCalledTimes(2)
     expect(providerService.clearWorkspaceRestartRequired).toHaveBeenCalledWith('local')
     expect(providerService.markWorkspaceRestartRequired).not.toHaveBeenCalled()
   })
@@ -849,11 +856,11 @@ describe('desktopWorkspaceHost', () => {
     process.env.ARCHE_DESKTOP_START_TIMEOUT_MS = '5'
 
     const { desktopWorkspaceHost } = await import('../workspace-host-desktop')
-    const { syncProviderAccessForInstance } = await import('@/lib/opencode/providers')
+    const { syncRuntimeProviderAccess } = await import('@/lib/harness/registry')
     const { providerService } = await import('@/lib/services')
 
-    const syncMock = vi.mocked(syncProviderAccessForInstance)
-    syncMock.mockResolvedValue({ ok: false, error: 'sync_failed' })
+    const syncMock = vi.mocked(syncRuntimeProviderAccess)
+    syncMock.mockResolvedValue({ ok: false, error: { code: 'sync_failed' } })
 
     try {
       const result = await desktopWorkspaceHost.start('local', 'user-1')
@@ -866,7 +873,7 @@ describe('desktopWorkspaceHost', () => {
       // Reset to the default resolved value so subsequent tests are not
       // affected by the persistent failure mock (beforeEach uses
       // clearAllMocks which does not restore mock implementations).
-      syncMock.mockResolvedValue({ ok: true })
+      syncMock.mockResolvedValue({ ok: true, data: undefined })
     }
   })
 
@@ -972,6 +979,8 @@ describe('binary resolution', () => {
     process.env.ARCHE_DATA_DIR = '/tmp/arche'
     // Make health check always fail so it times out
     mockFetch.mockRejectedValue(new Error('connection refused'))
+    const { checkRuntimeHealth } = await import('@/lib/harness/registry')
+    vi.mocked(checkRuntimeHealth).mockResolvedValue({ ok: false, error: { code: 'unhealthy_response', detail: 'connection refused' } })
 
     const opencodeChild = makeChildProcess()
     const workspaceAgentChild = makeChildProcess()
@@ -1012,6 +1021,8 @@ describe('binary resolution', () => {
     mockExecFileSync.mockReturnValue('')
     mockExistsSync.mockImplementation((target: string) => target === '/mock/bin/workspace-agent')
     mockHealthyFetch()
+    const { checkRuntimeHealth } = await import('@/lib/harness/registry')
+    vi.mocked(checkRuntimeHealth).mockResolvedValue({ ok: true, data: {} })
 
     const opencodeChild = makeChildProcess()
     // Reset mockSpawn to clear any unconsumed mockReturnValueOnce from prior tests
@@ -1037,7 +1048,7 @@ describe('desktop instance reconciliation', () => {
   const originalEnv = process.env
   const originalResourcesPath = process.resourcesPath
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.resetModules()
     vi.clearAllMocks()
     vi.stubGlobal('fetch', mockFetch)
@@ -1059,6 +1070,8 @@ describe('desktop instance reconciliation', () => {
     mockExistsSync.mockImplementation((target: string) => target === '/mock/bin/workspace-agent')
     mockRandomBytes.mockReturnValue({ toString: () => 'generated-password' })
     mockHealthyFetch()
+    const { checkRuntimeHealth } = await import('@/lib/harness/registry')
+    vi.mocked(checkRuntimeHealth).mockResolvedValue({ ok: true, data: {} })
   })
 
   afterEach(() => {

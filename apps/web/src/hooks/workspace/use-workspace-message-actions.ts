@@ -2,18 +2,18 @@
 
 import { useCallback, type MutableRefObject, type SetStateAction } from "react";
 
-import { abortSessionAction } from "@/actions/opencode";
+import { abortSessionAction } from "@/actions/workspace-sessions";
 import {
   PRE_SESSION_SELECTION_KEY,
   type SessionSelectionState,
 } from "@/hooks/workspace/workspace-types";
-import { isSending, type ChatStore } from "@/lib/opencode/event-reducer";
+import { isSending, type ChatStore } from "@/lib/workspace-events/reducer";
+import type { MessageAttachmentInput } from "@/types/workspace";
 import type {
   AvailableModel,
   PermissionResponse,
   WorkspaceSession,
-} from "@/lib/opencode/types";
-import type { MessageAttachmentInput } from "@/types/workspace";
+} from "@/types/workspace-runtime";
 
 type UseWorkspaceMessageActionsOptions = {
   slug: string;

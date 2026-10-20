@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { WorkspaceSessionsRail } from '@/components/workspace/workspace-sessions-rail'
-import type { WorkspaceSession } from '@/lib/opencode/types'
+import type { WorkspaceSession } from '@/types/workspace-runtime'
 
 const sessions: WorkspaceSession[] = [
   {
