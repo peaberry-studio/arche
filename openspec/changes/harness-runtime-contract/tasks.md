@@ -43,9 +43,9 @@ Phase 1 is not fully accepted; do not treat the unchecked tasks as completed. --
   updated); sidecar parity is out of scope.
 - 3.6 stays unticked: manual walkthrough by a human before merge. It does not block later phases. -->
 
-- [ ] 4.1 Create `infra/workspace-image/arche-tools/` (package.json with `@modelcontextprotocol/sdk`, zod, existing tool deps) and a stdio `server.js` with a shim that registers each existing tool definition as an MCP tool (zod → JSON schema, `toToolOutput` → MCP content incl. attachment metadata); move `shared/` and `tools/` into it; verify `node --test` / existing `opencode-config/tests` ported to call tools through an in-process MCP client pass.
-- [ ] 4.2 Implement caller identity for `learning` and `session_history` per design D5 (MCP `_meta` if spike 1.1 confirms forwarding, otherwise explicit argument), returning `caller_identity_unavailable` when absent; verify with tool tests for both paths.
-- [ ] 4.3 Update `Containerfile` to install `arche-tools` in `/opt/arche/arche-tools`, drop `@opencode-ai/plugin` and `OPENCODE_CONFIG_DIR` tools; update `infra/workspace-image/README.md`; verify `bash scripts/check-podman-images.sh` passes.
+- [x] 4.1 Create `infra/workspace-image/arche-tools/` (package.json with `@modelcontextprotocol/sdk`, zod, existing tool deps) and a stdio `server.js` with a shim that registers each existing tool definition as an MCP tool (zod → JSON schema, `toToolOutput` → MCP content incl. attachment metadata); move `shared/` and `tools/` into it; verify `node --test` / existing `opencode-config/tests` ported to call tools through an in-process MCP client pass.
+- [x] 4.2 Implement caller identity for `learning` and `session_history` per design D5 (MCP `_meta` if spike 1.1 confirms forwarding, otherwise explicit argument), returning `caller_identity_unavailable` when absent; verify with tool tests for both paths.
+- [x] 4.3 Update `Containerfile` to install `arche-tools` in `/opt/arche/arche-tools`, drop `@opencode-ai/plugin` and `OPENCODE_CONFIG_DIR` tools; update `infra/workspace-image/README.md`; verify `bash scripts/check-podman-images.sh` passes.
 - [x] 4.4 Register `arche_tools` as a local MCP server in the v1 runtime config and remap built-in tool ids in `agent-config-transforms.ts` (`injectAlwaysOnAgentTools`, `materializeAgentToolMaps`, related guards); verify `runtime-artifacts` and `agent-config-transforms` tests cover the spec scenario "agent had only the spreadsheet tools".
 - [x] 4.5 Audit `apps/web/kickstart/agents`, kickstart templates, skills and flow definitions for hard-coded built-in tool ids and update them; update `workspace-tool-display.ts` so the chat renders `arche_tools_*` tool parts with the same labels and attachments as before; verify with `rg` showing no old ids and component tests for tool display.
 - [x] 4.6 Desktop: point the desktop runtime at the bundled `arche-tools` (update `prepare-desktop-runtime.sh` and `runtime/desktop/config.ts`); verify desktop runtime tests pass.
@@ -66,6 +66,11 @@ attribution, not authorization; internal API workspace authentication is unchang
 Explicit allowlists no longer receive unrelated always-on tools (spreadsheet-only
 spec scenario); legacy all/missing maps still receive the complete built-in set.
 No v2 runtime or rollout default was changed. -->
+
+<!-- Phase-2 verification (2026-10-20, after run 20261020-163612-eils): with
+arche-tools deps installed from its lockfile, `node --test tests/*.test.js` passes
+31/31 (incl. caller_identity_unavailable paths) and
+`bash scripts/check-podman-images.sh` passes; 4.1–4.3 ticked. -->
 
 ## 5. Runtime kind and OpenCode v2 adapter
 
