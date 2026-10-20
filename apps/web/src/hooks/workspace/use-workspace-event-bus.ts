@@ -81,10 +81,11 @@ export function useWorkspaceEventBus({
     slug,
     generations: new Map<string, number>(),
     archived: new Map<string, boolean>(),
+    pending: new Set<string>(),
   });
   useEffect(() => {
     if (hydrationScopeRef.current.slug === slug) return;
-    hydrationScopeRef.current = { slug, generations: new Map(), archived: new Map() };
+    hydrationScopeRef.current = { slug, generations: new Map(), archived: new Map(), pending: new Set() };
     commitStore(createEmptyChatStore());
     setIsLoadingMessages(false);
     setIsBusConnected(false);
@@ -157,6 +158,7 @@ export function useWorkspaceEventBus({
       if (scope.slug !== slug) return;
       const generation = (scope.generations.get(sessionId) ?? 0) + 1;
       scope.generations.set(sessionId, generation);
+      scope.pending.add(sessionId);
       setIsLoadingMessages(true);
       const statusBefore = getStore().sessionStatus[sessionId];
       try {
@@ -200,7 +202,8 @@ export function useWorkspaceEventBus({
         }
       } finally {
         if (scope === hydrationScopeRef.current && scope.generations.get(sessionId) === generation) {
-          setIsLoadingMessages(false);
+          scope.pending.delete(sessionId);
+          setIsLoadingMessages(scope.pending.size > 0);
         }
       }
     },
@@ -267,6 +270,7 @@ export function useWorkspaceEventBus({
         const scope = hydrationScopeRef.current;
         scope.generations.set(sessionId, (scope.generations.get(sessionId) ?? 0) + 1);
         scope.archived.delete(sessionId);
+        scope.pending.delete(sessionId);
         for (const message of prev.messages[sessionId] ?? []) {
           delete pendingParts[message.id];
         }
@@ -276,6 +280,7 @@ export function useWorkspaceEventBus({
       }
       return { ...prev, messages, sessionStatus, permissions, pendingParts };
     });
+    setIsLoadingMessages(hydrationScopeRef.current.pending.size > 0);
   }, [commitStore]);
 
   const dispatchReducerEvent = useCallback(

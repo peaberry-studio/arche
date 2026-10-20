@@ -4,6 +4,8 @@ import path from 'path'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { buildKickstartArtifacts } from '@/kickstart/build'
+import { getKickstartTemplateById } from '@/kickstart/templates'
 import { KNOWLEDGE_CURATOR_SYSTEM_INSTRUCTIONS } from '@/lib/learning/curator-prompt'
 import { AGENT_KB_POLICY_PROMPT_BLOCK } from '@/lib/spawner/runtime-config-utils'
 
@@ -178,6 +180,40 @@ describe('runtime artifacts', () => {
       'pdf-processing',
       'arche-flow-authoring',
     ])
+  })
+
+  it('keeps the real Kickstart assistant promises callable in the generated runtime', async () => {
+    const template = getKickstartTemplateById('blank')
+    expect(template).not.toBeNull()
+    if (!template) return
+    const kickstart = buildKickstartArtifacts({
+      context: { companyName: 'Acme Labs', companyDescription: 'Analytics tools' },
+      template,
+      agents: [{ id: 'assistant' }],
+    })
+    expect(kickstart.ok).toBe(true)
+    if (!kickstart.ok) return
+
+    await createRuntimeRepo({
+      'CommonWorkspaceConfig.json': kickstart.artifacts.configContent,
+      'AGENTS.md': kickstart.artifacts.agentsMdContent,
+    })
+    const { buildWorkspaceRuntimeArtifacts } = await loadRuntimeArtifactsModule()
+    const artifacts = await buildWorkspaceRuntimeArtifacts('alice', {})
+    const config = JSON.parse(artifacts.opencodeConfigContent)
+    const assistant = config.agent.assistant
+
+    expect(config.default_agent).toBe('assistant')
+    expect(assistant.prompt).toContain('call `arche_tools_learning_propose` directly')
+    expect(artifacts.agentsMd).toContain('`arche_tools_chart_create`')
+    for (const toolId of ['chart_create', 'diagram_create', 'email_draft', 'flow_propose', 'learning_propose']) {
+      expect(assistant.tools[`arche_tools_${toolId}`], toolId).toBe(true)
+      expect(assistant.permission[`arche_tools_${toolId}`], toolId).toBe('allow')
+      expect(assistant.tools).not.toHaveProperty(toolId)
+    }
+    expect(assistant.tools['arche_tools_*']).toBe(false)
+    expect(assistant.tools.write).toBe(false)
+    expect(assistant.tools.edit).toBe(false)
   })
 
   it.each(['all', undefined])('keeps proposal path, skills, and connector access for legacy tools: %s', async (tools) => {

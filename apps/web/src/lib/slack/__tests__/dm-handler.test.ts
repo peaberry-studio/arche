@@ -264,6 +264,48 @@ describe('Slack DM handler', () => {
     )
   })
 
+  it('retains the DM message run lock and warns without retrying when termination is unconfirmed', async () => {
+    const client = createClient()
+    const createSession = vi.fn().mockResolvedValue({ ok: true, data: { id: 'session-1' } })
+    const prompt = vi.fn().mockResolvedValue({ ok: true })
+    const warning = 'I could not confirm the previous response stopped. It may still be running, so wait a moment before sending another message.'
+    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    mocks.opencode.getRuntimeForSlug.mockResolvedValue({ ok: true, data: { createSession, prompt } })
+    mocks.slackService.createDmSessionBinding.mockResolvedValue({ id: 'binding-1' })
+    mocks.sessionExecution.captureSessionMessageCursor.mockResolvedValue({ messageCount: 0 })
+    mocks.sessionExecution.waitForSessionToComplete.mockResolvedValue({
+      status: 'termination_unconfirmed',
+      cause: 'flow_run_timeout',
+    })
+    mocks.socketUtils.mapSlackFailureToMessage.mockReturnValueOnce(warning)
+
+    try {
+      await handleSlackDmEvent({ body: {}, client, event: messageEvent(), eventId: 'Ev1' })
+
+      expect(mocks.sessionExecution.createSessionPromptRun).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+        sessionId: 'session-1', slug: 'alice', source: 'slack_dm',
+      }))
+      expect(prompt).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ sessionId: 'session-1' }))
+      expect(mocks.sessionExecution.waitForSessionToComplete).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+        sessionId: 'session-1',
+        usage: { messageRunId: 'run-1', source: 'slack_dm', userId: 'user-1' },
+      }))
+      expect(mocks.messageRunService.markRunFailed).not.toHaveBeenCalled()
+      expect(mocks.messageRunService.markRunSucceeded).not.toHaveBeenCalled()
+      expect(mocks.sessionExecution.readLatestAssistantText).not.toHaveBeenCalled()
+      expect(createSession).toHaveBeenCalledTimes(1)
+      expect(mocks.slackService.deleteSessionBindingsByOpenCodeSessionId).not.toHaveBeenCalled()
+      expect(mocks.socketUtils.mapSlackFailureToMessage).toHaveBeenCalledExactlyOnceWith('execution_termination_unconfirmed')
+      expect(mocks.socketUtils.finalizeSlackDmReply).toHaveBeenCalledExactlyOnceWith(
+        client, 'D123', 'placeholder-ts', [warning],
+      )
+      expect(mocks.socketUtils.postSlackDmMessage).not.toHaveBeenCalled()
+      expect(consoleWarnSpy).toHaveBeenCalledExactlyOnceWith('[slack] Runtime termination unconfirmed', { cause: 'flow_run_timeout' })
+    } finally {
+      consoleWarnSpy.mockRestore()
+    }
+  })
+
   it.each([1, 3, 9])('rebinds an archived DM after %i hours without asking to continue it', async (hours) => {
     const client = createClient()
     const getSession = vi.fn()

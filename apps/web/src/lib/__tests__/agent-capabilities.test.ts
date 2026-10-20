@@ -6,6 +6,7 @@ import {
   extractAgentCapabilitiesFromTools,
   getConnectorCapabilityId,
   OPENCODE_AGENT_TOOLS,
+  OPENCODE_AGENT_TOOL_OPTIONS,
   validateAgentCapabilityConnectorIds,
   validateAgentCapabilitySkillIds,
   validateAgentCapabilityTools,
@@ -31,6 +32,31 @@ describe('validateAgentCapabilityTools', () => {
       expect(result.tools).toHaveLength(OPENCODE_AGENT_TOOLS.length)
     }
   })
+
+  it.each(['chart_create', 'diagram_create', 'email_draft', 'flow_propose', 'learning_propose'])(
+    'validates and preserves the explicitly selected built-in capability %s through editing',
+    (toolId) => {
+      const validated = validateAgentCapabilityTools([toolId])
+      expect(validated).toEqual({ ok: true, tools: [toolId] })
+      expect(OPENCODE_AGENT_TOOL_OPTIONS).toContainEqual({ id: toolId, label: expect.any(String) })
+      if (!validated.ok) return
+
+      const capabilities = { skillIds: [], tools: validated.tools, mcpConnectorIds: [] }
+      const config = buildAgentToolsConfigFromCapabilities(capabilities, [])
+      expect(config[toolId]).toBe(true)
+      expect(config['arche_*']).toBe(false)
+      const extracted = extractAgentCapabilitiesFromTools(config)
+      expect(extracted).toEqual(capabilities)
+      expect(buildAgentToolsConfigFromCapabilities(extracted, [])).toEqual(config)
+
+      const restrictedConfig = buildAgentToolsConfigFromCapabilities(
+        { skillIds: [], tools: ['spreadsheet_query'], mcpConnectorIds: [] },
+        [],
+      )
+      expect(restrictedConfig[toolId]).toBe(false)
+      expect(extractAgentCapabilitiesFromTools(restrictedConfig).tools).toEqual(['spreadsheet_query'])
+    },
+  )
 
   it('deduplicates and sorts the result', () => {
     const result = validateAgentCapabilityTools([

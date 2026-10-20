@@ -355,6 +355,76 @@ describe("useWorkspaceEventBus", () => {
     expect(hook.result.current.store.sessionStatus).toEqual({ s1: "busy", s2: "idle" });
   });
 
+  it("clears loading when a session with pending hydration is removed and discards its late snapshot", async () => {
+    const stream = createEventStream();
+    vi.stubGlobal("fetch", vi.fn(async () => sseResponse(stream)));
+    const pending = deferred<MessageSnapshot>();
+    opencodeMocks.listMessagesAction.mockReturnValueOnce(pending.promise);
+    const { hook } = renderBus();
+    await flush();
+    expect(hook.result.current.isLoadingMessages).toBe(true);
+
+    act(() => { hook.result.current.removeSessionEntries(new Set(["s1"])); });
+    expect(hook.result.current.isLoadingMessages).toBe(false);
+    await act(async () => {
+      pending.resolve({ ok: true, archived: true, messages: [snapshotMessage("Removed archive")], sessionRuntimeStatus: "idle" });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(hook.result.current.store.messages).toEqual({});
+    expect(hook.result.current.isLoadingMessages).toBe(false);
+  });
+
+  it.each(["remove", "complete"])("keeps loading another session when the first hydration is %s", async (operation) => {
+    const stream = createEventStream();
+    vi.stubGlobal("fetch", vi.fn(async () => sseResponse(stream)));
+    const first = deferred<MessageSnapshot>();
+    const second = deferred<MessageSnapshot>();
+    opencodeMocks.listMessagesAction.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const { hook } = renderBus();
+    await flush();
+    let refresh!: Promise<void>;
+    act(() => { refresh = hook.result.current.refreshMessages("s2"); });
+
+    await act(async () => {
+      if (operation === "remove") hook.result.current.removeSessionEntries(new Set(["s1"]));
+      first.resolve({ ok: true, messages: [snapshotMessage("First")], sessionRuntimeStatus: "idle" });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(hook.result.current.isLoadingMessages).toBe(true);
+    await act(async () => {
+      second.resolve({ ok: true, messages: [snapshotMessage("Second", "s2")], sessionRuntimeStatus: "idle" });
+      await refresh;
+    });
+    expect(hook.result.current.isLoadingMessages).toBe(false);
+    expect(hook.result.current.store.messages.s2?.[0].content).toBe("Second");
+  });
+
+  it("does not let an invalidated request clear a newer hydration for the same session", async () => {
+    const stream = createEventStream();
+    vi.stubGlobal("fetch", vi.fn(async () => sseResponse(stream)));
+    const older = deferred<MessageSnapshot>();
+    const newer = deferred<MessageSnapshot>();
+    opencodeMocks.listMessagesAction.mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise);
+    const { hook } = renderBus();
+    await flush();
+    let refresh!: Promise<void>;
+    act(() => {
+      hook.result.current.removeSessionEntries(new Set(["s1"]));
+      refresh = hook.result.current.refreshMessages();
+    });
+    await act(async () => {
+      older.resolve({ ok: true, messages: [snapshotMessage("Stale")], sessionRuntimeStatus: "busy" });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(hook.result.current.isLoadingMessages).toBe(true);
+    await act(async () => {
+      newer.resolve({ ok: true, messages: [snapshotMessage("Current")], sessionRuntimeStatus: "idle" });
+      await refresh;
+    });
+    expect(hook.result.current.isLoadingMessages).toBe(false);
+    expect(hook.result.current.store.messages.s1?.[0].content).toBe("Current");
+  });
+
   it("does not re-freeze a rollback when an older archived hydration finishes late", async () => {
     const stream = createEventStream();
     vi.stubGlobal("fetch", vi.fn(async () => sseResponse(stream)));

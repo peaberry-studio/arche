@@ -854,6 +854,54 @@ describe('slack socket manager', () => {
     )
   })
 
+  it('retains the thread message run lock and warns without retrying when termination is unconfirmed', async () => {
+    const client = createSlackClient()
+    const createSession = vi.fn().mockResolvedValue({ ok: true, data: { id: 'session-1' } })
+    const prompt = vi.fn().mockResolvedValue({ ok: true })
+    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    getRuntimeForSlugMock.mockResolvedValue({ ok: true, data: { createSession, prompt } })
+    waitForSessionToCompleteMock.mockResolvedValue({
+      status: 'termination_unconfirmed',
+      cause: 'flow_run_timeout',
+    })
+    const { handleSlackThreadEvent } = await import('@/lib/slack/thread-handler')
+
+    try {
+      await handleSlackThreadEvent({
+        channel: 'C123',
+        client,
+        event: { channel: 'C123', text: '<@U999> hello', ts: '100.1', user: 'U123' },
+        eventTs: '100.1',
+        isMention: true,
+        savedBotUserId: 'U999',
+        threadTs: '100.1',
+      })
+
+      expect(createSessionPromptRunMock).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+        sessionId: 'session-1', slug: 'slack-bot', source: 'slack_thread',
+      }))
+      expect(prompt).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ sessionId: 'session-1' }))
+      expect(waitForSessionToCompleteMock).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+        sessionId: 'session-1',
+        usage: { messageRunId: 'run-1', source: 'slack_thread', userId: 'service-1' },
+      }))
+      expect(markRunFailedMock).not.toHaveBeenCalled()
+      expect(markRunSucceededMock).not.toHaveBeenCalled()
+      expect(readLatestAssistantTextMock).not.toHaveBeenCalled()
+      expect(createSession).toHaveBeenCalledTimes(1)
+      expect(deleteSessionBindingsByOpenCodeSessionIdMock).not.toHaveBeenCalled()
+      expect(client.chat.update).toHaveBeenCalledExactlyOnceWith({
+        channel: 'C123',
+        text: 'I could not confirm the previous response stopped. It may still be running, so wait a moment before sending another message.',
+        ts: 'reply-1',
+      })
+      expect(client.chat.postMessage).toHaveBeenCalledTimes(1)
+      expect(consoleWarnSpy).toHaveBeenCalledExactlyOnceWith('[slack] Runtime termination unconfirmed', { cause: 'flow_run_timeout' })
+    } finally {
+      consoleWarnSpy.mockRestore()
+    }
+  })
+
   it.each([false, true])('uses a new session only for migrated thread archives (migrated=%s)', async (migrated) => {
     const client = createSlackClient()
     const getSession = vi.fn().mockResolvedValue({ ok: true, data: { id: 'legacy-session' } })
