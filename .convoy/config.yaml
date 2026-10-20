@@ -1,0 +1,91 @@
+version: 1
+pipelines:
+  harness-runtime-contract:
+    description: OpenSpec harness-runtime-contract on OpenCode with GPT-6.1-Sol, one fresh implementer session per migration phase, then audits, tests and a 90/100 goal loop
+    # Brief: .convoy/pipelines/harness-runtime-contract.prompt.md
+    steps:
+      # One implementer per migration phase (design.md "Migration Plan"). Each starts with a
+      # clean context, reads tasks.md, and implements the first task group(s) still unticked,
+      # so no session has to carry the whole change. Later phases skip the cumulative diff
+      # and get the previous phase's report instead.
+      - agent: implementer
+        name: impl-seam
+        runner: opencode
+        model: openai/gpt-6.1-sol#high
+        advisor: openai/gpt-6-astra#xhigh
+        reports: none
+      - agent: implementer
+        name: impl-tools
+        runner: opencode
+        model: openai/gpt-6.1-sol#high
+        advisor: false
+        reports: previous
+        diff: false
+      - agent: implementer
+        name: impl-v2
+        runner: opencode
+        model: openai/gpt-6.1-sol#high
+        advisor: openai/gpt-6-astra#xhigh
+        reports: [impl-seam, impl-tools]
+        diff: false
+      - agent: implementer
+        name: impl-archive
+        runner: opencode
+        model: openai/gpt-6.1-sol#high
+        advisor: false
+        reports: previous
+        diff: false
+      - agent: implementer
+        name: impl-desktop
+        runner: opencode
+        model: openai/gpt-6.1-sol#high
+        advisor: false
+        reports: previous
+        diff: false
+      - agent: patterns
+        runner: opencode
+        model: openai/gpt-6.1-sol#high
+        advisor: false
+        reports: none
+      - agent: security
+        runner: opencode
+        model: openai/gpt-6.1-sol#xhigh
+        advisor: false
+        reports: none
+      - agent: design
+        runner: opencode
+        model: openai/gpt-6.1-sol#medium
+        advisor: false
+        reports: none
+      - agent: tests
+        runner: opencode
+        model: openai/gpt-6.1-sol#high
+        advisor: false
+        reports: none
+      - goal:
+          target: 90
+          maxIterations: 3
+          improve:
+            briefStep: fix
+            steps:
+              - agent: goal-fixer
+                name: fix
+                runner: opencode
+                model: openai/gpt-6.1-sol#high
+                reports: none
+                diff: true
+          measure:
+            steps:
+              - agent: quality-scorer
+                name: score
+                runner: opencode
+                model: openai/gpt-6.1-sol#xhigh
+                reports: none
+                diff: true
+              - agent: quality-score-report
+                name: score-report
+                runner: opencode
+                model: openai/gpt-6.1-sol#high
+                reports: [score]
+                verify: true
+                diff: true
