@@ -6,13 +6,6 @@ import { findAvailablePort } from '@arche/desktop-runtime/network'
 
 import { isE2eFakeRuntimeEnabled } from '@/lib/e2e/runtime'
 import { checkRuntimeStartupSupport, syncRuntimeProviderAccess } from '@/lib/harness/registry'
-import { getKbContentRoot } from '@/lib/runtime/paths'
-import { desktopWorkspaceHostE2e } from '@/lib/runtime/workspace-host-desktop-e2e'
-import {
-  checkOpenCodeHealthy,
-  waitForHttpReady,
-  waitForOpenCodeHealthy,
-} from '@/lib/runtime/desktop/health'
 import {
   DEFAULT_USERNAME,
   LOOPBACK_HOST,
@@ -25,12 +18,20 @@ import {
   getWorkspaceAgentBinary,
   makeAuthHeader,
 } from '@/lib/runtime/desktop/config'
-import { getArcheOpencodeDataDir, getWorkspaceDir } from '@/lib/runtime/desktop/workspace-dirs'
+import {
+  checkOpenCodeHealthy,
+  waitForHttpReady,
+  waitForOpenCodeHealthy,
+} from '@/lib/runtime/desktop/health'
 import { archiveDesktopLegacySessions, cleanupDesktopLegacyArchive } from '@/lib/runtime/desktop/legacy-archive'
-import { writeRuntimeSkills } from '@/lib/skills/runtime-skills'
+import { waitForProcessExit } from '@/lib/runtime/desktop/process'
+import { getArcheOpencodeDataDir, getWorkspaceDir } from '@/lib/runtime/desktop/workspace-dirs'
+import { getKbContentRoot } from '@/lib/runtime/paths'
 import type { WorkspaceHost, WorkspaceHostConnection, WorkspaceHostStatus } from '@/lib/runtime/types'
+import { desktopWorkspaceHostE2e } from '@/lib/runtime/workspace-host-desktop-e2e'
 import { instanceService, providerService } from '@/lib/services'
 import { settleRuntimeMigratedRuns } from '@/lib/services/runtime-migration'
+import { writeRuntimeSkills } from '@/lib/skills/runtime-skills'
 import { getDefaultRuntimeKind, getWorkspaceAgentPort } from '@/lib/spawner/config'
 import { decryptPassword, encryptPassword } from '@/lib/spawner/crypto'
 import { withHistoryMigrationProgress } from '@/lib/spawner/legacy-archive'
@@ -250,35 +251,12 @@ async function stopManagedProcess(slug: string, managed: ManagedProcess): Promis
   managed.expectedExit = true
   managed.child.kill('SIGTERM')
 
-  const exited = await new Promise<boolean>((resolve) => {
-    if (managed.child.exitCode !== null || managed.child.signalCode !== null) {
-      resolve(true)
-      return
-    }
-
-    const onExit = () => {
-      clearTimeout(timer)
-      resolve(true)
-    }
-    const timer = setTimeout(() => {
-      managed.child.removeListener('exit', onExit)
-      resolve(false)
-    }, SHUTDOWN_TIMEOUT_MS)
-    managed.child.once('exit', onExit)
-  })
+  const exited = await waitForProcessExit(managed.child, SHUTDOWN_TIMEOUT_MS)
 
   if (!exited) {
     logDesktopRuntime(slug, managed.name, 'shutdown_escalated')
     managed.child.kill('SIGKILL')
-    const killed = await new Promise<boolean>((resolve) => {
-      if (managed.child.exitCode !== null || managed.child.signalCode !== null) return resolve(true)
-      const onExit = () => { clearTimeout(timer); resolve(true) }
-      const timer = setTimeout(() => {
-        managed.child.removeListener('exit', onExit)
-        resolve(false)
-      }, SHUTDOWN_TIMEOUT_MS)
-      managed.child.once('exit', onExit)
-    })
+    const killed = await waitForProcessExit(managed.child, SHUTDOWN_TIMEOUT_MS)
     if (!killed) throw new Error('desktop_runtime_cleanup_unconfirmed')
   }
 }
@@ -369,60 +347,60 @@ export async function reconcileDesktopInstances(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 async function startDesktopWorkspace(
-    slug: string,
-    userId: string,
-  ): Promise<{ ok: true; status: string } | { ok: false; error: string; detail?: string }> {
-    const existing = runtimes.get(slug)
-    if (existing && existing.state === 'running') {
-      setDesktopRuntimePortEnv(existing)
-      return { ok: true, status: 'already_running' }
-    }
+  slug: string,
+  userId: string,
+): ReturnType<WorkspaceHost['start']> {
+  const existing = runtimes.get(slug)
+  if (existing && existing.state === 'running') {
+    setDesktopRuntimePortEnv(existing)
+    return { ok: true, status: 'already_running' }
+  }
 
-    let runtimeKind = getDefaultRuntimeKind()
-    const support = checkRuntimeStartupSupport(runtimeKind)
-    if (!support.ok) return { ok: false, error: support.error.code, detail: support.error.detail }
-    ensureCleanupHooks()
-    await reconcileDesktopInstances()
-    try {
-      if (existing) await stopRuntime(slug, false)
-      await cleanupDesktopLegacyArchive(getArcheOpencodeDataDir('opencode-v1'))
-    } catch (error) {
-      return { ok: false, error: 'start_failed', detail: error instanceof Error ? error.message : 'desktop_runtime_cleanup_unconfirmed' }
-    }
-    const previous = await instanceService.findStatusBySlug(slug)
+  let runtimeKind = getDefaultRuntimeKind()
+  const support = checkRuntimeStartupSupport(runtimeKind)
+  if (!support.ok) return { ok: false, error: support.error.code, detail: support.error.detail }
+  ensureCleanupHooks()
+  await reconcileDesktopInstances()
+  try {
+    if (existing) await stopRuntime(slug, false)
+    await cleanupDesktopLegacyArchive(getArcheOpencodeDataDir('opencode-v1'))
+  } catch (error) {
+    return { ok: false, error: 'start_failed', detail: error instanceof Error ? error.message : 'desktop_runtime_cleanup_unconfirmed' }
+  }
+  const previous = await instanceService.findStatusBySlug(slug)
 
-    const password = process.env.OPENCODE_SERVER_PASSWORD || generateDesktopPassword()
-    const encryptedPassword = encryptPassword(password)
-    const workspaceDir = getWorkspaceDir(slug)
-    const kbContentDir = getKbContentRoot()
-    const authHeader = makeAuthHeader(DEFAULT_USERNAME, password)
-    const preferredAgentPort = getWorkspaceAgentPort()
-    const safeEnv = createSafeEnv()
+  const password = process.env.OPENCODE_SERVER_PASSWORD || generateDesktopPassword()
+  const encryptedPassword = encryptPassword(password)
+  const workspaceDir = getWorkspaceDir(slug)
+  const kbContentDir = getKbContentRoot()
+  const authHeader = makeAuthHeader(DEFAULT_USERNAME, password)
+  const preferredAgentPort = getWorkspaceAgentPort()
+  const safeEnv = createSafeEnv()
 
-    const port = await findAvailablePort(DEFAULT_PORT)
-    const agentPort = await findAvailablePort(preferredAgentPort, [port])
+  const port = await findAvailablePort(DEFAULT_PORT)
+  const agentPort = await findAvailablePort(preferredAgentPort, [port])
 
-    const startedAt = new Date()
-    await instanceService.upsertStarting(slug, encryptedPassword, startedAt)
-    try {
-      if (runtimeKind !== 'opencode-v1' && (previous?.runtimeKind ?? 'opencode-v1') === 'opencode-v1') {
-        const archived = await withHistoryMigrationProgress(slug, () => archiveDesktopLegacySessions({
-          slug,
-          workspaceDir,
-          dataDir: getArcheOpencodeDataDir('opencode-v1'),
-          port,
-          password,
-          timeoutMs: getStartTimeoutMs(),
-          intervalMs: getStartIntervalMs(),
-        }))
-        if (!archived.ok) {
-          console.warn('[desktop-runtime] Legacy archive failed; starting V1 and retrying migration next start', { slug, error: archived.error.code })
-          runtimeKind = 'opencode-v1'
-        } else {
-          await settleRuntimeMigratedRuns(slug)
-          logDesktopRuntime(slug, 'archive', 'completed', `archived=${archived.data.archived}`)
-        }
+  const startedAt = new Date()
+  await instanceService.upsertStarting(slug, encryptedPassword, startedAt)
+  try {
+    if (runtimeKind !== 'opencode-v1' && (previous?.runtimeKind ?? 'opencode-v1') === 'opencode-v1') {
+      const archived = await withHistoryMigrationProgress(slug, () => archiveDesktopLegacySessions({
+        slug,
+        workspaceDir,
+        dataDir: getArcheOpencodeDataDir('opencode-v1'),
+        port,
+        password,
+        timeoutMs: getStartTimeoutMs(),
+        intervalMs: getStartIntervalMs(),
+      }))
+      if (!archived.ok) {
+        console.warn('[desktop-runtime] Legacy archive failed; starting V1 and retrying migration next start', { slug, error: archived.error.code })
+        runtimeKind = 'opencode-v1'
+      } else {
+        await settleRuntimeMigratedRuns(slug)
+        logDesktopRuntime(slug, 'archive', 'completed', `archived=${archived.data.archived}`)
       }
+    }
     const archeDataDir = getArcheOpencodeDataDir(runtimeKind)
     const artifacts = await buildDesktopRuntimeArtifacts(slug, runtimeKind)
     const appliedConfigSha = hashWorkspaceRuntimeArtifacts(artifacts)
@@ -591,10 +569,10 @@ async function startDesktopWorkspace(
       await stopRuntime(slug, false)
       return { ok: false, error: 'start_failed', detail }
     }
-    } catch (error) {
-      await instanceService.setErrorIfCurrentDesktopStart(slug, startedAt)
-      return { ok: false, error: 'start_failed', detail: error instanceof Error ? error.message : 'desktop_runtime_preparation_failed' }
-    }
+  } catch (error) {
+    await instanceService.setErrorIfCurrentDesktopStart(slug, startedAt)
+    return { ok: false, error: 'start_failed', detail: error instanceof Error ? error.message : 'desktop_runtime_preparation_failed' }
+  }
 }
 
 const desktopWorkspaceHostReal: WorkspaceHost = {

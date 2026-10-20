@@ -17,7 +17,6 @@ vi.mock('@/lib/harness/adapters/opencode-v2/runtime', () => ({
 vi.mock('@/lib/harness/adapters/opencode-v1/workspace-files', () => files)
 vi.mock('@/lib/harness/adapters/opencode-v2/workspace-files', () => v2Files)
 vi.mock('@/lib/harness/adapters/opencode-v1/client', () => ({ DEFAULT_HEALTH_TIMEOUT_MS: 5000, getInstanceBasicAuth: vi.fn(), getInstanceUrl: vi.fn() }))
-vi.mock('@/lib/harness/adapters/opencode-v1/providers', () => ({ getProviderSyncHashForUser: vi.fn() }))
 vi.mock('@/lib/harness/adapters/opencode-v1/workspace-prompt', () => ({ buildWorkspacePromptParts: vi.fn(), normalizeContextPaths: vi.fn(), normalizeMessageAttachments: vi.fn() }))
 
 describe('runtime registry', () => {

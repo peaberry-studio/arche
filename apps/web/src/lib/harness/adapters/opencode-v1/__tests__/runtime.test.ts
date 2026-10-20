@@ -87,6 +87,19 @@ describe('OpenCode v1 runtime', () => {
     expect(await createOpenCodeV1Runtime('alice').listSessions()).toEqual({ ok: false, error: { code: 'instance_unavailable' } })
   })
 
+  it.each([
+    { reason: 'free_tier_limit', terminalError: 'free_tier_limit' },
+    { reason: 'rate_limit', terminalError: undefined },
+  ])('preserves retry classification for $reason', async ({ reason, terminalError }) => {
+    mocks.client.mockResolvedValue({ session: { status: vi.fn().mockResolvedValue({ data: {
+      s1: { type: 'retry', attempt: 2, message: 'Retrying', next: 123, action: { reason } },
+    } }) } })
+
+    expect(await createOpenCodeV1Runtime('alice').sessionStatus()).toEqual({ ok: true, data: {
+      s1: { type: 'retry', attempt: 2, message: 'Retrying', next: 123, ...(terminalError && { terminalError }) },
+    } })
+  })
+
   it('translates prompt identifiers at the adapter boundary', async () => {
     const promptAsync = vi.fn().mockResolvedValue({})
     mocks.client.mockResolvedValue({ session: { promptAsync } })

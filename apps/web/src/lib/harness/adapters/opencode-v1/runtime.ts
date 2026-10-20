@@ -10,6 +10,7 @@ import {
 import { subscribeOpenCodeEvents } from '@/lib/harness/adapters/opencode-v1/events'
 import { normalizePendingPermission } from '@/lib/harness/adapters/opencode-v1/permission'
 import { ensureProviderAccessFreshForExecution, syncProviderAccessForInstance } from '@/lib/harness/adapters/opencode-v1/providers'
+import { getTerminalRetryError } from '@/lib/harness/adapters/opencode-v1/retry-state'
 import { toHarnessMessage, toHarnessSession } from '@/lib/harness/adapters/opencode-v1/transform'
 import type { HarnessPrompt, HarnessRuntime, HarnessSession, HarnessSessionStatus } from '@/lib/harness/contract'
 import { harnessFailure, type HarnessResult } from '@/lib/harness/errors'
@@ -119,10 +120,10 @@ export function createOpenCodeV1Runtime(slug: string, connection?: { baseUrl: st
         if (value.type === 'busy' || value.type === 'idle') return [id, { type: value.type }]
         const record: unknown = value
         if (isRecord(record) && record.type === 'retry') {
-          const action = isRecord(record.action) ? record.action : {}
+          const terminalError = getTerminalRetryError(record)
           return [id, {
             type: 'retry', attempt: getNumber(record.attempt), message: getString(record.message), next: getNumber(record.next),
-            ...(action.reason === 'free_tier_limit' && { terminalError: 'free_tier_limit' }),
+            ...(terminalError && { terminalError }),
           }]
         }
         return [id, { type: 'unknown' }]

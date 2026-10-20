@@ -148,10 +148,6 @@ async function recordLatestSessionRunUsageBestEffort(input: {
   })
 }
 
-export function isSessionNotFoundError(error: unknown): boolean {
-  return error instanceof Error && error.message === 'session_not_found'
-}
-
 function getMessagesSinceCursor(
   messages: HarnessMessage[],
   cursor?: SessionMessageCursor,

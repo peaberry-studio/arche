@@ -6,24 +6,17 @@ import { harnessFailure, type HarnessResult } from '@/lib/harness/errors'
 import { exportLegacySessions } from '@/lib/harness/legacy-session-archive'
 import { getRuntimeForKind } from '@/lib/harness/registry'
 import { createSafeEnv, DEFAULT_USERNAME, getOpencodeBinary, LOOPBACK_HOST, makeAuthHeader } from '@/lib/runtime/desktop/config'
+import { waitForProcessExit } from '@/lib/runtime/desktop/process'
 
+const SHUTDOWN_TIMEOUT_MS = 5_000
 const unconfirmedHelpers = new Map<string, { child: ChildProcess; configDir: string }>()
-
-async function confirmExit(child: ChildProcess, timeoutMs: number): Promise<boolean> {
-  if (child.exitCode !== null || child.signalCode !== null) return true
-  return new Promise((resolve) => {
-    const onExit = () => { clearTimeout(timer); resolve(true) }
-    const timer = setTimeout(() => { child.removeListener('exit', onExit); resolve(false) }, timeoutMs)
-    child.once('exit', onExit)
-  })
-}
 
 async function stopArchiveHelper(child: ChildProcess): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) return
   child.kill('SIGTERM')
-  if (!await confirmExit(child, 5_000)) {
+  if (!await waitForProcessExit(child, SHUTDOWN_TIMEOUT_MS)) {
     child.kill('SIGKILL')
-    if (!await confirmExit(child, 5_000)) throw new Error('desktop_legacy_archive_cleanup_unconfirmed')
+    if (!await waitForProcessExit(child, SHUTDOWN_TIMEOUT_MS)) throw new Error('desktop_legacy_archive_cleanup_unconfirmed')
   }
 }
 

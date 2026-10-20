@@ -1,5 +1,4 @@
 import { DEFAULT_HEALTH_TIMEOUT_MS, getInstanceBasicAuth, getInstanceUrl } from '@/lib/harness/adapters/opencode-v1/client'
-import { getProviderSyncHashForUser as getV1ProviderSyncHashForUser } from '@/lib/harness/adapters/opencode-v1/providers'
 import { createOpenCodeV1Runtime } from '@/lib/harness/adapters/opencode-v1/runtime'
 import { renderRuntimeConfig as renderV1RuntimeConfig } from '@/lib/harness/adapters/opencode-v1/runtime-config'
 import {
@@ -79,10 +78,6 @@ export async function checkRuntimeHealth(slug: string, options?: HarnessHealthOp
 export async function syncRuntimeProviderAccess(slug: string, input: HarnessProviderAccessInput): Promise<HarnessResult<void>> {
   const runtime = await getRuntimeForSlug(slug)
   return runtime.ok ? runtime.data.syncProviderAccess(input) : runtime
-}
-
-export async function getProviderSyncHashForUser(userId: string): Promise<string> {
-  return getV1ProviderSyncHashForUser(userId)
 }
 
 export const buildWorkspacePromptParts = buildV1WorkspacePromptParts
