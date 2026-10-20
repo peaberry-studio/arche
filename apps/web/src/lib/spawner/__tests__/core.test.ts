@@ -50,12 +50,27 @@ vi.mock('@/lib/services', () => ({
   },
 }))
 
-vi.mock('@/lib/harness/registry', () => ({
-  checkRuntimeHealth: vi.fn(),
-  DEFAULT_HEALTH_TIMEOUT_MS: 5_000,
-  getRuntimeBaseUrl: vi.fn((slug: string) => `http://opencode-${slug}:4096`),
-  syncRuntimeProviderAccess: vi.fn().mockResolvedValue({ ok: true, data: undefined }),
-}))
+vi.mock('@/lib/harness/registry', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/harness/registry')>()
+  const checkRuntimeHealth = vi.fn()
+  const syncRuntimeProviderAccess = vi.fn().mockResolvedValue({ ok: true, data: undefined })
+  return {
+    ...actual,
+    checkRuntimeHealth,
+    DEFAULT_HEALTH_TIMEOUT_MS: 5_000,
+    getRuntimeBaseUrl: vi.fn((slug: string) => `http://opencode-${slug}:4096`),
+    getRuntimeForKind: vi.fn((slug: string, kind: string) => ({
+      ok: true,
+      data: {
+        kind,
+        slug,
+        health: (options: unknown) => checkRuntimeHealth(slug, options),
+        syncProviderAccess: (input: unknown) => syncRuntimeProviderAccess(slug, input),
+      },
+    })),
+    syncRuntimeProviderAccess,
+  }
+})
 
 // Mock workspace config store
 vi.mock('@/lib/common-workspace-config-store', () => ({
@@ -112,7 +127,7 @@ vi.mock('../crypto', () => ({
   decryptPassword: vi.fn(() => 'test-password-123'),
 }))
 
-import { checkRuntimeHealth, syncRuntimeProviderAccess } from '@/lib/harness/registry'
+import { checkRuntimeHealth, getRuntimeForKind, syncRuntimeProviderAccess } from '@/lib/harness/registry'
 import { auditService, instanceService, providerService, userService } from '@/lib/services'
 import { startInstance, stopInstance, getInstanceStatus, isSlowStart, listActiveInstances } from '../core'
 import * as crypto from '../crypto'
@@ -181,6 +196,76 @@ afterEach(async () => {
 })
 
 describe('startInstance', () => {
+  it.each(['opencode-v2', 'unknown'])('refuses unsupported kind %s before any destructive effect', async (runtimeKind) => {
+    mockInstance.findBySlug.mockResolvedValue({ status: 'error', containerId: 'keep-me' } as never)
+    vi.mocked(getRuntimeForKind).mockReturnValueOnce({ ok: false, error: { code: 'runtime_unsupported', detail: runtimeKind } })
+
+    await expect(startInstance('alice', 'admin-1', { runtimeKind })).resolves.toEqual({
+      ok: false, error: 'runtime_unsupported', detail: runtimeKind,
+    })
+    expect(getRuntimeForKind).toHaveBeenCalledWith('alice', runtimeKind)
+    expect(mockDocker.removeContainer).not.toHaveBeenCalled()
+    expect(mockDocker.removeManagedContainerForSlug).not.toHaveBeenCalled()
+    expect(mockDocker.createContainer).not.toHaveBeenCalled()
+    expect(mockInstance.upsertStarting).not.toHaveBeenCalled()
+    expect(mockCrypto.generatePassword).not.toHaveBeenCalled()
+  })
+
+  it('gates the deployment default before cleanup', async () => {
+    vi.stubEnv('ARCHE_DEFAULT_RUNTIME_KIND', 'opencode-v2')
+    try {
+      mockInstance.findBySlug.mockResolvedValue(null)
+      vi.mocked(getRuntimeForKind).mockReturnValueOnce({ ok: false, error: { code: 'runtime_unsupported' } })
+      await expect(startInstance('alice', 'user-1')).resolves.toMatchObject({ ok: false, error: 'runtime_unsupported' })
+      expect(getRuntimeForKind).toHaveBeenCalledWith('alice', 'opencode-v2')
+      expect(mockDocker.removeManagedContainerForSlug).not.toHaveBeenCalled()
+      expect(mockInstance.upsertStarting).not.toHaveBeenCalled()
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('does not stop or relabel a running v1 instance when v2 is requested', async () => {
+    mockInstance.findBySlug.mockResolvedValue({ status: 'running', containerId: 'keep-me', runtimeKind: 'opencode-v1' } as never)
+    await expect(startInstance('alice', 'admin-1', { runtimeKind: 'opencode-v2' })).resolves.toEqual({ ok: false, error: 'already_running' })
+    expect(mockDocker.removeContainer).not.toHaveBeenCalled()
+    expect(mockDocker.removeManagedContainerForSlug).not.toHaveBeenCalled()
+    expect(mockInstance.setRunningIfCurrentContainer).not.toHaveBeenCalled()
+  })
+
+  it('uses an explicit v1 selection instead of a changed deployment default', async () => {
+    vi.stubEnv('ARCHE_DEFAULT_RUNTIME_KIND', 'opencode-v2')
+    try {
+      mockInstance.findBySlug.mockResolvedValue(null)
+      mockInstance.upsertStarting.mockResolvedValue({} as never)
+      mockInstance.setContainerId.mockResolvedValue({} as never)
+      mockUser.findIdentityBySlug.mockResolvedValue(null)
+      mockDocker.createContainer.mockResolvedValue({ id: 'container-v1' } as never)
+      mockDocker.startContainer.mockResolvedValue(undefined)
+      mockDocker.isContainerRunning.mockResolvedValue(true)
+      await expect(startInstance('alice', 'admin-1', { runtimeKind: 'opencode-v1' })).resolves.toEqual({ ok: true, status: 'running' })
+      expect(getRuntimeForKind).toHaveBeenCalledWith('alice', 'opencode-v1')
+      expect(mockInstance.setContainerId).toHaveBeenCalledWith('alice', 'container-v1', 'opencode-v1')
+      expect(mockInstance.setContainerId.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(checkRuntimeHealth).mock.invocationCallOrder[0])
+      expect(mockInstance.setRunningIfCurrentContainer).toHaveBeenCalledWith('alice', 'container-v1', expect.any(String), 'opencode-v1')
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('preserves a running recorded runtime when the deployment default changes', async () => {
+    vi.stubEnv('ARCHE_DEFAULT_RUNTIME_KIND', 'opencode-v2')
+    try {
+      mockInstance.findBySlug.mockResolvedValue({ status: 'running', containerId: 'keep-me', runtimeKind: 'opencode-v1' } as never)
+      await expect(startInstance('alice', 'user-1')).resolves.toEqual({ ok: false, error: 'already_running' })
+      expect(getRuntimeForKind).not.toHaveBeenCalled()
+      expect(mockDocker.removeContainer).not.toHaveBeenCalled()
+      expect(mockDocker.removeManagedContainerForSlug).not.toHaveBeenCalled()
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it('returns already_running if instance is running', async () => {
     mockInstance.findBySlug.mockResolvedValue({
       id: '1', slug: 'alice', status: 'running',
@@ -261,6 +346,8 @@ describe('startInstance', () => {
 
     expect(result).toEqual({ ok: true, status: 'running' })
     const [slug, password, configContent, agentsMd, skills, gitAuthor] = mockDocker.createContainer.mock.calls[0] ?? []
+    expect(getRuntimeForKind).toHaveBeenCalledWith('alice', 'opencode-v1')
+    expect(mockInstance.setRunningIfCurrentContainer).toHaveBeenCalledWith('alice', 'container-123', expect.any(String), 'opencode-v1')
     expect(slug).toBe('alice')
     expect(password).toBe('test-password-123')
     expect(typeof configContent).toBe('string')
@@ -282,7 +369,7 @@ describe('startInstance', () => {
     expect(mockAudit.createEvent).toHaveBeenCalledWith({
       actorUserId: 'user-1',
       action: 'instance.started',
-      metadata: { slug: 'alice' },
+      metadata: { slug: 'alice', runtimeKind: 'opencode-v1' },
     })
   })
 

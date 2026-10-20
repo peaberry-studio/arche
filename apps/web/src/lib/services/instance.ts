@@ -18,6 +18,7 @@ export type InstanceRecord = {
   containerId: string | null
   serverPassword: string
   appliedConfigSha: string | null
+  runtimeKind: string | null
   providerSyncHash: string | null
   providerSyncedAt: Date | null
 }
@@ -28,6 +29,7 @@ export type InstanceCredentials = {
 }
 
 export type InstanceStatusDetails = {
+  runtimeKind: string | null
   status: InstanceStatus
   startedAt: Date | null
   stoppedAt: Date | null
@@ -59,6 +61,13 @@ export function findBySlug(slug: string): Promise<InstanceRecord | null> {
   return prisma.instance.findUnique({ where: { slug } })
 }
 
+export function findRuntimeKindBySlug(slug: string): Promise<{ runtimeKind: string | null } | null> {
+  return prisma.instance.findUnique({
+    where: { slug },
+    select: { runtimeKind: true },
+  })
+}
+
 export function findCredentialsBySlug(slug: string): Promise<InstanceCredentials | null> {
   return prisma.instance.findUnique({
     where: { slug },
@@ -72,6 +81,7 @@ export function findStatusBySlug(slug: string): Promise<InstanceStatusDetails | 
     select: {
       status: true,
       startedAt: true,
+      runtimeKind: true,
       stoppedAt: true,
       lastActivityAt: true,
       containerId: true,
@@ -143,21 +153,21 @@ export function findIdleInstances(threshold: Date): Promise<InstanceRecord[]> {
 // Mutations
 // ---------------------------------------------------------------------------
 
-export function upsertStarting(slug: string, serverPassword: string) {
+export function upsertStarting(slug: string, serverPassword: string, startedAt = new Date()) {
   return prisma.instance.upsert({
     where: { slug },
     create: {
       slug,
       status: 'starting',
       serverPassword,
-      startedAt: new Date(),
+      startedAt,
       providerSyncHash: null,
       providerSyncedAt: null,
     },
     update: {
       status: 'starting',
       serverPassword,
-      startedAt: new Date(),
+      startedAt,
       stoppedAt: null,
       containerId: null,
       providerSyncHash: null,
@@ -166,10 +176,10 @@ export function upsertStarting(slug: string, serverPassword: string) {
   })
 }
 
-export function setContainerId(slug: string, containerId: string) {
+export function setContainerId(slug: string, containerId: string, runtimeKind = 'opencode-v1') {
   return prisma.instance.update({
-    where: { slug },
-    data: { containerId },
+    where: { slug, status: 'starting', containerId: null },
+    data: { containerId, runtimeKind },
   })
 }
 
@@ -193,6 +203,7 @@ export function setRunningIfCurrentContainer(
   slug: string,
   containerId: string,
   appliedConfigSha: string | null,
+  runtimeKind = 'opencode-v1',
 ): Promise<{ count: number }> {
   return prisma.instance.updateMany({
     where: { slug, status: 'starting', containerId },
@@ -200,6 +211,24 @@ export function setRunningIfCurrentContainer(
       status: 'running',
       lastActivityAt: new Date(),
       appliedConfigSha,
+      runtimeKind,
+    },
+  })
+}
+
+export function setRunningIfCurrentDesktopStart(
+  slug: string,
+  startedAt: Date,
+  appliedConfigSha: string | null,
+  runtimeKind: string,
+): Promise<{ count: number }> {
+  return prisma.instance.updateMany({
+    where: { slug, status: 'starting', containerId: null, startedAt },
+    data: {
+      status: 'running',
+      lastActivityAt: new Date(),
+      appliedConfigSha,
+      runtimeKind,
     },
   })
 }

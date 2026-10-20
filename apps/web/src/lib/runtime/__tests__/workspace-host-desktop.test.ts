@@ -62,6 +62,7 @@ vi.mock('@/lib/services', () => ({
     upsertStarting: vi.fn().mockResolvedValue(undefined),
     setError: vi.fn().mockResolvedValue(undefined),
     setRunning: vi.fn().mockResolvedValue(undefined),
+    setRunningIfCurrentDesktopStart: vi.fn().mockResolvedValue({ count: 1 }),
     setStopped: vi.fn().mockResolvedValue(undefined),
     findStatusBySlug: vi.fn().mockResolvedValue(null),
     findActiveInstances: vi.fn().mockResolvedValue([]),
@@ -115,7 +116,8 @@ vi.mock('@/lib/spawner/crypto', () => ({
   encryptPassword: vi.fn((p: string) => `enc:${p}`),
 }))
 
-vi.mock('@/lib/harness/registry', () => ({
+vi.mock('@/lib/harness/registry', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/lib/harness/registry')>(),
   checkRuntimeHealth: vi.fn().mockResolvedValue({ ok: true, data: {} }),
   syncRuntimeProviderAccess: vi.fn().mockResolvedValue({ ok: true, data: undefined }),
 }))
@@ -297,6 +299,7 @@ describe('desktopWorkspaceHost', () => {
       lastActivityAt: new Date('2026-04-21T10:00:00.000Z'),
       containerId: null,
       serverPassword: 'enc:fake-password',
+      runtimeKind: null,
       providerSyncHash: null,
       providerSyncedAt: null,
     })
@@ -325,10 +328,37 @@ describe('desktopWorkspaceHost', () => {
     await desktopWorkspaceHost.start('local', 'user-1')
 
     const { instanceService } = await import('@/lib/services')
-    expect(instanceService.setRunning).toHaveBeenCalledWith(
+    expect(instanceService.setRunningIfCurrentDesktopStart).toHaveBeenCalledWith(
       'local',
-      expect.stringMatching(/^[a-f0-9]{64}$/)
+      expect.any(Date),
+      expect.stringMatching(/^[a-f0-9]{64}$/),
+      'opencode-v1',
     )
+  })
+
+  it('records v1 and keeps the existing binary even if the deployment default is v2', async () => {
+    process.env.ARCHE_DEFAULT_RUNTIME_KIND = 'opencode-v2'
+    mockSpawn.mockReturnValueOnce(makeChildProcess()).mockReturnValueOnce(makeChildProcess())
+    const { desktopWorkspaceHost } = await import('../workspace-host-desktop')
+    await expect(desktopWorkspaceHost.start('local', 'user-1')).resolves.toEqual({ ok: true, status: 'started' })
+    expect(mockSpawn.mock.calls[0][0]).toBe('opencode')
+    const { instanceService } = await import('@/lib/services')
+    expect(instanceService.setRunningIfCurrentDesktopStart).toHaveBeenCalledWith('local', expect.any(Date), expect.any(String), 'opencode-v1')
+  })
+
+  it('does not publish running when the desktop start was superseded', async () => {
+    const opencodeChild = makeChildProcess({ exitCode: 0 })
+    const workspaceAgentChild = makeChildProcess({ exitCode: 0 })
+    mockSpawn.mockReturnValueOnce(opencodeChild).mockReturnValueOnce(workspaceAgentChild)
+    const { instanceService } = await import('@/lib/services')
+    vi.mocked(instanceService.setRunningIfCurrentDesktopStart).mockResolvedValueOnce({ count: 0 })
+    const { desktopWorkspaceHost } = await import('../workspace-host-desktop')
+    await expect(desktopWorkspaceHost.start('local', 'user-1')).resolves.toMatchObject({ ok: false, error: 'start_failed' })
+    expect(opencodeChild.kill).toHaveBeenCalledWith('SIGTERM')
+    expect(workspaceAgentChild.kill).toHaveBeenCalledWith('SIGTERM')
+    expect(instanceService.setRunning).not.toHaveBeenCalled()
+    expect(instanceService.setStopped).not.toHaveBeenCalled()
+    expect(instanceService.setError).not.toHaveBeenCalled()
   })
 
   it('spawns opencode with serve command and workspace-agent with loopback addr', async () => {
@@ -899,7 +929,7 @@ describe('desktopWorkspaceHost', () => {
     expect(result).toEqual({ ok: true, status: 'started' })
 
     const { instanceService } = await import('@/lib/services')
-    expect(instanceService.upsertStarting).toHaveBeenCalledWith('local', 'enc:generated-password')
+    expect(instanceService.upsertStarting).toHaveBeenCalledWith('local', 'enc:generated-password', expect.any(Date))
   })
 
   it('stopManagedProcess waits for actual exit, not just killed flag', async () => {

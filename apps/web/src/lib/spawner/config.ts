@@ -22,6 +22,14 @@ export function getOpencodeImage(): string {
   return process.env.OPENCODE_IMAGE || 'ghcr.io/peaberry-studio/arche/workspace:latest'
 }
 
+export function getOpencodeV1Image(): string {
+  return process.env.OPENCODE_V1_IMAGE || 'ghcr.io/peaberry-studio/arche/workspace:v6.0.0'
+}
+
+export function getDefaultRuntimeKind(): string {
+  return process.env.ARCHE_DEFAULT_RUNTIME_KIND || 'opencode-v1'
+}
+
 export function getOpencodeNetwork(): string {
   return process.env.OPENCODE_NETWORK || 'arche-internal'
 }
@@ -57,4 +65,3 @@ export function getKbContentHostPath(): string {
   }
   return value
 }
-

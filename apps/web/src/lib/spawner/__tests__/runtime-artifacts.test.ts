@@ -259,6 +259,40 @@ describe('runtime artifacts', () => {
     expect(config.mcp).toMatchObject({ arche_tools: { command: options.archeToolsCommand } })
   })
 
+  it('refuses protected V2 artifacts when the required delegation guard cannot be represented', async () => {
+    await createRuntimeRepo({
+      'AGENTS.md': '# Workspace',
+      'CommonWorkspaceConfig.json': JSON.stringify({
+        default_agent: 'analyst',
+        agent: { analyst: { tools: { read: true, spreadsheet_query: true } } },
+      }),
+    })
+    const { buildWorkspaceRuntimeArtifacts } = await loadRuntimeArtifactsModule()
+    await expect(buildWorkspaceRuntimeArtifacts('alice', {}, { runtimeKind: 'opencode-v2' }))
+      .rejects.toMatchObject({ code: 'runtime_config_unsupported', detail: { path: 'guards.selfDelegation' } })
+  })
+
+  it.each([
+    { permission: { doom_loop: 'deny' } },
+    { permission: { read: 'invalid' } },
+    { permission: 123 },
+    { tools: { unknown: false } },
+  ])('rejects unsupported authored V2 security settings before transforms can overwrite them', async (agent) => {
+    await createRuntimeRepo({
+      'CommonWorkspaceConfig.json': JSON.stringify({ agent: { worker: agent } }),
+    })
+    const { buildWorkspaceRuntimeArtifacts } = await loadRuntimeArtifactsModule()
+    await expect(buildWorkspaceRuntimeArtifacts('alice', {}, { runtimeKind: 'opencode-v2' }))
+      .rejects.toMatchObject({ code: 'runtime_config_unsupported' })
+  })
+
+  it('rejects malformed V2 source JSON instead of producing an unrestricted fallback', async () => {
+    await createRuntimeRepo({ 'CommonWorkspaceConfig.json': '{ invalid' })
+    const { buildWorkspaceRuntimeArtifacts } = await loadRuntimeArtifactsModule()
+    await expect(buildWorkspaceRuntimeArtifacts('alice', {}, { runtimeKind: 'opencode-v2' }))
+      .rejects.toMatchObject({ code: 'runtime_config_unsupported' })
+  })
+
   it('keeps only spreadsheet tools enabled for an explicit agent and remaps its permissions', async () => {
     const storedConfig = {
       default_agent: 'analyst',
@@ -811,5 +845,18 @@ describe('runtime artifacts', () => {
         opencodeConfigContent: JSON.stringify(updatedAuthConfig),
       })
     )
+  })
+
+  it.each([
+    { url: 'http://web:3000/api/internal/mcp/connectors/connector-1/mcp', sameHash: true },
+    { url: 'https://external.example/mcp', sameHash: false },
+  ])('hashes native V2 MCP auth rotation with the same gateway-only normalization: $sameHash', async ({ url, sameHash }) => {
+    const { hashWorkspaceRuntimeArtifacts } = await loadRuntimeArtifactsModule()
+    const hash = (token: string) => hashWorkspaceRuntimeArtifacts({
+      opencodeConfigContent: JSON.stringify({
+        mcp: { servers: { arche_linear_1: { type: 'remote', url, headers: { Authorization: `Bearer ${token}` } } } },
+      }),
+    })
+    expect(hash('first') === hash('second')).toBe(sameHash)
   })
 })

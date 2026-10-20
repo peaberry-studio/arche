@@ -186,6 +186,7 @@ type DesktopRuntimeArtifacts = {
 async function buildDesktopRuntimeArtifacts(slug: string): Promise<DesktopRuntimeArtifacts> {
   return buildWorkspaceRuntimeArtifacts(slug, getDesktopProviderGatewayConfig(), {
     archeToolsCommand: getDesktopArcheToolsCommand(),
+    runtimeKind: 'opencode-v1',
   })
 }
 
@@ -387,7 +388,8 @@ const desktopWorkspaceHostReal: WorkspaceHost = {
 
     await writeRuntimeSkills(runtimeSkillDir, artifacts.skills)
 
-    await instanceService.upsertStarting(slug, encryptedPassword)
+    const startedAt = new Date()
+    await instanceService.upsertStarting(slug, encryptedPassword, startedAt)
 
     const opencodeProcess = createManagedProcess(
       'opencode',
@@ -453,7 +455,7 @@ const desktopWorkspaceHostReal: WorkspaceHost = {
       port,
       agentPort,
       password,
-      startedAt: new Date(),
+      startedAt,
       state: 'starting',
       stopPromise: null,
       lastErrorDetail: null,
@@ -507,14 +509,19 @@ const desktopWorkspaceHostReal: WorkspaceHost = {
       }
 
       const runtime = runtimes.get(slug)
-      if (!runtime) {
+      if (!runtime || runtime.opencode !== opencodeProcess) {
         return { ok: false, error: 'start_failed', detail: 'runtime_disposed_during_start' }
+      }
+
+      const affected = await instanceService.setRunningIfCurrentDesktopStart(slug, startedAt, appliedConfigSha, 'opencode-v1')
+      if (affected.count === 0) {
+        if (runtimes.get(slug) === runtime) await stopRuntime(slug, false)
+        return { ok: false, error: 'start_failed', detail: 'startup superseded by another attempt' }
       }
 
       runtime.state = 'running'
       runtime.lastErrorDetail = null
       logDesktopRuntime(slug, 'runtime', 'state_changed', 'running')
-      await instanceService.setRunning(slug, appliedConfigSha)
 
       return { ok: true, status: 'started' }
     } catch (error) {

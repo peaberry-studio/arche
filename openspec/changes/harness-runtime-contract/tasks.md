@@ -69,13 +69,36 @@ No v2 runtime or rollout default was changed. -->
 
 ## 5. Runtime kind and OpenCode v2 adapter
 
-- [ ] 5.1 Add `Instance.runtimeKind String? @map("runtime_kind")` and the `LegacySessionArchive` model to `prisma/schema.prisma` and `prisma/schema.sqlite.prisma` via `pnpm db:migrate` (additive only); verify migration SQL contains only `ADD COLUMN`/`CREATE TABLE`/`CREATE INDEX`.
+- [x] 5.1 Add `Instance.runtimeKind String? @map("runtime_kind")` and the `LegacySessionArchive` model to `prisma/schema.prisma` and `prisma/schema.sqlite.prisma` via `pnpm db:migrate` (additive only); verify migration SQL contains only `ADD COLUMN`/`CREATE TABLE`/`CREATE INDEX`.
 - [ ] 5.2 Write `runtimeKind` in the start attempt's conditional state update in `spawner/core.ts` and the desktop host, read it in `registry.ts` (null → `opencode-v1`), add `ARCHE_DEFAULT_RUNTIME_KIND` and `OPENCODE_V1_IMAGE` to config and `.env.example`; verify registry tests for mixed v1/v2 instances and unknown kind.
-- [ ] 5.3 Split `runtime-artifacts.ts` into a harness-neutral model plus `renderRuntimeConfig` per adapter; verify the v1 renderer is byte-identical to today's output (existing hash tests unchanged).
+- [x] 5.3 Split `runtime-artifacts.ts` into a harness-neutral model plus `renderRuntimeConfig` per adapter; verify the v1 renderer is byte-identical to today's output (existing hash tests unchanged).
 - [ ] 5.4 Implement the v2 renderer per design D6 (`mcp.servers`, `agents`, `providers`, ordered `permissions`, `external_directory: ask`, guards as `policies`, `arche_tools` local server); verify snapshot tests per agent kind and validation of the rendered file with the OpenCode 2 config schema if one is published (per spike notes).
 - [ ] 5.5 Implement `adapters/opencode-v2/` on `@opencode/client` (add the dependency), including the event translator to Arche events and provider-access sync; verify adapter unit tests against recorded v2 fixtures from the spike, plus the same golden reducer scenarios as 2.4.
 - [ ] 5.6 Build the v2 workspace image: bump `versions/opencode.version`, adapt `entrypoint.sh` (config file name/location, skills dir `.opencode/skills`, auth proxy if spike requires it), `scripts/download-opencode.sh` and the CI workflow; keep a pinned `workspace:opencode-v1` tag; verify `bash scripts/check-podman-images.sh` builds both.
 - [ ] 5.7 Add an admin-only action to start a specific instance as `opencode-v2`, with an `AuditEvent`; verify with an action test and a manual end-to-end run on a v2 container (stream, tool call with `arche_tools`, connector MCP call through the gateway, permission, abort family, flow run, Slack DM).
+
+<!-- Phase-3 partial handoff (2026-10-20): 5.1 SQL is additive and both schemas
+validate/generate. DATABASE_URL is unset, so offline Prisma migrate diff replaced
+db:migrate; PostgreSQL application remains unverified. Desktop schema bootstrap
+v13 is additive, with isolated SQLite fresh/upgrade/unique/cascade regressions.
+5.3 equivalence and unchanged existing hash tests pass. 5.2 recording/config and
+5.7 audited admin action/tests are implemented, but v2 cannot be started: required
+dependency installation was permission-denied, not retried; no @opencode/client
+was added without a matching lockfile. Recorded v2/unknown kinds fail with typed
+runtime_unsupported before container contact/cleanup, including the files bridge.
+5.4 has mapping tests but protected models refuse with runtime_config_unsupported
+at guards.selfDelegation: documented policies cannot express a caller-scoped hard
+guard, and permissions are not a safe substitute. 5.5/5.6 remain blocked; image
+and version pins and deployment default stay v1. Local credential-free 2.0.32 HTTP
+probes are documented in NOTES.md; they do not prove compatibility with client
+2.1.0 or complete model/tool/permission/family execution. Final web tests 5557
+pass/19 skipped, lint 0 errors, tsc 241 test diagnostics/0 production; build passes.
+An unowned arche-tools lockfile appeared during checks and was preserved; final
+web tests rely on its presence. No MCP install/runtime validation was claimed.
+Required image script timed out after 120s in web build, before workspace check.
+Re-run with a 600s budget failed at dangling-image prune with exit 125 because
+an image is in use by a container; no external container/image was force-removed.
+Do not proceed to rollout/archive switch until phase-3 blocked gates are resolved. -->
 
 ## 6. Legacy session archive and runtime switch
 

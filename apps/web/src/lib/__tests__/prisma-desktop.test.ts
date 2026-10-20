@@ -1,3 +1,4 @@
+import Database from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mockExistsSync = vi.fn()
@@ -186,7 +187,9 @@ describe('desktop prisma context isolation', () => {
     expect(ddl.some((statement) => statement.includes('CREATE UNIQUE INDEX IF NOT EXISTS "personal_access_tokens_lookup_hash_key"'))).toBe(true)
     expect(ddl.some((statement) => statement.includes('CREATE INDEX IF NOT EXISTS "rate_limit_buckets_reset_at_idx"'))).toBe(true)
     expect(ddl.some((statement) => statement.includes('CREATE TABLE IF NOT EXISTS "autopilot_'))).toBe(false)
-    expect(ddl.some((statement) => statement.includes('JSONB'))).toBe(false)
+    expect(ddl.filter((statement) => statement.includes('JSONB'))).toEqual([
+      expect.stringContaining('CREATE TABLE IF NOT EXISTS "legacy_session_archives"'),
+    ])
   })
 
   it('adds mcp_allowed to existing desktop users tables', async () => {
@@ -197,7 +200,7 @@ describe('desktop prisma context isolation', () => {
       .mockResolvedValueOnce([{ name: 'provider_sync_hash' }, { name: 'provider_synced_at' }])
       .mockResolvedValueOnce([{ name: 'provider_sync_hash' }, { name: 'provider_synced_at' }])
       .mockResolvedValueOnce([{ name: 'regeneration_change_id' }])
-      .mockResolvedValueOnce([{ name: 'regeneration_change_id' }])
+      .mockResolvedValueOnce([{ name: 'runtime_kind' }])
 
     mockGeneratedPrismaClient.mockImplementationOnce(({ adapter }: { adapter: { url: string } }) => ({
       adapterUrl: adapter.url,
@@ -222,6 +225,7 @@ describe('desktop prisma context isolation', () => {
       .mockResolvedValueOnce([{ name: 'provider_sync_hash' }, { name: 'provider_synced_at' }])
       .mockResolvedValueOnce([{ name: 'provider_sync_hash' }, { name: 'provider_synced_at' }])
       .mockResolvedValueOnce([{ name: 'id' }])
+      .mockResolvedValueOnce([{ name: 'runtime_kind' }])
 
     mockGeneratedPrismaClient.mockImplementationOnce(({ adapter }: { adapter: { url: string } }) => ({
       adapterUrl: adapter.url,
@@ -236,6 +240,85 @@ describe('desktop prisma context isolation', () => {
 
     const ddl = executeRawUnsafe.mock.calls.map((call) => String(call[0]))
     expect(ddl).toContain('ALTER TABLE "knowledge_learning_runs" ADD COLUMN "regeneration_change_id" TEXT')
+  })
+
+  it.each(['fresh', 'upgrade'])('initializes an isolated %s SQLite database with runtime kind and owned archives', async (mode) => {
+    const database = new Database(':memory:')
+    database.pragma('foreign_keys = ON')
+
+    try {
+      if (mode === 'upgrade') {
+        database.exec(`
+          CREATE TABLE "instances" (
+            "id" TEXT NOT NULL PRIMARY KEY,
+            "slug" TEXT NOT NULL,
+            "status" TEXT NOT NULL DEFAULT 'stopped',
+            "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            "started_at" DATETIME,
+            "stopped_at" DATETIME,
+            "last_activity_at" DATETIME,
+            "container_id" TEXT,
+            "server_password" TEXT NOT NULL,
+            "applied_config_sha" TEXT,
+            "provider_sync_hash" TEXT,
+            "provider_synced_at" DATETIME,
+            CONSTRAINT "instances_slug_fkey" FOREIGN KEY ("slug") REFERENCES "users" ("slug") ON DELETE RESTRICT ON UPDATE CASCADE
+          );
+          CREATE TABLE "_arche_schema_meta" ("key" TEXT NOT NULL PRIMARY KEY, "value" TEXT);
+          INSERT INTO "_arche_schema_meta" VALUES ('schema_version', '12');
+        `)
+        database.pragma('foreign_keys = OFF')
+        database.prepare('INSERT INTO instances (id, slug, status, container_id, server_password) VALUES (?, ?, ?, ?, ?)')
+          .run('instance-1', 'alice', 'running', 'container-1', 'encrypted-password')
+        database.pragma('foreign_keys = ON')
+      }
+
+      const client = {
+        $executeRawUnsafe: (sql: string) => database.prepare(sql).run().changes,
+        $queryRawUnsafe: (sql: string) => database.prepare(sql).all(),
+        $executeRaw: (strings: TemplateStringsArray, ...values: string[]) => database.prepare(strings.join('?')).run(...values).changes,
+        $queryRaw: (strings: TemplateStringsArray, ...values: string[]) => database.prepare(strings.join('?')).all(...values),
+      }
+      mockGetDesktopVaultRuntimeContext.mockReturnValue({ prismaClient: client })
+      const { initDesktopDatabase } = await import('@/lib/prisma-desktop')
+
+      await initDesktopDatabase()
+
+      const insertUser = database.prepare('INSERT INTO users (id, email, slug, password_hash, updated_at) VALUES (?, ?, ?, ?, ?)')
+      insertUser.run('user-1', 'alice@example.invalid', 'alice', 'test-hash', '2026-10-20T00:00:00Z')
+      insertUser.run('user-2', 'bob@example.invalid', 'bob', 'test-hash', '2026-10-20T00:00:00Z')
+      if (mode === 'fresh') {
+        database.prepare('INSERT INTO instances (id, slug, status, container_id, server_password) VALUES (?, ?, ?, ?, ?)')
+          .run('instance-1', 'alice', 'running', 'container-1', 'encrypted-password')
+      }
+      expect(database.prepare('SELECT id, slug, status, container_id, server_password, runtime_kind FROM instances').all()).toEqual([
+        { id: 'instance-1', slug: 'alice', status: 'running', container_id: 'container-1', server_password: 'encrypted-password', runtime_kind: null },
+      ])
+      expect(database.prepare("SELECT value FROM _arche_schema_meta WHERE key = 'schema_version'").get()).toEqual({ value: '13' })
+
+      const insertArchive = database.prepare(`INSERT INTO legacy_session_archives
+        (id, slug, session_id, parent_id, title, created_at, updated_at, messages)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+      const messages = JSON.stringify([{ id: 'message-1', parts: [] }])
+      insertArchive.run('archive-1', 'alice', 'session-1', null, 'Title', '2026-10-19', '2026-10-20', messages)
+      insertArchive.run('archive-2', 'bob', 'session-1', 'parent-1', 'Other title', '2026-10-19', '2026-10-20', '[]')
+      expect(() => insertArchive.run('duplicate', 'alice', 'session-1', null, 'Title', '2026-10-19', '2026-10-20', '[]')).toThrow(/UNIQUE constraint failed/)
+      expect(() => insertArchive.run('orphan', 'missing-owner', 'session-2', null, 'Title', '2026-10-19', '2026-10-20', '[]')).toThrow(/FOREIGN KEY constraint failed/)
+      expect(database.prepare('SELECT messages, archived_at FROM legacy_session_archives WHERE id = ?').get('archive-1')).toEqual({
+        messages,
+        archived_at: expect.any(String),
+      })
+
+      await initDesktopDatabase()
+      database.prepare('UPDATE users SET slug = ? WHERE id = ?').run('alice-renamed', 'user-1')
+      expect(database.prepare('SELECT slug FROM legacy_session_archives WHERE id = ?').get('archive-1')).toEqual({ slug: 'alice-renamed' })
+      database.prepare('DELETE FROM instances WHERE id = ?').run('instance-1')
+      database.prepare('DELETE FROM users WHERE id = ?').run('user-1')
+      expect(database.prepare('SELECT id FROM legacy_session_archives').all()).toEqual([{ id: 'archive-2' }])
+      expect(database.pragma('foreign_key_check')).toEqual([])
+    } finally {
+      database.close()
+    }
   })
 
   it('creates the knowledge review tables in the desktop DDL', async () => {

@@ -7,6 +7,8 @@ import { readCommonWorkspaceConfig, readConfigRepoFile } from '@/lib/common-work
 import { decryptConfig } from '@/lib/connectors/crypto'
 import { getConnectorGatewayBaseUrl } from '@/lib/connectors/gateway-config'
 import { parseGithubConnectorConfig } from '@/lib/connectors/github'
+import { renderRuntimeConfig } from '@/lib/harness/registry'
+import { createRuntimeConfigModel, RuntimeConfigRenderError, type RuntimeConfigModel } from '@/lib/harness/runtime-config'
 import { decryptProviderSecret } from '@/lib/providers/crypto'
 import { isOllamaSecret } from '@/lib/providers/ollama'
 import { getEffectiveCredentialForUser, getEnabledProviderCredentialsForUser } from '@/lib/providers/store'
@@ -19,13 +21,7 @@ import {
 import type { SkillBundle } from '@/lib/skills/types'
 import { connectorService, userService } from '@/lib/services'
 import {
-  applyAgentExecutionGuards,
-  applyDefaultAgentModel,
-  denyAgentKnowledgeWrites,
-  injectAgentKnowledgePolicy,
-  injectAgentToolCallerIdentity,
   injectCustomConnectorHints,
-  injectSelfDelegationGuards,
   injectSystemKnowledgeCuratorAgent,
   injectSystemSkillAccess,
   materializeAgentToolMaps,
@@ -37,7 +33,6 @@ import {
   withWorkspaceIdentity,
   withLinkedRepositories,
   withWorkspaceKnowledgePolicy,
-  withWorkspacePermissionGuards,
 } from '@/lib/spawner/runtime-config-utils'
 import {
   parseRuntimeConfigContent,
@@ -66,6 +61,7 @@ export type WorkspaceRuntimeArtifacts = {
 
 type WorkspaceRuntimeOptions = {
   archeToolsCommand?: string[]
+  runtimeKind?: string | null
 }
 
 const COMMON_WORKSPACE_CONFIG_FILE = 'CommonWorkspaceConfig.json'
@@ -82,9 +78,10 @@ function normalizeRuntimeConfigForHash(configContent: string): string {
     }
 
     const connectorGatewayBaseUrl = getConnectorGatewayBaseUrl()
+    const servers = isRecord(mcp.servers) ? mcp.servers : mcp
     let changed = false
     const normalizedMcp = Object.fromEntries(
-      Object.entries(mcp).map(([key, value]) => {
+      Object.entries(servers).map(([key, value]) => {
         if (!isRecord(value)) {
           return [key, value]
         }
@@ -117,7 +114,7 @@ function normalizeRuntimeConfigForHash(configContent: string): string {
     )
 
     return changed
-      ? serializeRuntimeConfig({ ...parsed, mcp: normalizedMcp })
+      ? serializeRuntimeConfig({ ...parsed, mcp: servers === mcp ? normalizedMcp : { ...mcp, servers: normalizedMcp } })
       : configContent
   } catch {
     return configContent
@@ -204,8 +201,16 @@ async function buildBaseWorkspaceConfig(
     try {
       baseConfig = parseRuntimeConfigContent(commonConfigResult.content)
     } catch {
+      if (options?.runtimeKind === 'opencode-v2') {
+        throw new RuntimeConfigRenderError({ code: 'runtime_config_unsupported', path: COMMON_WORKSPACE_CONFIG_FILE, message: 'Invalid configuration JSON' })
+      }
       console.warn('[workspace-runtime] Failed to parse CommonWorkspaceConfig')
     }
+  }
+
+  if (options?.runtimeKind === 'opencode-v2') {
+    const validated = renderRuntimeConfig('opencode-v2', createRuntimeConfigModel(baseConfig))
+    if (!validated.ok) throw new RuntimeConfigRenderError(validated.error)
   }
 
   // Materialize legacy `'all'`/missing-tool agents before the connector remap:
@@ -246,18 +251,18 @@ async function buildBaseWorkspaceConfig(
     },
   }
   baseConfig = injectSystemSkillAccess(baseConfig, [SYSTEM_FLOW_AUTHORING_SKILL_NAME])
+  const hadCurator = isRecord(baseConfig.agent) && isRecord(baseConfig.agent['knowledge-curator'])
   baseConfig = injectSystemKnowledgeCuratorAgent(baseConfig)
+  if (!hadCurator && isRecord(baseConfig.agent) && isRecord(baseConfig.agent['knowledge-curator'])) {
+    const curator = baseConfig.agent['knowledge-curator']
+    if (isRecord(curator.permission)) {
+      const permission = { ...curator.permission }
+      delete permission.doom_loop
+      curator.permission = permission
+    }
+  }
   baseConfig = remapAgentBuiltInTools(baseConfig)
-  baseConfig = applyDefaultAgentModel(baseConfig)
-  baseConfig = applyAgentExecutionGuards(baseConfig)
-  baseConfig = injectSelfDelegationGuards(baseConfig)
-  baseConfig = injectAgentToolCallerIdentity(baseConfig)
-  // injectAgentKnowledgePolicy must stay the last prompt-appending transform:
-  // the policy block is the final text in every prompt for maximal precedence.
-  baseConfig = injectAgentKnowledgePolicy(baseConfig)
-  // denyAgentKnowledgeWrites must stay the last transform: nothing after it may
-  // re-enable write/edit for any agent, no matter what the stored config says.
-  return denyAgentKnowledgeWrites(baseConfig)
+  return baseConfig
 }
 
 function cloneProviderGatewayConfig(providerGatewayConfig: Record<string, unknown>): Record<string, unknown> {
@@ -353,10 +358,23 @@ export async function buildWorkspaceRuntimeConfig(
   owner?: WorkspaceOwner,
   options?: WorkspaceRuntimeOptions,
 ): Promise<Record<string, unknown>> {
+  const model = await buildWorkspaceRuntimeConfigModel(slug, providerGatewayConfig, commonConfigContent, owner, options)
+  const rendered = renderRuntimeConfig(options?.runtimeKind ?? 'opencode-v1', model)
+  if (!rendered.ok) throw new RuntimeConfigRenderError(rendered.error)
+  return rendered.data.config
+}
+
+export async function buildWorkspaceRuntimeConfigModel(
+  slug: string,
+  providerGatewayConfig: Record<string, unknown>,
+  commonConfigContent?: string | null,
+  owner?: WorkspaceOwner,
+  options?: WorkspaceRuntimeOptions,
+): Promise<RuntimeConfigModel> {
   const baseConfig = await buildBaseWorkspaceConfig(slug, commonConfigContent, options)
   const resolvedOwner = typeof owner === 'undefined' ? await getWorkspaceOwner(slug) : owner
   const scopedProviderGatewayConfig = await applyCredentialScopedProviderConfig(providerGatewayConfig, resolvedOwner)
-  return withWorkspacePermissionGuards({
+  return createRuntimeConfigModel({
     ...baseConfig,
     ...scopedProviderGatewayConfig,
   })
@@ -394,7 +412,7 @@ export async function buildWorkspaceRuntimeArtifacts(
 ): Promise<WorkspaceRuntimeArtifacts> {
   const owner = await getWorkspaceOwner(slug)
   const repoSnapshot = await readRuntimeRepoSnapshot()
-  const config = await buildWorkspaceRuntimeConfig(
+  const model = await buildWorkspaceRuntimeConfigModel(
     slug,
     providerGatewayConfig,
     repoSnapshot.commonConfigContent,
@@ -403,11 +421,13 @@ export async function buildWorkspaceRuntimeArtifacts(
   )
   const agentsMd = await buildWorkspaceAgentsMd(slug, owner, repoSnapshot.agentsMdContent)
   const skills = withSystemSkillBundles(repoSnapshot.skills)
+  const rendered = renderRuntimeConfig(options?.runtimeKind ?? 'opencode-v1', { ...model, agentsMd, skills })
+  if (!rendered.ok) throw new RuntimeConfigRenderError(rendered.error)
 
   return {
     skills,
     owner,
-    opencodeConfigContent: serializeRuntimeConfig(config),
+    opencodeConfigContent: rendered.data.opencodeConfigContent,
     ...(agentsMd ? { agentsMd } : {}),
   }
 }

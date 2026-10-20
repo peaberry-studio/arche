@@ -6,6 +6,7 @@ vi.mock('@/lib/providers/store', () => ({
 
 vi.mock('@/lib/services', () => ({
   instanceService: {
+    findRuntimeKindBySlug: vi.fn(),
     setProviderSyncState: vi.fn(),
   },
   messageRunService: {
@@ -48,6 +49,7 @@ const fakeInstance = {
 describe('syncRuntimeProviderAccess', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(instanceService.findRuntimeKindBySlug).mockResolvedValue({ runtimeKind: 'opencode-v1' })
     mockHasActiveRunForSlug.mockResolvedValue(false)
     mockSetProviderSyncState.mockResolvedValue(undefined)
   })

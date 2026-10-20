@@ -1,20 +1,21 @@
-import { auditService, instanceService, providerService, userService } from '@/lib/services'
-import type { InstanceStatusDetails } from '@/lib/services/instance'
-import type { HarnessHealthOptions } from '@/lib/harness/contract'
+import type { HarnessHealthOptions, HarnessRuntime } from '@/lib/harness/contract'
 import {
   checkRuntimeHealth,
   DEFAULT_HEALTH_TIMEOUT_MS,
   getRuntimeBaseUrl,
+  getRuntimeForKind,
   syncRuntimeProviderAccess,
 } from '@/lib/harness/registry'
-import * as docker from './docker'
-import { decryptPassword, generatePassword, encryptPassword } from './crypto'
-import { getStartExpectedMs, getStartTimeoutMs } from './config'
+import { auditService, instanceService, providerService, userService } from '@/lib/services'
+import type { InstanceStatusDetails } from '@/lib/services/instance'
+import { getDefaultRuntimeKind, getStartExpectedMs, getStartTimeoutMs } from '@/lib/spawner/config'
+import { decryptPassword, encryptPassword, generatePassword } from '@/lib/spawner/crypto'
+import * as docker from '@/lib/spawner/docker'
 import {
   buildWorkspaceRuntimeArtifacts,
   getWebProviderGatewayConfig,
   hashWorkspaceRuntimeArtifacts,
-} from './runtime-artifacts'
+} from '@/lib/spawner/runtime-artifacts'
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -22,7 +23,7 @@ function sleep(ms: number): Promise<void> {
 
 export type StartResult =
   | { ok: true; status: 'running' }
-  | { ok: false; error: 'already_running' | 'start_failed' | 'timeout'; detail?: string }
+  | { ok: false; error: 'already_running' | 'runtime_unsupported' | 'start_failed' | 'timeout'; detail?: string }
 
 export type StopResult =
   | { ok: true; status: 'stopped' }
@@ -43,8 +44,10 @@ async function checkInstanceHealth(
   password: string,
   baseUrl?: string,
   options?: HarnessHealthOptions,
+  runtime?: HarnessRuntime,
 ): Promise<InstanceHealthResult> {
-  const result = await checkRuntimeHealth(slug, { ...options, password, baseUrl })
+  const healthOptions = { ...options, password, baseUrl }
+  const result = await (runtime ? runtime.health(healthOptions) : checkRuntimeHealth(slug, healthOptions))
   return result.ok ? { ok: true } : {
     ok: false,
     detail: result.error.code,
@@ -101,12 +104,23 @@ async function handleFailedAttempt(slug: string, containerId: string | null): Pr
   }
 }
 
-export async function startInstance(slug: string, userId: string): Promise<StartResult> {
+export async function startInstance(
+  slug: string,
+  userId: string,
+  options?: { runtimeKind: string },
+): Promise<StartResult> {
   const existing = await instanceService.findBySlug(slug)
 
   if (existing?.status === 'running' || (existing && isStartingStillFresh(existing))) {
     return { ok: false, error: 'already_running' }
   }
+
+  const selectedKind = options?.runtimeKind ?? getDefaultRuntimeKind()
+  const selectedRuntime = getRuntimeForKind(slug, selectedKind)
+  if (!selectedRuntime.ok) {
+    return { ok: false, error: 'runtime_unsupported', detail: selectedRuntime.error.detail }
+  }
+  const runtime = selectedRuntime.data
 
   const password = generatePassword()
   const encryptedPassword = encryptPassword(password)
@@ -121,7 +135,7 @@ export async function startInstance(slug: string, userId: string): Promise<Start
   let containerId: string | null = null
 
   try {
-    const artifacts = await buildWorkspaceRuntimeArtifacts(slug, getWebProviderGatewayConfig())
+    const artifacts = await buildWorkspaceRuntimeArtifacts(slug, getWebProviderGatewayConfig(), { runtimeKind: selectedKind })
     const appliedConfigSha = hashWorkspaceRuntimeArtifacts(artifacts)
     const { owner, opencodeConfigContent, agentsMd, skills } = artifacts
 
@@ -132,9 +146,9 @@ export async function startInstance(slug: string, userId: string): Promise<Start
     containerId = container.id
     await docker.startContainer(container.id)
 
-    await instanceService.setContainerId(slug, container.id)
+    await instanceService.setContainerId(slug, container.id, selectedKind)
 
-    const healthy = await waitForHealthy(container.id, slug, password)
+    const healthy = await waitForHealthy(container.id, slug, password, runtime)
 
     if (!healthy.ok) {
       const timeoutDetail = healthy.message
@@ -154,7 +168,7 @@ export async function startInstance(slug: string, userId: string): Promise<Start
     // 'running'. The DB status gates all frontend connections, so providers
     // must be ready before it flips.
     const syncUserId = owner?.id ?? userId
-    const syncResult = await syncRuntimeProviderAccess(slug, {
+    const syncResult = await runtime.syncProviderAccess({
       connection: {
         baseUrl: healthy.baseUrl ?? getRuntimeBaseUrl(slug),
         authHeader: `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}`,
@@ -171,7 +185,7 @@ export async function startInstance(slug: string, userId: string): Promise<Start
     // Publish 'running' only if this attempt still owns the transition. If it
     // lost the race, re-read and return the current state without a duplicate
     // audit event.
-    const affected = await instanceService.setRunningIfCurrentContainer(slug, container.id, appliedConfigSha)
+    const affected = await instanceService.setRunningIfCurrentContainer(slug, container.id, appliedConfigSha, selectedKind)
     if (affected.count === 0) {
       const current = await instanceService.findStatusBySlug(slug)
       if (current && current.status === 'running') {
@@ -183,7 +197,7 @@ export async function startInstance(slug: string, userId: string): Promise<Start
     await auditService.createEvent({
       actorUserId: userId,
       action: 'instance.started',
-      metadata: { slug },
+      metadata: { slug, runtimeKind: selectedKind },
     })
 
     return { ok: true, status: 'running' }
@@ -384,7 +398,7 @@ async function getContainerHealthBaseUrl(containerId: string): Promise<string | 
   }
 }
 
-async function waitForHealthy(containerId: string, slug: string, password: string): Promise<StartupHealthResult> {
+async function waitForHealthy(containerId: string, slug: string, password: string, runtime: HarnessRuntime): Promise<StartupHealthResult> {
   const timeout = getStartTimeoutMs()
   const start = Date.now()
   let directBaseUrl: string | null | undefined
@@ -416,7 +430,7 @@ async function waitForHealthy(containerId: string, slug: string, password: strin
 
     // Probe DNS hostname and the direct container IP concurrently so neither can
     // stall the other; whichever confirms health cancels the losing request.
-    const outcome = await probeDnsAndDirect(slug, password, directBaseUrl, probeTimeout)
+    const outcome = await probeDnsAndDirect(slug, password, directBaseUrl, probeTimeout, runtime)
 
     if (outcome.winner === 'dns') {
       return { ok: true }
@@ -458,6 +472,7 @@ async function probeDnsAndDirect(
   password: string,
   directBaseUrl: string | null,
   timeoutMs: number,
+  runtime: HarnessRuntime,
 ): Promise<ProbeOutcome> {
   const dnsController = new AbortController()
   const direct = directBaseUrl ? { controller: new AbortController() } : null
@@ -467,7 +482,7 @@ async function probeDnsAndDirect(
     const result = await checkInstanceHealth(slug, password, undefined, {
       timeoutMs,
       signal: dnsController.signal,
-    })
+    }, runtime)
     results.dns = result
     if (result.ok) direct?.controller.abort()
   }
@@ -477,7 +492,7 @@ async function probeDnsAndDirect(
         const result = await checkInstanceHealth(slug, password, directBaseUrl!, {
           timeoutMs,
           signal: direct.controller.signal,
-        })
+        }, runtime)
         results.direct = result
         if (result.ok) dnsController.abort()
       }

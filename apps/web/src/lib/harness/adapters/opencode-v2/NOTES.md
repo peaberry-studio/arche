@@ -1,5 +1,65 @@
 # OpenCode V2 contract spike (task 1.1)
 
+## Phase-3 local re-check (2026-10-20)
+
+**Partial implementation; V2 is not enabled.** The installed foreground binary is
+`opencode v2.0.32`, whereas the source spike inspected client `2.1.0`. Installing
+dependencies was denied by execution permissions (including the preceding
+phase's missing MCP SDK/lockfile). The denied installation was not retried.
+`@opencode/client` has therefore not been installed or added without a matching
+lockfile. Raw HTTP evidence below does **not** establish client compatibility.
+An npm-metadata re-check found exact client version `2.0.32` is published (latest
+was `2.1.1` at that check); a future authorized install can test the matched pair
+rather than assuming spike client `2.1.0` is compatible.
+The registry returns `runtime_unsupported` for `opencode-v2`, including file
+operations; it must never send V1 requests to a recorded V2 instance. Keep the
+deployment default and image/version pins on V1 until the remaining gates pass.
+
+Two short-lived, loopback-only foreground servers were exercised with an
+ephemeral password, no inherited provider credentials, and isolated HOME/XDG and
+temporary directories inside the repository. Both processes were terminated and
+their scratch directories removed. No shared host service, model generation,
+gateway request, or production mutation was used. Documentation for native V2
+migration, config, permissions, policies, MCP, API and the client was re-read.
+
+| Re-check | Observed result on local 2.0.32 | Remaining boundary |
+| --- | --- | --- |
+| Command/auth/readiness (gates 1–2) | `serve --help` accepts hostname/port; foreground `serve --hostname 127.0.0.1 --port <ephemeral>` starts and terminates. `OPENCODE_SERVER_PASSWORD` authenticates Basic `opencode`; missing auth returns 401. `/api/info` initially returns 503, then 200 with `version: "2.0.32"` and `capabilities.persistentPty: true`. | Image behavior, wrong-auth test, `OPENCODE_PASSWORD` precedence, restart/storage and resource measurements remain **UNVERIFIED**. A TCP accept/OpenAPI 200 is not readiness. |
+| Session API (gate 3) | Create/get return raw HTTP `{data: SessionInfo}`. Session info contains `id`, `projectID`, `cost`, `tokens`, `time`, `title`, `subpath`, `location`. List returns `{data, cursor:{previous,next}}`; even a one-item page has non-null next/previous. Empty children/messages return empty data with null cursors. Rename/delete return 204. Get of the deleted session returns 404 with `_tag: "SessionNotFoundError"`, `sessionID`, `message`. | Full pagination termination must be tested (do not stop merely because a short page has a cursor). Directory isolation, real child families, model/agent selection, and SDK error decoding remain **UNVERIFIED**. |
+| Status/abort (gate 4) | `/api/session/active` returns `{data:{}}` when idle. Interrupt of the existing idle session returns `{interrupted:false}`. | Busy/retry/permission/queued/background work, late children and actual family termination remain **UNVERIFIED**. These observations are not abort confirmation. |
+| Prompt/files (gate 5) | Live OpenAPI exposes `/api/fs/list`, `/api/fs/find`, `/api/fs/read/*`. List/find return `{location,data: FileSystem.Entry[]}`; read streams binary, unlike V1's JSON file-content shape. Find accepts query/type/limit; list allows outside-location paths. | No prompt or file read/search was executed. Ignore-aware bounded fuzzy parity and path safety remain **UNVERIFIED**; V2 needs its own typed files bridge, not V1 endpoints or an unvalidated sidecar substitution. |
+| Provider sync (gate 6) | Live OpenAPI exposes credential create/list/remove/activate and location reload. Reload on the empty isolated location returns 204. | No credential was created or read. Integration mapping, gateway-only access, revocation/fallback, active-run deferral and post-reload effective access remain **UNVERIFIED**. Do not claim successful sync or record freshness from reload alone. |
+| SSE (gate 7) | Authenticated `/api/event` emits `data: {id,type:"server.connected",data:{}}`, blank-line framed, followed by `: heartbeat`. Closing the HTTP reader needs no interrupt request. | No model-derived events captured; live/snapshot equivalence, reconnect races, subscriber isolation and the SDK connect deadline remain **UNVERIFIED**. BFF's existing ≤10s heartbeat is still required. |
+| MCP/identity (gate 8) | Empty `/api/mcp` and `/api/permission/request` return `{location,data:[]}`. | With MCP installation blocked, normalized tool names, direct-vs-Code Mode metadata, session `_meta`, agent attribution and actual exact allowlists remain runtime-**UNVERIFIED**. Existing explicit attribution fallback must still fail closed when missing/conflicting. |
+| Config/security (gate 9) | Live OpenAPI exposes `/api/config` and `/api/experimental/config`; docs describe native fields and policy placement. | Renderer tests are separate from runtime enforcement. Policy precedence, protected system placement, shell bypass resistance and caller-dependent self-delegation remain **UNVERIFIED** unless explicitly recorded by a later check. Never silently approximate a security guard. |
+
+The source-spike operation table below remains useful for implementation, but its
+**UNVERIFIED** labels are not superseded except for the exact local observations
+above. Task 5.5, image rollout and manual 5.7 acceptance stay blocked; do not use
+these credential-free probes as an end-to-end acceptance result.
+
+### Config renderer handoff
+
+The adapter renderers now accept an Arche-owned intermediate model. V1 rendering
+is byte-identical under equivalence tests, and existing artifact hash tests are
+unchanged. V2 native mapping has deterministic tests for primary/subagents,
+spreadsheet-only allowlists, connector/provider targets and direct
+`arche_tools` invocation. These tests are **not runtime enforcement evidence**.
+
+The documented policy statement is only `{action, resource, effect}`; it has no
+caller-agent predicate. A global `subagent:<id>` deny would prevent legitimate
+delegation by other agents, while a per-agent permission deny is overridable and
+does not satisfy D6. Therefore every protected V2 model currently returns the
+typed `runtime_config_unsupported` error at `guards.selfDelegation`. Mapping-only
+snapshots explicitly disable that required guard; production artifacts never do.
+Do not remove this refusal until a verified non-overridable implementation exists.
+No image/version pin was bumped and no SDK adapter was represented as functional.
+
+During final checks an unowned `arche-tools/pnpm-lock.yaml` appeared in the working
+tree. It was preserved, not authored or installed by this phase. The final web
+suite passes with that file present; its existence does not verify MCP execution
+or the unavailable V2 client dependency.
+
 ## Scope and evidence boundary
 
 Research date: 2026-10-20. This is a documentation/source spike, not a runtime acceptance test. The pipeline brief explicitly permits no live container for 1.1, superseding the original task's container requirement. No container, local OpenCode service, model, production endpoint, or credential was used. No dependency, lockfile, runtime config, or task checkbox was changed.

@@ -5,6 +5,10 @@ vi.mock('@/lib/runtime/session', () => ({
   getSession: vi.fn(),
 }))
 
+vi.mock('@/lib/runtime/capabilities', () => ({
+  getRuntimeCapabilities: vi.fn(() => ({ containers: true })),
+}))
+
 // Mock workspace host (start, stop, status, connection)
 vi.mock('@/lib/runtime/workspace-host', () => ({
   startWorkspace: vi.fn(),
@@ -17,6 +21,7 @@ vi.mock('@/lib/runtime/workspace-host', () => ({
 }))
 
 vi.mock('@/lib/services', () => ({
+  auditService: { createEvent: vi.fn().mockResolvedValue(undefined) },
   userService: {
     findIdBySlug: vi.fn(),
   },
@@ -33,6 +38,7 @@ vi.mock('@/lib/harness/registry', () => ({
 
 // Mock spawner core (only isSlowStart is still imported from here)
 vi.mock('@/lib/spawner/core', () => ({
+  startInstance: vi.fn(),
   isSlowStart: vi.fn(() => false),
   listActiveInstances: vi.fn(),
 }))
@@ -43,11 +49,12 @@ vi.mock('@/kickstart/status', () => ({
 }))
 
 import { getSession } from '@/lib/runtime/session'
+import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 import { startWorkspace, stopWorkspace, getWorkspaceStatus } from '@/lib/runtime/workspace-host'
 import { syncRuntimeProviderAccess } from '@/lib/harness/registry'
-import { providerService, userService } from '@/lib/services'
-import { listActiveInstances, isSlowStart } from '@/lib/spawner/core'
-import { startInstanceAction, stopInstanceAction, getInstanceStatusAction, ensureInstanceRunningAction, listActiveInstancesAction } from '../spawner'
+import { auditService, providerService, userService } from '@/lib/services'
+import { listActiveInstances, isSlowStart, startInstance } from '@/lib/spawner/core'
+import { startInstanceAction, startInstanceWithRuntimeAction, stopInstanceAction, getInstanceStatusAction, ensureInstanceRunningAction, listActiveInstancesAction } from '../spawner'
 
 const mockGetSession = vi.mocked(getSession)
 const mockStart = vi.mocked(startWorkspace)
@@ -111,6 +118,64 @@ describe('startInstanceAction', () => {
     const result = await startInstanceAction('alice')
     expect(result).toEqual({ ok: false, error: 'setup_required' })
     expect(mockStart).not.toHaveBeenCalled()
+  })
+})
+
+describe('startInstanceWithRuntimeAction', () => {
+  it('requires a session', async () => {
+    mockGetSession.mockResolvedValue(null)
+    await expect(startInstanceWithRuntimeAction('alice', 'opencode-v2')).resolves.toEqual({ ok: false, error: 'unauthorized' })
+    expect(startInstance).not.toHaveBeenCalled()
+    expect(auditService.createEvent).not.toHaveBeenCalled()
+  })
+
+  it('rejects even the workspace owner unless they are admin', async () => {
+    mockGetSession.mockResolvedValue(fakeSession)
+    await expect(startInstanceWithRuntimeAction('alice', 'opencode-v2')).resolves.toEqual({ ok: false, error: 'forbidden' })
+    expect(startInstance).not.toHaveBeenCalled()
+    expect(auditService.createEvent).not.toHaveBeenCalled()
+  })
+
+  it('does not select a v2 desktop binary', async () => {
+    mockGetSession.mockResolvedValue(adminSession)
+    vi.mocked(getRuntimeCapabilities).mockReturnValueOnce({ containers: false } as never)
+    await expect(startInstanceWithRuntimeAction('alice', 'opencode-v2')).resolves.toEqual({ ok: false, error: 'runtime_unsupported' })
+    expect(startInstance).not.toHaveBeenCalled()
+  })
+
+  it('rejects unknown kinds', async () => {
+    mockGetSession.mockResolvedValue(adminSession)
+    await expect(startInstanceWithRuntimeAction('alice', 'unknown')).resolves.toEqual({ ok: false, error: 'runtime_unsupported' })
+    expect(startInstance).not.toHaveBeenCalled()
+  })
+
+  it('requires setup to be ready', async () => {
+    mockGetSession.mockResolvedValue(adminSession)
+    mockGetKickstartStatus.mockResolvedValue('needs_setup')
+    await expect(startInstanceWithRuntimeAction('alice', 'opencode-v2')).resolves.toEqual({ ok: false, error: 'setup_required' })
+    expect(startInstance).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { ok: true, status: 'running' },
+    { ok: false, error: 'runtime_unsupported' },
+    { ok: false, error: 'already_running' },
+  ] as const)('audits the explicit admin request and preserves the safe core result (%j)', async (result) => {
+    mockGetSession.mockResolvedValue(adminSession)
+    vi.mocked(startInstance).mockResolvedValueOnce(result)
+    await expect(startInstanceWithRuntimeAction('alice', 'opencode-v2')).resolves.toEqual(result)
+    expect(startInstance).toHaveBeenCalledWith('alice', 'admin-1', { runtimeKind: 'opencode-v2' })
+    expect(auditService.createEvent).toHaveBeenCalledWith({
+      actorUserId: 'admin-1', action: 'instance.runtime_start_requested', metadata: { slug: 'alice', runtimeKind: 'opencode-v2' },
+    })
+    expect(mockStop).not.toHaveBeenCalled()
+  })
+
+  it('fails closed when audit recording fails', async () => {
+    mockGetSession.mockResolvedValue(adminSession)
+    vi.mocked(auditService.createEvent).mockRejectedValueOnce(new Error('audit unavailable'))
+    await expect(startInstanceWithRuntimeAction('alice', 'opencode-v2')).resolves.toEqual({ ok: false, error: 'start_failed' })
+    expect(startInstance).not.toHaveBeenCalled()
   })
 })
 
