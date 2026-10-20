@@ -1,7 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { create } from '../tools/diagram.js'
+import { mcpTool } from './mcp-client.js'
+
+const create = mcpTool('diagram_create')
 
 function parseToolOutput(output) {
   return JSON.parse(output)

@@ -19,7 +19,7 @@ import {
   canSpawnWorkspaceAgent,
   createSafeEnv,
   generateDesktopPassword,
-  getDesktopOpencodeConfigDir,
+  getDesktopArcheToolsCommand,
   getDesktopProviderGatewayConfig,
   getOpencodeBinary,
   getWorkspaceAgentBinary,
@@ -184,7 +184,9 @@ type DesktopRuntimeArtifacts = {
 }
 
 async function buildDesktopRuntimeArtifacts(slug: string): Promise<DesktopRuntimeArtifacts> {
-  return buildWorkspaceRuntimeArtifacts(slug, getDesktopProviderGatewayConfig())
+  return buildWorkspaceRuntimeArtifacts(slug, getDesktopProviderGatewayConfig(), {
+    archeToolsCommand: getDesktopArcheToolsCommand(),
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -364,7 +366,6 @@ const desktopWorkspaceHostReal: WorkspaceHost = {
     const authHeader = makeAuthHeader(DEFAULT_USERNAME, password)
     const preferredAgentPort = getWorkspaceAgentPort()
     const safeEnv = createSafeEnv()
-    const opencodeConfigDir = getDesktopOpencodeConfigDir()
 
     const port = await findAvailablePort(DEFAULT_PORT)
     const agentPort = await findAvailablePort(preferredAgentPort, [port])
@@ -398,7 +399,6 @@ const desktopWorkspaceHostReal: WorkspaceHost = {
           OPENCODE_SERVER_USERNAME: DEFAULT_USERNAME,
           ARCHE_WORKSPACE_SLUG: slug,
           ARCHE_INTERNAL_API_BASE_URL: process.env.ARCHE_INTERNAL_API_BASE_URL ?? `http://${LOOPBACK_HOST}:3000`,
-          ...(opencodeConfigDir ? { OPENCODE_CONFIG_DIR: opencodeConfigDir } : {}),
           WORKSPACE_DIR: workspaceDir,
           HOME: archeDataDir,
           XDG_DATA_HOME: join(archeDataDir, '.local', 'share'),

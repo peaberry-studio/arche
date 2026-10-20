@@ -58,6 +58,10 @@ export const propose = {
     const parsed = argsSchema.safeParse(args)
     if (!parsed.success) return toToolOutput({ ok: false, error: 'schema_validation_failed' })
 
+    if (!context?.agent || !context?.sessionID) {
+      return toToolOutput({ ok: false, error: 'caller_identity_unavailable' })
+    }
+
     const body = { ...parsed.data }
     const callerAgent = typeof context?.agent === 'string' ? context.agent : undefined
     if (callerAgent) {

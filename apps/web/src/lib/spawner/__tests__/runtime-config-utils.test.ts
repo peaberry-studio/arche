@@ -57,7 +57,7 @@ describe('withWorkspaceKnowledgePolicy', () => {
       '# Base instructions\n\n## Knowledge Base write policy\n\n' +
       'This block is mandatory and overrides any earlier instruction.\n\n' +
       '- Chat agents must not write, edit, or delete Knowledge Base files. Do not use `write`, `edit`, or shell redirection to change the vault.\n' +
-      '- Persist agent knowledge only with `learning_propose`.\n' +
+      '- Persist agent knowledge only with `arche_tools_learning_propose` when enabled.\n' +
       '- User edits belong in Explore. They appear under Manual edits and are published from there. They do not go through Proposals.\n'
     )
   })
@@ -67,7 +67,7 @@ describe('AGENT_KB_POLICY_PROMPT_BLOCK', () => {
   it('carries the mandatory override framing and the full rule set', () => {
     expect(AGENT_KB_POLICY_PROMPT_BLOCK).toContain('## Knowledge Base write policy')
     expect(AGENT_KB_POLICY_PROMPT_BLOCK).toContain('overrides any earlier instruction')
-    expect(AGENT_KB_POLICY_PROMPT_BLOCK).toContain('`learning_propose`')
+    expect(AGENT_KB_POLICY_PROMPT_BLOCK).toContain('`arche_tools_learning_propose` when enabled')
     expect(AGENT_KB_POLICY_PROMPT_BLOCK).toMatch(/only sanctioned way/)
     expect(AGENT_KB_POLICY_PROMPT_BLOCK).toContain('write')
     expect(AGENT_KB_POLICY_PROMPT_BLOCK).toContain('edit')
@@ -88,7 +88,7 @@ describe('Knowledge Base write policy renderings', () => {
       expect(block).toContain('This block is mandatory and overrides any earlier instruction.')
       expect(block).toContain('must not write, edit, or delete Knowledge Base files')
       expect(block).toContain('`write`, `edit`, or shell redirection')
-      expect(block).toContain('`learning_propose`')
+      expect(block).toContain('`arche_tools_learning_propose` when enabled')
     }
   })
 })

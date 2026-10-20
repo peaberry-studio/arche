@@ -55,7 +55,7 @@ export function getWorkspaceToolDisplay(
   if (!parsed) {
     return {
       isConnectorTool: false,
-      groupLabel: toolName,
+      groupLabel: toolName.replace(/^arche_tools_/, ''),
     }
   }
 

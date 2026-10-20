@@ -148,7 +148,6 @@ describe('docker', () => {
         Env: expect.arrayContaining([
           'OPENCODE_SERVER_PASSWORD=secret-password',
           'OPENCODE_SERVER_USERNAME=opencode',
-          'OPENCODE_CONFIG_DIR=/opt/arche/opencode-config',
           'HOME=/home/workspace',
           'XDG_DATA_HOME=/home/workspace/.local/share',
           'XDG_CONFIG_HOME=/home/workspace/.config',

@@ -6,8 +6,8 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 OUTPUT_DIR="$ROOT_DIR/apps/desktop/bin"
 OPENCODE_VERSION_FILE="$ROOT_DIR/versions/opencode.version"
 NODE_VERSION_FILE="$ROOT_DIR/.node-version"
-OPENCODE_CONFIG_SOURCE_DIR="$ROOT_DIR/infra/workspace-image/opencode-config"
-OPENCODE_CONFIG_OUTPUT_DIR="$OUTPUT_DIR/opencode-config"
+ARCHE_TOOLS_SOURCE_DIR="$ROOT_DIR/infra/workspace-image/arche-tools"
+ARCHE_TOOLS_OUTPUT_DIR="$OUTPUT_DIR/arche-tools"
 
 read_supported_node_major() {
   if [[ ! -f "$NODE_VERSION_FILE" ]]; then
@@ -63,45 +63,46 @@ fi
 
 mkdir -p "$OUTPUT_DIR"
 
-prepare_opencode_config_dir() {
-  if [[ ! -d "$OPENCODE_CONFIG_SOURCE_DIR" ]]; then
-    echo "Error: Missing OpenCode config source dir at $OPENCODE_CONFIG_SOURCE_DIR" >&2
+prepare_arche_tools_dir() {
+  if [[ ! -f "$ARCHE_TOOLS_SOURCE_DIR/server.js" ]]; then
+    echo "Error: Missing Arche tools server at $ARCHE_TOOLS_SOURCE_DIR/server.js" >&2
     exit 1
   fi
 
   local should_install=0
 
-  if [[ ! -f "$OPENCODE_CONFIG_OUTPUT_DIR/package.json" ]] || \
-    ! cmp -s "$OPENCODE_CONFIG_SOURCE_DIR/package.json" "$OPENCODE_CONFIG_OUTPUT_DIR/package.json" || \
-    ! cmp -s "$OPENCODE_CONFIG_SOURCE_DIR/package-lock.json" "$OPENCODE_CONFIG_OUTPUT_DIR/package-lock.json"; then
+  if [[ ! -f "$ARCHE_TOOLS_OUTPUT_DIR/package.json" ]] || \
+    ! cmp -s "$ARCHE_TOOLS_SOURCE_DIR/package.json" "$ARCHE_TOOLS_OUTPUT_DIR/package.json" || \
+    ! cmp -s "$ARCHE_TOOLS_SOURCE_DIR/pnpm-lock.yaml" "$ARCHE_TOOLS_OUTPUT_DIR/pnpm-lock.yaml"; then
     should_install=1
   fi
 
-  mkdir -p "$OPENCODE_CONFIG_OUTPUT_DIR"
-  cp "$OPENCODE_CONFIG_SOURCE_DIR/package.json" "$OPENCODE_CONFIG_OUTPUT_DIR/package.json"
-  cp "$OPENCODE_CONFIG_SOURCE_DIR/package-lock.json" "$OPENCODE_CONFIG_OUTPUT_DIR/package-lock.json"
+  mkdir -p "$ARCHE_TOOLS_OUTPUT_DIR"
+  cp "$ARCHE_TOOLS_SOURCE_DIR/package.json" "$ARCHE_TOOLS_OUTPUT_DIR/package.json"
+  cp "$ARCHE_TOOLS_SOURCE_DIR/pnpm-lock.yaml" "$ARCHE_TOOLS_OUTPUT_DIR/pnpm-lock.yaml"
+  cp "$ARCHE_TOOLS_SOURCE_DIR/server.js" "$ARCHE_TOOLS_OUTPUT_DIR/server.js"
 
-  rm -rf "$OPENCODE_CONFIG_OUTPUT_DIR/shared"
-  mkdir -p "$OPENCODE_CONFIG_OUTPUT_DIR/shared"
-  cp "$OPENCODE_CONFIG_SOURCE_DIR/shared/"*.js "$OPENCODE_CONFIG_OUTPUT_DIR/shared/"
+  rm -rf "$ARCHE_TOOLS_OUTPUT_DIR/shared"
+  mkdir -p "$ARCHE_TOOLS_OUTPUT_DIR/shared"
+  cp "$ARCHE_TOOLS_SOURCE_DIR/shared/"*.js "$ARCHE_TOOLS_OUTPUT_DIR/shared/"
 
-  rm -rf "$OPENCODE_CONFIG_OUTPUT_DIR/tools"
-  mkdir -p "$OPENCODE_CONFIG_OUTPUT_DIR/tools"
-  cp "$OPENCODE_CONFIG_SOURCE_DIR/tools/"*.js "$OPENCODE_CONFIG_OUTPUT_DIR/tools/"
+  rm -rf "$ARCHE_TOOLS_OUTPUT_DIR/tools"
+  mkdir -p "$ARCHE_TOOLS_OUTPUT_DIR/tools"
+  cp "$ARCHE_TOOLS_SOURCE_DIR/tools/"*.js "$ARCHE_TOOLS_OUTPUT_DIR/tools/"
 
   if [[ "${FORCE_DOWNLOAD:-0}" == "1" ]]; then
-    rm -rf "$OPENCODE_CONFIG_OUTPUT_DIR/node_modules"
+    rm -rf "$ARCHE_TOOLS_OUTPUT_DIR/node_modules"
     should_install=1
   fi
 
-  if [[ ! -d "$OPENCODE_CONFIG_OUTPUT_DIR/node_modules" ]]; then
+  if [[ ! -d "$ARCHE_TOOLS_OUTPUT_DIR/node_modules" ]]; then
     should_install=1
   fi
 
   if [[ "$should_install" == "1" ]]; then
     (
-      cd "$OPENCODE_CONFIG_OUTPUT_DIR"
-      npm ci --omit=dev --ignore-scripts
+      cd "$ARCHE_TOOLS_OUTPUT_DIR"
+      pnpm install --prod --frozen-lockfile --ignore-scripts --node-linker=hoisted --store-dir "$OUTPUT_DIR/.pnpm-store"
     )
   fi
 }
@@ -111,6 +112,6 @@ echo "==> Using Node.js runtime v$RESOLVED_NODE_RUNTIME_VERSION"
 bash "$SCRIPT_DIR/download-node.sh" "$RESOLVED_NODE_RUNTIME_VERSION" "$OUTPUT_DIR"
 bash "$SCRIPT_DIR/download-opencode.sh" "$RESOLVED_OPENCODE_VERSION" "$OUTPUT_DIR"
 bash "$SCRIPT_DIR/build-workspace-agent.sh" "$OUTPUT_DIR"
-prepare_opencode_config_dir
+prepare_arche_tools_dir
 
 echo "==> Desktop runtime binaries ready in $OUTPUT_DIR"

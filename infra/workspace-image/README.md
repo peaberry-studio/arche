@@ -9,7 +9,7 @@ Image derived from OpenCode with support for a shared Knowledge Base (KB).
 - Automatic workspace initialization script
 - Workspace agent HTTP service for diffs and file operations
 - Support for runtime config injected by the spawner (`opencode.json` and `AGENTS.md`)
-- Global OpenCode custom tools for spreadsheets (`spreadsheet_*`), documents (`document_inspect`), presentations (`presentation_inspect`), and structured email drafts (`email_draft`)
+- In-container stdio MCP tools for charts, diagrams, documents, email drafts, flows, learning, presentations, session history and spreadsheets (`arche_tools_*`)
 
 ## Workspace Agent
 
@@ -73,7 +73,11 @@ Runtime config is injected by Arche spawner when creating the container:
 - `opencode.json` (merge of CommonWorkspaceConfig + MCP connectors + provider gateway)
 - `AGENTS.md` (if present in config repo)
 
-The image also includes a global `OPENCODE_CONFIG_DIR` (`/opt/arche/opencode-config`) with custom tools always available to all workspaces.
+The image includes `/opt/arche/arche-tools/server.js`, registered by the spawner as the local `arche_tools` MCP server (`node /opt/arche/arche-tools/server.js`). It has no harness plugin dependency. Agent tool maps and permissions are remapped at runtime; stored workspace configuration is not rewritten.
+
+Tool output remains JSON text (including chart, diagram and attachment payloads), also exposed as MCP structured content. Workspace-scoped internal API credentials are inherited by the stdio process, never passed as tool arguments. Learning and session history require explicit `caller_agent` plus harness session metadata (`ai.opencode/sessionID`) or an explicit `caller_session_id`. Missing or conflicting context returns `caller_identity_unavailable` without calling the internal API. Explicit identity is attribution, not authentication; workspace authorization remains on the internal API. V1 does not guarantee session metadata, so agents must not invent a session id when none is known.
+
+Tool checks: from `arche-tools/`, run `pnpm install --ignore-scripts` and `pnpm test`. Regression calls use an in-process MCP client/server pair.
 
 At startup, `entrypoint.sh` copies mounted runtime files into `/workspace`:
 

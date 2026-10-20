@@ -180,12 +180,12 @@ describe('runtime artifacts', () => {
     ])
   })
 
-  it('keeps proposal path, skills, and connector access for legacy all-tools agents', async () => {
+  it.each(['all', undefined])('keeps proposal path, skills, and connector access for legacy tools: %s', async (tools) => {
     await createRuntimeRepo({
       'CommonWorkspaceConfig.json': JSON.stringify({
         default_agent: 'assistant',
         agent: {
-          assistant: { mode: 'all', tools: 'all' },
+          assistant: { mode: 'all', tools },
         },
       }),
     })
@@ -213,11 +213,121 @@ describe('runtime artifacts', () => {
       tools: {
         'arche_*': true,
         edit: false,
-        learning_propose: true,
+        arche_tools_learning_propose: true,
         skill: true,
         write: false,
       },
     })
+    const runtimeTools = config.agent?.assistant.tools ?? {}
+    expect(Object.entries(runtimeTools).filter(([id, enabled]) => id.startsWith('arche_tools_') && enabled)).toHaveLength(12)
+    expect(runtimeTools['arche_tools_*']).toBe(false)
+  })
+
+  it.each(['none', 'failure', 'remote'])('registers the local built-in MCP independently of connector setup: %s', async (connectorSetup) => {
+    await createRuntimeRepo({ 'CommonWorkspaceConfig.json': createWorkspaceConfig() })
+    const remote = { type: 'remote', enabled: true, url: 'https://connector.example/mcp' }
+    if (connectorSetup === 'failure') buildMcpConfigForSlugMock.mockRejectedValueOnce(new Error('unavailable'))
+    if (connectorSetup === 'remote') {
+      buildMcpConfigForSlugMock.mockResolvedValueOnce({
+        mcpConfig: { mcp: { arche_linear_user: remote } },
+        connectorToolPermissions: {},
+        connectorDisplayNames: {},
+      })
+    }
+    const { buildWorkspaceRuntimeArtifacts } = await loadRuntimeArtifactsModule()
+    const artifacts = await buildWorkspaceRuntimeArtifacts('alice', {})
+    const config = JSON.parse(artifacts.opencodeConfigContent)
+
+    expect(config.mcp.arche_tools).toEqual({
+      type: 'local',
+      enabled: true,
+      command: ['node', '/opt/arche/arche-tools/server.js'],
+    })
+    expect(config.tools['arche_tools_*']).toBe(false)
+    if (connectorSetup === 'remote') expect(config.mcp.arche_linear_user).toEqual(remote)
+  })
+
+  it('supports a desktop command override through both runtime APIs', async () => {
+    const commonConfigContent = createWorkspaceConfig()
+    await createRuntimeRepo({ 'CommonWorkspaceConfig.json': commonConfigContent })
+    const options = { archeToolsCommand: ['/desktop/bin/node', '/desktop/bin/arche-tools/server.js'] }
+    const { buildWorkspaceRuntimeArtifacts, buildWorkspaceRuntimeConfig } = await loadRuntimeArtifactsModule()
+    const artifacts = await buildWorkspaceRuntimeArtifacts('alice', {}, options)
+    const config = await buildWorkspaceRuntimeConfig('alice', {}, commonConfigContent, null, options)
+
+    expect(JSON.parse(artifacts.opencodeConfigContent).mcp.arche_tools.command).toEqual(options.archeToolsCommand)
+    expect(config.mcp).toMatchObject({ arche_tools: { command: options.archeToolsCommand } })
+  })
+
+  it('keeps only spreadsheet tools enabled for an explicit agent and remaps its permissions', async () => {
+    const storedConfig = {
+      default_agent: 'analyst',
+      agent: {
+        analyst: {
+          tools: {
+            'arche_*': true,
+            spreadsheet_inspect: true,
+            spreadsheet_sample: true,
+            spreadsheet_query: true,
+            spreadsheet_stats: true,
+          },
+          permission: { '*': 'allow', spreadsheet_query: 'ask' },
+        },
+        restricted: { tools: {}, permission: 'allow' },
+      },
+    }
+    await createRuntimeRepo({ 'CommonWorkspaceConfig.json': JSON.stringify(storedConfig) })
+    const { buildWorkspaceRuntimeArtifacts } = await loadRuntimeArtifactsModule()
+    const artifacts = await buildWorkspaceRuntimeArtifacts('alice', {})
+    const config = JSON.parse(artifacts.opencodeConfigContent)
+    const analyst = config.agent.analyst
+
+    expect(Object.keys(analyst.tools).filter((id) => id.startsWith('arche_tools_') && analyst.tools[id])).toEqual([
+      'arche_tools_spreadsheet_inspect',
+      'arche_tools_spreadsheet_query',
+      'arche_tools_spreadsheet_sample',
+      'arche_tools_spreadsheet_stats',
+    ])
+    expect(analyst.permission.arche_tools_spreadsheet_query).toBe('ask')
+    expect(analyst.permission.spreadsheet_query).toBeUndefined()
+    for (const id of ['chart_create', 'diagram_create', 'document_inspect', 'email_draft', 'flow_propose', 'learning_propose', 'presentation_inspect', 'session_history_query']) {
+      expect(analyst.tools[`arche_tools_${id}`], id).toBe(false)
+      expect(analyst.permission[`arche_tools_${id}`], id).toBe('deny')
+    }
+    expect(analyst.tools['arche_tools_*']).toBe(false)
+    expect(Object.keys(config.agent.restricted.tools).filter((id) => id.startsWith('arche_tools_') && config.agent.restricted.tools[id])).toEqual([])
+    expect(analyst.prompt).toContain('Your current agent id is "analyst".')
+    expect(analyst.prompt).toContain('prefill caller_agent with this exact agent id')
+    expect(analyst.prompt).toContain('Never guess an agent or session id')
+    expect(analyst.prompt).toContain('Do not assume the harness forwards session metadata')
+    expect(analyst.prompt).toContain('caller_identity_unavailable')
+    expect(analyst.prompt.endsWith(AGENT_KB_POLICY_PROMPT_BLOCK)).toBe(true)
+  })
+
+  it.each([
+    { permission: 'ask', document: 'ask' },
+    { permission: { '*': 'ask', document_inspect: 'deny' }, document: 'deny' },
+  ])('preserves inherited permissions through the runtime pipeline: $document', async ({ permission, document }) => {
+    await createRuntimeRepo({
+      'CommonWorkspaceConfig.json': JSON.stringify({
+        permission,
+        default_agent: 'analyst',
+        agent: { analyst: { tools: { document_inspect: true, spreadsheet_query: true } } },
+      }),
+    })
+    const { buildWorkspaceRuntimeArtifacts } = await loadRuntimeArtifactsModule()
+    const artifacts = await buildWorkspaceRuntimeArtifacts('alice', {})
+    const config = JSON.parse(artifacts.opencodeConfigContent)
+
+    expect(config.permission['*']).toBe('ask')
+    expect(config.agent.analyst.permission).toMatchObject({
+      arche_tools_document_inspect: document,
+      arche_tools_spreadsheet_query: 'ask',
+      arche_tools_chart_create: 'deny',
+      'arche_tools_*': 'deny',
+    })
+    expect(config.agent.analyst.tools['*']).not.toBe(true)
+    expect(config.agent.analyst.tools.arche_tools_chart_create).toBe(false)
   })
 
   it('normalizes the default all-mode agent before serializing runtime config', async () => {
@@ -294,8 +404,8 @@ describe('runtime artifacts', () => {
     expect(curator?.steps).toBe(40)
     expect(curator?.temperature).toBeCloseTo(0.1)
     expect(curator?.tools?.read).toBe(true)
-    expect(curator?.tools?.learning_propose).toBe(true)
-    expect(curator?.tools?.session_history_query).toBe(true)
+    expect(curator?.tools?.arche_tools_learning_propose).toBe(true)
+    expect(curator?.tools?.arche_tools_session_history_query).toBe(true)
     expect(curator?.tools?.write).toBe(false)
     expect(curator?.tools?.edit).toBe(false)
   })

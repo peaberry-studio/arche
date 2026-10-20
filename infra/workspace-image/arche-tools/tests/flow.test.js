@@ -2,7 +2,9 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 
-import { propose } from '../tools/flow.js'
+import { mcpTool } from './mcp-client.js'
+
+const propose = mcpTool('flow_propose')
 
 async function readFlowTemplateContractCases() {
   const file = new URL('../../../../resources/flow-template-contract-cases.json', import.meta.url)

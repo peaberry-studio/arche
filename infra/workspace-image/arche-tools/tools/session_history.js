@@ -20,9 +20,13 @@ export const query = {
     query: z.string().max(500).optional().describe('Optional session title search.'),
     sessionIds: z.array(z.string().min(1)).max(100).optional().describe('Specific OpenCode session ids to inspect.'),
   },
-  async execute(args) {
+  async execute(args, context) {
     const parsed = argsSchema.safeParse(args)
     if (!parsed.success) return toToolOutput({ ok: false, error: 'schema_validation_failed' })
+
+    if (!context?.agent || !context?.sessionID) {
+      return toToolOutput({ ok: false, error: 'caller_identity_unavailable' })
+    }
 
     const result = await callInternalApi('/api/internal/learning/session-history', parsed.data)
     if (!result.ok) return toToolOutput({ ok: false, error: result.error })

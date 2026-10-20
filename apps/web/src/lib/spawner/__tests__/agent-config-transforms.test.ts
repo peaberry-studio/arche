@@ -1,23 +1,23 @@
-import { describe, it, expect } from 'vitest'
-
+import { describe, expect, it } from 'vitest'
 
 import { KNOWLEDGE_CURATOR_SYSTEM_INSTRUCTIONS } from '@/lib/learning/curator-prompt'
-import { SUBAGENT_STEP_LIMIT } from '@/lib/workspace-config'
 import {
   applyAgentExecutionGuards,
   applyDefaultAgentModel,
   denyAgentKnowledgeWrites,
   injectAgentKnowledgePolicy,
-  injectAlwaysOnAgentTools,
+  injectAgentToolCallerIdentity,
   injectCustomConnectorHints,
   injectSelfDelegationGuards,
   injectSystemKnowledgeCuratorAgent,
   injectSystemSkillAccess,
   materializeAgentToolMaps,
+  remapAgentBuiltInTools,
   remapAgentConnectorTools,
-} from '../agent-config-transforms'
-import { serializeRuntimeConfig } from '../runtime-config'
-import { AGENT_KB_POLICY_PROMPT_BLOCK } from '../runtime-config-utils'
+} from '@/lib/spawner/agent-config-transforms'
+import { serializeRuntimeConfig } from '@/lib/spawner/runtime-config'
+import { AGENT_KB_POLICY_PROMPT_BLOCK } from '@/lib/spawner/runtime-config-utils'
+import { SUBAGENT_STEP_LIMIT } from '@/lib/workspace-config'
 
 describe('applyAgentExecutionGuards', () => {
   it('caps primary and subagent steps and denies unsafe loops', () => {
@@ -185,62 +185,201 @@ describe('applyDefaultAgentModel', () => {
   })
 })
 
-describe('injectAlwaysOnAgentTools', () => {
-  it('enables always-on tools for every configured agent', () => {
+describe('remapAgentBuiltInTools', () => {
+  it.each([
+    { name: 'global ask', permission: 'ask', document: 'ask', spreadsheet: 'ask' },
+    { name: 'global deny', permission: 'deny', document: 'deny', spreadsheet: 'deny' },
+    { name: 'legacy exact deny', permission: { '*': 'ask', document_inspect: 'deny' }, document: 'deny', spreadsheet: 'ask' },
+    { name: 'canonical exact deny', permission: { '*': 'ask', arche_tools_document_inspect: 'deny' }, document: 'deny', spreadsheet: 'ask' },
+  ])('preserves inherited permissions for enabled built-ins: $name', ({ permission, document, spreadsheet }) => {
     const config = {
-      agent: {
-        assistant: { mode: 'primary', tools: { task: true, email_draft: false } },
-        support: { mode: 'subagent', tools: { read: true } },
-      },
+      permission,
+      agent: { analyst: { tools: { document_inspect: true, spreadsheet_query: true } } },
     }
+    const snapshot = structuredClone(config)
+    const result = remapAgentBuiltInTools(config)
+    const agent = (result.agent as Record<string, Record<string, unknown>>).analyst
 
-    const result = injectAlwaysOnAgentTools(config)
-    const agents = result.agent as Record<string, Record<string, unknown>>
-    const assistantTools = agents.assistant.tools as Record<string, boolean>
-    const supportTools = agents.support.tools as Record<string, boolean>
-
-    expect(assistantTools.email_draft).toBe(true)
-    expect(assistantTools.chart_create).toBe(true)
-    expect(assistantTools.diagram_create).toBe(true)
-    expect(assistantTools.flow_propose).toBe(true)
-    expect(supportTools.email_draft).toBe(true)
-    expect(supportTools.chart_create).toBe(true)
-    expect(supportTools.diagram_create).toBe(true)
-    expect(supportTools.flow_propose).toBe(true)
-    expect(supportTools.learning_propose).toBe(true)
-    expect(supportTools.session_history_query).toBe(true)
+    expect(agent.permission).toMatchObject({
+      arche_tools_document_inspect: document,
+      arche_tools_spreadsheet_query: spreadsheet,
+      arche_tools_chart_create: 'deny',
+      'arche_tools_*': 'deny',
+    })
+    expect(config).toEqual(snapshot)
+    expect(remapAgentBuiltInTools(result)).toEqual(result)
   })
 
-  it('skips agents that do not define explicit tools', () => {
-    const config = {
+  it('keeps explicit agent permission overrides above inherited permissions without widening selections', () => {
+    const result = remapAgentBuiltInTools({
+      permission: { '*': 'ask', document_inspect: 'deny' },
       agent: {
-        assistant: { mode: 'primary', prompt: 'You are helpful.' },
+        analyst: {
+          tools: { document_inspect: true, spreadsheet_query: true },
+          permission: { document_inspect: 'allow', spreadsheet_query: 'deny', chart_create: 'allow' },
+        },
       },
-    }
-
-    const result = injectAlwaysOnAgentTools(config)
-    expect(result).toBe(config)
+    })
+    const agent = (result.agent as Record<string, Record<string, unknown>>).analyst
+    expect(agent.permission).toMatchObject({
+      arche_tools_document_inspect: 'allow',
+      arche_tools_spreadsheet_query: 'deny',
+      arche_tools_chart_create: 'deny',
+    })
   })
 
-  it('returns the original object when all agents already have always-on tools enabled', () => {
+  it('keeps exact built-in denials after v1 converts tool flags to ordered permissions', () => {
+    const transformed = remapAgentBuiltInTools({
+      agent: {
+        analyst: {
+          tools: { 'arche_*': true, spreadsheet_query: true, email_draft: false },
+          permission: { '*': 'allow', 'arche_*': 'allow', spreadsheet_query: 'ask', email_draft: 'allow' },
+        },
+      },
+    })
+    const serialized = JSON.parse(serializeRuntimeConfig(transformed))
+    const agent = serialized.agent.analyst
+    const convertedPermission = Object.fromEntries(Object.entries(agent.tools).map(([id, enabled]) => [id, enabled ? 'allow' : 'deny']))
+    Object.assign(convertedPermission, agent.permission)
+    const effective = (toolId: string) => Object.entries(convertedPermission)
+      .filter(([pattern]) => new RegExp(`^${pattern.replace(/\*/g, '.*')}$`).test(toolId)).at(-1)?.[1]
+
+    expect(effective('arche_tools_spreadsheet_query')).toBe('ask')
+    expect(effective('arche_tools_email_draft')).toBe('deny')
+    expect(effective('arche_tools_learning_propose')).toBe('deny')
+    expect(effective('arche_tools_future_tool')).toBe('deny')
+    expect(effective('arche_linear_user_list_issues')).toBe('allow')
+  })
+
+  it('honors canonical explicit false and deny values when old ids are also present', () => {
+    const result = remapAgentBuiltInTools({
+      agent: {
+        analyst: {
+          tools: { arche_tools_spreadsheet_query: false, spreadsheet_query: true, document_inspect: true },
+          permission: { arche_tools_document_inspect: 'deny', document_inspect: 'allow' },
+        },
+      },
+    })
+    const agent = (result.agent as Record<string, Record<string, unknown>>).analyst
+    expect(agent.tools).toMatchObject({ arche_tools_spreadsheet_query: false, arche_tools_document_inspect: true })
+    expect(agent.permission).toMatchObject({ arche_tools_spreadsheet_query: 'deny', arche_tools_document_inspect: 'deny' })
+  })
+
+  it('keeps spreadsheet-only agents scoped even with broad connector access and permissive permissions', () => {
     const config = {
       agent: {
-        assistant: {
-          mode: 'primary',
+        analyst: {
           tools: {
-            email_draft: true,
-            chart_create: true,
-            diagram_create: true,
-            flow_propose: true,
-            learning_propose: true,
-            session_history_query: true,
+            'arche_*': true,
+            spreadsheet_inspect: true,
+            spreadsheet_sample: true,
+            spreadsheet_query: true,
+            spreadsheet_stats: true,
+            email_draft: false,
+          },
+          permission: {
+            '*': 'allow',
+            spreadsheet_query: 'ask',
+            chart_create: 'allow',
           },
         },
       },
     }
+    const snapshot = structuredClone(config)
 
-    const result = injectAlwaysOnAgentTools(config)
-    expect(result).toBe(config)
+    const result = remapAgentBuiltInTools(config)
+    const agents = result.agent as Record<string, Record<string, unknown>>
+    const tools = agents.analyst.tools as Record<string, boolean>
+    const permission = agents.analyst.permission as Record<string, unknown>
+
+    expect(Object.keys(tools).filter((id) => id.startsWith('arche_tools_') && tools[id])).toEqual([
+      'arche_tools_spreadsheet_inspect',
+      'arche_tools_spreadsheet_sample',
+      'arche_tools_spreadsheet_query',
+      'arche_tools_spreadsheet_stats',
+    ])
+    expect(tools['arche_tools_*']).toBe(false)
+    expect(tools['*']).toBe(false)
+    expect(tools['arche_*']).toBe(true)
+    expect(permission.arche_tools_spreadsheet_query).toBe('ask')
+    for (const id of ['chart_create', 'diagram_create', 'document_inspect', 'email_draft', 'flow_propose', 'learning_propose', 'presentation_inspect', 'session_history_query']) {
+      expect(tools[`arche_tools_${id}`], id).toBe(false)
+      expect(permission[`arche_tools_${id}`], id).toBe('deny')
+      expect(tools[id], id).toBeUndefined()
+      expect(permission[id], id).toBeUndefined()
+    }
+    expect(config).toEqual(snapshot)
+    expect(remapAgentBuiltInTools(result)).toEqual(result)
+
+  })
+
+  it('denies all built-in tools for empty explicit maps instead of inheriting the MCP enabled default', () => {
+    const result = remapAgentBuiltInTools({ agent: { restricted: { tools: {}, permission: 'allow' } } })
+    const agent = (result.agent as Record<string, Record<string, unknown>>).restricted
+    const tools = agent.tools as Record<string, boolean>
+    expect(Object.entries(tools).filter(([id]) => id.startsWith('arche_tools_')).map(([, enabled]) => enabled)).toEqual(Array(13).fill(false))
+    expect(tools['*']).toBe(false)
+    expect(agent.permission).toMatchObject({ '*': 'allow', arche_tools_learning_propose: 'deny' })
+  })
+
+  it('remaps global maps and keeps non-Arche tools and connector rules unchanged', () => {
+    const result = remapAgentBuiltInTools({
+      tools: { document_inspect: true, bash: false, 'arche_linear_abc_*': true },
+      permission: { document_inspect: 'ask', bash: 'deny', 'arche_linear_abc_*': 'allow' },
+      agent: {
+        assistant: { tools: { read: true, document_inspect: true }, permission: { document_inspect: 'deny' } },
+      },
+    })
+
+    expect(result.tools).toEqual({
+      'arche_tools_*': false,
+      arche_tools_document_inspect: true,
+      bash: false,
+      'arche_linear_abc_*': true,
+    })
+    expect(result.permission).toEqual({ arche_tools_document_inspect: 'ask', bash: 'deny', 'arche_linear_abc_*': 'allow' })
+    const agent = (result.agent as Record<string, Record<string, unknown>>).assistant
+    expect(agent.tools).toMatchObject({ read: true, arche_tools_document_inspect: true })
+    expect(agent.permission).toMatchObject({ arche_tools_document_inspect: 'deny' })
+  })
+
+  it('keeps the full built-in inventory for all and missing tools, but not for invalid agent entries', () => {
+    const result = remapAgentBuiltInTools({
+      agent: {
+        allMode: { tools: 'all', permission: 'ask' },
+        implicit: { permission: 'ask' },
+        invalid: null,
+      },
+    })
+    const agents = result.agent as Record<string, Record<string, unknown>>
+
+    expect(agents.allMode.tools).toEqual(agents.implicit.tools)
+    expect(Object.entries(agents.allMode.tools as Record<string, boolean>).filter(([id, enabled]) => id.startsWith('arche_tools_') && enabled)).toHaveLength(12)
+    expect(agents.allMode.permission).toMatchObject({ '*': 'ask', arche_tools_learning_propose: 'ask', 'arche_tools_*': 'deny' })
+    expect(agents.invalid).toBeNull()
+  })
+
+})
+
+describe('injectAgentToolCallerIdentity', () => {
+  it('injects the exact agent id without inventing a session and keeps the policy last', () => {
+    const input = { agent: { analyst: { prompt: 'Analyze data.' }, helper: {}, invalid: null } }
+    const result = injectAgentToolCallerIdentity(input)
+    const agents = result.agent as Record<string, { prompt: string }>
+    expect(agents.analyst.prompt).toContain('Your current agent id is "analyst".')
+    expect(agents.helper.prompt).toContain('Your current agent id is "helper".')
+    expect(agents.analyst.prompt).toContain('prefill caller_agent with this exact agent id')
+    expect(agents.analyst.prompt).toContain('Supply caller_session_id only when the current session id is explicitly known')
+    expect(agents.analyst.prompt).toContain('Never guess an agent or session id')
+    expect(agents.analyst.prompt).toContain('Do not assume the harness forwards session metadata')
+    expect(agents.analyst.prompt).toContain('caller_identity_unavailable')
+    expect(agents.analyst.prompt).toContain('attribution, not authorization')
+    expect(agents.invalid).toBeNull()
+    expect(input.agent.analyst.prompt).toBe('Analyze data.')
+    expect(injectAgentToolCallerIdentity(result)).toEqual(result)
+    expect(injectAgentToolCallerIdentity({})).toEqual({})
+    const withPolicy = injectAgentKnowledgePolicy(result).agent as typeof agents
+    expect(withPolicy.analyst.prompt.endsWith(AGENT_KB_POLICY_PROMPT_BLOCK)).toBe(true)
   })
 })
 
@@ -261,14 +400,14 @@ describe('materializeAgentToolMaps', () => {
     expect(agents.allMode.tools).toMatchObject({
       'arche_*': true,
       bash: true,
-      chart_create: true,
-      diagram_create: true,
+      arche_tools_chart_create: true,
+      arche_tools_diagram_create: true,
       edit: true,
-      email_draft: true,
-      flow_propose: true,
-      learning_propose: true,
+      arche_tools_email_draft: true,
+      arche_tools_flow_propose: true,
+      arche_tools_learning_propose: true,
       read: true,
-      session_history_query: true,
+      arche_tools_session_history_query: true,
       skill: true,
       write: true,
     })
@@ -328,14 +467,14 @@ describe('denyAgentKnowledgeWrites', () => {
     expect(agents.allMode.tools).toMatchObject({
       'arche_*': true,
       bash: true,
-      chart_create: true,
-      diagram_create: true,
+      arche_tools_chart_create: true,
+      arche_tools_diagram_create: true,
       edit: false,
-      email_draft: true,
-      flow_propose: true,
-      learning_propose: true,
+      arche_tools_email_draft: true,
+      arche_tools_flow_propose: true,
+      arche_tools_learning_propose: true,
       read: true,
-      session_history_query: true,
+      arche_tools_session_history_query: true,
       skill: true,
       write: false,
     })
@@ -1018,8 +1157,8 @@ describe('injectSystemKnowledgeCuratorAgent', () => {
     const curator = (result.agent as Record<string, Record<string, unknown>>)['knowledge-curator']
     const tools = curator.tools as Record<string, boolean>
 
-    expect(tools.learning_propose).toBe(true)
-    expect(tools.session_history_query).toBe(true)
+    expect(tools.arche_tools_learning_propose).toBe(true)
+    expect(tools.arche_tools_session_history_query).toBe(true)
   })
 
   it('leaves write/edit off when the transform runs before denyAgentKnowledgeWrites', () => {
@@ -1174,12 +1313,13 @@ function runFullTransformPipeline(
 ): Record<string, unknown> {
   let next = materializeAgentToolMaps(config)
   next = remapAgentConnectorTools(next, new Set())
-  next = injectAlwaysOnAgentTools(next)
   next = injectSystemSkillAccess(next, ['arche-flow-authoring'])
   next = injectSystemKnowledgeCuratorAgent(next)
+  next = remapAgentBuiltInTools(next)
   next = applyDefaultAgentModel(next)
   next = applyAgentExecutionGuards(next)
   next = injectSelfDelegationGuards(next)
+  next = injectAgentToolCallerIdentity(next)
   next = injectAgentKnowledgePolicy(next)
   return denyAgentKnowledgeWrites(next)
 }

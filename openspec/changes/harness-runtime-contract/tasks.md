@@ -46,9 +46,26 @@ Phase 1 is not fully accepted; do not treat the unchecked tasks as completed. --
 - [ ] 4.1 Create `infra/workspace-image/arche-tools/` (package.json with `@modelcontextprotocol/sdk`, zod, existing tool deps) and a stdio `server.js` with a shim that registers each existing tool definition as an MCP tool (zod → JSON schema, `toToolOutput` → MCP content incl. attachment metadata); move `shared/` and `tools/` into it; verify `node --test` / existing `opencode-config/tests` ported to call tools through an in-process MCP client pass.
 - [ ] 4.2 Implement caller identity for `learning` and `session_history` per design D5 (MCP `_meta` if spike 1.1 confirms forwarding, otherwise explicit argument), returning `caller_identity_unavailable` when absent; verify with tool tests for both paths.
 - [ ] 4.3 Update `Containerfile` to install `arche-tools` in `/opt/arche/arche-tools`, drop `@opencode-ai/plugin` and `OPENCODE_CONFIG_DIR` tools; update `infra/workspace-image/README.md`; verify `bash scripts/check-podman-images.sh` passes.
-- [ ] 4.4 Register `arche_tools` as a local MCP server in the v1 runtime config and remap built-in tool ids in `agent-config-transforms.ts` (`injectAlwaysOnAgentTools`, `materializeAgentToolMaps`, related guards); verify `runtime-artifacts` and `agent-config-transforms` tests cover the spec scenario "agent had only the spreadsheet tools".
-- [ ] 4.5 Audit `apps/web/kickstart/agents`, kickstart templates, skills and flow definitions for hard-coded built-in tool ids and update them; update `workspace-tool-display.ts` so the chat renders `arche_tools_*` tool parts with the same labels and attachments as before; verify with `rg` showing no old ids and component tests for tool display.
-- [ ] 4.6 Desktop: point the desktop runtime at the bundled `arche-tools` (update `prepare-desktop-runtime.sh` and `runtime/desktop/config.ts`); verify desktop runtime tests pass.
+- [x] 4.4 Register `arche_tools` as a local MCP server in the v1 runtime config and remap built-in tool ids in `agent-config-transforms.ts` (`injectAlwaysOnAgentTools`, `materializeAgentToolMaps`, related guards); verify `runtime-artifacts` and `agent-config-transforms` tests cover the spec scenario "agent had only the spreadsheet tools".
+- [x] 4.5 Audit `apps/web/kickstart/agents`, kickstart templates, skills and flow definitions for hard-coded built-in tool ids and update them; update `workspace-tool-display.ts` so the chat renders `arche_tools_*` tool parts with the same labels and attachments as before; verify with `rg` showing no old ids and component tests for tool display.
+- [x] 4.6 Desktop: point the desktop runtime at the bundled `arche-tools` (update `prepare-desktop-runtime.sh` and `runtime/desktop/config.ts`); verify desktop runtime tests pass.
+
+<!-- Phase-2 handoff (2026-10-20): group 4 code is implemented, but 4.1–4.3
+remain unverified: execution permissions denied the required pnpm install.
+arche-tools/pnpm-lock.yaml is therefore still missing. Generate it with an
+authorized pnpm install before building either bundle; do not weaken frozen
+installs or the two failing supply-chain checks. MCP regressions are ported to
+an in-process client but currently fail to load the unavailable SDK. Web tests:
+5488 pass / 2 fail (missing lockfile); lint: 0 errors; tsc: 241 test diagnostics,
+0 production diagnostics. Desktop/runtime and allowlist/display tests pass.
+Image checks exceeded the 120-second command budget during the web build.
+Explicit caller identity is the D5 fallback: agent argument plus session metadata
+or explicit session argument; missing/conflicting context fails closed. Learning
+runs supply their current session id in the prompt. Explicit identity is
+attribution, not authorization; internal API workspace authentication is unchanged.
+Explicit allowlists no longer receive unrelated always-on tools (spreadsheet-only
+spec scenario); legacy all/missing maps still receive the complete built-in set.
+No v2 runtime or rollout default was changed. -->
 
 ## 5. Runtime kind and OpenCode v2 adapter
 

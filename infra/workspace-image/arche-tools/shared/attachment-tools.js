@@ -63,9 +63,24 @@ export function resolveAttachmentPath(inputPath) {
 }
 
 export async function readAttachmentBuffer(filePath, maxBytes = MAX_ATTACHMENT_FILE_BYTES) {
+  const resolved = resolveAttachmentPath(filePath)
+  if (!resolved.ok) return resolved
+
   let stat
   try {
-    stat = await fs.stat(filePath)
+    const realPath = await fs.realpath(resolved.path)
+    const realWorkspace = await fs.realpath(getWorkspaceRoot())
+    const relativeToWorkspace = path.relative(realWorkspace, realPath)
+    if (relativeToWorkspace === '..' || relativeToWorkspace.startsWith(`..${path.sep}`) || path.isAbsolute(relativeToWorkspace)) {
+      return { ok: false, error: 'path_outside_attachments' }
+    }
+    const realAttachments = await fs.realpath(getAttachmentsRoot())
+    const relativeToAttachments = path.relative(realAttachments, realPath)
+    if (relativeToAttachments === '..' || relativeToAttachments.startsWith(`..${path.sep}`) || path.isAbsolute(relativeToAttachments)) {
+      return { ok: false, error: 'path_outside_attachments' }
+    }
+    filePath = realPath
+    stat = await fs.stat(realPath)
   } catch {
     return { ok: false, error: 'file_not_found' }
   }

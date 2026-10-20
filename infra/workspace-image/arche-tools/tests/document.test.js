@@ -2,10 +2,11 @@ import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 
 import { resolveAttachmentPath } from '../shared/attachment-tools.js'
-import { inspect } from '../tools/document.js'
+import { mcpTool } from './mcp-client.js'
 import { ensureOfficeFixtures } from './office-fixtures.js'
 import { createWorkspaceTestEnv } from './workspace-test-env.js'
 
+const inspect = mcpTool('document_inspect')
 const workspace = await createWorkspaceTestEnv('arche-document-test-')
 
 after(async () => {

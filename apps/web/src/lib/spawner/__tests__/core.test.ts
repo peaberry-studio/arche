@@ -930,8 +930,8 @@ describe('startInstance - agent config transforms', () => {
     expect(linearTools['arche_linear_user999_*']).toBe(true)
     expect(linearTools['arche_linear_admin111_*']).toBeUndefined()
     expect(linearTools['arche_*']).toBe(false)
-    expect(linearTools.email_draft).toBe(true)
-    expect(linearTools.flow_propose).toBe(true)
+    expect(linearTools.arche_tools_email_draft).toBe(false)
+    expect(linearTools.arche_tools_flow_propose).toBe(false)
     expect(linearTools.skill).toBe(true)
     expect(linearTools.task).toBe(false)
     expect(parsed.agent.linear.steps).toBe(40)
@@ -940,8 +940,8 @@ describe('startInstance - agent config transforms', () => {
     expect(parsed.agent.linear.permission.skill['arche-flow-authoring']).toBe('allow')
 
     const assistantTools = parsed.agent.assistant.tools
-    expect(assistantTools.email_draft).toBe(true)
-    expect(assistantTools.flow_propose).toBe(true)
+    expect(assistantTools.arche_tools_email_draft).toBe(false)
+    expect(assistantTools.arche_tools_flow_propose).toBe(false)
     expect(assistantTools.skill).toBe(true)
     expect(parsed.agent.assistant.permission.skill['arche-flow-authoring']).toBe('allow')
 

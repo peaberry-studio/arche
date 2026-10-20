@@ -73,7 +73,7 @@ pnpm dev
 1. Downloads a bundled Node.js runtime into `apps/desktop/bin`
 2. Downloads `opencode` into `apps/desktop/bin`
 3. Builds `workspace-agent` from `infra/workspace-image/workspace-agent`
-4. Prepares `opencode-config` (custom tools + dependencies) in `apps/desktop/bin/opencode-config`
+4. Prepares the `arche-tools` MCP server and dependencies in `apps/desktop/bin/arche-tools`
 
 Run it manually when you want to prefetch/update binaries:
 

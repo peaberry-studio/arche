@@ -23,12 +23,13 @@ import {
   applyDefaultAgentModel,
   denyAgentKnowledgeWrites,
   injectAgentKnowledgePolicy,
-  injectAlwaysOnAgentTools,
+  injectAgentToolCallerIdentity,
   injectCustomConnectorHints,
   injectSelfDelegationGuards,
   injectSystemKnowledgeCuratorAgent,
   injectSystemSkillAccess,
   materializeAgentToolMaps,
+  remapAgentBuiltInTools,
   remapAgentConnectorTools,
 } from '@/lib/spawner/agent-config-transforms'
 import { buildMcpConfigForSlug } from '@/lib/spawner/mcp-config'
@@ -41,14 +42,14 @@ import {
 import {
   parseRuntimeConfigContent,
   serializeRuntimeConfig,
-} from './runtime-config'
+} from '@/lib/spawner/runtime-config'
 
 export {
   getDefaultWebRuntimeConfigContent,
   getWebProviderGatewayConfig,
   parseRuntimeConfigContent,
   serializeRuntimeConfig,
-} from './runtime-config'
+} from '@/lib/spawner/runtime-config'
 
 type WorkspaceOwner = {
   id: string
@@ -61,6 +62,10 @@ export type WorkspaceRuntimeArtifacts = {
   owner: WorkspaceOwner
   opencodeConfigContent: string
   agentsMd?: string
+}
+
+type WorkspaceRuntimeOptions = {
+  archeToolsCommand?: string[]
 }
 
 const COMMON_WORKSPACE_CONFIG_FILE = 'CommonWorkspaceConfig.json'
@@ -184,7 +189,8 @@ async function readRuntimeRepoSnapshot(): Promise<{
 
 async function buildBaseWorkspaceConfig(
   slug: string,
-  commonConfigContent?: string | null
+  commonConfigContent?: string | null,
+  options?: WorkspaceRuntimeOptions,
 ): Promise<Record<string, unknown>> {
   let baseConfig: Record<string, unknown> = {}
 
@@ -203,7 +209,7 @@ async function buildBaseWorkspaceConfig(
   }
 
   // Materialize legacy `'all'`/missing-tool agents before the connector remap:
-  // remap, always-on, and skill transforms only act on boolean tool maps, so a
+  // connector and skill transforms only act on boolean tool maps, so a
   // legacy non-map agent would otherwise lose connector access, the proposal
   // path, and skills at materialization time.
   baseConfig = materializeAgentToolMaps(baseConfig)
@@ -228,12 +234,24 @@ async function buildBaseWorkspaceConfig(
     baseConfig = remapAgentConnectorTools(baseConfig, new Set())
   }
 
-  baseConfig = injectAlwaysOnAgentTools(baseConfig)
+  baseConfig = {
+    ...baseConfig,
+    mcp: {
+      ...(isRecord(baseConfig.mcp) ? baseConfig.mcp : {}),
+      arche_tools: {
+        type: 'local',
+        command: options?.archeToolsCommand ?? ['node', '/opt/arche/arche-tools/server.js'],
+        enabled: true,
+      },
+    },
+  }
   baseConfig = injectSystemSkillAccess(baseConfig, [SYSTEM_FLOW_AUTHORING_SKILL_NAME])
   baseConfig = injectSystemKnowledgeCuratorAgent(baseConfig)
+  baseConfig = remapAgentBuiltInTools(baseConfig)
   baseConfig = applyDefaultAgentModel(baseConfig)
   baseConfig = applyAgentExecutionGuards(baseConfig)
   baseConfig = injectSelfDelegationGuards(baseConfig)
+  baseConfig = injectAgentToolCallerIdentity(baseConfig)
   // injectAgentKnowledgePolicy must stay the last prompt-appending transform:
   // the policy block is the final text in every prompt for maximal precedence.
   baseConfig = injectAgentKnowledgePolicy(baseConfig)
@@ -333,8 +351,9 @@ export async function buildWorkspaceRuntimeConfig(
   providerGatewayConfig: Record<string, unknown>,
   commonConfigContent?: string | null,
   owner?: WorkspaceOwner,
+  options?: WorkspaceRuntimeOptions,
 ): Promise<Record<string, unknown>> {
-  const baseConfig = await buildBaseWorkspaceConfig(slug, commonConfigContent)
+  const baseConfig = await buildBaseWorkspaceConfig(slug, commonConfigContent, options)
   const resolvedOwner = typeof owner === 'undefined' ? await getWorkspaceOwner(slug) : owner
   const scopedProviderGatewayConfig = await applyCredentialScopedProviderConfig(providerGatewayConfig, resolvedOwner)
   return withWorkspacePermissionGuards({
@@ -370,7 +389,8 @@ export async function buildWorkspaceAgentsMd(
 
 export async function buildWorkspaceRuntimeArtifacts(
   slug: string,
-  providerGatewayConfig: Record<string, unknown>
+  providerGatewayConfig: Record<string, unknown>,
+  options?: WorkspaceRuntimeOptions,
 ): Promise<WorkspaceRuntimeArtifacts> {
   const owner = await getWorkspaceOwner(slug)
   const repoSnapshot = await readRuntimeRepoSnapshot()
@@ -378,7 +398,8 @@ export async function buildWorkspaceRuntimeArtifacts(
     slug,
     providerGatewayConfig,
     repoSnapshot.commonConfigContent,
-    owner
+    owner,
+    options,
   )
   const agentsMd = await buildWorkspaceAgentsMd(slug, owner, repoSnapshot.agentsMdContent)
   const skills = withSystemSkillBundles(repoSnapshot.skills)

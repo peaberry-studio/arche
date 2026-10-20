@@ -4,7 +4,7 @@ const fs = require('node:fs')
 
 const {
   resolveRuntimeBinaryPath,
-  resolveRuntimeConfigDirPath,
+  resolveRuntimeToolsDirPath,
   getRuntimeBinaryEnv,
   getPackagedNodeBinaryPath,
   getMissingPackagedRuntimeBinaries,
@@ -38,7 +38,7 @@ test('prefers explicit env overrides in development mode', () => {
     devBaseDir: '/repo/apps/desktop/dist',
     env: {
       ARCHE_OPENCODE_BIN: '/custom/opencode',
-      ARCHE_OPENCODE_CONFIG_DIR: '/custom/opencode-config',
+      ARCHE_TOOLS_DIR: '/custom/arche-tools',
       ARCHE_WORKSPACE_AGENT_BIN: '/custom/workspace-agent',
       ARCHE_NODE_BIN: '/custom/node',
     },
@@ -46,7 +46,7 @@ test('prefers explicit env overrides in development mode', () => {
   }
 
   assert.equal(resolveRuntimeBinaryPath('opencode', options), '/custom/opencode')
-  assert.equal(resolveRuntimeConfigDirPath(options), '/custom/opencode-config')
+  assert.equal(resolveRuntimeToolsDirPath(options), '/custom/arche-tools')
   assert.equal(resolveRuntimeBinaryPath('workspace-agent', options), '/custom/workspace-agent')
   assert.equal(resolveRuntimeBinaryPath('node', options), '/custom/node')
 })
@@ -64,6 +64,7 @@ test('ignores env overrides in packaged builds', () => {
         ARCHE_OPENCODE_BIN: '/custom/opencode',
         ARCHE_WORKSPACE_AGENT_BIN: '/custom/workspace-agent',
         ARCHE_NODE_BIN: '/custom/node',
+        ARCHE_TOOLS_DIR: '/custom/arche-tools',
       },
       platform: 'darwin',
     }
@@ -76,6 +77,10 @@ test('ignores env overrides in packaged builds', () => {
     assert.equal(
       resolveRuntimeBinaryPath('node', options),
       '/Applications/Arche.app/Contents/Resources/bin/node',
+    )
+    assert.equal(
+      resolveRuntimeToolsDirPath(options),
+      '/Applications/Arche.app/Contents/Resources/bin/arche-tools',
     )
   } finally {
     fs.existsSync = originalExistsSync
@@ -95,15 +100,15 @@ test('returns missing packaged runtime binaries when bundle is incomplete', () =
       platform: 'darwin',
     }
 
-    assert.deepEqual(getMissingPackagedRuntimeBinaries(options), ['node', 'workspace-agent', 'opencode-config'])
+    assert.deepEqual(getMissingPackagedRuntimeBinaries(options), ['node', 'workspace-agent', 'arche-tools'])
   } finally {
     fs.existsSync = originalExistsSync
   }
 })
 
-test('resolves bundled OpenCode config directory in packaged builds', () => {
+test('resolves bundled Arche tools directory in packaged builds', () => {
   const originalExistsSync = fs.existsSync
-  fs.existsSync = (target) => target.endsWith('/bin/opencode-config')
+  fs.existsSync = (target) => target.endsWith('/bin/arche-tools/server.js')
 
   try {
     const options = {
@@ -115,8 +120,8 @@ test('resolves bundled OpenCode config directory in packaged builds', () => {
     }
 
     assert.equal(
-      resolveRuntimeConfigDirPath(options),
-      '/Applications/Arche.app/Contents/Resources/bin/opencode-config',
+      resolveRuntimeToolsDirPath(options),
+      '/Applications/Arche.app/Contents/Resources/bin/arche-tools',
     )
   } finally {
     fs.existsSync = originalExistsSync
@@ -126,7 +131,7 @@ test('resolves bundled OpenCode config directory in packaged builds', () => {
 test('injects runtime env vars only for binaries that exist', () => {
   const originalExistsSync = fs.existsSync
   fs.existsSync =
-    (target) => target.endsWith('/bin/opencode') || target.endsWith('/bin/opencode-config')
+    (target) => target.endsWith('/bin/opencode') || target.endsWith('/bin/arche-tools/server.js') || target.endsWith('/bin/node')
 
   try {
     const env = getRuntimeBinaryEnv({
@@ -138,9 +143,38 @@ test('injects runtime env vars only for binaries that exist', () => {
 
     assert.deepEqual(env, {
       ARCHE_OPENCODE_BIN: '/repo/apps/desktop/bin/opencode',
-      ARCHE_OPENCODE_CONFIG_DIR: '/repo/apps/desktop/bin/opencode-config',
+      ARCHE_NODE_BIN: '/repo/apps/desktop/bin/node',
+      ARCHE_TOOLS_DIR: '/repo/apps/desktop/bin/arche-tools',
     })
   } finally {
     fs.existsSync = originalExistsSync
   }
+})
+
+test('rejects an Arche tools bundle without its server entrypoint', () => {
+  const originalExistsSync = fs.existsSync
+  fs.existsSync = (target) => !target.endsWith('/server.js')
+
+  try {
+    const options = {
+      isPackaged: true,
+      resourcesPath: '/Applications/Arche.app/Contents/Resources',
+      devBaseDir: '/repo/apps/desktop/dist',
+      env: {},
+    }
+
+    assert.deepEqual(getMissingPackagedRuntimeBinaries(options), ['arche-tools'])
+  } finally {
+    fs.existsSync = originalExistsSync
+  }
+})
+
+test('packages one prepared Arche tools bundle instead of plugin config sources', () => {
+  const { extraResources } = require('../electron-builder.config')
+  const toolsResources = extraResources.filter((resource) => resource.to.includes('arche-tools'))
+
+  assert.deepEqual(toolsResources, [
+    { from: 'bin/arche-tools', to: 'bin/arche-tools', filter: ['**/*'] },
+  ])
+  assert.equal(extraResources.some((resource) => resource.to.includes('opencode-config')), false)
 })

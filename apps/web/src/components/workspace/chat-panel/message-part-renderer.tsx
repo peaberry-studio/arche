@@ -134,7 +134,7 @@ const getDirectory = (path?: string) => {
 function getToolLabel(tool: string, connectorNamesById?: Record<string, string>) {
   const toolDisplay = getWorkspaceToolDisplay(tool, connectorNamesById)
   if (toolDisplay.isConnectorTool) return toolDisplay.groupLabel
-  return TOOL_LABELS[tool] ?? formatToolName(tool)
+  return TOOL_LABELS[toolDisplay.groupLabel] ?? formatToolName(toolDisplay.groupLabel)
 }
 
 function getToolDisplay(
@@ -171,7 +171,7 @@ function getToolDisplay(
   if (offset !== undefined) offsetLimit.push(`offset=${offset}`)
   if (limit !== undefined) offsetLimit.push(`limit=${limit}`)
 
-  switch (tool) {
+  switch (toolDisplay.groupLabel) {
     case 'glob': {
       const summaryParts: string[] = []
       if (pattern) summaryParts.push(`pattern=${pattern}`)
@@ -621,12 +621,13 @@ export function ToolGroup({
   const canExpand = totalCount > 1 || isError
 
   const [isOpen, setIsOpen] = useState(() => (totalCount === 1 ? isRunning || isError : false))
+  const displayToolName = getWorkspaceToolDisplay(tool).groupLabel
 
-  if (tool === 'task') {
+  if (displayToolName === 'task') {
     return <DelegationCard parts={parts} sessionTabs={sessionTabs} onSelectSessionTab={onSelectSessionTab} />
   }
 
-  if (tool === 'email_draft') {
+  if (displayToolName === 'email_draft') {
     let latestDraft: EmailDraftOutput | null = null
 
     for (let index = parts.length - 1; index >= 0; index -= 1) {
@@ -645,7 +646,7 @@ export function ToolGroup({
     }
   }
 
-  if (tool === 'chart_create') {
+  if (displayToolName === 'chart_create') {
     let latestChart: ChartOutput | null = null
 
     for (let index = parts.length - 1; index >= 0; index -= 1) {
@@ -664,7 +665,7 @@ export function ToolGroup({
     }
   }
 
-  if (tool === 'diagram_create') {
+  if (displayToolName === 'diagram_create') {
     let latestDiagram: DiagramOutput | null = null
 
     for (let index = parts.length - 1; index >= 0; index -= 1) {
@@ -683,7 +684,7 @@ export function ToolGroup({
     }
   }
 
-  if (tool === 'flow_propose') {
+  if (displayToolName === 'flow_propose') {
     let latestProposal: FlowProposalOutput | null = null
 
     for (let index = parts.length - 1; index >= 0; index -= 1) {
@@ -702,7 +703,7 @@ export function ToolGroup({
     }
   }
 
-  if (tool === 'todowrite') {
+  if (displayToolName === 'todowrite') {
     return <TodoCard parts={parts} />
   }
 

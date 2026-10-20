@@ -6,8 +6,13 @@ import fs from 'node:fs/promises'
 import * as XLSX from 'xlsx'
 
 import { resolveAttachmentPath } from '../shared/attachment-tools.js'
-import { inspect, query, sample, stats } from '../tools/spreadsheet.js'
+import { mcpTool } from './mcp-client.js'
 import { createWorkspaceTestEnv } from './workspace-test-env.js'
+
+const inspect = mcpTool('spreadsheet_inspect')
+const query = mcpTool('spreadsheet_query')
+const sample = mcpTool('spreadsheet_sample')
+const stats = mcpTool('spreadsheet_stats')
 
 const workspace = await createWorkspaceTestEnv('arche-spreadsheet-test-')
 

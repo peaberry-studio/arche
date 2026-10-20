@@ -220,7 +220,8 @@ describe('desktopWorkspaceHost', () => {
     process.env.ARCHE_DESKTOP_WEB_HOST = '127.0.0.1'
     process.env.ARCHE_DATA_DIR = '/tmp/arche'
     delete process.env.ARCHE_OPENCODE_BIN
-    delete process.env.ARCHE_OPENCODE_CONFIG_DIR
+    delete process.env.ARCHE_TOOLS_DIR
+    delete process.env.ARCHE_NODE_BIN
     delete process.env.ARCHE_OPENCODE_DATA_DIR
     process.env.ARCHE_WORKSPACE_AGENT_BIN = '/mock/bin/workspace-agent'
     delete process.env.ARCHE_DESKTOP_WEB_PORT
@@ -384,14 +385,12 @@ describe('desktopWorkspaceHost', () => {
     )
   })
 
-  it('passes OPENCODE_CONFIG_DIR through to opencode when configured', async () => {
+  it('registers bundled Arche tools as local MCP without the plugin config directory', async () => {
     const opencodeChild = makeChildProcess()
     const workspaceAgentChild = makeChildProcess()
     mockSpawn.mockReturnValueOnce(opencodeChild).mockReturnValueOnce(workspaceAgentChild)
-    process.env.ARCHE_OPENCODE_CONFIG_DIR = '/tmp/opencode-config'
-    mockExistsSync.mockImplementation(
-      (target: string) => target === '/mock/bin/workspace-agent' || target === '/tmp/opencode-config',
-    )
+    process.env.ARCHE_TOOLS_DIR = '/bundle/arche-tools'
+    process.env.ARCHE_NODE_BIN = '/bundle/node'
 
     const { desktopWorkspaceHost } = await import('../workspace-host-desktop')
     await desktopWorkspaceHost.start('local', 'user-1')
@@ -402,11 +401,23 @@ describe('desktopWorkspaceHost', () => {
       expect.any(Array),
       expect.objectContaining({
         env: expect.objectContaining({
-          OPENCODE_CONFIG_DIR: '/tmp/opencode-config',
           WORKSPACE_DIR: '/tmp/arche/workspace',
         }),
       }),
     )
+    expect(mockSpawn.mock.calls[0][2].env).not.toHaveProperty('OPENCODE_CONFIG_DIR')
+    const configCall = mockWriteFileSync.mock.calls.find(
+      (call: unknown[]) => typeof call[0] === 'string' && String(call[0]).endsWith('/opencode.json'),
+    )
+    expect(JSON.parse(String(configCall?.[1]))).toMatchObject({
+      mcp: {
+        arche_tools: {
+          type: 'local',
+          command: ['/bundle/node', '/bundle/arche-tools/server.js'],
+          enabled: true,
+        },
+      },
+    })
   })
 
   it('writes AGENTS.md runtime instructions when available', async () => {
@@ -605,8 +616,8 @@ describe('desktopWorkspaceHost', () => {
     expect(runtimeConfig.permission?.edit?.['opencode.json']).toBe('deny')
     expect(runtimeConfig.permission?.bash?.['npm install*']).toBe('deny')
     expect(runtimeConfig.mcp?.arche_linear_user999).toBeDefined()
-    expect(runtimeConfig.agent?.assistant?.tools?.email_draft).toBe(true)
-    expect(runtimeConfig.agent?.assistant?.tools?.flow_propose).toBe(true)
+    expect(runtimeConfig.agent?.assistant?.tools?.arche_tools_email_draft).toBe(false)
+    expect(runtimeConfig.agent?.assistant?.tools?.arche_tools_flow_propose).toBe(false)
     expect(runtimeConfig.agent?.assistant?.tools?.skill).toBe(true)
     expect(runtimeConfig.agent?.assistant?.permission?.skill?.['arche-flow-authoring']).toBe('allow')
     expect(runtimeConfig.agent?.linear?.tools?.['arche_linear_user999_*']).toBe(true)

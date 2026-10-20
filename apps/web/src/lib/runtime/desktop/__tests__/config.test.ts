@@ -25,6 +25,8 @@ describe('desktop runtime config', () => {
   beforeEach(() => {
     vi.resetModules()
     process.env = { ...originalEnv }
+    delete process.env.ARCHE_NODE_BIN
+    delete process.env.ARCHE_TOOLS_DIR
     setResourcesPath(undefined)
   })
 
@@ -36,23 +38,39 @@ describe('desktop runtime config', () => {
     vi.resetModules()
   })
 
-  it('uses a bundled opencode config directory from resourcesPath', async () => {
+  it('uses bundled Arche tools and Node from resourcesPath', async () => {
     setResourcesPath('/Applications/Arche.app/Contents/Resources')
-    mockExistsSync((path) => path === '/Applications/Arche.app/Contents/Resources/opencode-config')
+    mockExistsSync((path) => path === '/Applications/Arche.app/Contents/Resources/bin/node')
 
-    const { getDesktopOpencodeConfigDir } = await import('@/lib/runtime/desktop/config')
+    const { getDesktopArcheToolsCommand } = await import('@/lib/runtime/desktop/config')
 
-    expect(getDesktopOpencodeConfigDir()).toBe('/Applications/Arche.app/Contents/Resources/opencode-config')
+    expect(getDesktopArcheToolsCommand()).toEqual([
+      '/Applications/Arche.app/Contents/Resources/bin/node',
+      '/Applications/Arche.app/Contents/Resources/bin/arche-tools/server.js',
+    ])
   })
 
-  it('falls back to repository opencode config candidates', async () => {
+  it('falls back to repository Arche tools candidates and Node on PATH', async () => {
     const existsSync = mockExistsSync(() => false)
     existsSync.mockReturnValueOnce(false).mockReturnValueOnce(true)
 
-    const { getDesktopOpencodeConfigDir } = await import('@/lib/runtime/desktop/config')
+    const { getDesktopArcheToolsCommand } = await import('@/lib/runtime/desktop/config')
 
-    expect(getDesktopOpencodeConfigDir()).toContain('infra/workspace-image/opencode-config')
+    expect(getDesktopArcheToolsCommand()).toEqual(['node', expect.stringContaining('infra/workspace-image/arche-tools/server.js')])
     expect(existsSync).toHaveBeenCalledTimes(2)
+  })
+
+  it('uses explicit tools and Node overrides as separate command arguments', async () => {
+    process.env.ARCHE_NODE_BIN = '/custom runtime/node'
+    process.env.ARCHE_TOOLS_DIR = '/custom runtime/arche-tools'
+    mockExistsSync(() => false)
+
+    const { getDesktopArcheToolsCommand } = await import('@/lib/runtime/desktop/config')
+
+    expect(getDesktopArcheToolsCommand()).toEqual([
+      '/custom runtime/node',
+      '/custom runtime/arche-tools/server.js',
+    ])
   })
 
   it('builds desktop opencode config with the desktop provider gateway', async () => {
@@ -62,6 +80,8 @@ describe('desktop runtime config', () => {
     }))
     vi.doMock('@/lib/spawner/runtime-artifacts', () => ({ buildWorkspaceRuntimeConfig }))
     process.env.ARCHE_DESKTOP_WEB_PORT = '4123'
+    process.env.ARCHE_TOOLS_DIR = '/bundle/arche-tools'
+    process.env.ARCHE_NODE_BIN = '/bundle/node'
 
     const { buildDesktopOpencodeConfig } = await import('@/lib/runtime/desktop/config')
 
@@ -69,6 +89,9 @@ describe('desktop runtime config', () => {
     expect(buildWorkspaceRuntimeConfig).toHaveBeenCalledWith(
       'alice',
       expect.objectContaining({ provider: expect.any(Object) }),
+      undefined,
+      undefined,
+      { archeToolsCommand: ['/bundle/node', '/bundle/arche-tools/server.js'] },
     )
     expect(JSON.stringify(buildWorkspaceRuntimeConfig.mock.calls[0]?.[1])).toContain('127.0.0.1:4123')
   })

@@ -1,7 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { draft } from '../tools/email.js'
+import { mcpTool } from './mcp-client.js'
+
+const draft = mcpTool('email_draft')
 
 function parseToolOutput(output) {
   return JSON.parse(output)

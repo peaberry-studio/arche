@@ -7,7 +7,7 @@ const ENV_VAR_BY_RESOURCE = {
   node: 'ARCHE_NODE_BIN',
   opencode: 'ARCHE_OPENCODE_BIN',
   'workspace-agent': 'ARCHE_WORKSPACE_AGENT_BIN',
-  'opencode-config': 'ARCHE_OPENCODE_CONFIG_DIR',
+  'arche-tools': 'ARCHE_TOOLS_DIR',
 }
 
 function getBundledResourcesBaseDir(options) {
@@ -29,8 +29,8 @@ function getBinaryFileName(binaryName, platform) {
 
 function getRuntimeResourceCandidate(resourceName, options) {
   const baseDir = getBundledResourcesBaseDir(options)
-  if (resourceName === 'opencode-config') {
-    return join(baseDir, 'opencode-config')
+  if (resourceName === 'arche-tools') {
+    return join(baseDir, 'arche-tools')
   }
 
   return join(baseDir, getBinaryFileName(resourceName, options.platform ?? process.platform))
@@ -45,7 +45,7 @@ function resolveRuntimeResourcePath(resourceName, options) {
   }
 
   const bundledCandidate = getRuntimeResourceCandidate(resourceName, options)
-  if (fs.existsSync(bundledCandidate)) {
+  if (fs.existsSync(resourceName === 'arche-tools' ? join(bundledCandidate, 'server.js') : bundledCandidate)) {
     return bundledCandidate
   }
 
@@ -56,18 +56,20 @@ function resolveRuntimeBinaryPath(binaryName, options) {
   return resolveRuntimeResourcePath(binaryName, options)
 }
 
-function resolveRuntimeConfigDirPath(options) {
-  return resolveRuntimeResourcePath('opencode-config', options)
+function resolveRuntimeToolsDirPath(options) {
+  return resolveRuntimeResourcePath('arche-tools', options)
 }
 
 function getRuntimeBinaryEnv(options) {
   const opencode = resolveRuntimeBinaryPath('opencode', options)
-  const opencodeConfigDir = resolveRuntimeConfigDirPath(options)
+  const node = resolveRuntimeBinaryPath('node', options)
+  const archeToolsDir = resolveRuntimeToolsDirPath(options)
   const workspaceAgent = resolveRuntimeBinaryPath('workspace-agent', options)
 
   return {
     ...(opencode ? { ARCHE_OPENCODE_BIN: opencode } : {}),
-    ...(opencodeConfigDir ? { ARCHE_OPENCODE_CONFIG_DIR: opencodeConfigDir } : {}),
+    ...(node ? { ARCHE_NODE_BIN: node } : {}),
+    ...(archeToolsDir ? { ARCHE_TOOLS_DIR: archeToolsDir } : {}),
     ...(workspaceAgent ? { ARCHE_WORKSPACE_AGENT_BIN: workspaceAgent } : {}),
   }
 }
@@ -81,7 +83,7 @@ function getPackagedNodeBinaryPath(options) {
 }
 
 function getMissingPackagedRuntimeBinaries(options) {
-  const runtimeResources = ['node', 'opencode', 'workspace-agent', 'opencode-config']
+  const runtimeResources = ['node', 'opencode', 'workspace-agent', 'arche-tools']
   return runtimeResources.filter((resourceName) => !resolveRuntimeResourcePath(resourceName, options))
 }
 
@@ -91,6 +93,6 @@ module.exports = {
   getRuntimeBinaryEnv,
   getRuntimeResourceCandidate,
   resolveRuntimeBinaryPath,
-  resolveRuntimeConfigDirPath,
+  resolveRuntimeToolsDirPath,
   resolveRuntimeResourcePath,
 }

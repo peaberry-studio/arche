@@ -141,21 +141,21 @@ function toPdfExtractionFailureText(path: string): string {
 function toSpreadsheetToolHintText(path: string): string {
   return [
     `Attached spreadsheet file: ${toAttachmentPromptPath(path)}`,
-    'You must use spreadsheet_inspect first to detect sheets and columns, then use spreadsheet_sample/spreadsheet_query/spreadsheet_stats for focused analysis and calculations.',
+    'You must use arche_tools_spreadsheet_inspect first to detect sheets and columns, then use arche_tools_spreadsheet_sample/arche_tools_spreadsheet_query/arche_tools_spreadsheet_stats for focused analysis and calculations.',
   ].join('\n')
 }
 
 function toDocumentToolHintText(path: string): string {
   return [
     `Attached document file: ${toAttachmentPromptPath(path)}`,
-    'Use document_inspect to extract the structure, headings, and normalized text before answering detailed questions about the document.',
+    'Use arche_tools_document_inspect to extract the structure, headings, and normalized text before answering detailed questions about the document.',
   ].join('\n')
 }
 
 function toPresentationToolHintText(path: string): string {
   return [
     `Attached presentation file: ${toAttachmentPromptPath(path)}`,
-    'Use presentation_inspect to inspect slide structure and extracted slide text before summarizing or comparing the deck.',
+    'Use arche_tools_presentation_inspect to inspect slide structure and extracted slide text before summarizing or comparing the deck.',
   ].join('\n')
 }
 

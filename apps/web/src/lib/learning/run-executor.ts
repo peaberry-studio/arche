@@ -42,10 +42,10 @@ function buildLearningSessionTitle(title: string): string {
     : base
 }
 
-export function buildCuratorPrompt(input: LearningRunExecutionInput): string {
+export function buildCuratorPrompt(input: LearningRunExecutionInput, callerSessionId?: string): string {
   const sourceInstruction = input.sourceSessionId
-    ? `Use the \`session_history_query\` tool to read the source session (sessionIds: ["${input.sourceSessionId}"], includeMessages: true).`
-    : 'Use the `session_history_query` tool to review the most recent sessions (includeMessages: true).'
+    ? `Use the \`arche_tools_session_history_query\` tool to read the source session (sessionIds: ["${input.sourceSessionId}"], includeMessages: true).`
+    : 'Use the `arche_tools_session_history_query` tool to review the most recent sessions (includeMessages: true).'
 
   const regenerationInstructions = input.regeneration ? [
     '',
@@ -62,7 +62,7 @@ export function buildCuratorPrompt(input: LearningRunExecutionInput): string {
     '--- Previous proposal ---',
     input.regeneration.proposedContent || '(delete file)',
     '',
-    'Regenerate the proposed content against the current content. Call `learning_propose` with this run id and the target path exactly once.',
+    'Regenerate the proposed content against the current content. Call `arche_tools_learning_propose` with this run id and the target path exactly once.',
   ] : []
 
   return [
@@ -70,11 +70,13 @@ export function buildCuratorPrompt(input: LearningRunExecutionInput): string {
     '',
     `Learning run id: ${input.runId}`,
     `Source session: ${input.sourceSessionId ?? 'none (review recent sessions)'}`,
+    `For identity-aware tools, set caller_agent to ${JSON.stringify(SYSTEM_KNOWLEDGE_CURATOR_AGENT_ID)}.`,
+    ...(callerSessionId ? [`Set caller_session_id to ${JSON.stringify(callerSessionId)} (your current session, not the source session).`] : []),
     '',
     'Instructions:',
     `1. ${sourceInstruction}`,
     '2. Inspect the existing Knowledge Base files in the workspace (read, glob, grep) so proposals reuse the existing structure and naming, and so you can decide between updating an existing file or creating a new one.',
-    '3. For each durable fact, preference, process, or correction worth keeping, call `learning_propose` with:',
+    '3. For each durable fact, preference, process, or correction worth keeping, call `arche_tools_learning_propose` with:',
     `   - runId: "${input.runId}"`,
     `   - trigger: "${input.trigger}"`,
     '   - operation "update" (full updated file content) or "create" (full new file content)',
@@ -129,7 +131,7 @@ export async function executeLearningRun(input: LearningRunExecutionInput): Prom
       const cursor = await captureSessionMessageCursor(client, sessionId)
       const submitted = await client.prompt({
         agent: SYSTEM_KNOWLEDGE_CURATOR_AGENT_ID,
-        parts: [{ text: buildCuratorPrompt(input), type: 'text' }],
+        parts: [{ text: buildCuratorPrompt(input, sessionId), type: 'text' }],
         sessionId,
       })
       if (!submitted.ok) throw new Error(submitted.error.code)

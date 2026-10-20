@@ -1,5 +1,5 @@
 export type RuntimeBinaryName = 'node' | 'opencode' | 'workspace-agent'
-export type RuntimeResourceName = RuntimeBinaryName | 'opencode-config'
+export type RuntimeResourceName = RuntimeBinaryName | 'arche-tools'
 
 export type RuntimeBinaryOptions = {
   isPackaged: boolean
@@ -21,7 +21,7 @@ export declare function resolveRuntimeBinaryPath(
   binaryName: RuntimeBinaryName,
   options: RuntimeBinaryOptions,
 ): string | null
-export declare function resolveRuntimeConfigDirPath(options: RuntimeBinaryOptions): string | null
+export declare function resolveRuntimeToolsDirPath(options: RuntimeBinaryOptions): string | null
 export declare function getRuntimeBinaryEnv(options: RuntimeBinaryOptions): Partial<NodeJS.ProcessEnv>
 export declare function getPackagedNodeBinaryPath(options: RuntimeBinaryOptions): string
 export declare function getMissingPackagedRuntimeBinaries(options: RuntimeBinaryOptions): RuntimeResourceName[]

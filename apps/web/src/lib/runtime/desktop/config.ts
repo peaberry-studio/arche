@@ -25,40 +25,40 @@ export function getDesktopProviderGatewayConfig(): Record<string, unknown> {
   )
 }
 
-function resolveFallbackDesktopOpencodeConfigDir(): string | null {
+function getDesktopArcheToolsDir(): string {
+  const explicitPath = process.env.ARCHE_TOOLS_DIR
+  if (explicitPath) {
+    return explicitPath
+  }
+
   const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath
   if (resourcesPath) {
-    const bundledPath = join(resourcesPath, 'opencode-config')
-    if (existsSync(bundledPath)) {
-      return bundledPath
-    }
+    return join(resourcesPath, 'bin', 'arche-tools')
   }
 
   const candidates = [
-    join(process.cwd(), 'infra', 'workspace-image', 'opencode-config'),
-    join(process.cwd(), '..', '..', 'infra', 'workspace-image', 'opencode-config'),
+    join(process.cwd(), 'infra', 'workspace-image', 'arche-tools'),
+    join(process.cwd(), '..', '..', 'infra', 'workspace-image', 'arche-tools'),
   ]
 
   for (const candidate of candidates) {
-    if (existsSync(candidate)) {
+    if (existsSync(join(candidate, 'server.js'))) {
       return candidate
     }
   }
 
-  return null
+  return candidates[1]
 }
 
-export function getDesktopOpencodeConfigDir(): string | null {
-  const explicitPath = process.env.ARCHE_OPENCODE_CONFIG_DIR
-  if (explicitPath && existsSync(explicitPath)) {
-    return explicitPath
-  }
-
-  return resolveFallbackDesktopOpencodeConfigDir()
+export function getDesktopArcheToolsCommand(): string[] {
+  const nodeBinary = process.env.ARCHE_NODE_BIN ?? resolveBundledBinary('node') ?? 'node'
+  return [nodeBinary, join(getDesktopArcheToolsDir(), 'server.js')]
 }
 
 export async function buildDesktopOpencodeConfig(slug: string): Promise<Record<string, unknown>> {
-  return buildWorkspaceRuntimeConfig(slug, getDesktopProviderGatewayConfig())
+  return buildWorkspaceRuntimeConfig(slug, getDesktopProviderGatewayConfig(), undefined, undefined, {
+    archeToolsCommand: getDesktopArcheToolsCommand(),
+  })
 }
 
 export function makeAuthHeader(username: string, password: string): string {
@@ -85,7 +85,7 @@ export function createSafeEnv(): NodeJS.ProcessEnv {
   }
 }
 
-function resolveBundledBinary(binaryName: 'opencode' | 'workspace-agent'): string | null {
+function resolveBundledBinary(binaryName: 'node' | 'opencode' | 'workspace-agent'): string | null {
   const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath
   if (!resourcesPath) {
     return null

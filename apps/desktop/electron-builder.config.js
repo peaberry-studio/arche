@@ -45,11 +45,6 @@ module.exports = {
       filter: ['**/*'],
     },
     {
-      from: '../../infra/workspace-image/opencode-config',
-      to: 'opencode-config',
-      filter: ['**/*'],
-    },
-    {
       from: 'bin/opencode',
       to: 'bin/opencode',
     },
@@ -62,8 +57,8 @@ module.exports = {
       to: 'bin/node',
     },
     {
-      from: 'bin/opencode-config',
-      to: 'bin/opencode-config',
+      from: 'bin/arche-tools',
+      to: 'bin/arche-tools',
       filter: ['**/*'],
     },
   ],

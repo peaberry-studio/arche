@@ -114,7 +114,7 @@ function buildAgentsMarkdown(
   )
 
   const sharedRules = [
-    '- The primary `assistant` captures learn/remember/store requests directly with `learning_propose`.',
+    '- The primary `assistant` captures learn/remember/store requests directly with `arche_tools_learning_propose`.',
     '- The `assistant` suggests saving high-value new knowledge and asks for confirmation first.',
     '- Chat agents never write the Knowledge Base. They create Knowledge Review proposals. Users apply proposals, edit files in Explore, and publish from the Curator\'s Manual edits tab.',
   ]
@@ -126,7 +126,7 @@ function buildAgentsMarkdown(
     '',
     'Plots (Vega-Lite):',
     '- Use ` ```vega-lite ` fenced code blocks with a raw Vega-Lite JSON spec for in-document charts (KB articles, reports, research notes).',
-    '- Use the `chart_create` tool only for quick ad-hoc chat visualizations — for anything that persists in a document, use fenced specs.',
+    '- Use the `arche_tools_chart_create` tool only for quick ad-hoc chat visualizations — for anything that persists in a document, use fenced specs.',
     '- Allowed marks: `bar`, `line`, `area`, `point`, `arc`, `rule`, `rect`, `text`, `tick`, `errorband`, `errorbar`, `circle`, `square`, `trail`.',
     '- Supported top-level keys: `$schema`, `autosize`, `data`, `encoding`, `height`, `mark`, `title`, `width`, `layer`, `transform`, `resolve`, `spacing`.',
     '- Data must be inline (`data.values` as an array of row objects). No URLs, no `url`/`href`/`src` keys. Maximum 1000 rows and 50 columns.',

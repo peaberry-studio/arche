@@ -168,9 +168,9 @@ describe('workspace prompt builder', () => {
 
     const promptText = result.parts.map((part) => ('text' in part ? part.text : '')).join('\n')
     expect(promptText).toContain('Attached PDF could not be extracted automatically')
-    expect(promptText).toContain('You must use spreadsheet_inspect first')
-    expect(promptText).toContain('Use document_inspect')
-    expect(promptText).toContain('Use presentation_inspect')
+    expect(promptText).toContain('You must use arche_tools_spreadsheet_inspect first')
+    expect(promptText).toContain('Use arche_tools_document_inspect')
+    expect(promptText).toContain('Use arche_tools_presentation_inspect')
   })
 
   it('falls back to workspace file urls for unreadable attachments when available', async () => {

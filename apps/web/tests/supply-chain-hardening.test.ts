@@ -3,13 +3,14 @@ import { existsSync, readFileSync } from 'fs'
 import { resolve } from 'path'
 
 import { describe, expect, it } from 'vitest'
+import { parse } from 'yaml'
 
 const repoRoot = resolve(process.cwd(), '..', '..')
 
 const directDependencyManifests = [
   'apps/web/package.json',
   'apps/desktop/package.json',
-  'infra/workspace-image/opencode-config/package.json',
+  'infra/workspace-image/arche-tools/package.json',
 ]
 
 const dependencySections = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']
@@ -122,40 +123,42 @@ describe('supply chain hardening', () => {
   })
 
   it('uses a fixed SheetJS tarball with lockfile integrity', () => {
-    const packageJson = readJsonRepoFile('infra/workspace-image/opencode-config/package.json')
+    const packageJson = readJsonRepoFile('infra/workspace-image/arche-tools/package.json')
     const dependencies = packageJson.dependencies
-    if (!isRecord(dependencies)) throw new Error('opencode config dependencies must be an object')
+    if (!isRecord(dependencies)) throw new Error('arche-tools dependencies must be an object')
 
     expect(dependencies.xlsx).toBe('https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz')
 
-    const packageLock = readJsonRepoFile('infra/workspace-image/opencode-config/package-lock.json')
+    const packageLock: unknown = parse(readRepoFile('infra/workspace-image/arche-tools/pnpm-lock.yaml'))
+    if (!isRecord(packageLock)) throw new Error('arche-tools lockfile must be an object')
     const packages = packageLock.packages
-    if (!isRecord(packages)) throw new Error('opencode config package-lock packages must be an object')
+    if (!isRecord(packages)) throw new Error('arche-tools lockfile packages must be an object')
 
-    const xlsxPackage = packages['node_modules/xlsx']
-    if (!isRecord(xlsxPackage)) throw new Error('opencode config package-lock must include xlsx')
+    const xlsxPackage = packages['xlsx@https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz']
+    if (!isRecord(xlsxPackage)) throw new Error('arche-tools lockfile must include xlsx')
 
-    expect(xlsxPackage.version).toBe('0.20.3')
-    expect(xlsxPackage.resolved).toBe('https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz')
-    expect(xlsxPackage.integrity).toMatch(/^sha512-/)
+    const resolution = xlsxPackage.resolution
+    if (!isRecord(resolution)) throw new Error('xlsx must include a locked resolution')
+    expect(resolution.tarball).toBe('https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz')
+    expect(resolution.integrity).toMatch(/^sha512-/)
   })
 
-  it('uses lockfile-based scriptless installs for opencode config tools', () => {
-    const lockfilePath = resolve(repoRoot, 'infra/workspace-image/opencode-config/package-lock.json')
+  it('uses lockfile-based scriptless installs for arche-tools', () => {
+    const lockfilePath = resolve(repoRoot, 'infra/workspace-image/arche-tools/pnpm-lock.yaml')
     expect(existsSync(lockfilePath)).toBe(true)
-    expect(readFileSync(lockfilePath, 'utf8')).toMatch(/"lockfileVersion":/)
+    expect(readFileSync(lockfilePath, 'utf8')).toMatch(/^lockfileVersion:/m)
 
     const containerfile = readRepoFile('infra/workspace-image/Containerfile')
     expect(containerfile).toContain(
-      'COPY opencode-config/package-lock.json /opt/arche/opencode-config/package-lock.json',
+      'COPY arche-tools/pnpm-lock.yaml ./pnpm-lock.yaml',
     )
-    expect(containerfile).toContain('RUN npm ci --omit=dev --ignore-scripts')
+    expect(containerfile).toContain('RUN pnpm install --frozen-lockfile --prod --ignore-scripts')
 
     const prepareRuntimeScript = readRepoFile('scripts/prepare-desktop-runtime.sh')
     expect(prepareRuntimeScript).toContain(
-      'cp "$OPENCODE_CONFIG_SOURCE_DIR/package-lock.json" "$OPENCODE_CONFIG_OUTPUT_DIR/package-lock.json"',
+      'cp "$ARCHE_TOOLS_SOURCE_DIR/pnpm-lock.yaml" "$ARCHE_TOOLS_OUTPUT_DIR/pnpm-lock.yaml"',
     )
-    expect(prepareRuntimeScript).toContain('npm ci --omit=dev --ignore-scripts')
+    expect(prepareRuntimeScript).toContain('pnpm install --prod --frozen-lockfile --ignore-scripts')
   })
 
   it('uses a frozen lockfile for dev server installs', () => {

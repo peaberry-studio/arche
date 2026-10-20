@@ -6,15 +6,15 @@ import {
 
 export const SYSTEM_FLOW_AUTHORING_SKILL_NAME = 'arche-flow-authoring'
 
-const FLOW_AUTHORING_SKILL_DESCRIPTION = 'Use when creating Arche flows, flow templates, FlowDefinition JSON, node definitions, template variables, or calling flow_propose.'
+const FLOW_AUTHORING_SKILL_DESCRIPTION = 'Use when creating Arche flows, flow templates, FlowDefinition JSON, node definitions, template variables, or calling arche_tools_flow_propose.'
 
 const FLOW_AUTHORING_SKILL_BODY = `# Arche Flow Authoring
 
-Use this skill before calling \`flow_propose\` or drafting an Arche flow template.
+Use this skill before calling \`arche_tools_flow_propose\` or drafting an Arche flow template.
 
 ## Tool Shape
 
-Call \`flow_propose\` with this top-level object:
+Call \`arche_tools_flow_propose\` with this top-level object:
 
 \`\`\`json
 {

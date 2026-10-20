@@ -97,7 +97,7 @@ describe('executeLearningRun', () => {
     expect(client.prompt).toHaveBeenCalledWith(
       expect.objectContaining({
         sessionId: 'internal-session-1',
-        parts: [expect.objectContaining({ type: 'text' })],
+        parts: [expect.objectContaining({ type: 'text', text: expect.stringContaining('Set caller_session_id to "internal-session-1"') })],
       }),
     )
     expect(mocks.waitForSessionToComplete).toHaveBeenCalledWith(expect.objectContaining({
@@ -210,6 +210,14 @@ describe('executeLearningRun', () => {
 })
 
 describe('buildCuratorPrompt', () => {
+  it('provides explicit MCP attribution using the current session, not the source', () => {
+    const prompt = buildCuratorPrompt(baseInput, 'current-session')
+    expect(prompt).toContain('caller_agent to "knowledge-curator"')
+    expect(prompt).toContain('caller_session_id to "current-session"')
+    expect(prompt).toContain('arche_tools_session_history_query')
+    expect(prompt).toContain('arche_tools_learning_propose')
+  })
+
   it('targets the source session when one exists', () => {
     const prompt = buildCuratorPrompt(baseInput)
 
