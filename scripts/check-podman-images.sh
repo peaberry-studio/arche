@@ -48,6 +48,7 @@ podman build \
   -f "$ROOT_DIR/infra/workspace-image/Containerfile" "$ROOT_DIR/infra/workspace-image"
 
 node "$ROOT_DIR/infra/workspace-image/tests/runtime-smoke.mjs"
+node "$ROOT_DIR/infra/workspace-image/tests/archive-smoke.mjs"
 
 printf '==> Building web image\n'
 podman build \

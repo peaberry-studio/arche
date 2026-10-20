@@ -6,6 +6,7 @@ import { getSession } from '@/lib/runtime/session'
 import { getWorkspaceStatus, startWorkspace, stopWorkspace } from '@/lib/runtime/workspace-host'
 import { auditService, providerService, userService } from '@/lib/services'
 import { isSlowStart, listActiveInstances, startInstance } from '@/lib/spawner/core'
+import { isHistoryMigrationInProgress } from '@/lib/spawner/legacy-archive'
 import { getKickstartStatus } from '@/kickstart/status'
 
 export type SpawnerActionResult =
@@ -65,6 +66,19 @@ export async function stopInstanceAction(slug: string): Promise<SpawnerActionRes
   }
 
   return stopWorkspace(slug, session.user.id)
+}
+
+export async function getInstanceMigrationStatusAction(slug: string): Promise<boolean | null> {
+  try {
+    const session = await getSession()
+    if (!session) return null
+    if (session.user.slug !== slug && session.user.role !== 'ADMIN') return null
+
+    return await isHistoryMigrationInProgress(slug)
+  } catch (error) {
+    console.error('[spawner] Failed to read history migration status', { slug, error })
+    return null
+  }
 }
 
 export async function getInstanceStatusAction(slug: string) {

@@ -77,10 +77,33 @@ export function useWorkspaceEventBus({
     setStore(next);
   }, []);
 
+  const hydrationScopeRef = useRef({
+    slug,
+    generations: new Map<string, number>(),
+    archived: new Map<string, boolean>(),
+  });
+  useEffect(() => {
+    if (hydrationScopeRef.current.slug === slug) return;
+    hydrationScopeRef.current = { slug, generations: new Map(), archived: new Map() };
+    commitStore(createEmptyChatStore());
+    setIsLoadingMessages(false);
+    setIsBusConnected(false);
+  }, [slug, commitStore]);
+
   const activeSessionIdGetterRef = useRef(getActiveSessionId);
   const sessionsGetterRef = useRef(getSessions);
   useEffect(() => { activeSessionIdGetterRef.current = getActiveSessionId; }, [getActiveSessionId]);
   useEffect(() => { sessionsGetterRef.current = getSessions; }, [getSessions]);
+
+  const getArchivedSessionIds = useCallback(() => {
+    const ids = new Set(sessionsGetterRef.current().filter((session) => session.archived).map((session) => session.id));
+    for (const [id, archived] of hydrationScopeRef.current.archived) {
+      if (archived) ids.add(id);
+      else if (ids.has(id)) ids.delete(id);
+      else hydrationScopeRef.current.archived.delete(id);
+    }
+    return ids;
+  }, []);
 
   const workspaceRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -130,10 +153,35 @@ export function useWorkspaceEventBus({
 
   const hydrateSessionMessages = useCallback(
     async (sessionId: string) => {
+      const scope = hydrationScopeRef.current;
+      if (scope.slug !== slug) return;
+      const generation = (scope.generations.get(sessionId) ?? 0) + 1;
+      scope.generations.set(sessionId, generation);
       setIsLoadingMessages(true);
       const statusBefore = getStore().sessionStatus[sessionId];
       try {
         const result = await listMessagesAction(slug, sessionId);
+        if (scope !== hydrationScopeRef.current || scope.generations.get(sessionId) !== generation) return;
+        const wasArchived = getArchivedSessionIds().has(sessionId);
+        if (result.ok && result.messages && (result.archived || wasArchived)) {
+          scope.archived.set(sessionId, result.archived === true);
+          const messages = result.messages;
+          commitStore((prev) => {
+            const pendingParts = { ...prev.pendingParts };
+            for (const message of [...(prev.messages[sessionId] ?? []), ...messages]) {
+              delete pendingParts[message.id];
+            }
+            return {
+              ...prev,
+              messages: { ...prev.messages, [sessionId]: messages },
+              pendingParts,
+              permissions: { ...prev.permissions, [sessionId]: [] },
+              sessionStatus: { ...prev.sessionStatus, [sessionId]: !result.archived && result.sessionRuntimeStatus === "busy" ? "busy" : "idle" },
+            };
+          });
+          if (!result.archived) syncRuntimeMetadataForSession?.(sessionId, messages);
+          return;
+        }
         if (result.ok && result.messages) {
           mergeHydratedMessages(sessionId, result.messages);
         }
@@ -151,19 +199,25 @@ export function useWorkspaceEventBus({
           });
         }
       } finally {
-        setIsLoadingMessages(false);
+        if (scope === hydrationScopeRef.current && scope.generations.get(sessionId) === generation) {
+          setIsLoadingMessages(false);
+        }
       }
     },
-    [slug, mergeHydratedMessages, getStore, commitStore],
+    [slug, mergeHydratedMessages, getArchivedSessionIds, getStore, commitStore, syncRuntimeMetadataForSession],
   );
 
   const hydrateWorkspacePermissions = useCallback(async () => {
+    const scope = hydrationScopeRef.current;
+    if (scope.slug !== slug) return;
     const baseline = getStore().permissions;
     const result = await listPermissionsAction(slug);
+    if (scope !== hydrationScopeRef.current) return;
     if (!result.ok || !result.permissions) return;
-    const snapshot = result.permissions;
+    const archivedIds = getArchivedSessionIds();
+    const snapshot = Object.fromEntries(Object.entries(result.permissions).filter(([id]) => !archivedIds.has(id)));
     commitStore((current) => hydratePermissionsIntoStore(current, snapshot, baseline));
-  }, [commitStore, getStore, slug]);
+  }, [commitStore, getArchivedSessionIds, getStore, slug]);
 
   const hydrateOnConnect = useCallback(async () => {
     const sessionId = activeSessionIdGetterRef.current();
@@ -210,6 +264,9 @@ export function useWorkspaceEventBus({
       const permissions = { ...prev.permissions };
       const pendingParts = { ...prev.pendingParts };
       for (const sessionId of sessionIds) {
+        const scope = hydrationScopeRef.current;
+        scope.generations.set(sessionId, (scope.generations.get(sessionId) ?? 0) + 1);
+        scope.archived.delete(sessionId);
         for (const message of prev.messages[sessionId] ?? []) {
           delete pendingParts[message.id];
         }
@@ -223,6 +280,14 @@ export function useWorkspaceEventBus({
 
   const dispatchReducerEvent = useCallback(
     (event: ArcheEvent) => {
+      const archivedIds = getArchivedSessionIds();
+      const sessionId = "sessionId" in event ? event.sessionId
+        : event.type === "session.upserted" ? event.session.id
+        : event.type === "message.upserted" ? event.message.sessionId
+        : event.type === "permission.asked" ? event.permission.sessionId
+        : undefined;
+      if (sessionId && archivedIds.has(sessionId)) return;
+      if ("messageId" in event && [...archivedIds].some((id) => getStore().messages[id]?.some((message) => message.id === event.messageId))) return;
       const previousStatuses = getStore().sessionStatus;
       const result = reduceArcheEvent(getStore(), event);
       commitStore(result.store);
@@ -240,7 +305,7 @@ export function useWorkspaceEventBus({
         }
       }
     },
-    [getStore, commitStore, onBackgroundSessionIdle, activeSessionIdGetterRef, scheduleWorkspaceRefresh],
+    [getArchivedSessionIds, getStore, commitStore, onBackgroundSessionIdle, activeSessionIdGetterRef, scheduleWorkspaceRefresh],
   );
 
   const runBusEventLoop = useCallback(async (signal: AbortSignal) => {
@@ -248,6 +313,7 @@ export function useWorkspaceEventBus({
     while (!signal.aborted) {
       try {
         const response = await fetch(`/api/w/${slug}/events`, { signal });
+        if (signal.aborted) return;
         if (!response.ok || !response.body) {
           throw new Error("event_stream_unavailable");
         }
@@ -268,6 +334,7 @@ export function useWorkspaceEventBus({
 
         while (!signal.aborted) {
           const { done, value } = await reader.read();
+          if (signal.aborted) return;
           if (done) break;
           const parsed = parseSseChunk(parseState, decoder.decode(value, { stream: true }));
           parseState = parsed.state;

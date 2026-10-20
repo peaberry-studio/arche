@@ -232,9 +232,9 @@ export function ChatPanel({
   selectedModel,
   hasManualModelSelection = false,
   onSelectModel,
-  isReadOnly = false,
-  readOnlyNotice,
-  flowHumanResponseRunId,
+  isReadOnly: readOnly = false,
+  readOnlyNotice: suppliedReadOnlyNotice,
+  flowHumanResponseRunId: suppliedFlowHumanResponseRunId,
   onFlowHumanResponseSubmitted,
   onReturnToMainConversation,
   workspaceRoot,
@@ -244,6 +244,11 @@ export function ChatPanel({
     () => sessions.find((session) => session.id === activeSessionId),
     [sessions, activeSessionId]
   );
+  const isReadOnly = readOnly || Boolean(activeSession?.archived);
+  const readOnlyNotice = activeSession?.archived
+    ? "This conversation was created on the previous runtime and is archived. It is read-only."
+    : suppliedReadOnlyNotice;
+  const flowHumanResponseRunId = activeSession?.archived ? null : suppliedFlowHumanResponseRunId;
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -1121,7 +1126,7 @@ export function ChatPanel({
         isSavingTitle={isSavingTitle}
         onCloseSession={onCloseSession}
         onExportSessionMarkdown={handleExportSessionMarkdown}
-        onLearnSession={activeSession && onLearnSession ? () => onLearnSession(activeSession) : undefined}
+        onLearnSession={activeSession && !activeSession.archived && onLearnSession ? () => onLearnSession(activeSession) : undefined}
         onStartSessionRename={startSessionRename}
         onSubmitSessionRename={submitSessionRename}
         onTitleInputChange={(nextTitle) => {
@@ -1162,7 +1167,7 @@ export function ChatPanel({
         isStartingNewSession={isStartingNewSession}
         isStreaming={isSending}
         messages={messages}
-        permissions={permissions}
+        permissions={activeSession?.archived ? EMPTY_PERMISSIONS : permissions}
         messagesEndRef={messagesEndRef}
         onOpenFile={onOpenFile}
         onAnswerPermission={isReadOnly ? undefined : onAnswerPermission}

@@ -35,6 +35,13 @@ describe('runtime registry', () => {
     expect(findRuntimeKindBySlug).toHaveBeenCalledWith('alice')
   })
 
+  it('binds the legacy exporter to explicit archive credentials without changing the recorded kind', () => {
+    const connection = { baseUrl: 'http://archive:4096', authHeader: 'Basic fixture', signal: new AbortController().signal }
+    getRuntimeForKind('alice', 'opencode-v1', connection)
+    expect(factory).toHaveBeenCalledWith('alice', connection)
+    expect(findRuntimeKindBySlug).not.toHaveBeenCalled()
+  })
+
   it('uses recorded kinds, not the deployment default, in the same process', async () => {
     vi.stubEnv('ARCHE_DEFAULT_RUNTIME_KIND', 'opencode-v2')
     findRuntimeKindBySlug.mockImplementation(async (slug: string) => ({ runtimeKind: slug === 'alice' ? 'opencode-v1' : 'opencode-v2' }))

@@ -11,6 +11,7 @@ import { getString, isRecord } from '@/lib/records'
 import { withAuth } from '@/lib/runtime/with-auth'
 import { getWorkspaceAgentConnection } from '@/lib/runtime/workspace-host'
 import { messageRunService } from '@/lib/services'
+import * as legacySessionArchive from '@/lib/services/legacy-session-archive'
 import { MAX_ATTACHMENTS_PER_MESSAGE } from '@/lib/workspace-attachments'
 
 export const runtime = 'nodejs'
@@ -71,12 +72,6 @@ export const POST = withAuth<
   { ok: true } | { error: string },
   { slug: string }
 >({ csrf: true }, async (request: NextRequest, { slug, user }) => {
-  const runtimeResult = await getRuntimeForSlug(slug)
-  if (!runtimeResult.ok) return jsonErrorResponse(503, runtimeResult.error.code)
-  const client = runtimeResult.data
-  const agent = await getWorkspaceAgentConnection(slug)
-  if (!agent) return jsonErrorResponse(503, 'instance_unavailable')
-
   let body: unknown
   try {
     body = await request.json()
@@ -90,6 +85,15 @@ export const POST = withAuth<
   }
 
   const sessionId = requestBody.sessionId
+  if (await legacySessionArchive.isArchivedSession(slug, sessionId)) {
+    return jsonErrorResponse(409, 'session_archived')
+  }
+  const runtimeResult = await getRuntimeForSlug(slug)
+  if (!runtimeResult.ok) return jsonErrorResponse(503, runtimeResult.error.code)
+  const client = runtimeResult.data
+  const agent = await getWorkspaceAgentConnection(slug)
+  if (!agent) return jsonErrorResponse(503, 'instance_unavailable')
+
   const messageId = requestBody.messageId
   const attachments = normalizeMessageAttachments(requestBody.attachments)
   const contextPaths = normalizeContextPaths(requestBody.contextPaths)

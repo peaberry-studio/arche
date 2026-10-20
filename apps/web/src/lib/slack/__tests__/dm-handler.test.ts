@@ -13,6 +13,7 @@ import type {
 } from '@/lib/slack/socket-types'
 
 const mocks = vi.hoisted(() => ({
+  isArchivedSession: vi.fn(),
   auditService: {
     createEvent: vi.fn(),
   },
@@ -88,6 +89,7 @@ vi.mock('@/lib/services', () => ({
 }))
 
 vi.mock('@/lib/slack/socket-utils', () => mocks.socketUtils)
+vi.mock('@/lib/services/legacy-session-archive', () => ({ isArchivedSession: mocks.isArchivedSession }))
 
 function createClient(): SlackChatClient {
   return {
@@ -144,6 +146,7 @@ function pendingDecision(overrides: Record<string, unknown> = {}) {
 describe('Slack DM handler', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.isArchivedSession.mockResolvedValue(false)
     mocks.socketUtils.resolveSlackTeamId.mockResolvedValue('T123')
     mocks.socketUtils.loadSlackUserProfile.mockResolvedValue({ displayName: 'Alice', email: 'alice@test.com' })
     mocks.socketUtils.getSlackActionContext.mockReturnValue({
@@ -259,6 +262,81 @@ describe('Slack DM handler', () => {
         'x',
       ],
     )
+  })
+
+  it.each([1, 3, 9])('rebinds an archived DM after %i hours without asking to continue it', async (hours) => {
+    const client = createClient()
+    const getSession = vi.fn()
+    const prompt = vi.fn().mockResolvedValue({ ok: true })
+    mocks.isArchivedSession.mockResolvedValue(true)
+    mocks.slackService.findLatestDmSession.mockResolvedValue({
+      id: 'legacy-binding',
+      openCodeSessionId: 'legacy-session',
+      lastMessageAt: new Date(Date.now() - hours * 60 * 60 * 1000),
+    })
+    mocks.opencode.getRuntimeForSlug.mockResolvedValue({ ok: true, data: {
+      createSession: vi.fn().mockResolvedValue({ ok: true, data: { id: 'live-session' } }),
+      getSession,
+      prompt,
+    } })
+    mocks.slackService.createDmSessionBinding.mockResolvedValue({ id: 'live-binding' })
+    mocks.sessionExecution.readLatestAssistantText.mockResolvedValue('Recovered reply')
+
+    await handleSlackDmEvent({ body: {}, client, event: messageEvent(), eventId: 'Ev1' })
+
+    expect(mocks.isArchivedSession).toHaveBeenCalledWith('alice', 'legacy-session')
+    expect(getSession).not.toHaveBeenCalled()
+    expect(mocks.slackService.createPendingDmDecision).not.toHaveBeenCalled()
+    expect(mocks.slackService.deleteSessionBindingsByOpenCodeSessionId).not.toHaveBeenCalled()
+    expect(mocks.slackService.createDmSessionBinding).toHaveBeenCalledWith({
+      channelId: 'D123', executionUserId: 'user-1', openCodeSessionId: 'live-session', slackTeamId: 'T123', slackUserId: 'U123',
+    })
+    expect(prompt).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ sessionId: 'live-session' }))
+    expect(mocks.slackService.touchDmSessionBinding).toHaveBeenCalledWith('live-binding', expect.any(Date))
+  })
+
+  it.each([false, true])('checks archive state again after starting a workspace (migrated=%s)', async (migrated) => {
+    const client = createClient()
+    const getSession = vi.fn().mockResolvedValue({ ok: true, data: { id: 'legacy-session' } })
+    const createSession = vi.fn().mockResolvedValue({ ok: true, data: { id: 'live-session' } })
+    const prompt = vi.fn().mockResolvedValue({ ok: true })
+    mocks.isArchivedSession.mockResolvedValueOnce(false).mockResolvedValue(migrated)
+    mocks.slackService.findLatestDmSession.mockResolvedValue({
+      executionUserId: 'user-1', id: 'legacy-binding', openCodeSessionId: 'legacy-session', lastMessageAt: new Date(),
+    })
+    mocks.opencode.getRuntimeForSlug.mockResolvedValue({ ok: true, data: { createSession, getSession, prompt } })
+    mocks.slackService.createDmSessionBinding.mockResolvedValue({ id: 'live-binding' })
+    mocks.sessionExecution.readLatestAssistantText.mockResolvedValue('Reply')
+
+    await handleSlackDmEvent({ body: {}, client, event: messageEvent(), eventId: 'Ev1' })
+
+    expect(mocks.isArchivedSession).toHaveBeenCalledTimes(2)
+    expect(prompt).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ sessionId: migrated ? 'live-session' : 'legacy-session' }))
+    expect(createSession).toHaveBeenCalledTimes(migrated ? 1 : 0)
+    expect(getSession).toHaveBeenCalledTimes(migrated ? 0 : 1)
+    expect(mocks.slackService.deleteSessionBindingsByOpenCodeSessionId).not.toHaveBeenCalled()
+  })
+
+  it('recovers a continue decision made before its DM session was archived', async () => {
+    const client = createClient()
+    const getSession = vi.fn()
+    const prompt = vi.fn().mockResolvedValue({ ok: true })
+    mocks.isArchivedSession.mockResolvedValue(true)
+    mocks.slackService.findPendingDmDecision.mockResolvedValue(pendingDecision())
+    mocks.slackService.findDmSessionBindingById.mockResolvedValue({ executionUserId: 'user-1', id: 'binding-1', openCodeSessionId: 'legacy-session' })
+    mocks.slackService.markPendingDmDecisionContinued.mockResolvedValue(true)
+    mocks.userService.findByIdSelect.mockResolvedValue({ slug: 'alice' })
+    mocks.slackService.createDmSessionBinding.mockResolvedValue({ id: 'live-binding' })
+    mocks.opencode.getRuntimeForSlug.mockResolvedValue({ ok: true, data: {
+      createSession: vi.fn().mockResolvedValue({ ok: true, data: { id: 'live-session' } }), getSession, prompt,
+    } })
+    mocks.sessionExecution.readLatestAssistantText.mockResolvedValue('Reply')
+
+    await handleSlackDmDecisionAction({ action: 'continue', body: {}, client })
+
+    expect(getSession).not.toHaveBeenCalled()
+    expect(prompt).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ sessionId: 'live-session' }))
+    expect(mocks.slackService.touchDmSessionBinding).toHaveBeenCalledWith('live-binding', expect.any(Date))
   })
 
   it('responds to malformed and non-DM /new commands', async () => {

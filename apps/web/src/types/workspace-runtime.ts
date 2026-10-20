@@ -13,6 +13,7 @@ export type WorkspaceSession = {
   updatedAt: string
   updatedAtRaw?: number
   parentId?: string
+  archived?: boolean
   flow?: {
     runId: string
     flowId: string

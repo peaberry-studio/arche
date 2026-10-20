@@ -1,3 +1,4 @@
+import { preArchiveRunningV1Instances } from '@/lib/harness/legacy-session-archive'
 import { auditService, instanceService, messageRunService, rateLimitService } from '@/lib/services'
 import { getIdleTimeoutMinutes } from './config'
 
@@ -25,17 +26,23 @@ export async function reapIdleInstances(): Promise<number> {
 
   for (const instance of idleInstances) {
     try {
+      const startedAt = new Date()
+      const claimed = await instanceService.claimStartingTransition(instance, startedAt)
+      if (claimed.count === 0) continue
       if (instance.containerId) {
         const docker = await import('./docker')
-        await docker.stopContainer(instance.containerId).catch((err) => {
+        let stopConfirmed = false
+        await docker.stopContainer(instance.containerId).then(() => { stopConfirmed = true }, (err) => {
           console.warn('[reaper] Failed to stop container:', { slug: instance.slug, containerId: instance.containerId, error: err })
         })
         await docker.removeContainer(instance.containerId).catch((err) => {
           console.warn('[reaper] Failed to remove container:', { slug: instance.slug, containerId: instance.containerId, error: err })
+          if (!stopConfirmed) throw err
         })
       }
 
-      await instanceService.setStoppedById(instance.id)
+      const stopped = await instanceService.finishStoppingTransition(instance.id, startedAt)
+      if (stopped.count === 0) continue
 
       await auditService.createEvent({
         actorUserId: null,
@@ -76,6 +83,7 @@ export function getReaperStatus(): ReaperStatus {
 
 async function runReaperCycle(): Promise<void> {
   lastRunStartedAt = new Date()
+  void preArchiveRunningV1Instances()
 
   try {
     const [instanceCount, messageRunCount] = await Promise.all([

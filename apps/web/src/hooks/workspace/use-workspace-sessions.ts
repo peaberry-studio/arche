@@ -114,7 +114,7 @@ export function useWorkspaceSessions({
         const rootSessionLimit = Math.max(
           ROOT_SESSION_LIMIT_STEP,
           rootSessionLimitRef.current,
-          sessionStoreRef.current.rootOrder.length,
+          sessionStoreRef.current.rootOrder.filter((id) => !sessionStoreRef.current.sessionsById[id]?.archived).length,
         );
         const result = await listSessionsAction(slug, {
           limit: rootSessionLimit,
@@ -231,7 +231,7 @@ export function useWorkspaceSessions({
 
     const nextLimit = Math.max(
       rootSessionLimitRef.current + ROOT_SESSION_LIMIT_STEP,
-      sessionStoreRef.current.rootOrder.length + ROOT_SESSION_LIMIT_STEP,
+      sessionStoreRef.current.rootOrder.filter((id) => !sessionStoreRef.current.sessionsById[id]?.archived).length + ROOT_SESSION_LIMIT_STEP,
     );
 
     setIsLoadingMoreSessions(true);
@@ -373,6 +373,7 @@ export function useWorkspaceSessions({
 
   const deleteSession = useCallback(
     async (id: string): Promise<DeleteWorkspaceSessionResult | null> => {
+      if (sessionStoreRef.current.sessionsById[id]?.archived) return null;
       const result = await deleteSessionAction(slug, id);
       if (result.ok) {
         markSessionsMutated();
@@ -402,6 +403,7 @@ export function useWorkspaceSessions({
 
   const renameSession = useCallback(
     async (id: string, title: string) => {
+      if (sessionStoreRef.current.sessionsById[id]?.archived) return false;
       const nextTitle = title.trim();
       if (!nextTitle) return false;
 

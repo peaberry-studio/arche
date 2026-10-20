@@ -424,6 +424,19 @@ describe("WorkspaceShell", () => {
     expect(screen.getByText("Error: socket down")).toBeTruthy();
   });
 
+  it("opens an archived conversation read-only even when the runtime is offline", async () => {
+    instanceStartupMock.mockReturnValue({ instanceStatus: "error", instanceError: "start_timeout" });
+    connectionMock.mockReturnValue({ connection: { status: "error", error: "offline" }, isConnected: false });
+    workspaceMockOverrides = {
+      sessions: [{ id: "root-session", title: "Archive", status: "idle", updatedAt: "now", archived: true }],
+    };
+    renderWorkspaceShell({ slug: "alice" });
+    expect(await screen.findByTestId("chat-panel")).toBeTruthy();
+    expect(screen.getByTestId("chat-panel").getAttribute("data-read-only")).toBe("true");
+    expect(screen.queryByText("Failed to start")).toBeNull();
+    expect(createSessionMock).not.toHaveBeenCalled();
+  });
+
   it("opens the empty composer with Command+Period", async () => {
     renderWorkspaceShell({ slug: "alice" });
 

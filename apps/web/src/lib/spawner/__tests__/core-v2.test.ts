@@ -22,6 +22,7 @@ vi.mock('@/lib/spawner/crypto', () => ({ generatePassword: () => 'test', encrypt
 vi.mock('@/lib/spawner/docker', () => ({
   createContainer: vi.fn().mockResolvedValue({ id: 'v2-container' }), startContainer: vi.fn(),
   removeManagedContainerForSlug: vi.fn().mockResolvedValue(false), removeContainer: vi.fn().mockResolvedValue(undefined), stopContainer: vi.fn().mockResolvedValue(undefined),
+  removeManagedArchiveContainerForSlug: vi.fn().mockResolvedValue(undefined),
   isContainerRunning: vi.fn().mockResolvedValue(true), inspectContainer: vi.fn().mockResolvedValue({}),
 }))
 vi.mock('@/lib/spawner/runtime-artifacts', () => ({

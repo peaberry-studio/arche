@@ -49,11 +49,19 @@ export function SessionsPanel({
   }, [normalizedQuery, visibleSessions]);
 
   const buckets = useMemo(
-    () => groupByDateBucket(filteredSessions, (s) => s.updatedAtRaw),
+    () => {
+      const archives = filteredSessions.filter((session) => session.archived);
+      const live = groupByDateBucket(filteredSessions.filter((session) => !session.archived), (s) => s.updatedAtRaw);
+      return archives.length ? [
+        ...live.map((bucket, index) => ({ ...bucket, groupLabel: index === 0 ? "Live conversations" : undefined })),
+        { label: "Archived conversations", items: archives, groupLabel: undefined },
+      ] : live.map((bucket) => ({ ...bucket, groupLabel: undefined }));
+    },
     [filteredSessions]
   );
 
   const getIndicatorClassName = (session: WorkspaceSession): string | null => {
+    if (session.archived) return null;
     if (session.status === "busy") return "text-amber-400";
     if (session.status === "error") return "text-red-400";
     if (session.flow?.status === "waiting_for_human") return "text-amber-400";
@@ -154,6 +162,7 @@ export function SessionsPanel({
     <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-2 pb-4 pt-1 scrollbar-none">
       {buckets.map((bucket) => (
         <div key={bucket.label} className="mb-3">
+          {bucket.groupLabel ? <div className="px-2 pt-2 text-xs font-medium text-muted-foreground">{bucket.groupLabel}</div> : null}
           <div className="px-2 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">
             {bucket.label}
           </div>
@@ -195,6 +204,7 @@ export function SessionsPanel({
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center gap-1.5">
                       <span className="truncate font-medium">{primaryTitle}</span>
+                      {session.archived ? <span className="shrink-0 text-[9px] font-medium uppercase tracking-wide text-muted-foreground">Archived</span> : null}
                       {isFlow ? (
                         <span className="shrink-0 text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
                           Flow

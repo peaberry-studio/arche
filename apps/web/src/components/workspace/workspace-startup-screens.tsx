@@ -2,10 +2,9 @@
 
 import { XCircle } from "@phosphor-icons/react";
 
+import { ArcLoader } from "@/components/workspace/arc-loader";
 import type { InstanceStartupStatus } from "@/hooks/use-instance-startup";
 import type { WorkspaceConnectionState } from "@/types/workspace-runtime";
-
-import { ArcLoader } from "./arc-loader";
 
 const CONNECTION_ERROR_COPY: Record<string, string> = {
   connection_check_failed: "Couldn't reach the workspace. Retrying...",
@@ -35,7 +34,8 @@ export function WorkspaceConnectingBanner({
   instanceStatus,
   instanceError,
 }: WorkspaceConnectingBannerProps) {
-  const starting = instanceStatus === "starting" || instanceStatus === null;
+  const migrating = instanceStatus === "migrating_history";
+  const starting = instanceStatus === "starting" || instanceStatus === null || migrating;
   const failed = instanceStatus === "error";
   const connectionFailed = !starting && !failed && connection.status === "error";
 
@@ -49,9 +49,13 @@ export function WorkspaceConnectingBanner({
       <div className="space-y-1">
         {starting ? (
           <>
-            <h2 className="type-display text-base font-semibold">Starting workspace</h2>
+            <h2 className="type-display text-base font-semibold">
+              {migrating ? "Migrating history" : "Starting workspace"}
+            </h2>
             <p className="text-sm text-muted-foreground">
-              Setting up your workspace…
+              {migrating
+                ? "Preserving your previous conversations before starting your workspace…"
+                : "Setting up your workspace…"}
             </p>
           </>
         ) : failed ? (

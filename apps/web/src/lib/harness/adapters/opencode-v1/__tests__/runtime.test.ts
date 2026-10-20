@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createOpenCodeV1Runtime, normalizeOpenCodeError } from '@/lib/harness/adapters/opencode-v1/runtime'
 
-const mocks = vi.hoisted(() => ({ client: vi.fn(), health: vi.fn(), providers: vi.fn(), fresh: vi.fn(), auth: vi.fn(), events: vi.fn() }))
+const mocks = vi.hoisted(() => ({ client: vi.fn(), configured: vi.fn(), health: vi.fn(), providers: vi.fn(), fresh: vi.fn(), auth: vi.fn(), events: vi.fn() }))
+vi.mock('@/lib/harness/adapters/opencode-v1/client-factory', () => ({ createConfiguredOpencodeClient: mocks.configured }))
 vi.mock('@/lib/harness/adapters/opencode-v1/client', () => ({ createInstanceClient: mocks.client, isInstanceHealthyWithPassword: mocks.health, getInstanceBasicAuth: mocks.auth, DEFAULT_HEALTH_TIMEOUT_MS: 5000 }))
 vi.mock('@/lib/harness/adapters/opencode-v1/providers', () => ({ syncProviderAccessForInstance: mocks.providers, ensureProviderAccessFreshForExecution: mocks.fresh }))
 vi.mock('@/lib/harness/adapters/opencode-v1/events', () => ({ subscribeOpenCodeEvents: mocks.events }))
@@ -17,6 +18,14 @@ describe('OpenCode v1 runtime', () => {
     expect(result.ok && result.data[0]).toMatchObject({ id: 's1', title: 'Hello', parentId: 'root', createdAtRaw: 10, updatedAtRaw: 20, status: 'idle' })
     expect(result.ok && result.data[0]).not.toHaveProperty('directory')
     expect(result.ok && result.data[0]).not.toHaveProperty('parentID')
+  })
+
+  it('reads archive sessions with explicit credentials while the serving instance is stopped', async () => {
+    const connection = { baseUrl: 'http://archive:4096', authHeader: 'Basic fixture' }
+    mocks.configured.mockResolvedValue({ session: { list: vi.fn().mockResolvedValue({ data: [] }) } })
+    expect(await createOpenCodeV1Runtime('alice', connection).listSessions()).toEqual({ ok: true, data: [] })
+    expect(mocks.configured).toHaveBeenCalledWith(connection)
+    expect(mocks.client).not.toHaveBeenCalled()
   })
 
   it('normalizes message metadata, failures and parts', async () => {

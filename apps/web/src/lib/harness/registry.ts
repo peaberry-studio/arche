@@ -51,10 +51,10 @@ export async function searchWorkspaceFiles(slug: string, query: string): Promise
   return runtime.data.kind === 'opencode-v2' ? searchV2WorkspaceFiles(slug, query) : searchV1WorkspaceFiles(slug, query)
 }
 
-export function getRuntimeForKind(slug: string, kind: string | null = null): HarnessResult<HarnessRuntime> {
+export function getRuntimeForKind(slug: string, kind: string | null = null, connection?: { baseUrl: string; authHeader: string; signal?: AbortSignal }): HarnessResult<HarnessRuntime> {
   if (kind === 'opencode-v2') return { ok: true, data: createOpenCodeV2Runtime(slug) }
   if (kind !== null && kind !== 'opencode-v1') return harnessFailure('runtime_unsupported', kind)
-  return { ok: true, data: createOpenCodeV1Runtime(slug) }
+  return { ok: true, data: connection ? createOpenCodeV1Runtime(slug, connection) : createOpenCodeV1Runtime(slug) }
 }
 
 export function checkRuntimeStartupSupport(kind: string | null): HarnessResult<void> {

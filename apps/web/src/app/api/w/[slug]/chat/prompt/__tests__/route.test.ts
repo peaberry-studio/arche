@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   validateSameOrigin: vi.fn((): { ok: boolean; error?: string } => ({ ok: true })),
   validateDesktopToken: vi.fn(() => true),
   getRuntimeForSlug: vi.fn(),
+  isArchivedSession: vi.fn(),
   sessionStatus: vi.fn(),
   prompt: vi.fn(),
   messageRunService: {
@@ -21,6 +22,7 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('@/lib/runtime/capabilities', () => ({ getRuntimeCapabilities: mocks.getRuntimeCapabilities }))
+vi.mock('@/lib/services/legacy-session-archive', () => ({ isArchivedSession: mocks.isArchivedSession }))
 vi.mock('@/lib/runtime/mode', () => ({ isDesktop: mocks.isDesktop }))
 vi.mock('@/lib/runtime/session', () => ({ getSession: mocks.getSession }))
 vi.mock('@/lib/csrf', () => ({ validateSameOrigin: mocks.validateSameOrigin }))
@@ -61,6 +63,7 @@ function statusResponse(statusRecord: unknown) {
 describe('POST /api/w/[slug]/chat/prompt', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.isArchivedSession.mockResolvedValue(false)
     mocks.getRuntimeCapabilities.mockReturnValue({ csrf: false })
     mocks.validateSameOrigin.mockReturnValue({ ok: true })
     mocks.getSession.mockResolvedValue({
@@ -163,6 +166,29 @@ describe('POST /api/w/[slug]/chat/prompt', () => {
     })
     const res = await POST(makeRequest({ sessionId: 's1', messageId: 'user-1', text: 'Hola' }), params())
     expect(res.status).toBe(403)
+    expect(mocks.isArchivedSession).not.toHaveBeenCalled()
+    expect(mocks.getRuntimeForSlug).not.toHaveBeenCalled()
+  })
+
+  it.each(['USER', 'ADMIN'])('rejects archived prompts as %s before runtime access', async (role) => {
+    mocks.getSession.mockResolvedValue({ user: { id: 'u1', slug: role === 'ADMIN' ? 'admin' : 'alice', role }, sessionId: 'auth' })
+    mocks.isArchivedSession.mockResolvedValue(true)
+    const res = await POST(makeRequest({ sessionId: 'old', messageId: 'user-1', text: 'Hello' }), params())
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ error: 'session_archived' })
+    expect(mocks.isArchivedSession).toHaveBeenCalledWith('alice', 'old')
+    expect(mocks.getRuntimeForSlug).not.toHaveBeenCalled()
+    expect(mocks.getWorkspaceAgentConnection).not.toHaveBeenCalled()
+    expect(mocks.messageRunService.findActiveRun).not.toHaveBeenCalled()
+    expect(mocks.ensureProviderAccessFreshForExecution).not.toHaveBeenCalled()
+    expect(mocks.prompt).not.toHaveBeenCalled()
+  })
+
+  it('rejects unauthenticated archive requests before storage access', async () => {
+    mocks.getSession.mockResolvedValue(null)
+    const res = await POST(makeRequest({ sessionId: 'old', messageId: 'm', text: 'Hello' }), params())
+    expect(res.status).toBe(401)
+    expect(mocks.isArchivedSession).not.toHaveBeenCalled()
   })
 
   it('returns 409 when runtime status is unknown and a MessageRun is running', async () => {

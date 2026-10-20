@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auditEvent } from '@/lib/auth'
 import { getRuntimeForSlug } from '@/lib/harness/registry'
 import { withAuth } from '@/lib/runtime/with-auth'
+import * as legacySessionArchive from '@/lib/services/legacy-session-archive'
 
 type PermissionReplyResponse = 'once' | 'always' | 'reject'
 
@@ -23,10 +24,6 @@ export const POST = withAuth<
   { ok: true } | { error: string },
   { slug: string; permissionId: string }
 >({ csrf: true }, async (request: NextRequest, { slug, params: { permissionId }, user }) => {
-  const runtimeResult = await getRuntimeForSlug(slug)
-  if (!runtimeResult.ok) return jsonErrorResponse(503, runtimeResult.error.code)
-  const client = runtimeResult.data
-
   let body: ReplyPermissionRequest
   try {
     body = await request.json()
@@ -40,6 +37,13 @@ export const POST = withAuth<
   if (!sessionId || !isPermissionReplyResponse(body.response)) {
     return jsonErrorResponse(400, 'missing_fields')
   }
+
+  if (await legacySessionArchive.isArchivedSession(slug, sessionId)) {
+    return jsonErrorResponse(409, 'session_archived')
+  }
+  const runtimeResult = await getRuntimeForSlug(slug)
+  if (!runtimeResult.ok) return jsonErrorResponse(503, runtimeResult.error.code)
+  const client = runtimeResult.data
 
   const response = await client.replyPermission({
     sessionId,

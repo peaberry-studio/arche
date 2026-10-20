@@ -38,6 +38,7 @@ export type MessageAttachmentInput = {
 
 export type ChatSession = {
   id: string;
+  archived?: boolean;
   title: string;
   status: "active" | "idle" | "archived";
   updatedAt: string;

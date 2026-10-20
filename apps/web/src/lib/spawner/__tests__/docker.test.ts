@@ -47,6 +47,8 @@ vi.mock('@/lib/user-data', () => ({
 
 import {
   createContainer,
+  createArchiveContainer,
+  removeManagedArchiveContainerForSlug,
   startContainer,
   stopContainer,
   removeContainer,
@@ -75,6 +77,60 @@ describe('docker', () => {
   })
 
   describe('createContainer', () => {
+    it('boots legacy archive mode without project config, providers, MCP, startup scripts or writable workspace', async () => {
+      const result = await createArchiveContainer('user-slug', 'archive-only')
+      expect(result).toEqual({ id: 'container-123', name: 'opencode-archive-user-slug' })
+      expect(mockDockerInstance.createContainer).toHaveBeenCalledWith(expect.objectContaining({
+        Image: 'test-image:opencode-v1',
+        Entrypoint: ['opencode'],
+        Env: expect.arrayContaining([
+          'OPENCODE_DISABLE_PROJECT_CONFIG=true',
+          'OPENCODE_CONFIG_CONTENT={"mcp":{},"plugin":[],"enabled_providers":[]}',
+          'XDG_CONFIG_HOME=/tmp/arche-archive-config',
+          'GIT_CONFIG_COUNT=1',
+          'GIT_CONFIG_KEY_0=safe.directory',
+          'GIT_CONFIG_VALUE_0=/workspace',
+        ]),
+        HostConfig: {
+          NetworkMode: 'test-network', RestartPolicy: { Name: 'no' },
+          Binds: [
+            'arche-workspace-user-slug:/workspace:ro',
+            'arche-opencode-share-user-slug:/home/workspace/.local/share/opencode',
+            'arche-opencode-state-user-slug:/home/workspace/.local/state/opencode',
+          ],
+        },
+        Labels: expect.objectContaining({ 'arche.archive': 'true' }),
+      }))
+      expect(mockWriteFile).not.toHaveBeenCalled()
+      expect(mockDockerInstance.createVolume).not.toHaveBeenCalled()
+    })
+
+    it('reclaims only an owned archive container left by an interrupted migration', async () => {
+      mockDockerInstance.createContainer.mockRejectedValueOnce(new Error('container name is already in use'))
+      mockContainer.inspect.mockResolvedValueOnce({ Config: { Labels: {
+        'arche.managed': 'true', 'arche.user.slug': 'user-slug', 'arche.archive': 'true',
+      } } })
+      await createArchiveContainer('user-slug', 'fixture')
+      expect(mockDockerInstance.getContainer).toHaveBeenCalledWith('opencode-archive-user-slug')
+      expect(mockContainer.remove).toHaveBeenCalledWith({ force: true })
+      expect(mockDockerInstance.createContainer).toHaveBeenCalledTimes(2)
+    })
+
+    it('never removes an unmanaged archive-name conflict', async () => {
+      mockDockerInstance.createContainer.mockRejectedValueOnce(new Error('container name is already in use'))
+      mockContainer.inspect.mockResolvedValueOnce({ Config: { Labels: { 'arche.managed': 'true', 'arche.user.slug': 'other', 'arche.archive': 'true' } } })
+      await expect(createArchiveContainer('user-slug', 'fixture')).rejects.toThrow('archive_container_not_managed')
+      expect(mockContainer.remove).not.toHaveBeenCalled()
+    })
+
+    it('confirms absence of an archive helper but never treats inspection failures as absence', async () => {
+      mockContainer.inspect.mockRejectedValueOnce({ statusCode: 404 })
+      await expect(removeManagedArchiveContainerForSlug('user-slug')).resolves.toBeUndefined()
+      mockContainer.inspect.mockRejectedValueOnce(new Error('proxy down'))
+      await expect(removeManagedArchiveContainerForSlug('user-slug')).rejects.toThrow('proxy down')
+      expect(mockContainer.remove).not.toHaveBeenCalled()
+    })
+
     it('creates container with default runtime configuration', async () => {
       await createContainer('user-slug', 'secret-password')
 

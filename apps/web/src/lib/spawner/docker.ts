@@ -249,6 +249,68 @@ export async function startContainer(containerId: string): Promise<void> {
   await container.start();
 }
 
+export async function createArchiveContainer(slug: string, password: string): Promise<{ id: string; name: string }> {
+  const docker = await getContainerClient()
+  const name = `opencode-archive-${slug}`
+  const options = {
+    Image: getOpencodeV1Image(),
+    name,
+    WorkingDir: '/workspace',
+    Entrypoint: ['opencode'],
+    Cmd: ['serve', '--hostname', '0.0.0.0', '--port', '4096'],
+    Env: [
+      `OPENCODE_SERVER_PASSWORD=${password}`,
+      'OPENCODE_SERVER_USERNAME=opencode',
+      'HOME=/home/workspace',
+      'XDG_DATA_HOME=/home/workspace/.local/share',
+      'XDG_STATE_HOME=/home/workspace/.local/state',
+      'XDG_CONFIG_HOME=/tmp/arche-archive-config',
+      'GIT_CONFIG_COUNT=1',
+      'GIT_CONFIG_KEY_0=safe.directory',
+      'GIT_CONFIG_VALUE_0=/workspace',
+      'OPENCODE_DISABLE_PROJECT_CONFIG=true',
+      'OPENCODE_DISABLE_MODELS_FETCH=true',
+      'OPENCODE_CONFIG_CONTENT={"mcp":{},"plugin":[],"enabled_providers":[]}',
+    ],
+    HostConfig: {
+      NetworkMode: getOpencodeNetwork(),
+      RestartPolicy: { Name: 'no' },
+      Binds: [
+        `arche-workspace-${slug}:/workspace:ro`,
+        `arche-opencode-share-${slug}:/home/workspace/.local/share/opencode`,
+        `arche-opencode-state-${slug}:/home/workspace/.local/state/opencode`,
+      ],
+    },
+    Labels: { 'arche.managed': 'true', 'arche.user.slug': slug, 'arche.runtime.kind': 'opencode-v1', 'arche.archive': 'true' },
+  }
+  const container = await docker.createContainer(options).catch(async (error: unknown) => {
+    if (!isContainerNameConflict(error)) throw error
+    await removeManagedArchiveContainerWithClient(docker, slug)
+    return docker.createContainer(options)
+  })
+  return { id: container.id, name }
+}
+
+async function removeManagedArchiveContainerWithClient(docker: DockerClient, slug: string): Promise<void> {
+  const container = docker.getContainer(`opencode-archive-${slug}`)
+  let info
+  try {
+    info = await container.inspect()
+  } catch (error) {
+    if (error && typeof error === 'object' && 'statusCode' in error && error.statusCode === 404) return
+    throw error
+  }
+  const labels = info.Config?.Labels ?? {}
+  if (labels['arche.managed'] !== 'true' || labels['arche.user.slug'] !== slug || labels['arche.archive'] !== 'true') {
+    throw new Error('archive_container_not_managed')
+  }
+  await container.remove({ force: true })
+}
+
+export async function removeManagedArchiveContainerForSlug(slug: string): Promise<void> {
+  await removeManagedArchiveContainerWithClient(await getContainerClient(), slug)
+}
+
 export async function stopContainer(containerId: string): Promise<void> {
   const docker = await getContainerClient();
   const container = docker.getContainer(containerId);

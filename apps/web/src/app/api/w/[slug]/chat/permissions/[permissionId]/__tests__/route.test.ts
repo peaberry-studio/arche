@@ -8,11 +8,13 @@ const mocks = vi.hoisted(() => ({
   validateSameOrigin: vi.fn(() => ({ ok: true })),
   validateDesktopToken: vi.fn(() => true),
   getRuntimeForSlug: vi.fn(),
+  isArchivedSession: vi.fn(),
   replyPermission: vi.fn(),
   auditEvent: vi.fn(),
 }))
 
 vi.mock('@/lib/runtime/capabilities', () => ({ getRuntimeCapabilities: mocks.getRuntimeCapabilities }))
+vi.mock('@/lib/services/legacy-session-archive', () => ({ isArchivedSession: mocks.isArchivedSession }))
 vi.mock('@/lib/runtime/mode', () => ({ isDesktop: mocks.isDesktop }))
 vi.mock('@/lib/runtime/session', () => ({ getSession: mocks.getSession }))
 vi.mock('@/lib/csrf', () => ({ validateSameOrigin: mocks.validateSameOrigin }))
@@ -48,6 +50,7 @@ function params() {
 describe('POST /api/w/[slug]/chat/permissions/[permissionId]', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.isArchivedSession.mockResolvedValue(false)
     mocks.getSession.mockResolvedValue({
       user: { id: 'u1', email: 'alice@test.com', slug: 'alice', role: 'USER' },
       sessionId: 's1',
@@ -68,6 +71,27 @@ describe('POST /api/w/[slug]/chat/permissions/[permissionId]', () => {
     expect(mocks.replyPermission).toHaveBeenCalledWith({
       sessionId: 's1', permissionId: 'perm-1', response,
     }, { signal: request.signal })
+  })
+
+  it.each(['USER', 'ADMIN'])('rejects archived permission replies as %s without runtime or audit calls', async (role) => {
+    mocks.getSession.mockResolvedValue({ user: { id: 'u1', slug: role === 'ADMIN' ? 'admin' : 'alice', role }, sessionId: 'auth' })
+    mocks.isArchivedSession.mockResolvedValue(true)
+    const res = await POST(makeRequest({ sessionId: 'old', response: 'once' }), params())
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ error: 'session_archived' })
+    expect(mocks.isArchivedSession).toHaveBeenCalledWith('alice', 'old')
+    expect(mocks.getRuntimeForSlug).not.toHaveBeenCalled()
+    expect(mocks.replyPermission).not.toHaveBeenCalled()
+    expect(mocks.auditEvent).not.toHaveBeenCalled()
+  })
+
+  it.each([null, { user: { id: 'bob', slug: 'bob', role: 'USER' }, sessionId: 'auth' }])('authorizes before archive storage access', async (session) => {
+    mocks.getSession.mockResolvedValue(session)
+    const res = await POST(makeRequest({ sessionId: 'old', response: 'always' }), params())
+    expect(res.status).toBe(session ? 403 : 401)
+    expect(mocks.isArchivedSession).not.toHaveBeenCalled()
+    expect(mocks.getRuntimeForSlug).not.toHaveBeenCalled()
+    expect(mocks.replyPermission).not.toHaveBeenCalled()
   })
 
   it('audits an administrator response for another workspace', async () => {

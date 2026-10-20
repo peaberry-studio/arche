@@ -48,36 +48,36 @@ export function findRunStatusById(id: string): Promise<{ status: FlowRunStatus }
 }
 
 export function attachRunSession(id: string, data: { openCodeSessionId: string; sessionTitle: string }) {
-  return prisma.flowRun.update({
+  return prisma.flowRun.updateMany({
     data: {
       openCodeSessionId: data.openCodeSessionId,
       sessionTitle: data.sessionTitle,
     },
-    where: { id },
+    where: { id, status: { in: ACTIVE_RUN_STATUSES } },
   })
 }
 
 export function updateRunCurrentNode(id: string, currentNodeId: string | null) {
-  return prisma.flowRun.update({
+  return prisma.flowRun.updateMany({
     data: { currentNodeId },
-    where: { id },
+    where: { id, status: { in: ACTIVE_RUN_STATUSES } },
   })
 }
 
 export function markRunWaitingForHuman(id: string, currentNodeId: string) {
-  return prisma.flowRun.update({
+  return prisma.flowRun.updateMany({
     data: {
       currentNodeId,
       status: FlowRunStatus.waiting_for_human,
     },
-    where: { id },
+    where: { id, status: { in: ACTIVE_RUN_STATUSES } },
   })
 }
 
 export function markRunRunning(id: string) {
-  return prisma.flowRun.update({
+  return prisma.flowRun.updateMany({
     data: { status: FlowRunStatus.running },
-    where: { id },
+    where: { id, status: { in: ACTIVE_RUN_STATUSES } },
   })
 }
 

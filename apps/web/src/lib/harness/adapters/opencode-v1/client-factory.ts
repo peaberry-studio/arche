@@ -3,6 +3,7 @@ import type { OpencodeClient } from '@opencode-ai/sdk/v2/client'
 type CreateOpencodeClientArgs = {
   authHeader: string
   baseUrl: string
+  signal?: AbortSignal
 }
 
 function importRuntimeModule<T>(specifier: string): Promise<T> {
@@ -16,7 +17,7 @@ function importRuntimeModule<T>(specifier: string): Promise<T> {
 }
 
 export async function createConfiguredOpencodeClient(
-  { baseUrl, authHeader }: CreateOpencodeClientArgs,
+  { baseUrl, authHeader, signal }: CreateOpencodeClientArgs,
 ): Promise<OpencodeClient> {
   const { createOpencodeClient } = await importRuntimeModule<typeof import('@opencode-ai/sdk/v2/client')>(
     '@opencode-ai/sdk/v2/client',
@@ -43,7 +44,7 @@ export async function createConfiguredOpencodeClient(
           ...init,
           method,
           headers: mergedHeaders,
-          signal: init?.signal ?? (isRequest ? input.signal : undefined),
+          signal: signal ? AbortSignal.any([signal, ...(init?.signal ? [init.signal] : isRequest ? [input.signal] : [])]) : init?.signal ?? (isRequest ? input.signal : undefined),
           body: init?.body ?? (isRequest ? input.body : undefined),
           // @ts-expect-error -- Node/undici duplex hint for streaming bodies
           duplex: (init?.body ?? (isRequest ? input.body : undefined)) ? 'half' : undefined,

@@ -1,4 +1,6 @@
 import type { HarnessHealthOptions, HarnessRuntime } from '@/lib/harness/contract'
+import { abortSessionFamilyAndConfirmIdle } from '@/lib/harness/execution'
+import { exportLegacySessions } from '@/lib/harness/legacy-session-archive'
 import {
   checkRuntimeHealth,
   checkRuntimeStartupSupport,
@@ -8,10 +10,12 @@ import {
   syncRuntimeProviderAccess,
 } from '@/lib/harness/registry'
 import { auditService, instanceService, providerService, userService } from '@/lib/services'
-import type { InstanceStatusDetails } from '@/lib/services/instance'
+import type { InstanceRecord, InstanceStatusDetails } from '@/lib/services/instance'
+import { settleRuntimeMigratedRuns } from '@/lib/services/runtime-migration'
 import { getDefaultRuntimeKind, getStartExpectedMs, getStartTimeoutMs } from '@/lib/spawner/config'
 import { decryptPassword, encryptPassword, generatePassword } from '@/lib/spawner/crypto'
 import * as docker from '@/lib/spawner/docker'
+import { withHistoryMigrationProgress } from '@/lib/spawner/legacy-archive'
 import {
   buildWorkspaceRuntimeArtifacts,
   getWebProviderGatewayConfig,
@@ -116,8 +120,8 @@ export async function startInstance(
     return { ok: false, error: 'already_running' }
   }
 
-  const selectedKind = options?.runtimeKind ?? getDefaultRuntimeKind()
-  const selectedRuntime = getRuntimeForKind(slug, selectedKind)
+  let selectedKind = options?.runtimeKind ?? getDefaultRuntimeKind()
+  let selectedRuntime = getRuntimeForKind(slug, selectedKind)
   if (!selectedRuntime.ok) {
     return { ok: false, error: 'runtime_unsupported', detail: selectedRuntime.error.detail }
   }
@@ -125,17 +129,53 @@ export async function startInstance(
   if (!startupSupport.ok) {
     return { ok: false, error: 'runtime_unsupported', detail: startupSupport.error.detail }
   }
-  const runtime = selectedRuntime.data
-
   const password = generatePassword()
   const encryptedPassword = encryptPassword(password)
-
-  if (existing?.containerId) {
-    await docker.removeContainer(existing.containerId).catch(() => {})
+  let ownedStartedAt = new Date()
+  if (existing) {
+    const claimed = await instanceService.claimStartingTransition(existing, ownedStartedAt)
+    if (claimed.count === 0) return { ok: false, error: 'already_running' }
   }
-  await docker.removeManagedContainerForSlug(slug)
 
-  await instanceService.upsertStarting(slug, encryptedPassword)
+  if (existing && (existing.runtimeKind ?? 'opencode-v1') === 'opencode-v1' && selectedKind !== 'opencode-v1') {
+    try {
+      const archived = await withHistoryMigrationProgress(slug, () => archiveBeforeRuntimeSwitch(slug, existing))
+      const continuedAt = new Date()
+      const continued = await instanceService.continueStartingTransition(existing, ownedStartedAt, encryptedPassword, continuedAt)
+      if (continued.count === 0) return { ok: false, error: 'already_running' }
+      ownedStartedAt = continuedAt
+      if (!archived) {
+        selectedKind = 'opencode-v1'
+        selectedRuntime = getRuntimeForKind(slug, selectedKind)
+        if (!selectedRuntime.ok) return { ok: false, error: 'runtime_unsupported' }
+        console.warn('[spawner] Legacy archive failed; starting V1 and retrying migration next start', { slug })
+      } else {
+        await settleRuntimeMigratedRuns(slug)
+      }
+    } catch (error) {
+      console.error('[spawner] Legacy archive preparation failed; preserving V1 state', { slug, error })
+      await instanceService.failStartingTransition(existing.id, ownedStartedAt)
+      return { ok: false, error: 'start_failed', detail: 'legacy_archive_preparation_failed' }
+    }
+  } else if (existing) {
+    const continuedAt = new Date()
+    const continued = await instanceService.continueStartingTransition(existing, ownedStartedAt, encryptedPassword, continuedAt)
+    if (continued.count === 0) return { ok: false, error: 'already_running' }
+    ownedStartedAt = continuedAt
+  }
+  const runtime = selectedRuntime.data
+
+  try {
+    await docker.removeManagedArchiveContainerForSlug(slug)
+    if (existing?.containerId) {
+      await docker.removeContainer(existing.containerId).catch(() => {})
+    }
+    await docker.removeManagedContainerForSlug(slug)
+    if (!existing) await instanceService.upsertStarting(slug, encryptedPassword)
+  } catch {
+    if (existing) await instanceService.failStartingTransition(existing.id, ownedStartedAt)
+    return { ok: false, error: 'start_failed', detail: 'legacy_archive_cleanup_failed' }
+  }
 
   let containerId: string | null = null
 
@@ -224,20 +264,86 @@ export async function startInstance(
   }
 }
 
+async function archiveBeforeRuntimeSwitch(slug: string, existing: InstanceRecord): Promise<boolean> {
+  let archiveContainerId: string | null = null
+  try {
+    const running = existing.containerId && await docker.isContainerRunning(existing.containerId)
+    const password = running ? decryptPassword(existing.serverPassword) : generatePassword()
+    let baseUrl = getRuntimeBaseUrl(slug)
+    if (!running) {
+      const container = await docker.createArchiveContainer(slug, password)
+      archiveContainerId = container.id
+      baseUrl = `http://${container.name}:4096`
+      await docker.startContainer(container.id)
+    }
+    const connection = {
+      baseUrl,
+      authHeader: `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}`,
+      signal: AbortSignal.timeout(getStartTimeoutMs()),
+    }
+    const selected = getRuntimeForKind(slug, 'opencode-v1', connection)
+    if (!selected.ok) return false
+    if (archiveContainerId) {
+      const health = await waitForHealthy(archiveContainerId, slug, password, selected.data)
+      if (!health.ok) return false
+      if (health.baseUrl) connection.baseUrl = health.baseUrl
+    }
+    const source = getRuntimeForKind(slug, 'opencode-v1', connection)
+    if (!source.ok) return false
+    const statuses = await source.data.sessionStatus({ signal: connection.signal })
+    if (!statuses.ok) return false
+    for (const [sessionId, status] of Object.entries(statuses.data)) {
+      if (status.type !== 'idle' && !await abortSessionFamilyAndConfirmIdle({ client: source.data, rootSessionId: sessionId })) {
+        return false
+      }
+    }
+    const result = await exportLegacySessions(slug, source.data)
+    if (!result.ok) {
+      console.error('[spawner] Legacy session export failed', { slug, error: result.error.code })
+      return false
+    }
+    console.info('[spawner] Archived legacy session history', { slug, archived: result.data.archived })
+    return true
+  } catch (error) {
+    console.error('[spawner] Legacy session export failed', { slug, error })
+    return false
+  } finally {
+    if (archiveContainerId) {
+      // Never start a second process on the legacy volume unless removal is confirmed.
+      await docker.removeContainer(archiveContainerId)
+    }
+  }
+}
+
 export async function stopInstance(slug: string, userId: string): Promise<StopResult> {
   const instance = await instanceService.findBySlug(slug)
 
   if (!instance || instance.status === 'stopped') {
     return { ok: false, error: 'not_running' }
   }
+  if (instance.status === 'starting') return { ok: false, error: 'stop_failed' }
 
   try {
+    const startedAt = new Date()
+    const claimed = await instanceService.claimStartingTransition(instance, startedAt)
+    if (claimed.count === 0) return { ok: false, error: 'stop_failed' }
     if (instance.containerId) {
-      await docker.stopContainer(instance.containerId).catch(() => {})
-      await docker.removeContainer(instance.containerId).catch(() => {})
+      let stopConfirmed = false
+      try {
+        await docker.stopContainer(instance.containerId)
+        stopConfirmed = true
+      } catch {
+        // Force removal can still confirm termination if graceful stop failed.
+      }
+      try {
+        await docker.removeContainer(instance.containerId)
+      } catch (error) {
+        if (!stopConfirmed) throw error
+      }
     }
 
-    await instanceService.setStopped(slug)
+    const stopped = await instanceService.finishStoppingTransition(instance.id, startedAt)
+    if (stopped.count === 0) return { ok: false, error: 'stop_failed' }
 
     await auditService.createEvent({
       actorUserId: userId,
@@ -256,9 +362,12 @@ export async function getInstanceStatus(slug: string) {
 
   if (!instance) return null
 
+  if (isStartingStillFresh(instance)) return instance
+
   // If the DB says running/starting but there is no containerId, it is out of sync
   if ((instance.status === 'running' || instance.status === 'starting') && !instance.containerId) {
-    await instanceService.setStoppedNoContainer(slug)
+    const stopped = await instanceService.setStoppedIfCurrentSnapshot(slug, instance)
+    if (stopped.count === 0) return instanceService.findStatusBySlug(slug)
     return { ...instance, status: 'stopped' as const, containerId: null }
   }
 
@@ -271,7 +380,8 @@ export async function getInstanceStatus(slug: string) {
       // Try to remove the container if it still exists
       await docker.removeContainer(instance.containerId).catch(() => {})
 
-      await instanceService.setStopped(slug)
+      const stopped = await instanceService.setStoppedIfCurrentSnapshot(slug, instance)
+      if (stopped.count === 0) return instanceService.findStatusBySlug(slug)
       return { ...instance, status: 'stopped' as const, containerId: null }
     }
 

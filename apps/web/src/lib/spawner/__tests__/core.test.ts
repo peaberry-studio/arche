@@ -21,6 +21,10 @@ async function writeSnapshotRepoFile(relativePath: string, content: string): Pro
 vi.mock('@/lib/services', () => ({
   instanceService: {
     findBySlug: vi.fn(),
+    claimStartingTransition: vi.fn(),
+    continueStartingTransition: vi.fn(),
+    failStartingTransition: vi.fn(),
+    finishStoppingTransition: vi.fn(),
     upsertStarting: vi.fn(),
     setContainerId: vi.fn(),
     setError: vi.fn(),
@@ -30,6 +34,7 @@ vi.mock('@/lib/services', () => ({
     correctToRunningIfCurrentContainer: vi.fn(),
     setStopped: vi.fn(),
     setStoppedNoContainer: vi.fn(),
+    setStoppedIfCurrentSnapshot: vi.fn(),
     findStatusBySlug: vi.fn(),
     findContainerStatusBySlug: vi.fn(),
     findActiveInstances: vi.fn(),
@@ -111,6 +116,7 @@ vi.mock('../docker', () => ({
   stopContainer: vi.fn(),
   removeContainer: vi.fn(),
   removeManagedContainerForSlug: vi.fn().mockResolvedValue(false),
+  removeManagedArchiveContainerForSlug: vi.fn().mockResolvedValue(undefined),
   inspectContainer: vi.fn(),
   isContainerRunning: vi.fn(),
 }))
@@ -186,6 +192,10 @@ beforeEach(async () => {
   mockInstance.setErrorIfCurrentContainer.mockResolvedValue({ count: 1 })
   mockInstance.correctToRunningIfCurrentContainer.mockResolvedValue({ count: 1 })
   mockInstance.findContainerStatusBySlug.mockResolvedValue(null)
+  mockInstance.claimStartingTransition.mockResolvedValue({ count: 1 })
+  mockInstance.continueStartingTransition.mockResolvedValue({ count: 1 })
+  mockInstance.finishStoppingTransition.mockResolvedValue({ count: 1 })
+  mockInstance.setStoppedIfCurrentSnapshot.mockResolvedValue({ count: 1 })
 })
 
 afterEach(async () => {
@@ -787,7 +797,7 @@ describe('stopInstance', () => {
       stoppedAt: null, lastActivityAt: new Date(),
       appliedConfigSha: null,
     })
-    mockInstance.setStopped.mockRejectedValue(new Error('db down'))
+    mockInstance.finishStoppingTransition.mockRejectedValueOnce(new Error('db down'))
 
     await expect(stopInstance('alice', 'user-1')).resolves.toEqual({ ok: false, error: 'stop_failed' })
   })
@@ -831,7 +841,7 @@ describe('getInstanceStatus', () => {
       status: 'stopped', startedAt: now, stoppedAt: null, lastActivityAt: now, containerId: null,
       serverPassword: 'enc',
     })
-    expect(mockInstance.setStoppedNoContainer).toHaveBeenCalledWith('alice')
+    expect(mockInstance.setStoppedIfCurrentSnapshot).toHaveBeenCalledWith('alice', expect.objectContaining({ status: 'running', containerId: null }))
   })
 
   it('marks missing containers as stopped', async () => {
@@ -846,7 +856,7 @@ describe('getInstanceStatus', () => {
 
     await expect(getInstanceStatus('alice')).resolves.toMatchObject({ status: 'stopped', containerId: null })
     expect(mockDocker.removeContainer).toHaveBeenCalledWith('missing')
-    expect(mockInstance.setStopped).toHaveBeenCalledWith('alice')
+    expect(mockInstance.setStoppedIfCurrentSnapshot).toHaveBeenCalledWith('alice', expect.objectContaining({ status: 'running', containerId: 'missing' }))
   })
 
   it('keeps a recent starting instance as starting even when health responds', async () => {

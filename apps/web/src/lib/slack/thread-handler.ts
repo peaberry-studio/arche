@@ -9,6 +9,7 @@ import {
 } from '@/lib/harness/execution'
 import { getRuntimeForSlug } from '@/lib/harness/registry'
 import { messageRunService, slackService } from '@/lib/services'
+import { isArchivedSession } from '@/lib/services/legacy-session-archive'
 import { buildSlackContext } from '@/lib/slack/context'
 import { formatSlackMessages } from '@/lib/slack/formatter'
 import { buildSlackPrompt } from '@/lib/slack/prompt'
@@ -58,6 +59,11 @@ export async function handleSlackThreadEvent(args: {
 
       let sessionId = existingBinding?.openCodeSessionId ?? null
       let messagePrefix: string | undefined
+
+      if (sessionId && await isArchivedSession(serviceUser.user.slug, sessionId)) {
+        sessionId = null
+        messagePrefix = STALE_THREAD_SESSION_MESSAGE
+      }
 
       if (sessionId) {
         const session = await opencodeClient.getSession(sessionId)

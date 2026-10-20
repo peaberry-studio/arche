@@ -1,9 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
+vi.mock('@/lib/harness/legacy-session-archive', () => ({
+  preArchiveRunningV1Instances: vi.fn().mockResolvedValue(0),
+}))
+
 vi.mock('@/lib/services', () => ({
   instanceService: {
+    claimStartingTransition: vi.fn(),
     findIdleInstances: vi.fn(),
-    setStoppedById: vi.fn(),
+    finishStoppingTransition: vi.fn(),
   },
   auditService: {
     createEvent: vi.fn(),
@@ -21,7 +26,9 @@ vi.mock('../docker', () => ({
   removeContainer: vi.fn(),
 }))
 
-import { instanceService, messageRunService, rateLimitService } from '@/lib/services'
+import { preArchiveRunningV1Instances } from '@/lib/harness/legacy-session-archive'
+import { auditService, instanceService, messageRunService, rateLimitService } from '@/lib/services'
+import type { InstanceRecord } from '@/lib/services/instance'
 import * as docker from '../docker'
 import { getReaperStatus, reapExpiredRateLimitBuckets, reapIdleInstances, reapStaleMessageRuns, REAPER_INTERVAL_MS, startReaper, stopReaper } from '../reaper'
 
@@ -30,13 +37,23 @@ const mockMessageRun = vi.mocked(messageRunService)
 const mockRateLimit = vi.mocked(rateLimitService)
 const mockDocker = vi.mocked(docker)
 
+const idleCandidate: InstanceRecord = {
+  id: 'inst-1', slug: 'alice', status: 'running', containerId: 'old-container', serverPassword: 'enc',
+  createdAt: new Date('2026-10-20T09:00:00.000Z'), startedAt: new Date('2026-10-20T09:00:00.000Z'),
+  stoppedAt: null, lastActivityAt: new Date('2026-10-20T10:00:00.000Z'),
+  appliedConfigSha: null, runtimeKind: 'opencode-v1', providerSyncHash: null, providerSyncedAt: null,
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   vi.spyOn(console, 'error').mockImplementation(() => {})
   vi.spyOn(console, 'warn').mockImplementation(() => {})
   mockMessageRun.reapStaleRuns.mockResolvedValue(0)
   mockRateLimit.deleteExpiredRateLimitBuckets.mockResolvedValue({ count: 0 })
+  mockInstance.claimStartingTransition.mockResolvedValue({ count: 1 })
+  mockInstance.finishStoppingTransition.mockResolvedValue({ count: 1 })
   vi.useFakeTimers()
+  vi.setSystemTime(new Date('2026-10-20T12:00:00.000Z'))
 })
 
 afterEach(() => {
@@ -46,6 +63,53 @@ afterEach(() => {
 })
 
 describe('reapIdleInstances', () => {
+  it.each([
+    { label: 'fresh migration claim', change: { status: 'starting' as const, startedAt: new Date('2026-10-20T11:59:59.000Z') } },
+    { label: 'replacement container', change: { containerId: 'new-container' } },
+    { label: 'newer start attempt', change: { startedAt: new Date('2026-10-20T11:59:59.000Z') } },
+  ])('does not tear down a stale candidate after a $label', async ({ change }) => {
+    const current = { ...idleCandidate, ...change }
+    mockInstance.findIdleInstances.mockResolvedValue([idleCandidate])
+    mockInstance.claimStartingTransition.mockImplementation(async (candidate) => ({
+      count: current.status === candidate.status && current.containerId === candidate.containerId &&
+        current.startedAt?.getTime() === candidate.startedAt?.getTime() ? 1 : 0,
+    }))
+
+    expect(await reapIdleInstances()).toBe(0)
+    expect(mockInstance.claimStartingTransition).toHaveBeenCalledWith(idleCandidate, new Date('2026-10-20T12:00:00.000Z'))
+    expect(mockDocker.stopContainer).not.toHaveBeenCalled()
+    expect(mockDocker.removeContainer).not.toHaveBeenCalled()
+    expect(mockInstance.finishStoppingTransition).not.toHaveBeenCalled()
+    expect(auditService.createEvent).not.toHaveBeenCalled()
+    expect(current).toEqual({ ...idleCandidate, ...change })
+  })
+
+  it('does not audit or count a teardown when completion ownership is lost', async () => {
+    mockInstance.findIdleInstances.mockResolvedValue([idleCandidate])
+    mockInstance.finishStoppingTransition.mockResolvedValueOnce({ count: 0 })
+    mockDocker.stopContainer.mockResolvedValue(undefined)
+    mockDocker.removeContainer.mockResolvedValue(undefined)
+
+    expect(await reapIdleInstances()).toBe(0)
+    expect(mockDocker.stopContainer).toHaveBeenCalledExactlyOnceWith('old-container')
+    expect(mockDocker.removeContainer).toHaveBeenCalledExactlyOnceWith('old-container')
+    expect(mockInstance.finishStoppingTransition).toHaveBeenCalledWith(idleCandidate.id, mockInstance.claimStartingTransition.mock.calls[0][1])
+    expect(auditService.createEvent).not.toHaveBeenCalled()
+  })
+
+  it('continues with other idle candidates after losing a claim', async () => {
+    const second = { ...idleCandidate, id: 'inst-2', slug: 'bob', containerId: 'bob-container' }
+    mockInstance.findIdleInstances.mockResolvedValue([idleCandidate, second])
+    mockInstance.claimStartingTransition.mockResolvedValueOnce({ count: 0 })
+    mockDocker.stopContainer.mockResolvedValue(undefined)
+    mockDocker.removeContainer.mockResolvedValue(undefined)
+
+    expect(await reapIdleInstances()).toBe(1)
+    expect(mockDocker.stopContainer).toHaveBeenCalledExactlyOnceWith('bob-container')
+    expect(mockInstance.finishStoppingTransition).toHaveBeenCalledExactlyOnceWith(second.id, new Date('2026-10-20T12:00:00.000Z'))
+    expect(auditService.createEvent).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ metadata: expect.objectContaining({ slug: 'bob' }) }))
+  })
+
   it('returns 0 when no idle instances', async () => {
     mockInstance.findIdleInstances.mockResolvedValue([])
 
@@ -71,14 +135,17 @@ describe('reapIdleInstances', () => {
     mockInstance.findIdleInstances.mockResolvedValue([idleInstance])
     mockDocker.stopContainer.mockResolvedValue(undefined)
     mockDocker.removeContainer.mockResolvedValue(undefined)
-    mockInstance.setStoppedById.mockResolvedValue({} as never)
+    mockInstance.finishStoppingTransition.mockResolvedValue({ count: 1 })
 
     const count = await reapIdleInstances()
 
     expect(count).toBe(1)
     expect(mockDocker.stopContainer).toHaveBeenCalledWith('container-abc')
     expect(mockDocker.removeContainer).toHaveBeenCalledWith('container-abc')
-    expect(mockInstance.setStoppedById).toHaveBeenCalledWith('inst-1')
+    const token = new Date('2026-10-20T12:00:00.000Z')
+    expect(mockInstance.claimStartingTransition).toHaveBeenCalledWith(idleInstance, token)
+    expect(mockInstance.claimStartingTransition.mock.invocationCallOrder[0]).toBeLessThan(mockDocker.stopContainer.mock.invocationCallOrder[0])
+    expect(mockInstance.finishStoppingTransition).toHaveBeenCalledWith('inst-1', token)
   })
 
   it('continues when removing a stopped container fails', async () => {
@@ -97,7 +164,7 @@ describe('reapIdleInstances', () => {
     mockInstance.findIdleInstances.mockResolvedValue([idleInstance])
     mockDocker.stopContainer.mockResolvedValue(undefined)
     mockDocker.removeContainer.mockRejectedValue(new Error('remove failed'))
-    mockInstance.setStoppedById.mockResolvedValue({} as never)
+    mockInstance.finishStoppingTransition.mockResolvedValue({ count: 1 })
 
     await expect(reapIdleInstances()).resolves.toBe(1)
     expect(console.warn).toHaveBeenCalledWith(
@@ -128,9 +195,9 @@ describe('reapIdleInstances', () => {
       .mockRejectedValueOnce(new Error('fail'))
       .mockResolvedValueOnce(undefined)
     mockDocker.removeContainer.mockResolvedValue(undefined)
-    mockInstance.setStoppedById
+    mockInstance.finishStoppingTransition
       .mockRejectedValueOnce(new Error('db fail'))
-      .mockResolvedValueOnce({} as never)
+      .mockResolvedValueOnce({ count: 1 })
 
     const count = await reapIdleInstances()
 
@@ -147,7 +214,7 @@ describe('reapIdleInstances', () => {
       appliedConfigSha: null,
     }
     mockInstance.findIdleInstances.mockResolvedValue([instance])
-    mockInstance.setStoppedById.mockResolvedValue({} as never)
+    mockInstance.finishStoppingTransition.mockResolvedValue({ count: 1 })
 
     const count = await reapIdleInstances()
 
@@ -173,6 +240,17 @@ describe('reapExpiredRateLimitBuckets', () => {
 })
 
 describe('startReaper / stopReaper', () => {
+  it('starts pre-archive alongside reaping without waiting for the export', async () => {
+    mockInstance.findIdleInstances.mockResolvedValue([])
+    let finish: ((value: number) => void) | undefined
+    vi.mocked(preArchiveRunningV1Instances).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
+
+    startReaper()
+    expect(preArchiveRunningV1Instances).toHaveBeenCalledTimes(1)
+    await vi.waitFor(() => expect(getReaperStatus().lastRunFinishedAt).toBeInstanceOf(Date))
+    finish!(0)
+  })
+
   it('starts interval that calls reapIdleInstances', async () => {
     mockInstance.findIdleInstances.mockResolvedValue([])
 
@@ -230,7 +308,7 @@ describe('startReaper / stopReaper', () => {
         appliedConfigSha: null,
       },
     ])
-    mockInstance.setStoppedById.mockResolvedValue({} as never)
+    mockInstance.finishStoppingTransition.mockResolvedValue({ count: 1 })
 
     startReaper()
 

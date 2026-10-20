@@ -64,6 +64,19 @@ function renderPanel(sessions: WorkspaceSession[], overrides: Record<string, unk
 }
 
 describe("SessionsPanel", () => {
+  it("separates archived conversations from live date groups with a marker and selection", () => {
+    const onSelectSession = vi.fn();
+    renderPanel([
+      { ...chatSessions[0], id: "old", title: "Old conversation", archived: true },
+      chatSessions[1],
+    ], { onSelectSession });
+    expect(screen.getByText("Live conversations")).toBeTruthy();
+    expect(screen.getByText("Archived conversations")).toBeTruthy();
+    const row = screen.getByRole("button", { name: /old conversation.*archived/i });
+    expect(screen.getAllByRole("button").at(-1)).toBe(row);
+    fireEvent.click(row);
+    expect(onSelectSession).toHaveBeenCalledWith("old");
+  });
   it("renders both chat sessions and flow sessions in the same list", () => {
     renderPanel([...chatSessions, flowSession]);
 

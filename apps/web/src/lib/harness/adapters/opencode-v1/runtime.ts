@@ -1,5 +1,6 @@
 import type { OpencodeClient } from '@opencode-ai/sdk/v2/client'
 
+import { createConfiguredOpencodeClient } from '@/lib/harness/adapters/opencode-v1/client-factory'
 import {
   createInstanceClient,
   DEFAULT_HEALTH_TIMEOUT_MS,
@@ -69,10 +70,10 @@ function promptParameters(input: HarnessPrompt) {
   }
 }
 
-export function createOpenCodeV1Runtime(slug: string): HarnessRuntime {
+export function createOpenCodeV1Runtime(slug: string, connection?: { baseUrl: string; authHeader: string; signal?: AbortSignal }): HarnessRuntime {
   async function withClient<T>(work: (client: OpencodeClient) => Promise<T>): Promise<HarnessResult<T>> {
     try {
-      const client = await createInstanceClient(slug)
+      const client = connection ? await createConfiguredOpencodeClient(connection) : await createInstanceClient(slug)
       if (!client) return harnessFailure('instance_unavailable')
       return { ok: true, data: await work(client) }
     } catch (error) {
@@ -85,7 +86,7 @@ export function createOpenCodeV1Runtime(slug: string): HarnessRuntime {
     slug,
     async health(options) {
       if (options?.password !== undefined) {
-        const result = await isInstanceHealthyWithPassword(slug, options.password, options.baseUrl, options)
+        const result = await isInstanceHealthyWithPassword(slug, options.password, options.baseUrl ?? connection?.baseUrl, options)
         return result.ok ? { ok: true, data: {} } : normalizeHealthFailure(result.detail, result.message)
       }
       const controller = new AbortController()

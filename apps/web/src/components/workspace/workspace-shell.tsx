@@ -683,6 +683,7 @@ export function WorkspaceShell({
   const uiSessions = useMemo(() => {
     return workspace.sessions.map(s => ({
       id: s.id,
+      archived: s.archived,
       title: s.title,
       status: s.status === 'busy' ? 'active' as const : s.status === 'idle' ? 'idle' as const : 'archived' as const,
       updatedAt: s.updatedAt,
@@ -726,7 +727,7 @@ export function WorkspaceShell({
     ? sessionsById.get(workspace.activeSessionId) ?? null
     : null;
   const isBusyFlowSession = isBusyFlowWorkspaceSession(activeSessionRecord);
-  const isReadOnlyChatSession = isInspectingSubagentSession || isBusyFlowSession;
+  const isReadOnlyChatSession = Boolean(activeSessionRecord?.archived) || isInspectingSubagentSession || isBusyFlowSession;
 
   const chatPanelElement = (
     <ChatPanel
@@ -794,7 +795,7 @@ export function WorkspaceShell({
       slackIntegrationAvailable={slackIntegrationAvailable}
       teamVisibilityAvailable={teamVisibilityAvailable}
     />
-  ) : isReady ? chatPanelElement : (
+  ) : isReady || activeSessionRecord?.archived ? chatPanelElement : (
     <WorkspaceConnectingBanner
       connection={connection}
       instanceError={instanceError}

@@ -9,6 +9,7 @@ import {
 } from '@/lib/harness/execution'
 import { getRuntimeForSlug } from '@/lib/harness/registry'
 import { auditService, messageRunService, slackService, userService } from '@/lib/services'
+import { isArchivedSession } from '@/lib/services/legacy-session-archive'
 import type { SlackPendingDmDecisionRecord } from '@/lib/services/slack'
 import { buildSlackDmPrompt } from '@/lib/slack/dm-prompt'
 import { formatSlackMessages } from '@/lib/slack/formatter'
@@ -77,10 +78,12 @@ export async function handleSlackDmEvent(args: {
 
     const latestSession = await slackService.findLatestDmSession(slackTeamId, slackUserId)
     const now = new Date()
-    if (!latestSession) {
+    const archivedSession = latestSession && await isArchivedSession(resolution.user.slug, latestSession.openCodeSessionId)
+    if (!latestSession || archivedSession) {
       await startNewSlackDmConversation({
         channel,
         client: args.client,
+        messagePrefix: archivedSession ? STALE_DM_SESSION_MESSAGE : undefined,
         messageText: text,
         profile,
         slackTeamId,
@@ -487,22 +490,25 @@ async function prepareSlackDmContinuation(args: {
   if (!runtimeResult.ok) throw new Error(runtimeResult.error.code)
   const opencodeClient = runtimeResult.data
 
-  const sessionResult = await opencodeClient.getSession(args.binding.openCodeSessionId)
-  if (!sessionResult.ok && sessionResult.error.code !== 'session_not_found') throw new Error(sessionResult.error.code)
-  if (sessionResult.ok) {
-    return {
-      bindingId: args.binding.id,
-      opencodeClient,
-      sessionId: args.binding.openCodeSessionId,
+  const archivedSession = await isArchivedSession(args.user.slug, args.binding.openCodeSessionId)
+  if (!archivedSession) {
+    const sessionResult = await opencodeClient.getSession(args.binding.openCodeSessionId)
+    if (!sessionResult.ok && sessionResult.error.code !== 'session_not_found') throw new Error(sessionResult.error.code)
+    if (sessionResult.ok) {
+      return {
+        bindingId: args.binding.id,
+        opencodeClient,
+        sessionId: args.binding.openCodeSessionId,
+      }
     }
-  }
 
-  await slackService.deleteSessionBindingsByOpenCodeSessionId(args.binding.openCodeSessionId).catch((error) => {
-    console.warn('[slack] Failed to delete stale DM session bindings', {
-      error,
-      openCodeSessionId: args.binding.openCodeSessionId,
+    await slackService.deleteSessionBindingsByOpenCodeSessionId(args.binding.openCodeSessionId).catch((error) => {
+      console.warn('[slack] Failed to delete stale DM session bindings', {
+        error,
+        openCodeSessionId: args.binding.openCodeSessionId,
+      })
     })
-  })
+  }
   const session = await createSlackDmSession({
     channelId: args.channel,
     profile: args.profile,

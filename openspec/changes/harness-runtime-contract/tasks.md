@@ -120,13 +120,32 @@ are resolved; NOTES.md and __tests__/CAPTURE.md contain evidence and remaining g
 
 ## 6. Legacy session archive and runtime switch
 
-- [ ] 6.1 Implement archive export through the v1 adapter (sessions incl. children → `LegacySessionArchive`, upsert on `(slug, sessionId)`, resumable); verify service tests for full, partial-resume and empty workspaces.
-- [ ] 6.2 Wire archive-on-start in `startInstance` per design D7 (export from running v1, else boot `OPENCODE_V1_IMAGE` on the v1 volume in archive mode; on success start v2 with `arche-opencode2-share-<slug>`; on failure start v1 and log); verify spawner tests for each branch and the spec scenarios "Workspace with history switches to v2" and "Export fails".
-- [ ] 6.3 Sessions UI: merge archived sessions into the session list with an archived marker, read-only conversation view (no composer, notice), and `session_archived` rejection for mutations in actions and routes; verify component and route tests, including the authorization scenario for another user's archive.
-- [ ] 6.4 Background pre-archive job for running v1 instances (reaper-adjacent, rate-limited, one workspace at a time); verify with a service test and a log line per archived workspace.
-- [ ] 6.5 Integration recovery: Slack thread/DM bindings pointing to archived sessions create a new session and rebind; in-flight v1 message runs and flow runs on a switched instance settle as failed with `runtime_migrated`; verify Slack handler and flow tests.
-- [ ] 6.6 Add a "migrating history" state to `workspace-startup-screens.tsx`; verify component test.
+- [x] 6.1 Implement archive export through the v1 adapter (sessions incl. children → `LegacySessionArchive`, upsert on `(slug, sessionId)`, resumable); verify service tests for full, partial-resume and empty workspaces.
+- [x] 6.2 Wire archive-on-start in `startInstance` per design D7 (export from running v1, else boot `OPENCODE_V1_IMAGE` on the v1 volume in archive mode; on success start v2 with `arche-opencode2-share-<slug>`; on failure start v1 and log); verify spawner tests for each branch and the spec scenarios "Workspace with history switches to v2" and "Export fails".
+- [x] 6.3 Sessions UI: merge archived sessions into the session list with an archived marker, read-only conversation view (no composer, notice), and `session_archived` rejection for mutations in actions and routes; verify component and route tests, including the authorization scenario for another user's archive.
+- [x] 6.4 Background pre-archive job for running v1 instances (reaper-adjacent, rate-limited, one workspace at a time); verify with a service test and a log line per archived workspace.
+- [x] 6.5 Integration recovery: Slack thread/DM bindings pointing to archived sessions create a new session and rebind; in-flight v1 message runs and flow runs on a switched instance settle as failed with `runtime_migrated`; verify Slack handler and flow tests.
+- [x] 6.6 Add a "migrating history" state to `workspace-startup-screens.tsx`; verify component test.
 - [ ] 6.7 Flip `ARCHE_DEFAULT_RUNTIME_KIND=opencode-v2` in compose/deploy config and document rollback (set back to `opencode-v1`) in `infra/README.md`; verify a staging deploy where a v1 workspace restarts as v2 with its history archived, and a rollback restart returns it to v1 with its original sessions.
+
+<!-- Phase-4 handoff (2026-10-20): 6.1–6.6 machine checks pass. As required by
+the step-specific PRD, archive preparation is implemented without bypassing the
+unresolved 5.4/5.5 startup gate; default stays V1 and 6.7 remains human-owned.
+Export includes descendants and validates idle/stable snapshots. Unlike the D7
+optimization, final export re-reads messages even for matching timestamps so an
+old partial snapshot can never silently become the final archive. Upserts remain
+idempotent/resumable; background writes are fenced against migration claims.
+Archived reads/mutation guards only activate on non-V1 recorded instances, so
+pre-archive and rollback preserve live V1 behavior. Late flow/message writers
+cannot revive settled runtime_migrated records. Temporary archive containers are
+isolated, authenticated and removed before starting either runtime. Infra README
+documents the future flip and exact rollback; no staging deployment was run.
+Startup/stop/reaper/status reconciliation use conditional transition ownership;
+failed helper cleanup blocks either runtime on retry. Sessionless flows awaiting
+startup survive; bound V1 runs settle even when their session was deleted. Archive
+hydration freezes immediately and rejects stale live responses/events.
+Desktop group 7 and contract preparation 8.2/8.3 remain for impl-desktop; keep
+the V1 adapter, SDK, binary/image and volumes. -->
 
 ## 7. Desktop on OpenCode 2
 

@@ -23,9 +23,11 @@ import { abortSessionFamilyAndConfirmIdle } from '@/lib/harness/execution'
 import { getRuntimeForSlug, listWorkspaceFiles, readWorkspaceFile, searchWorkspaceFiles } from '@/lib/harness/registry'
 import { getSession } from '@/lib/runtime/session'
 import { flowService, messageRunService, slackService, userService } from '@/lib/services'
+import * as legacySessionArchive from '@/lib/services/legacy-session-archive'
 import { createWorkspaceAgentClient } from '@/lib/workspace-agent/client'
 
 vi.mock('@/lib/runtime/session', () => ({ getSession: vi.fn() }))
+vi.mock('@/lib/services/legacy-session-archive', () => ({ findSession: vi.fn(), listSessions: vi.fn(), isArchivedSession: vi.fn() }))
 vi.mock('@/lib/harness/registry', () => ({
   getRuntimeForSlug: vi.fn(), listWorkspaceFiles: vi.fn(), readWorkspaceFile: vi.fn(), searchWorkspaceFiles: vi.fn(),
 }))
@@ -59,6 +61,8 @@ const entry = (path: string, type: 'file' | 'directory' = 'file') => ({ id: path
 
 beforeEach(() => {
   vi.resetAllMocks()
+  vi.mocked(legacySessionArchive.findSession).mockResolvedValue(null)
+  vi.mocked(legacySessionArchive.isArchivedSession).mockResolvedValue(false)
   vi.stubGlobal('fetch', vi.fn())
   vi.mocked(getSession).mockResolvedValue(owner)
   vi.mocked(getRuntimeForSlug).mockResolvedValue(success(runtime))
@@ -84,6 +88,8 @@ describe('workspace action authorization', () => {
     vi.mocked(getSession).mockResolvedValue(null)
     expect(await call()).toEqual({ ok: false, error: 'unauthorized' })
     expect(getRuntimeForSlug).not.toHaveBeenCalled()
+    expect(legacySessionArchive.findSession).not.toHaveBeenCalled()
+    expect(legacySessionArchive.isArchivedSession).not.toHaveBeenCalled()
     expect(createWorkspaceAgentClient).not.toHaveBeenCalled()
     expect(listWorkspaceFiles).not.toHaveBeenCalled()
     expect(readWorkspaceFile).not.toHaveBeenCalled()
@@ -94,6 +100,8 @@ describe('workspace action authorization', () => {
     vi.mocked(getSession).mockResolvedValue({ ...owner, user: { ...owner.user, slug: 'bob' } })
     expect(await call()).toEqual({ ok: false, error: 'forbidden' })
     expect(getRuntimeForSlug).not.toHaveBeenCalled()
+    expect(legacySessionArchive.findSession).not.toHaveBeenCalled()
+    expect(legacySessionArchive.isArchivedSession).not.toHaveBeenCalled()
     expect(createWorkspaceAgentClient).not.toHaveBeenCalled()
     expect(listWorkspaceFiles).not.toHaveBeenCalled()
     expect(readWorkspaceFile).not.toHaveBeenCalled()
@@ -126,6 +134,28 @@ describe('connection', () => {
 })
 
 describe('session mutations and bookkeeping', () => {
+  it.each([
+    ['delete', () => deleteSessionAction('alice', 's1')],
+    ['rename', () => updateSessionAction('alice', 's1', 'New')],
+    ['prompt', () => sendMessageAction('alice', 's1', 'Hello')],
+    ['abort', () => abortSessionAction('alice', 's1')],
+  ] as const)('rejects archived %s before resolving an offline runtime', async (_name, action) => {
+    vi.mocked(legacySessionArchive.isArchivedSession).mockResolvedValue(true)
+    expect(await action()).toEqual({ ok: false, error: 'session_archived' })
+    expect(legacySessionArchive.isArchivedSession).toHaveBeenCalledWith('alice', 's1')
+    expect(getRuntimeForSlug).not.toHaveBeenCalled()
+    expect(abortSessionFamilyAndConfirmIdle).not.toHaveBeenCalled()
+    expect(slackService.deleteSessionBindingsByOpenCodeSessionId).not.toHaveBeenCalled()
+    expect(messageRunService.abortActiveRun).not.toHaveBeenCalled()
+  })
+
+  it.each(['USER', 'ADMIN'] as const)('reads an archived snapshot offline as %s', async (role) => {
+    vi.mocked(getSession).mockResolvedValue({ ...owner, user: { ...owner.user, role, slug: role === 'ADMIN' ? 'admin' : 'alice' } })
+    vi.mocked(legacySessionArchive.findSession).mockResolvedValue({ session: { ...session, archived: true }, messages: [message] })
+    expect(await listMessagesAction('alice', 's1')).toEqual({ ok: true, archived: true, messages: [message], sessionRuntimeStatus: 'idle' })
+    expect(getRuntimeForSlug).not.toHaveBeenCalled()
+    expect(runtime.sessionStatus).not.toHaveBeenCalled()
+  })
   it('creates and updates normalized sessions', async () => {
     runtime.createSession.mockResolvedValue(success(session))
     runtime.updateSession.mockResolvedValue(success({ ...session, title: 'New' }))

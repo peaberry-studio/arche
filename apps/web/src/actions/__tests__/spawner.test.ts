@@ -43,6 +43,10 @@ vi.mock('@/lib/spawner/core', () => ({
   listActiveInstances: vi.fn(),
 }))
 
+vi.mock('@/lib/spawner/legacy-archive', () => ({
+  isHistoryMigrationInProgress: vi.fn(),
+}))
+
 const mockGetKickstartStatus = vi.fn()
 vi.mock('@/kickstart/status', () => ({
   getKickstartStatus: (...args: unknown[]) => mockGetKickstartStatus(...args),
@@ -54,7 +58,8 @@ import { startWorkspace, stopWorkspace, getWorkspaceStatus } from '@/lib/runtime
 import { syncRuntimeProviderAccess } from '@/lib/harness/registry'
 import { auditService, providerService, userService } from '@/lib/services'
 import { listActiveInstances, isSlowStart, startInstance } from '@/lib/spawner/core'
-import { startInstanceAction, startInstanceWithRuntimeAction, stopInstanceAction, getInstanceStatusAction, ensureInstanceRunningAction, listActiveInstancesAction } from '../spawner'
+import { isHistoryMigrationInProgress } from '@/lib/spawner/legacy-archive'
+import { startInstanceAction, startInstanceWithRuntimeAction, stopInstanceAction, getInstanceMigrationStatusAction, getInstanceStatusAction, ensureInstanceRunningAction, listActiveInstancesAction } from '@/actions/spawner'
 
 const mockGetSession = vi.mocked(getSession)
 const mockStart = vi.mocked(startWorkspace)
@@ -234,6 +239,42 @@ describe('getInstanceStatusAction', () => {
     })
     const result = await getInstanceStatusAction('alice')
     expect(result).toMatchObject({ status: 'running', slowStart: true })
+  })
+})
+
+describe('getInstanceMigrationStatusAction', () => {
+  it('does not read progress without a session', async () => {
+    mockGetSession.mockResolvedValue(null)
+    expect(await getInstanceMigrationStatusAction('alice')).toBeNull()
+    expect(isHistoryMigrationInProgress).not.toHaveBeenCalled()
+  })
+
+  it('does not read another user workspace progress', async () => {
+    mockGetSession.mockResolvedValue(fakeSession)
+    expect(await getInstanceMigrationStatusAction('bob')).toBeNull()
+    expect(isHistoryMigrationInProgress).not.toHaveBeenCalled()
+  })
+
+  it.each([true, false])('returns owner progress (%s) without contacting the runtime', async (migrating) => {
+    mockGetSession.mockResolvedValue(fakeSession)
+    vi.mocked(isHistoryMigrationInProgress).mockResolvedValueOnce(migrating)
+    expect(await getInstanceMigrationStatusAction('alice')).toBe(migrating)
+    expect(isHistoryMigrationInProgress).toHaveBeenCalledWith('alice')
+    expect(mockStatus).not.toHaveBeenCalled()
+    expect(mockStart).not.toHaveBeenCalled()
+    expect(mockSync).not.toHaveBeenCalled()
+  })
+
+  it('allows admins to read another workspace progress', async () => {
+    mockGetSession.mockResolvedValue(adminSession)
+    vi.mocked(isHistoryMigrationInProgress).mockResolvedValueOnce(true)
+    expect(await getInstanceMigrationStatusAction('alice')).toBe(true)
+  })
+
+  it('returns unavailable rather than throwing when progress cannot be read', async () => {
+    mockGetSession.mockResolvedValue(fakeSession)
+    vi.mocked(isHistoryMigrationInProgress).mockRejectedValueOnce(new Error('read failed'))
+    expect(await getInstanceMigrationStatusAction('alice')).toBeNull()
   })
 })
 

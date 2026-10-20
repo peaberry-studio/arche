@@ -65,6 +65,23 @@ describe('ChatPanel', () => {
     expect(html).not.toContain('data-testid="empty-composer-heading"')
   })
 
+  it('renders archived history with the same renderer and no composer or permission controls', () => {
+    const html = renderChatPanel({
+      sessions: [{ id: 's1', title: 'Archived history', status: 'idle', archived: true, updatedAt: 'now', agent: 'OpenCode' }],
+      messages: [{ id: 'm1', sessionId: 's1', role: 'assistant', content: 'Preserved response', timestamp: 'now', parts: [{ type: 'text', text: 'Preserved response' }] }],
+      permissions: [{ id: 'p1', sessionId: 's1', title: 'Edit file', state: 'pending' }],
+      onAnswerPermission: async () => true,
+      onRenameSession: async () => true,
+      flowHumanResponseRunId: 'old-flow',
+    })
+    expect(html).toContain('Preserved response')
+    expect(html).toContain('created on the previous runtime')
+    expect(html).toContain('read-only')
+    expect(html).not.toContain('<textarea')
+    expect(html).not.toContain('Allow once')
+    expect(html).not.toContain('Type a message...')
+  })
+
   it('shows a session loader before the initial selection resolves', () => {
     const html = renderChatPanel({
       sessions: [],

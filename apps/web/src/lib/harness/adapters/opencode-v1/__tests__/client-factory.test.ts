@@ -126,4 +126,17 @@ describe('createConfiguredOpencodeClient', () => {
     await expectation
     expect(transportAbort).toHaveBeenCalledOnce()
   })
+
+  it('bounds archive requests by the export deadline as well as request cancellation', async () => {
+    const controller = new AbortController()
+    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>().mockResolvedValue(new Response('ok'))
+    vi.stubGlobal('fetch', fetchMock)
+    await createConfiguredOpencodeClient({ authHeader: 'Basic fixture', baseUrl: 'http://archive', signal: controller.signal })
+    const request = new Request('http://archive/session')
+    await getCapturedOptions().fetch(request)
+    const signal = fetchMock.mock.calls[0][1]?.signal
+    expect(signal?.aborted).toBe(false)
+    controller.abort()
+    expect(signal?.aborted).toBe(true)
+  })
 })

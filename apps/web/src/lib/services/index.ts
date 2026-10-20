@@ -1,4 +1,5 @@
 export * as instanceService from './instance'
+export * as legacySessionArchiveService from '@/lib/services/legacy-session-archive'
 export * as userService from './user'
 export * as connectorService from './connector'
 export * as providerService from './provider'

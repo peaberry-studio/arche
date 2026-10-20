@@ -80,7 +80,10 @@ export function WorkspaceSessionsRail({
   const pointerStrengthRef = useRef(0)
   const [hoveredSessionId, setHoveredSessionId] = useState<string | null>(null)
 
-  const visibleSessions = useMemo(() => excludeSubagentSessions(sessions), [sessions])
+  const visibleSessions = useMemo(() => {
+    const roots = excludeSubagentSessions(sessions)
+    return [...roots.filter((session) => !session.archived), ...roots.filter((session) => session.archived)]
+  }, [sessions])
 
   const activeIndex = useMemo(() => {
     if (!activeSessionId) return -1
@@ -203,7 +206,7 @@ export function WorkspaceSessionsRail({
             ? 'bg-primary'
             : statusColorCls
           const title =
-            session.flow ? session.flow.flowName : session.title
+            (session.flow ? session.flow.flowName : session.title) + (session.archived ? ' · Archived' : '')
 
           return (
             <Tooltip key={session.id}>

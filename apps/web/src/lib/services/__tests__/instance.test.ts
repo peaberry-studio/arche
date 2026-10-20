@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import * as transitions from '@/lib/services/instance'
 const { mockGetRuntimeCapabilities, mockPrisma } = vi.hoisted(() => ({
   mockGetRuntimeCapabilities: vi.fn(),
   mockPrisma: {
@@ -58,6 +59,49 @@ describe('instanceService', () => {
       const result = await findBySlug('alice')
       expect(result).toEqual({ id: 'i1', slug: 'alice' })
       expect(mockPrisma.instance.findUnique).toHaveBeenCalledWith({ where: { slug: 'alice' } })
+    })
+  })
+
+  describe('startup and migration transition ownership', () => {
+    const instance: transitions.InstanceRecord = {
+      id: 'i1', slug: 'alice', status: 'stopped', containerId: 'legacy', runtimeKind: null,
+      createdAt: new Date(0), startedAt: new Date(1), stoppedAt: new Date(2), lastActivityAt: null,
+      serverPassword: 'encrypted-fixture', appliedConfigSha: null, providerSyncHash: null, providerSyncedAt: null,
+    }
+
+    it('claims only the exact state seen before exporting or stopping', async () => {
+      const startedAt = new Date(3)
+      await transitions.claimStartingTransition(instance, startedAt)
+      expect(mockPrisma.instance.updateMany).toHaveBeenCalledWith({
+        where: { id: 'i1', status: 'stopped', containerId: 'legacy', startedAt: new Date(1) },
+        data: { status: 'starting', startedAt },
+      })
+    })
+
+    it('continues migration only while its legacy container, kind and attempt still match', async () => {
+      const startedAt = new Date(3)
+      const nextStartedAt = new Date(4)
+      await transitions.continueStartingTransition(instance, startedAt, 'next-encrypted-fixture', nextStartedAt)
+      expect(mockPrisma.instance.updateMany).toHaveBeenCalledWith({
+        where: { id: 'i1', status: 'starting', containerId: 'legacy', runtimeKind: null, startedAt },
+        data: { containerId: null, providerSyncedAt: null, providerSyncHash: null, serverPassword: 'next-encrypted-fixture', startedAt: nextStartedAt, stoppedAt: null },
+      })
+    })
+
+    it('cannot fail or finish a superseding transition', async () => {
+      const startedAt = new Date(3)
+      for (const update of [transitions.failStartingTransition, transitions.finishStoppingTransition]) {
+        mockPrisma.instance.updateMany.mockResolvedValueOnce({ count: 0 })
+        expect(await update('i1', startedAt)).toEqual({ count: 0 })
+        expect(mockPrisma.instance.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({ where: { id: 'i1', status: 'starting', startedAt } }))
+      }
+    })
+
+    it('reconciles stopped state only against its original status snapshot', async () => {
+      await transitions.setStoppedIfCurrentSnapshot('alice', instance)
+      expect(mockPrisma.instance.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: { slug: 'alice', status: 'stopped', containerId: 'legacy', startedAt: new Date(1) },
+      }))
     })
   })
 

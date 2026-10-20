@@ -46,6 +46,7 @@ const buildSlackPromptMock = vi.fn()
 const captureSessionMessageCursorMock = vi.fn()
 const createSessionPromptRunMock = vi.fn()
 const getRuntimeForSlugMock = vi.fn()
+const isArchivedSessionMock = vi.fn()
 const ensureSlackServiceUserMock = vi.fn()
 const ensureWorkspaceRunningForExecutionMock = vi.fn()
 const findIntegrationMock = vi.fn()
@@ -99,6 +100,10 @@ vi.mock('@slack/bolt', () => ({
 
 vi.mock('@/lib/harness/registry', () => ({
   getRuntimeForSlug: (...args: unknown[]) => getRuntimeForSlugMock(...args),
+}))
+
+vi.mock('@/lib/services/legacy-session-archive', () => ({
+  isArchivedSession: (...args: unknown[]) => isArchivedSessionMock(...args),
 }))
 
 vi.mock('@/lib/harness/execution', async (importOriginal) => {
@@ -170,6 +175,7 @@ vi.mock('@/lib/services', () => ({
 describe('slack socket manager', () => {
   beforeEach(async () => {
     vi.clearAllMocks()
+    isArchivedSessionMock.mockResolvedValue(false)
     appInstances.length = 0
     nextAppStartImplementation = null
     recordedEventIds.clear()
@@ -846,6 +852,37 @@ describe('slack socket manager', () => {
       3,
       { channel: 'C123', text: 'x', thread_ts: '100.1' },
     )
+  })
+
+  it.each([false, true])('uses a new session only for migrated thread archives (migrated=%s)', async (migrated) => {
+    const client = createSlackClient()
+    const getSession = vi.fn().mockResolvedValue({ ok: true, data: { id: 'legacy-session' } })
+    const createSession = vi.fn().mockResolvedValue({ ok: true, data: { id: 'live-session' } })
+    const prompt = vi.fn().mockResolvedValue({ ok: true })
+    isArchivedSessionMock.mockResolvedValue(migrated)
+    findThreadBindingMock.mockResolvedValue({ openCodeSessionId: 'legacy-session' })
+    getRuntimeForSlugMock.mockResolvedValue({ ok: true, data: { createSession, getSession, prompt } })
+    const { handleSlackThreadEvent } = await import('@/lib/slack/thread-handler')
+
+    await handleSlackThreadEvent({
+      channel: 'C123', client,
+      event: { channel: 'C123', text: 'Continue', thread_ts: '100.1', ts: '100.2', user: 'U123' },
+      eventTs: '100.2', isMention: false, savedBotUserId: 'U999', threadTs: '100.1',
+    })
+
+    expect(isArchivedSessionMock).toHaveBeenCalledWith('slack-bot', 'legacy-session')
+    expect(getSession).toHaveBeenCalledTimes(migrated ? 0 : 1)
+    expect(createSession).toHaveBeenCalledTimes(migrated ? 1 : 0)
+    expect(prompt).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ sessionId: migrated ? 'live-session' : 'legacy-session' }))
+    expect(deleteSessionBindingsByOpenCodeSessionIdMock).not.toHaveBeenCalled()
+    if (migrated) {
+      expect(upsertThreadBindingMock).toHaveBeenCalledWith({
+        channelId: 'C123', executionUserId: 'service-1', openCodeSessionId: 'live-session', threadTs: '100.1',
+      })
+      expect(client.chat.update).toHaveBeenCalledWith(expect.objectContaining({ text: expect.stringContaining('Final reply') }))
+    } else {
+      expect(upsertThreadBindingMock).not.toHaveBeenCalled()
+    }
   })
 
   it('starts a new Slack thread conversation when the binding points at a deleted session', async () => {

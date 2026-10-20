@@ -19,6 +19,7 @@ import {
 import { getEnabledProviderIdsForUser } from "@/lib/providers/store";
 import { getSession } from "@/lib/runtime/session";
 import { flowService, messageRunService, slackService, userService } from "@/lib/services";
+import * as legacySessionArchive from "@/lib/services/legacy-session-archive";
 import { createWorkspaceAgentClient } from "@/lib/workspace-agent/client";
 import {
   isHiddenWorkspacePath,
@@ -48,7 +49,14 @@ async function getAuthorizedClientContext(slug: string) {
   return { error: null, client: result.data, session };
 }
 
-async function getAuthorizedClient(slug: string) {
+async function getAuthorizedClient(slug: string, mutableSessionId?: string) {
+  if (mutableSessionId) {
+    const authorization = await authorizeWorkspaceFiles(slug);
+    if (authorization.error) return { error: authorization.error, client: null };
+    if (await legacySessionArchive.isArchivedSession(slug, mutableSessionId)) {
+      return { error: "session_archived" as const, client: null };
+    }
+  }
   const { error, client } = await getAuthorizedClientContext(slug);
   return { error, client };
 }
@@ -496,11 +504,38 @@ export async function listSessionsAction(
   slug: string,
   options: ListWorkspaceSessionsOptions = {},
 ): Promise<ListWorkspaceSessionsResult> {
-  const { error, client } = await getAuthorizedClientContext(slug);
-  if (error) return { ok: false, error };
+  const authorization = await authorizeWorkspaceFiles(slug);
+  if (authorization.error) return { ok: false, error: authorization.error };
 
   try {
-    return await listWorkspaceSessionsFromApi(slug, client!, options);
+    const query = options.query?.trim().toLowerCase();
+    const allArchives = await legacySessionArchive.listSessions(slug);
+    const archives = allArchives.filter((session) =>
+      !isLearningSessionTitle(session.title) &&
+      (!options.rootsOnly || !session.parentId) &&
+      (!Number.isFinite(options.start) || (session.updatedAtRaw ?? 0) >= Math.trunc(options.start!)) &&
+      (!query || session.title.toLowerCase().includes(query) || session.flow?.flowName.toLowerCase().includes(query)),
+    );
+    const archivedIds = new Set(allArchives.map((session) => session.id));
+    let live: ListWorkspaceSessionsResult;
+    try {
+      const { error, client } = await getAuthorizedClientContext(slug);
+      live = error
+        ? { ok: false, error }
+        : await listWorkspaceSessionsFromApi(slug, client!, options);
+    } catch (e) {
+      live = { ok: false, error: e instanceof Error ? e.message : "unknown" };
+    }
+    if (!live.ok && archives.length === 0) return live;
+    const sessions = [
+      ...(live.sessions ?? []).filter((session) => !archivedIds.has(session.id)),
+      ...archives,
+    ];
+    return {
+      ok: true,
+      hasMore: live.hasMore ?? false,
+      sessions: query ? sessions.slice(0, 20) : sessions,
+    };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "unknown" };
   }
@@ -510,10 +545,36 @@ export async function listSessionFamilyAction(
   slug: string,
   sessionId: string,
 ): Promise<ListWorkspaceSessionFamilyResult> {
-  const { error, client } = await getAuthorizedClientContext(slug);
-  if (error) return { ok: false, error };
+  const authorization = await authorizeWorkspaceFiles(slug);
+  if (authorization.error) return { ok: false, error: authorization.error };
 
   try {
+    const archived = await legacySessionArchive.findSession(slug, sessionId);
+    if (archived) {
+      const archives = await legacySessionArchive.listSessions(slug);
+      const byId = new Map(archives.map((session) => [session.id, session]));
+      let root = archived.session;
+      const ancestors = new Set<string>();
+      while (root.parentId && !ancestors.has(root.id)) {
+        ancestors.add(root.id);
+        const parent = byId.get(root.parentId);
+        if (!parent) break;
+        root = parent;
+      }
+      const family = new Map([[root.id, root]]);
+      const queue = [root.id];
+      while (queue.length) {
+        const parentId = queue.shift();
+        for (const session of archives) {
+          if (session.parentId !== parentId || family.has(session.id)) continue;
+          family.set(session.id, session);
+          queue.push(session.id);
+        }
+      }
+      return { ok: true, rootSessionId: root.id, sessions: [...family.values()].sort(compareSessionListEntries) };
+    }
+    const { error, client } = await getAuthorizedClientContext(slug);
+    if (error) return { ok: false, error };
     const family = await listWorkspaceSessionFamilyFromApi(client!, sessionId);
     if (!family.rootSessionId) {
       return { ok: false, error: "not_found" };
@@ -570,7 +631,7 @@ export async function deleteSessionAction(
   ok: boolean;
   error?: string;
 }> {
-  const { error, client } = await getAuthorizedClient(slug);
+  const { error, client } = await getAuthorizedClient(slug, sessionId);
   if (error) return { ok: false, error };
 
   try {
@@ -615,7 +676,7 @@ export async function updateSessionAction(
   session?: WorkspaceSession;
   error?: string;
 }> {
-  const { error, client } = await getAuthorizedClient(slug);
+  const { error, client } = await getAuthorizedClient(slug, sessionId);
   if (error) return { ok: false, error };
 
   try {
@@ -649,13 +710,18 @@ export async function listMessagesAction(
 ): Promise<{
   ok: boolean;
   messages?: WorkspaceMessage[];
+  archived?: boolean;
   sessionRuntimeStatus?: "busy" | "idle" | "unknown";
   error?: string;
 }> {
-  const { error, client } = await getAuthorizedClient(slug);
-  if (error) return { ok: false, error };
+  const authorization = await authorizeWorkspaceFiles(slug);
+  if (authorization.error) return { ok: false, error: authorization.error };
 
   try {
+    const archived = await legacySessionArchive.findSession(slug, sessionId);
+    if (archived) return { ok: true, archived: true, messages: archived.messages, sessionRuntimeStatus: "idle" };
+    const { error, client } = await getAuthorizedClient(slug);
+    if (error) return { ok: false, error };
     const result = await client!.listMessages(sessionId);
     if (!result.ok) return { ok: false, error: result.error.code };
 
@@ -689,7 +755,7 @@ export async function sendMessageAction(
   message?: WorkspaceMessage;
   error?: string;
 }> {
-  const { error, client } = await getAuthorizedClient(slug);
+  const { error, client } = await getAuthorizedClient(slug, sessionId);
   if (error) return { ok: false, error };
 
   try {
@@ -712,7 +778,7 @@ export async function abortSessionAction(
   ok: boolean;
   error?: string;
 }> {
-  const { error, client } = await getAuthorizedClient(slug);
+  const { error, client } = await getAuthorizedClient(slug, sessionId);
   if (error) return { ok: false, error };
 
   try {

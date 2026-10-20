@@ -176,6 +176,59 @@ export function upsertStarting(slug: string, serverPassword: string, startedAt =
   })
 }
 
+export function claimStartingTransition(instance: InstanceRecord, startedAt: Date): Promise<{ count: number }> {
+  return prisma.instance.updateMany({
+    where: {
+      id: instance.id,
+      status: instance.status,
+      containerId: instance.containerId,
+      startedAt: instance.startedAt,
+    },
+    data: { status: 'starting', startedAt },
+  })
+}
+
+export function continueStartingTransition(instance: InstanceRecord, startedAt: Date, serverPassword: string, nextStartedAt: Date): Promise<{ count: number }> {
+  return prisma.instance.updateMany({
+    where: {
+      id: instance.id,
+      status: 'starting',
+      containerId: instance.containerId,
+      runtimeKind: instance.runtimeKind,
+      startedAt,
+    },
+    data: {
+      containerId: null,
+      providerSyncedAt: null,
+      providerSyncHash: null,
+      serverPassword,
+      startedAt: nextStartedAt,
+      stoppedAt: null,
+    },
+  })
+}
+
+export function failStartingTransition(id: string, startedAt: Date): Promise<{ count: number }> {
+  return prisma.instance.updateMany({
+    where: { id, status: 'starting', startedAt },
+    data: { status: 'error', containerId: null, providerSyncHash: null, providerSyncedAt: null },
+  })
+}
+
+export function finishStoppingTransition(id: string, startedAt: Date): Promise<{ count: number }> {
+  return prisma.instance.updateMany({
+    where: { id, status: 'starting', startedAt },
+    data: { status: 'stopped', stoppedAt: new Date(), containerId: null, providerSyncHash: null, providerSyncedAt: null },
+  })
+}
+
+export function setStoppedIfCurrentSnapshot(slug: string, instance: Pick<InstanceStatusDetails, 'status' | 'containerId' | 'startedAt'>): Promise<{ count: number }> {
+  return prisma.instance.updateMany({
+    where: { slug, status: instance.status, containerId: instance.containerId, startedAt: instance.startedAt },
+    data: { status: 'stopped', stoppedAt: new Date(), containerId: null, providerSyncHash: null, providerSyncedAt: null },
+  })
+}
+
 export function setContainerId(slug: string, containerId: string, runtimeKind = 'opencode-v1') {
   return prisma.instance.update({
     where: { slug, status: 'starting', containerId: null },

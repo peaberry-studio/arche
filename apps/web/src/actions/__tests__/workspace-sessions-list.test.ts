@@ -6,8 +6,10 @@ import type { HarnessSession } from '@/lib/harness/contract'
 import { getRuntimeForSlug } from '@/lib/harness/registry'
 import { getSession } from '@/lib/runtime/session'
 import { flowService } from '@/lib/services'
+import * as legacySessionArchive from '@/lib/services/legacy-session-archive'
 
 vi.mock('@/lib/runtime/session', () => ({ getSession: vi.fn() }))
+vi.mock('@/lib/services/legacy-session-archive', () => ({ findSession: vi.fn(), listSessions: vi.fn(), isArchivedSession: vi.fn() }))
 vi.mock('@/lib/harness/registry', () => ({ getRuntimeForSlug: vi.fn() }))
 vi.mock('@/lib/services', () => ({
   flowService: { findSessionMetadataForWorkspace: vi.fn() },
@@ -22,6 +24,8 @@ const record = (id: string, title = id, updatedAtRaw = 100, parentId?: string): 
 
 beforeEach(() => {
   vi.resetAllMocks()
+  vi.mocked(legacySessionArchive.listSessions).mockResolvedValue([])
+  vi.mocked(legacySessionArchive.findSession).mockResolvedValue(null)
   vi.mocked(getSession).mockResolvedValue({
     user: { id: 'user-1', email: 'alice@test.com', slug: 'alice', role: 'USER' }, sessionId: 'auth-1',
   })
@@ -37,6 +41,43 @@ beforeEach(() => {
 })
 
 describe('session listing actions', () => {
+  it('merges archives without duplicate live IDs and keeps live pagination', async () => {
+    const archive = { ...record('old', 'Old chat'), archived: true as const }
+    vi.mocked(legacySessionArchive.listSessions).mockResolvedValue([archive, { ...record('child', 'Child', 90, 'old'), archived: true }])
+    runtime.listSessions.mockResolvedValue(success([record('live'), record('old', 'Colliding live ID')]))
+    expect(await listSessionsAction('alice', { rootsOnly: true, limit: 2 })).toMatchObject({
+      ok: true, hasMore: true, sessions: [{ id: 'live' }, archive],
+    })
+  })
+  it('serves archive-only lists and full families while the runtime is offline', async () => {
+    const root = { ...record('old'), archived: true as const }
+    const child = { ...record('child', 'Child', 90, 'old'), archived: true as const }
+    vi.mocked(legacySessionArchive.listSessions).mockResolvedValue([root, child])
+    vi.mocked(legacySessionArchive.findSession).mockResolvedValue({ session: child, messages: [] })
+    vi.mocked(getRuntimeForSlug).mockResolvedValue({ ok: false, error: { code: 'instance_unavailable' } })
+    expect(await listSessionsAction('alice', { rootsOnly: true })).toEqual({ ok: true, hasMore: false, sessions: [root] })
+    vi.mocked(getRuntimeForSlug).mockClear()
+    expect(await listSessionFamilyAction('alice', 'child')).toEqual({ ok: true, rootSessionId: 'old', sessions: [root, child] })
+    expect(getRuntimeForSlug).not.toHaveBeenCalled()
+  })
+  it('searches archive titles and excludes hidden learning archives', async () => {
+    vi.mocked(legacySessionArchive.listSessions).mockResolvedValue([
+      { ...record('old', 'Daily archive'), archived: true },
+      { ...record('learning', 'Learning | Daily archive'), archived: true },
+    ])
+    expect((await listSessionsAction('alice', { query: 'daily' })).sessions?.map((session) => session.id)).toEqual(['old'])
+  })
+  it('keeps archives readable when runtime listing throws a connection error', async () => {
+    const archive = { ...record('old'), archived: true as const }
+    vi.mocked(legacySessionArchive.listSessions).mockResolvedValue([archive])
+    runtime.listSessions.mockRejectedValue(new Error('connection refused'))
+    expect(await listSessionsAction('alice')).toEqual({ ok: true, hasMore: false, sessions: [archive] })
+  })
+  it.each([listSessionsAction, (slug: string) => listSessionFamilyAction(slug, 's1')])('rejects another user before archive reads', async (action) => {
+    expect(await action('bob')).toEqual({ ok: false, error: 'forbidden' })
+    expect(legacySessionArchive.listSessions).not.toHaveBeenCalled()
+    expect(legacySessionArchive.findSession).not.toHaveBeenCalled()
+  })
   it('lists normalized root sessions with optimistic pagination and flow metadata', async () => {
     runtime.listSessions.mockResolvedValue(success([{ ...record('root', 'Daily brief', 200), share: { url: 'https://share.test/root', version: 1 } }]))
     const result = await listSessionsAction('alice', { limit: 1, rootsOnly: true })

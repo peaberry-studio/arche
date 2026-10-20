@@ -117,6 +117,40 @@ describe("useWorkspaceSessions", () => {
     expect(result.current.sessions).toEqual([]);
   });
 
+  it("opens an explicitly selected archive offline, preserves it on reconnect, and refuses local mutations", async () => {
+    const archive = { ...rootSession, archived: true };
+    opencodeMocks.listSessionsAction.mockResolvedValue({ ok: true, sessions: [archive], hasMore: false });
+    opencodeMocks.listSessionFamilyAction.mockResolvedValue({ ok: true, rootSessionId: archive.id, sessions: [archive] });
+    const { result, rerender } = renderHook(({ connected }) => useWorkspaceSessions({ slug: "alice", initialSessionId: "root", isConnected: connected }), { initialProps: { connected: false } });
+    await act(async () => { await result.current.loadSessions(); });
+    expect(result.current.activeSession?.archived).toBe(true);
+    expect(opencodeMocks.createSessionAction).not.toHaveBeenCalled();
+    rerender({ connected: true });
+    await act(async () => { await result.current.loadSessions(); });
+    expect(result.current.activeSessionId).toBe("root");
+    expect(await result.current.renameSession("root", "Changed")).toBe(false);
+    expect(await result.current.deleteSession("root")).toBeNull();
+    expect(opencodeMocks.updateSessionAction).not.toHaveBeenCalled();
+    expect(opencodeMocks.deleteSessionAction).not.toHaveBeenCalled();
+  });
+
+  it("does not auto-select an archive or auto-create a live session for archive-only workspaces", async () => {
+    opencodeMocks.listSessionsAction.mockResolvedValue({ ok: true, sessions: [{ ...rootSession, archived: true }], hasMore: false });
+    const { result } = renderHook(() => useWorkspaceSessions({ slug: "alice", isConnected: false }));
+    await act(async () => { await result.current.loadSessions(); });
+    expect(result.current.activeSessionId).toBeNull();
+    expect(opencodeMocks.createSessionAction).not.toHaveBeenCalled();
+  });
+
+  it("does not count archives towards the live pagination limit", async () => {
+    const archives = Array.from({ length: 600 }, (_, index) => ({ ...rootSession, id: `old-${index}`, archived: true }));
+    opencodeMocks.listSessionsAction.mockResolvedValue({ ok: true, sessions: [rootSession, ...archives], hasMore: true });
+    const { result } = renderHook(() => useWorkspaceSessions({ slug: "alice", isConnected: true }));
+    await act(async () => { await result.current.loadSessions(); });
+    await act(async () => { await result.current.loadMoreSessions(); });
+    expect(opencodeMocks.listSessionsAction).toHaveBeenLastCalledWith("alice", { limit: 1000, rootsOnly: true });
+  });
+
   it("keeps the initial state pending until the requested session family resolves", async () => {
     let resolveFamily!: (value: {
       ok: boolean;
