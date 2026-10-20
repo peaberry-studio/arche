@@ -240,7 +240,6 @@ export function transformParts(parts: unknown[]): MessagePart[] {
 
         default: {
           // Unknown type - preserve as fallback for debugging
-          console.log("[transformParts] Unknown part type:", partType, part);
           const normalizedData = normalizeSerializableValue(part);
           return {
             type: "unknown" as const,

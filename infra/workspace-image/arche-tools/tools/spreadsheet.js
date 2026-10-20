@@ -334,6 +334,9 @@ export const sample = {
     select: z.array(z.string()).optional(),
   },
   async execute(args) {
+    const parsed = z.object(sample.args).safeParse(args)
+    if (!parsed.success) return toToolOutput({ ok: false, error: 'schema_validation_failed' })
+
     const resolved = resolveSpreadsheetPath(args.path)
     if (!resolved.ok) return toToolOutput(resolved)
 
@@ -375,6 +378,9 @@ export const query = {
     limit: z.number().int().min(1).max(MAX_QUERY_LIMIT).optional(),
   },
   async execute(args) {
+    const parsed = z.object(query.args).safeParse(args)
+    if (!parsed.success) return toToolOutput({ ok: false, error: 'schema_validation_failed' })
+
     const resolved = resolveSpreadsheetPath(args.path)
     if (!resolved.ok) return toToolOutput(resolved)
 

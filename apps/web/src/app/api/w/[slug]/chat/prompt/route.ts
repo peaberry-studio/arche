@@ -10,7 +10,7 @@ import {
 import { getString, isRecord } from '@/lib/records'
 import { withAuth } from '@/lib/runtime/with-auth'
 import { getWorkspaceAgentConnection } from '@/lib/runtime/workspace-host'
-import { messageRunService } from '@/lib/services'
+import { messageRunService, userService } from '@/lib/services'
 import * as legacySessionArchive from '@/lib/services/legacy-session-archive'
 import { MAX_ATTACHMENTS_PER_MESSAGE } from '@/lib/workspace-attachments'
 
@@ -88,6 +88,8 @@ export const POST = withAuth<
   if (await legacySessionArchive.isArchivedSession(slug, sessionId)) {
     return jsonErrorResponse(409, 'session_archived')
   }
+  const ownerUserId = user.slug === slug ? user.id : (await userService.findIdBySlug(slug))?.id
+  if (!ownerUserId) return jsonErrorResponse(404, 'user_not_found')
   const runtimeResult = await getRuntimeForSlug(slug)
   if (!runtimeResult.ok) return jsonErrorResponse(503, runtimeResult.error.code)
   const client = runtimeResult.data
@@ -140,7 +142,7 @@ export const POST = withAuth<
   }
 
   try {
-    await client.syncProviderAccess({ userId: user.id })
+    await client.syncProviderAccess({ userId: ownerUserId })
   } catch {
     // Provider sync is best-effort here; the prompt still reaches the runtime.
   }

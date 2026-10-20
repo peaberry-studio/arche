@@ -187,6 +187,35 @@ describe('applyDefaultAgentModel', () => {
 
 describe('remapAgentBuiltInTools', () => {
   it.each([
+    { scope: 'global', broadFirst: true },
+    { scope: 'global', broadFirst: false },
+    { scope: 'agent', broadFirst: true },
+    { scope: 'agent', broadFirst: false },
+  ])('preserves $scope legacy wildcard restrictions after serialization (broadFirst: $broadFirst)', ({ scope, broadFirst }) => {
+    const restrictions = { 'spreadsheet_*': 'deny', 'session_history_?uery': 'ask' }
+    const permission = broadFirst ? { '*': 'allow', ...restrictions } : { ...restrictions, '*': 'allow' }
+    const config = {
+      ...(scope === 'global' ? { permission } : {}),
+      agent: { analyst: {
+        tools: { spreadsheet_query: true, session_history_query: true },
+        ...(scope === 'agent' ? { permission } : {}),
+      } },
+    }
+    const transformed = remapAgentBuiltInTools(config)
+    const serialized = JSON.parse(serializeRuntimeConfig(transformed))
+    const agent = serialized.agent.analyst
+    const converted = Object.fromEntries(Object.entries(agent.tools).map(([id, enabled]) => [id, enabled ? 'allow' : 'deny']))
+    Object.assign(converted, agent.permission)
+    const effective = (id: string) => Object.entries(converted)
+      .filter(([pattern]) => new RegExp(`^${pattern.replace(/\*/g, '.*').replace(/\?/g, '.')}$`).test(id)).at(-1)?.[1]
+
+    expect(effective('arche_tools_spreadsheet_query')).toBe('deny')
+    expect(effective('arche_tools_session_history_query')).toBe('ask')
+    expect(remapAgentBuiltInTools(transformed)).toEqual(transformed)
+    expect(config.agent.analyst.tools).toEqual({ spreadsheet_query: true, session_history_query: true })
+  })
+
+  it.each([
     { name: 'global ask', permission: 'ask', document: 'ask', spreadsheet: 'ask' },
     { name: 'global deny', permission: 'deny', document: 'deny', spreadsheet: 'deny' },
     { name: 'legacy exact deny', permission: { '*': 'ask', document_inspect: 'deny' }, document: 'deny', spreadsheet: 'ask' },

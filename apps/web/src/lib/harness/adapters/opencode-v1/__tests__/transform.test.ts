@@ -3,6 +3,17 @@ import { describe, expect, it, vi } from 'vitest'
 import { transformParts, extractTextContent } from '@/lib/harness/adapters/opencode-v1/transform'
 
 describe('transformParts', () => {
+  it('preserves unknown parts without logging their private payloads', () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const part = { type: 'future-part', id: 'part-1', payload: { content: 'private fixture content' } }
+    try {
+      expect(transformParts([part])).toEqual([{ type: 'unknown', originalType: 'future-part', data: part }])
+      expect(log).not.toHaveBeenCalled()
+    } finally {
+      log.mockRestore()
+    }
+  })
+
   it('normalizes bigint values before returning UI parts', () => {
     const parts = transformParts([
       {

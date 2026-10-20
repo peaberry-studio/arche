@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   isArchivedSession: vi.fn(),
   sessionStatus: vi.fn(),
   prompt: vi.fn(),
+  findIdBySlug: vi.fn(),
   messageRunService: {
     findActiveRun: vi.fn(),
     markActiveRunSucceeded: vi.fn(),
@@ -32,6 +33,7 @@ vi.mock('@/lib/runtime/desktop/token', () => ({
 }))
 vi.mock('@/lib/services', () => ({
   messageRunService: mocks.messageRunService,
+  userService: { findIdBySlug: mocks.findIdBySlug },
 }))
 vi.mock('@/lib/harness/registry', () => ({
   getRuntimeForSlug: mocks.getRuntimeForSlug,
@@ -64,6 +66,7 @@ describe('POST /api/w/[slug]/chat/prompt', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.isArchivedSession.mockResolvedValue(false)
+    mocks.findIdBySlug.mockResolvedValue({ id: 'workspace-owner' })
     mocks.getRuntimeCapabilities.mockReturnValue({ csrf: false })
     mocks.validateSameOrigin.mockReturnValue({ ok: true })
     mocks.getSession.mockResolvedValue({
@@ -108,6 +111,30 @@ describe('POST /api/w/[slug]/chat/prompt', () => {
       model: { providerId: 'openai', modelId: 'gpt-4o' },
     }, { signal: expect.any(AbortSignal) })
     expect(fetchMock).not.toHaveBeenCalled()
+    expect(mocks.ensureProviderAccessFreshForExecution).toHaveBeenCalledWith({ userId: 'u1' })
+    expect(mocks.findIdBySlug).not.toHaveBeenCalled()
+  })
+
+  it('refreshes the workspace owner credentials, never the visiting admin credentials', async () => {
+    mocks.getSession.mockResolvedValue({ user: { id: 'admin-1', slug: 'admin', role: 'ADMIN' }, sessionId: 'auth' })
+
+    const res = await POST(makeRequest({ sessionId: 's1', messageId: 'm1', text: 'Hello' }), params())
+
+    expect(res.status).toBe(202)
+    expect(mocks.findIdBySlug).toHaveBeenCalledExactlyOnceWith('alice')
+    expect(mocks.ensureProviderAccessFreshForExecution).toHaveBeenCalledExactlyOnceWith({ userId: 'workspace-owner' })
+  })
+
+  it('refuses an admin prompt for a missing workspace owner without syncing or dispatching', async () => {
+    mocks.getSession.mockResolvedValue({ user: { id: 'admin-1', slug: 'admin', role: 'ADMIN' }, sessionId: 'auth' })
+    mocks.findIdBySlug.mockResolvedValue(null)
+
+    const res = await POST(makeRequest({ sessionId: 's1', messageId: 'm1', text: 'Hello' }), params())
+
+    expect(res.status).toBe(404)
+    expect(await res.json()).toEqual({ error: 'user_not_found' })
+    expect(mocks.ensureProviderAccessFreshForExecution).not.toHaveBeenCalled()
+    expect(mocks.prompt).not.toHaveBeenCalled()
   })
 
   it('returns 409 when OpenCode is busy', async () => {

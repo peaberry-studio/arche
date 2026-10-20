@@ -166,8 +166,10 @@ function matchesToolPattern(pattern: string, toolId: string): boolean {
   return new RegExp(`^${expression}$`).test(toolId)
 }
 
-function resolveToolPermission(permission: Record<string, unknown>, toolId: string): unknown {
-  const matchingPermissions = Object.entries(permission).filter(([pattern]) => matchesToolPattern(pattern, toolId))
+function resolveToolPermission(permission: Record<string, unknown>, toolId: string, legacyToolId: string): unknown {
+  const matchingPermissions = Object.entries(permission)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .filter(([pattern]) => matchesToolPattern(pattern, toolId) || matchesToolPattern(pattern, legacyToolId))
   return permission[toolId] ?? matchingPermissions.at(-1)?.[1]
 }
 
@@ -200,8 +202,8 @@ export function remapAgentBuiltInTools(
         permission[runtimeId] = 'deny'
         continue
       }
-      permission[runtimeId] = resolveToolPermission(currentPermission, runtimeId)
-        ?? resolveToolPermission(globalPermission, runtimeId)
+      permission[runtimeId] = resolveToolPermission(currentPermission, runtimeId, toolId)
+        ?? resolveToolPermission(globalPermission, runtimeId, toolId)
         ?? 'allow'
     }
 

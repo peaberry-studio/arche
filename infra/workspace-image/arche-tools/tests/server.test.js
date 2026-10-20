@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import fs from 'node:fs/promises'
 import test from 'node:test'
 
 import { client } from './mcp-client.js'
@@ -29,6 +30,24 @@ test('unknown MCP tools cannot resolve object prototype properties', async () =>
   for (const name of ['missing_tool', 'toString', '__proto__']) {
     const result = await client.callTool({ name, arguments: {} })
     assert.equal(result.structuredContent.error, 'unknown_tool')
+  }
+})
+
+test('spreadsheet pagination rejects invalid arguments before reading files', async () => {
+  const realpath = fs.realpath
+  let reads = 0
+  fs.realpath = async () => { reads += 1; throw new Error('unexpected_file_read') }
+  try {
+    for (const name of ['spreadsheet_sample', 'spreadsheet_query']) {
+      for (const pagination of [{ limit: -1 }, { limit: 1.5 }, { limit: '10' }, { offset: -1 }, { offset: 0.5 }]) {
+        const result = await client.callTool({ name, arguments: { path: '.arche/attachments/sheet.xlsx', ...pagination } })
+        assert.equal(result.isError, true)
+        assert.equal(result.structuredContent.error, 'schema_validation_failed')
+      }
+    }
+    assert.equal(reads, 0)
+  } finally {
+    fs.realpath = realpath
   }
 })
 
