@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 OUTPUT_DIR="$ROOT_DIR/apps/desktop/bin"
-OPENCODE_VERSION_FILE="$ROOT_DIR/versions/opencode.version"
+OPENCODE_VERSION_FILE="$ROOT_DIR/versions/opencode-v1.version"
 NODE_VERSION_FILE="$ROOT_DIR/.node-version"
 ARCHE_TOOLS_SOURCE_DIR="$ROOT_DIR/infra/workspace-image/arche-tools"
 ARCHE_TOOLS_OUTPUT_DIR="$OUTPUT_DIR/arche-tools"

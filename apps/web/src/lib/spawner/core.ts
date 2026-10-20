@@ -1,6 +1,7 @@
 import type { HarnessHealthOptions, HarnessRuntime } from '@/lib/harness/contract'
 import {
   checkRuntimeHealth,
+  checkRuntimeStartupSupport,
   DEFAULT_HEALTH_TIMEOUT_MS,
   getRuntimeBaseUrl,
   getRuntimeForKind,
@@ -120,6 +121,10 @@ export async function startInstance(
   if (!selectedRuntime.ok) {
     return { ok: false, error: 'runtime_unsupported', detail: selectedRuntime.error.detail }
   }
+  const startupSupport = checkRuntimeStartupSupport(selectedKind)
+  if (!startupSupport.ok) {
+    return { ok: false, error: 'runtime_unsupported', detail: startupSupport.error.detail }
+  }
   const runtime = selectedRuntime.data
 
   const password = generatePassword()
@@ -142,7 +147,7 @@ export async function startInstance(
     const container = await docker.createContainer(slug, password, opencodeConfigContent, agentsMd, skills, {
       name: owner?.slug ?? slug,
       email: owner?.email ?? undefined,
-    })
+    }, selectedKind)
     containerId = container.id
     await docker.startContainer(container.id)
 
@@ -178,6 +183,10 @@ export async function startInstance(
     if (!syncResult.ok) {
       await providerService.markWorkspaceRestartRequired(syncUserId)
       console.error('[spawner] Failed to sync OpenCode providers', syncResult.error)
+      if (selectedKind === 'opencode-v2') {
+        await handleFailedAttempt(slug, container.id)
+        return { ok: false, error: 'start_failed', detail: syncResult.error.code }
+      }
     } else {
       await providerService.clearWorkspaceRestartRequired(syncUserId)
     }

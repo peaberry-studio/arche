@@ -109,11 +109,11 @@ describe('config', () => {
   })
 
   describe('getOpencodeV1Image', () => {
-    it('defaults to the verified v6.0.0 legacy release independently of the current image', async () => {
+    it('pins the legacy 1.18.18 build independently of the current image', async () => {
       delete process.env.OPENCODE_V1_IMAGE
       process.env.OPENCODE_IMAGE = 'current-image'
       const { getOpencodeV1Image } = await import('../config')
-      expect(getOpencodeV1Image()).toBe('ghcr.io/peaberry-studio/arche/workspace:v6.0.0')
+      expect(getOpencodeV1Image()).toBe('ghcr.io/peaberry-studio/arche/workspace:opencode-v1-1.18.18')
     })
 
     it('honors the legacy image override', async () => {

@@ -9,6 +9,34 @@ This directory contains everything needed to run Arche as a full stack (local an
 - Coolify deployment (VPS with Coolify): `infra/coolify/README.md`
 - Workspace image (OpenCode + git): `infra/workspace-image/README.md`
 
+## Workspace runtime selection
+
+Keep `ARCHE_DEFAULT_RUNTIME_KIND=opencode-v1` during adapter validation. Running
+instances use their recorded kind (null means V1), not the deployment default.
+`OPENCODE_IMAGE` selects the V2 workspace image; `OPENCODE_V1_IMAGE` selects the
+separately built legacy image for V1 starts and the later archive/rollback path.
+After the dual-image workflow has published the pinned legacy build, configure:
+
+```text
+ARCHE_DEFAULT_RUNTIME_KIND=opencode-v1
+OPENCODE_V1_IMAGE=ghcr.io/peaberry-studio/arche/workspace:opencode-v1-1.18.18
+```
+
+For arm64, use the `opencode-v1-1.18.18-arm64` tag. The old `v6.0.0` release is
+**not** this legacy pin: it contains OpenCode 1.17.9, not 1.18.18. Update existing
+deployment overrides as well as examples; the new code default cannot override
+an explicitly configured old value. These remote tags must exist before deploy.
+For local validation use `OPENCODE_V1_IMAGE=arche-workspace:opencode-v1` and
+`OPENCODE_IMAGE=arche-workspace:opencode-v2` from the image-check script.
+
+V2 startup currently fails closed before changing an existing workspace because
+required policy, provider-access and event/execution gates remain unresolved;
+the admin-only audited start action is not a rollout bypass. See
+`apps/web/src/lib/harness/adapters/opencode-v2/NOTES.md`. Do not flip the default
+until those gates and archive-on-start are complete. V1 and V2 data use separate
+`arche-opencode-share-*` and `arche-opencode2-share-*` volumes. Desktop preparation
+continues bundling the legacy pin until the desktop archive/upgrade phase.
+
 ## Knowledge Base (KB)
 
 The system includes a shared Knowledge Base injected into each user workspace.

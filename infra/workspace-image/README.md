@@ -30,9 +30,13 @@ Internal service exposing scoped workspace operations:
 # From this directory
 podman build --build-arg OPENCODE_VERSION="$(cat ../../versions/opencode.version)" -t arche-workspace .
 
-# With a specific OpenCode version
-podman build --build-arg OPENCODE_VERSION=1.2.24 -t arche-workspace:1.2.24 .
+# Pinned legacy runtime for rollback/export (not release v6.0.0, which has 1.17.9)
+podman build --build-arg OPENCODE_VERSION="$(cat ../../versions/opencode-v1.version)" -t arche-workspace:opencode-v1 -t arche-workspace:opencode-v1-1.18.18 .
 ```
+
+`versions/opencode.version` pins V2 to 2.0.32; `versions/opencode-v1.version` pins V1 to 1.18.18. CI publishes both `workspace:opencode-v1` and `workspace:opencode-v1-1.18.18` (plus architecture suffixes) alongside the V2 image. The deployment runtime default remains `opencode-v1`; building V2 does not enable it. Use `OPENCODE_V1_IMAGE=ghcr.io/peaberry-studio/arche/workspace:opencode-v1-1.18.18` for rollback/export once that image has been published.
+
+From the repository root, `bash scripts/check-podman-images.sh` builds both workspace runtimes, runs credential-free container smoke checks, then builds the web image. It does not prune images or containers. Run infrastructure regressions with `node --test infra/workspace-image/tests/runtime-infrastructure.test.mjs`.
 
 ## Usage
 
@@ -83,6 +87,9 @@ At startup, `entrypoint.sh` copies mounted runtime files into `/workspace`:
 
 - copy `/tmp/arche-user-data/opencode-config.json` -> `/workspace/opencode.json`
 - copy `/tmp/arche-user-data/AGENTS.md` -> `/workspace/AGENTS.md`
+- replace `/workspace/.opencode/skills` from `/tmp/arche-user-data/skills` (complete skill directories, shared by V1 and V2)
+
+Both runtimes discover `/workspace/opencode.json`; V2 needs no renamed config file. V2 2.0.32 supports native Basic auth, so no proxy is needed. The entrypoint maps Arche's `OPENCODE_SERVER_PASSWORD` to V2's higher-priority `OPENCODE_PASSWORD`, preventing an inherited value from overriding the workspace password. Keep the runtime on the private container network.
 
 `/kb-content` is mandatory. The container exits on startup if the mount is missing.
 

@@ -85,6 +85,13 @@ jobs:
               | .id
             ' "$versions_json" >> "$keep_ids_file"
 
+            # Preserve the legacy rollback aliases, including architecture variants.
+            jq -r '
+              .[]
+              | select(any(.tags[]?; test("^opencode-v1(-1\\.18\\.18)?(-(amd64|arm64))?$")))
+              | .id
+            ' "$versions_json" >> "$keep_ids_file"
+
             # Keep the current main image (the one tagged latest, usually also tagged with current sha).
             jq -r '
               [ .[] | select(any(.tags[]?; . == "latest")) ]

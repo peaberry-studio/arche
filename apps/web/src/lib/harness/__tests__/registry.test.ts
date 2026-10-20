@@ -1,14 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { fakeRuntime } from '@/lib/harness/__tests__/fake-runtime'
-import { checkRuntimeHealth, getRuntimeForKind, getRuntimeForSlug, listWorkspaceFiles, readWorkspaceFile, searchWorkspaceFiles, syncRuntimeProviderAccess } from '@/lib/harness/registry'
+import { checkRuntimeHealth, checkRuntimeStartupSupport, getRuntimeForKind, getRuntimeForSlug, listWorkspaceFiles, readWorkspaceFile, searchWorkspaceFiles, syncRuntimeProviderAccess } from '@/lib/harness/registry'
 
 const factory = vi.hoisted(() => vi.fn())
+const v2Factory = vi.hoisted(() => vi.fn())
 const findRuntimeKindBySlug = vi.hoisted(() => vi.fn())
 const files = vi.hoisted(() => ({ listWorkspaceFiles: vi.fn(), readWorkspaceFile: vi.fn(), searchWorkspaceFiles: vi.fn() }))
+const v2Files = vi.hoisted(() => ({ listWorkspaceFiles: vi.fn(), readWorkspaceFile: vi.fn(), searchWorkspaceFiles: vi.fn() }))
 vi.mock('@/lib/services', () => ({ instanceService: { findRuntimeKindBySlug } }))
 vi.mock('@/lib/harness/adapters/opencode-v1/runtime', () => ({ createOpenCodeV1Runtime: factory }))
+vi.mock('@/lib/harness/adapters/opencode-v2/runtime', () => ({
+  createOpenCodeV2Runtime: v2Factory,
+  checkStartupSupport: () => ({ ok: false, error: { code: 'runtime_unsupported', detail: 'v2_startup_unverified' } }),
+}))
 vi.mock('@/lib/harness/adapters/opencode-v1/workspace-files', () => files)
+vi.mock('@/lib/harness/adapters/opencode-v2/workspace-files', () => v2Files)
 vi.mock('@/lib/harness/adapters/opencode-v1/client', () => ({ DEFAULT_HEALTH_TIMEOUT_MS: 5000, getInstanceBasicAuth: vi.fn(), getInstanceUrl: vi.fn() }))
 vi.mock('@/lib/harness/adapters/opencode-v1/providers', () => ({ getProviderSyncHashForUser: vi.fn() }))
 vi.mock('@/lib/harness/adapters/opencode-v1/workspace-prompt', () => ({ buildWorkspacePromptParts: vi.fn(), normalizeContextPaths: vi.fn(), normalizeMessageAttachments: vi.fn() }))
@@ -17,6 +24,7 @@ describe('runtime registry', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     factory.mockReturnValue(fakeRuntime())
+    v2Factory.mockReturnValue({ ...fakeRuntime(), kind: 'opencode-v2' })
     findRuntimeKindBySlug.mockResolvedValue({ runtimeKind: null })
   })
 
@@ -32,7 +40,9 @@ describe('runtime registry', () => {
     findRuntimeKindBySlug.mockImplementation(async (slug: string) => ({ runtimeKind: slug === 'alice' ? 'opencode-v1' : 'opencode-v2' }))
     try {
       expect((await getRuntimeForSlug('alice')).ok).toBe(true)
-      expect(await getRuntimeForSlug('bob')).toEqual({ ok: false, error: { code: 'runtime_unsupported', detail: 'opencode-v2' } })
+      const v2 = await getRuntimeForSlug('bob')
+      expect(v2.ok && v2.data.kind).toBe('opencode-v2')
+      expect(v2Factory).toHaveBeenCalledWith('bob')
       expect(factory).toHaveBeenCalledTimes(1)
       expect(factory).toHaveBeenCalledWith('alice')
     } finally {
@@ -46,12 +56,23 @@ describe('runtime registry', () => {
     expect(factory).not.toHaveBeenCalled()
   })
 
-  it('does not contact v1 file endpoints for an unsupported recorded kind', async () => {
+  it('keeps V2 startup readiness distinct from read-only adapter availability', () => {
+    expect(getRuntimeForKind('alice', 'opencode-v2').ok).toBe(true)
+    expect(checkRuntimeStartupSupport('opencode-v2')).toEqual({ ok: false, error: { code: 'runtime_unsupported', detail: 'v2_startup_unverified' } })
+    expect(checkRuntimeStartupSupport('opencode-v1')).toEqual({ ok: true, data: undefined })
+  })
+
+  it('dispatches the file bridge by recorded kind without contacting v1', async () => {
     findRuntimeKindBySlug.mockResolvedValue({ runtimeKind: 'opencode-v2' })
-    const failure = { ok: false, error: { code: 'runtime_unsupported', detail: 'opencode-v2' } }
-    expect(await listWorkspaceFiles('alice')).toEqual(failure)
-    expect(await readWorkspaceFile('alice', 'file.md')).toEqual(failure)
-    expect(await searchWorkspaceFiles('alice', 'file')).toEqual(failure)
+    v2Files.listWorkspaceFiles.mockResolvedValue({ ok: true, data: [] })
+    v2Files.readWorkspaceFile.mockResolvedValue({ ok: true, data: { path: 'file.md', content: 'v2', type: 'raw' } })
+    v2Files.searchWorkspaceFiles.mockResolvedValue({ ok: true, data: ['file.md'] })
+    expect(await listWorkspaceFiles('alice')).toEqual({ ok: true, data: [] })
+    expect(await readWorkspaceFile('alice', 'file.md')).toEqual({ ok: true, data: { path: 'file.md', content: 'v2', type: 'raw' } })
+    expect(await searchWorkspaceFiles('alice', 'file')).toEqual({ ok: true, data: ['file.md'] })
+    expect(v2Files.listWorkspaceFiles).toHaveBeenCalledWith('alice', '')
+    expect(v2Files.readWorkspaceFile).toHaveBeenCalledWith('alice', 'file.md')
+    expect(v2Files.searchWorkspaceFiles).toHaveBeenCalledWith('alice', 'file')
     expect(files.listWorkspaceFiles).not.toHaveBeenCalled()
     expect(files.readWorkspaceFile).not.toHaveBeenCalled()
     expect(files.searchWorkspaceFiles).not.toHaveBeenCalled()
@@ -70,9 +91,10 @@ describe('runtime registry', () => {
     expect(factory).toHaveBeenCalledWith('alice')
   })
 
-  it.each(['opencode-v2', 'unknown'])('rejects unsupported kind %s without contacting an adapter', (kind) => {
+  it.each(['unknown'])('rejects unsupported kind %s without contacting an adapter', (kind) => {
     expect(getRuntimeForKind('alice', kind)).toEqual({ ok: false, error: { code: 'runtime_unsupported', detail: kind } })
     expect(factory).not.toHaveBeenCalled()
+    expect(v2Factory).not.toHaveBeenCalled()
   })
 
   it('delegates pre-start health credentials and cancellation', async () => {

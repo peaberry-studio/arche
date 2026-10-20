@@ -13,6 +13,12 @@ import {
   normalizeMessageAttachments as normalizeV1MessageAttachments,
 } from '@/lib/harness/adapters/opencode-v1/workspace-prompt'
 import { renderRuntimeConfig as renderV2RuntimeConfig } from '@/lib/harness/adapters/opencode-v2/runtime-config'
+import { checkStartupSupport as checkV2StartupSupport, createOpenCodeV2Runtime } from '@/lib/harness/adapters/opencode-v2/runtime'
+import {
+  listWorkspaceFiles as listV2WorkspaceFiles,
+  readWorkspaceFile as readV2WorkspaceFile,
+  searchWorkspaceFiles as searchV2WorkspaceFiles,
+} from '@/lib/harness/adapters/opencode-v2/workspace-files'
 import type { HarnessHealthOptions, HarnessProviderAccessInput, HarnessRuntime } from '@/lib/harness/contract'
 import { harnessFailure, type HarnessResult } from '@/lib/harness/errors'
 import type { RuntimeConfigModel, RuntimeConfigRenderResult } from '@/lib/harness/runtime-config'
@@ -29,22 +35,31 @@ export function renderRuntimeConfig(kind: string | null, model: RuntimeConfigMod
 
 export async function listWorkspaceFiles(slug: string, path = ''): Promise<HarnessResult<WorkspaceFileNode[]>> {
   const runtime = await getRuntimeForSlug(slug)
-  return runtime.ok ? listV1WorkspaceFiles(slug, path) : runtime
+  if (!runtime.ok) return runtime
+  return runtime.data.kind === 'opencode-v2' ? listV2WorkspaceFiles(slug, path) : listV1WorkspaceFiles(slug, path)
 }
 
 export async function readWorkspaceFile(slug: string, path: string): Promise<HarnessResult<WorkspaceFileContent>> {
   const runtime = await getRuntimeForSlug(slug)
-  return runtime.ok ? readV1WorkspaceFile(slug, path) : runtime
+  if (!runtime.ok) return runtime
+  return runtime.data.kind === 'opencode-v2' ? readV2WorkspaceFile(slug, path) : readV1WorkspaceFile(slug, path)
 }
 
 export async function searchWorkspaceFiles(slug: string, query: string): Promise<HarnessResult<string[]>> {
   const runtime = await getRuntimeForSlug(slug)
-  return runtime.ok ? searchV1WorkspaceFiles(slug, query) : runtime
+  if (!runtime.ok) return runtime
+  return runtime.data.kind === 'opencode-v2' ? searchV2WorkspaceFiles(slug, query) : searchV1WorkspaceFiles(slug, query)
 }
 
 export function getRuntimeForKind(slug: string, kind: string | null = null): HarnessResult<HarnessRuntime> {
+  if (kind === 'opencode-v2') return { ok: true, data: createOpenCodeV2Runtime(slug) }
   if (kind !== null && kind !== 'opencode-v1') return harnessFailure('runtime_unsupported', kind)
   return { ok: true, data: createOpenCodeV1Runtime(slug) }
+}
+
+export function checkRuntimeStartupSupport(kind: string | null): HarnessResult<void> {
+  if (kind === 'opencode-v2') return checkV2StartupSupport()
+  return kind === null || kind === 'opencode-v1' ? { ok: true, data: undefined } : harnessFailure('runtime_unsupported', kind)
 }
 
 export async function getRuntimeForSlug(slug: string): Promise<HarnessResult<HarnessRuntime>> {

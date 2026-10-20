@@ -67,12 +67,18 @@ function orderedEntries(value: Record<string, unknown>): [string, unknown][] {
 function permissionRules(value: unknown, path: string): Rule[] {
   if (value === undefined) return []
   if (typeof value === 'string') return [{ action: '*', resource: '*', effect: effect(value, path) }]
+  const aliases = new Map<string, Rule[]>()
   return orderedEntries(record(value, path)).flatMap(([key, entry]) => {
     const target = action(key, `${path}.${key}`)
-    if (typeof entry === 'string') return [{ action: target, resource: '*', effect: effect(entry, `${path}.${key}`) }]
-    return orderedEntries(record(entry, `${path}.${key}`)).map(([resource, entryEffect]) => ({
-      action: target, resource, effect: effect(entryEffect, `${path}.${key}.${resource}`),
-    }))
+    const rules = typeof entry === 'string'
+      ? [{ action: target, resource: '*', effect: effect(entry, `${path}.${key}`) }]
+      : orderedEntries(record(entry, `${path}.${key}`)).map(([resource, entryEffect]) => ({
+        action: target, resource, effect: effect(entryEffect, `${path}.${key}.${resource}`),
+      }))
+    const previous = aliases.get(target)
+    if (previous !== undefined && JSON.stringify(previous) !== JSON.stringify(rules)) unsupported(`${path}.${key}`, 'V2 merges permission actions with conflicting rules')
+    aliases.set(target, rules)
+    return rules
   })
 }
 
@@ -104,6 +110,7 @@ function renderAgent(agent: RuntimeAgentModel, model: RuntimeConfigModel, global
   for (const key of Object.keys(settings)) if (!allowed.has(key)) unsupported(`${path}.${key}`)
   for (const key of ['disable', 'hidden']) if (settings[key] !== undefined && typeof settings[key] !== 'boolean') unsupported(`${path}.${key}`)
   for (const key of ['description', 'color']) if (settings[key] !== undefined && typeof settings[key] !== 'string') unsupported(`${path}.${key}`)
+  if (typeof settings.color === 'string' && !/^#[0-9a-fA-F]{6}$/.test(settings.color)) unsupported(`${path}.color`)
   const mode = agent.id === model.modelDefaults.agent ? 'primary' : settings.mode ?? 'all'
   if (mode !== 'primary' && mode !== 'subagent' && mode !== 'all') unsupported(`${path}.mode`)
   const primary = mode === 'primary'
@@ -111,9 +118,9 @@ function renderAgent(agent: RuntimeAgentModel, model: RuntimeConfigModel, global
   const configuredSteps = settings.steps ?? settings.maxSteps ?? limit
   if (typeof configuredSteps !== 'number' || !Number.isInteger(configuredSteps) || configuredSteps < 1) unsupported(`${path}.steps`)
   const defaultModel = typeof model.modelDefaults.model === 'string' ? model.modelDefaults.model.trim() || undefined : model.modelDefaults.model
-  const reference = agent.model ?? defaultModel
-  if (reference !== undefined && typeof reference !== 'string') unsupported(`${path}.model`)
-  if (settings.variant !== undefined && (typeof settings.variant !== 'string' || !reference || String(reference).includes('#'))) unsupported(`${path}.variant`)
+  const reference = typeof agent.model === 'string' ? agent.model.trim() || defaultModel : agent.model ?? defaultModel
+  if (reference !== undefined && (typeof reference !== 'string' || !/^[^/#]+\/[^#]+(?:#[^#]+)?$/.test(reference))) unsupported(`${path}.model`)
+  if (settings.variant !== undefined && (typeof settings.variant !== 'string' || !settings.variant || settings.variant.includes('#') || !reference || String(reference).includes('#'))) unsupported(`${path}.variant`)
   if (agent.instructions !== undefined && typeof agent.instructions !== 'string') unsupported(`${path}.instructions`)
   let promptConfig: Record<string, unknown> = { agent: { [agent.id]: { prompt: agent.instructions ?? '' } } }
   promptConfig = injectAgentToolCallerIdentity(promptConfig)
@@ -126,7 +133,7 @@ function renderAgent(agent: RuntimeAgentModel, model: RuntimeConfigModel, global
   if (model.guards.knowledgeWrites) permissions.push({ action: 'edit', resource: '*', effect: 'deny' })
   const body = settings.options === undefined ? {} : { ...record(settings.options, `${path}.options`) }
   for (const key of ['temperature', 'top_p']) {
-    if (settings[key] !== undefined && typeof settings[key] !== 'number') unsupported(`${path}.${key}`)
+    if (settings[key] !== undefined && (typeof settings[key] !== 'number' || !Number.isFinite(settings[key]))) unsupported(`${path}.${key}`)
     if (settings[key] !== undefined) body[key] = settings[key]
   }
   return {
@@ -145,13 +152,23 @@ function renderMcp(targets: Record<string, unknown> = {}): Record<string, unknow
   return Object.fromEntries(Object.entries(targets).map(([id, value]) => {
     const path = `mcp.${id}`
     const { enabled, timeout, ...server } = record(value, path)
-    const allowed = new Set(['type', 'command', 'environment', 'url', 'headers', 'oauth', 'cwd', 'codemode', 'protocol'])
-    for (const key of Object.keys(server)) if (!allowed.has(key)) unsupported(`${path}.${key}`)
     if (server.type !== 'local' && server.type !== 'remote') unsupported(`${path}.type`)
+    if (id === 'arche_tools' && server.type !== 'local') unsupported(`${path}.type`, 'Built-in tools require a local stdio server')
+    const allowed = new Set(['type', 'codemode', 'protocol', ...(server.type === 'local' ? ['command', 'environment', 'cwd'] : ['url', 'headers', 'oauth'])])
+    for (const key of Object.keys(server)) if (!allowed.has(key)) unsupported(`${path}.${key}`)
     if (enabled !== undefined && typeof enabled !== 'boolean') unsupported(`${path}.enabled`)
     if (timeout !== undefined && (typeof timeout !== 'number' || !Number.isInteger(timeout) || timeout <= 0)) unsupported(`${path}.timeout`)
     if (server.type === 'local' && (!Array.isArray(server.command) || !server.command.length || !server.command.every((item) => typeof item === 'string'))) unsupported(`${path}.command`)
     if (server.type === 'remote' && typeof server.url !== 'string') unsupported(`${path}.url`)
+    if (server.cwd !== undefined && typeof server.cwd !== 'string') unsupported(`${path}.cwd`)
+    if (server.codemode !== undefined && typeof server.codemode !== 'boolean') unsupported(`${path}.codemode`)
+    if (server.protocol !== undefined && server.protocol !== 'legacy' && server.protocol !== 'auto' && server.protocol !== '2026-07-28') unsupported(`${path}.protocol`)
+    for (const key of ['environment', 'headers']) {
+      if (server[key] === undefined) continue
+      for (const [name, entry] of Object.entries(record(server[key], `${path}.${key}`))) {
+        if (typeof entry !== 'string') unsupported(`${path}.${key}.${name}`)
+      }
+    }
     if (server.oauth !== undefined && server.oauth !== false) unsupported(`${path}.oauth`, 'OAuth object migration requires an explicit supported mapping')
     return [id, {
       ...server,
@@ -167,9 +184,15 @@ function renderProviders(targets: Record<string, unknown> = {}): Record<string, 
     const path = `providers.${id}`
     const { npm, options, api, models, ...provider } = record(value, path)
     for (const key of Object.keys(provider)) if (!['name', 'env'].includes(key)) unsupported(`${path}.${key}`)
+    if (provider.name !== undefined && typeof provider.name !== 'string') unsupported(`${path}.name`)
+    if (provider.env !== undefined && (!Array.isArray(provider.env) || !provider.env.every((entry) => typeof entry === 'string'))) unsupported(`${path}.env`)
     if (npm !== undefined && typeof npm !== 'string') unsupported(`${path}.npm`)
     const settings = options === undefined ? {} : { ...record(options, `${path}.options`) }
     for (const key of Object.keys(settings)) if (!['baseURL', 'apiKey', 'timeout', 'headerTimeout', 'chunkTimeout'].includes(key)) unsupported(`${path}.options.${key}`, 'Provider option has no verified request-role mapping')
+    for (const key of ['baseURL', 'apiKey']) if (settings[key] !== undefined && typeof settings[key] !== 'string') unsupported(`${path}.options.${key}`)
+    for (const key of ['timeout', 'headerTimeout', 'chunkTimeout']) {
+      if (settings[key] !== undefined && settings[key] !== false && (typeof settings[key] !== 'number' || !Number.isFinite(settings[key]))) unsupported(`${path}.options.${key}`)
+    }
     if (api !== undefined) {
       if (typeof api !== 'string' || settings.baseURL !== undefined) unsupported(`${path}.api`)
       settings.baseURL = api
@@ -177,6 +200,12 @@ function renderProviders(targets: Record<string, unknown> = {}): Record<string, 
     const renderedModels = models === undefined ? undefined : Object.fromEntries(Object.entries(record(models, `${path}.models`)).map(([modelId, entry]) => {
       const definition = record(entry, `${path}.models.${modelId}`)
       for (const key of Object.keys(definition)) if (!['name', 'id', 'limit'].includes(key)) unsupported(`${path}.models.${modelId}.${key}`)
+      for (const key of ['name', 'id']) if (definition[key] !== undefined && typeof definition[key] !== 'string') unsupported(`${path}.models.${modelId}.${key}`)
+      if (definition.limit !== undefined) {
+        for (const [key, value] of Object.entries(record(definition.limit, `${path}.models.${modelId}.limit`))) {
+          if (!['context', 'input', 'output'].includes(key) || typeof value !== 'number' || !Number.isInteger(value)) unsupported(`${path}.models.${modelId}.limit.${key}`)
+        }
+      }
       const { id: upstreamId, ...rest } = definition
       return [modelId, { ...rest, ...(upstreamId === undefined ? {} : { modelID: upstreamId }) }]
     }))
@@ -210,6 +239,12 @@ export function renderRuntimeConfig(model: RuntimeConfigModel): RuntimeConfigRen
     const { policies: authoredPolicies, snapshot, ...settings } = model.settings
     const allowed = new Set(['$schema', 'model', 'instructions', 'watcher', 'shell', 'tool_output'])
     for (const key of Object.keys(settings)) if (!allowed.has(key)) unsupported(key)
+    if (snapshot !== undefined && typeof snapshot !== 'boolean') unsupported('snapshot')
+    if (model.modelDefaults.agent !== undefined && typeof model.modelDefaults.agent !== 'string') unsupported('default_agent')
+    if (model.modelDefaults.model !== undefined && typeof model.modelDefaults.model !== 'string') unsupported('default_model')
+    if (settings.model !== undefined && (typeof settings.model !== 'string' || !/^[^/#]+\/[^#]+$/.test(settings.model))) unsupported('model', 'Root models require a provider/model reference without a variant')
+    if (settings.shell !== undefined && typeof settings.shell !== 'string') unsupported('shell')
+    if (settings.instructions !== undefined && (!Array.isArray(settings.instructions) || !settings.instructions.every((entry) => typeof entry === 'string'))) unsupported('instructions')
     const globalRules = toolRules(model.tools, permissionRules(model.access, 'access'), 'tools', false)
     globalRules.push({ action: 'external_directory', resource: '*', effect: 'ask' })
     const policies = renderPolicies(authoredPolicies)

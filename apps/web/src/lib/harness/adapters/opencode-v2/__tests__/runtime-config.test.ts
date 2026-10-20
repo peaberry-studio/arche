@@ -50,6 +50,15 @@ describe('V2 runtime config renderer', () => {
     expect(result).not.toHaveProperty('data')
   })
 
+  it('does not accept caller predicates or agent policies absent from the 2.0.32 schema', () => {
+    expect(renderRuntimeConfig(unprotectedModel({
+      policies: [{ action: 'tool.use', resource: 'subagent:worker', effect: 'deny', agent: 'worker' }],
+    }))).toMatchObject({ ok: false, error: { code: 'runtime_config_unsupported', path: 'policies.0' } })
+    expect(renderRuntimeConfig(unprotectedModel({ agent: { worker: {
+      policies: [{ action: 'tool.use', resource: 'subagent:worker', effect: 'deny' }],
+    } } }))).toMatchObject({ ok: false, error: { code: 'runtime_config_unsupported', path: 'agents.worker.policies' } })
+  })
+
   it('snapshots delegation and execution rules for every agent kind', () => {
     const snapshots = Object.fromEntries(['primary', 'subagent', 'all'].map((mode) => {
       const rendered = config(unprotectedModel({ agent: { worker: { mode, tools: { task: true } } } }))
@@ -185,6 +194,31 @@ describe('V2 runtime config renderer', () => {
     expect(rendered).not.toHaveProperty('snapshot')
   })
 
+  it('preserves confirmed 2.0.32 MCP fields and forces built-ins into direct mode', () => {
+    const rendered = config(unprotectedModel({ mcp: {
+      arche_tools: { type: 'local', command: ['node', '/opt/arche/arche-tools/server.js'], codemode: true, cwd: '/workspace', environment: { MODE: 'test' }, protocol: 'legacy' },
+      arche_remote: { type: 'remote', url: 'https://gateway.example/mcp', codemode: true, protocol: '2026-07-28', oauth: false },
+    } }))
+    expect(rendered.mcp).toEqual({ servers: {
+      arche_tools: { type: 'local', command: ['node', '/opt/arche/arche-tools/server.js'], codemode: false, cwd: '/workspace', environment: { MODE: 'test' }, protocol: 'legacy' },
+      arche_remote: { type: 'remote', url: 'https://gateway.example/mcp', codemode: true, protocol: '2026-07-28', oauth: false },
+    } })
+  })
+
+  it('preserves valid native model references, hex colors, timeout disabling, and matching permission aliases', () => {
+    const rendered = config(unprotectedModel({
+      model: 'openai/default',
+      default_model: ' openai/fallback ',
+      permission: { bash: { '*': 'ask' }, shell: { '*': 'ask' } },
+      agent: { worker: { model: '  ', color: '#Ab12ef' } },
+      provider: { openai: { options: { timeout: false, headerTimeout: 1234, chunkTimeout: false }, models: { coding: { limit: { context: 1000, input: 800, output: 200 } } } } },
+    }))
+    expect(rendered.model).toBe('openai/default')
+    expect(agentConfig(rendered, 'worker')).toMatchObject({ model: 'openai/fallback', color: '#Ab12ef' })
+    expect(rendered.providers).toEqual({ openai: { settings: { timeout: false, headerTimeout: 1234, chunkTimeout: false }, models: { coding: { limit: { context: 1000, input: 800, output: 200 } } } } })
+    expect(decision(rendered.permissions, 'shell', 'git status')).toBe('ask')
+  })
+
   it('keeps spreadsheet-only tools, inherited asks, and exact connector restrictions', () => {
     const rendered = config(unprotectedModel({
       permission: { '*': 'ask' },
@@ -226,13 +260,43 @@ describe('V2 runtime config renderer', () => {
     { source: { permission: { lsp: 'deny' } }, path: 'access.lsp' },
     { source: { permission: { typo: 'deny' } }, path: 'access.typo' },
     { source: { permission: { read: { '*': 'invalid' } } }, path: 'access.read.*' },
+    { source: { permission: { read: 'deny', list: 'allow' } }, path: 'access.list' },
+    { source: { permission: { bash: { '*': 'deny' }, shell: { '*': 'allow' } } }, path: 'access.shell' },
+    { source: { agent: { worker: { permission: { edit: 'ask', write: 'allow' } } } }, path: 'agents.worker.access.write' },
     { source: { agent: { worker: { tools: { read: true, list: false } } } }, path: 'agents.worker.tools.list' },
     { source: { agent: { worker: { tools: { lsp: true } } } }, path: 'agents.worker.tools.lsp' },
     { source: { agent: { worker: { tools: { edit: false, write: true } } } }, path: 'agents.worker.tools.write' },
     { source: { policies: [{ action: 'edit', resource: '*', effect: 'deny' }] }, path: 'policies.0.action' },
     { source: { experimental: { policies: [] } }, path: 'experimental' },
     { source: { provider: { custom: { options: { unknown: true } } } }, path: 'providers.custom.options.unknown' },
+    { source: { provider: { custom: { name: false } } }, path: 'providers.custom.name' },
+    { source: { provider: { custom: { env: ['KEY', false] } } }, path: 'providers.custom.env' },
+    { source: { provider: { custom: { options: { apiKey: true } } } }, path: 'providers.custom.options.apiKey' },
+    { source: { provider: { custom: { options: { timeout: true } } } }, path: 'providers.custom.options.timeout' },
+    { source: { provider: { custom: { models: { coding: { id: false } } } } }, path: 'providers.custom.models.coding.id' },
+    { source: { provider: { custom: { models: { coding: { limit: { context: 0.5 } } } } } }, path: 'providers.custom.models.coding.limit.context' },
+    { source: { provider: { custom: { models: { coding: { limit: { unknown: 100 } } } } } }, path: 'providers.custom.models.coding.limit.unknown' },
     { source: { mcp: { custom: { enabled: true } } }, path: 'mcp.custom.type' },
+    { source: { mcp: { arche_tools: { type: 'remote', url: 'https://example.com/mcp' } } }, path: 'mcp.arche_tools.type' },
+    { source: { mcp: { custom: { type: 'local', command: ['node'], headers: {} } } }, path: 'mcp.custom.headers' },
+    { source: { mcp: { custom: { type: 'remote', url: 'https://example.com/mcp', command: ['node'] } } }, path: 'mcp.custom.command' },
+    { source: { mcp: { custom: { type: 'local', command: ['node'], environment: { KEY: true } } } }, path: 'mcp.custom.environment.KEY' },
+    { source: { mcp: { custom: { type: 'remote', url: 'https://example.com/mcp', headers: { Authorization: true } } } }, path: 'mcp.custom.headers.Authorization' },
+    { source: { mcp: { custom: { type: 'local', command: ['node'], codemode: 'false' } } }, path: 'mcp.custom.codemode' },
+    { source: { mcp: { custom: { type: 'local', command: ['node'], cwd: false } } }, path: 'mcp.custom.cwd' },
+    { source: { mcp: { custom: { type: 'local', command: ['node'], protocol: 'unsupported' } } }, path: 'mcp.custom.protocol' },
+    { source: { agent: { worker: { color: 'red' } } }, path: 'agents.worker.color' },
+    { source: { agent: { worker: { model: 'invalid' } } }, path: 'agents.worker.model' },
+    { source: { agent: { worker: { model: 'openai/model', variant: 'high#other' } } }, path: 'agents.worker.variant' },
+    { source: { agent: { worker: { model: 'openai/model', variant: '' } } }, path: 'agents.worker.variant' },
+    { source: { agent: { worker: { temperature: Infinity } } }, path: 'agents.worker.temperature' },
+    { source: { snapshot: 'false' }, path: 'snapshot' },
+    { source: { default_agent: false }, path: 'default_agent' },
+    { source: { default_model: false }, path: 'default_model' },
+    { source: { model: 'invalid' }, path: 'model' },
+    { source: { model: 'openai/model#high' }, path: 'model' },
+    { source: { shell: false }, path: 'shell' },
+    { source: { instructions: ['valid.md', false] }, path: 'instructions' },
   ])('fails closed for unsupported input at $path', ({ source, path }) => {
     const result = renderRuntimeConfig(unprotectedModel(source))
     expect(result).toMatchObject({ ok: false, error: { code: 'runtime_config_unsupported', path } })

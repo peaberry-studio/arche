@@ -1,0 +1,76 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+import { checkHealth, createInstanceClient, normalizeOpenCodeError } from '@/lib/harness/adapters/opencode-v2/client'
+
+const auth = vi.hoisted(() => vi.fn())
+vi.mock('@/lib/harness/adapters/opencode-v1/connection-resolver', () => ({
+  getInstanceBasicAuth: auth,
+  getInstanceUrl: (_slug: string, baseUrl?: string) => baseUrl ?? 'http://runtime',
+}))
+
+describe('V2 client', () => {
+  beforeEach(() => {
+    auth.mockResolvedValue({ baseUrl: 'http://runtime', authHeader: 'Basic test' })
+  })
+  afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); vi.clearAllMocks() })
+
+  it('uses the matched V2 API with workspace authentication', async () => {
+    const fetch = vi.fn().mockResolvedValue(Response.json({ version: '2.0.32', pid: 1, urls: [] }))
+    vi.stubGlobal('fetch', fetch)
+    expect(await checkHealth('alice')).toEqual({ ok: true, data: { version: '2.0.32' } })
+    expect(String(fetch.mock.calls[0][0])).toBe('http://runtime/api/info')
+    expect(new Headers(fetch.mock.calls[0][1].headers).get('Authorization')).toBe('Basic test')
+  })
+
+  it('uses explicit startup credentials instead of a running-instance lookup', async () => {
+    const fetch = vi.fn().mockResolvedValue(Response.json({ version: '2.0.32', pid: 1, urls: [] }))
+    vi.stubGlobal('fetch', fetch)
+    expect((await checkHealth('alice', { password: 'test', baseUrl: 'http://direct' })).ok).toBe(true)
+    expect(String(fetch.mock.calls[0][0])).toBe('http://direct/api/info')
+    expect(auth).not.toHaveBeenCalled()
+  })
+
+  it('aborts a health request at its deadline', async () => {
+    vi.useFakeTimers()
+    let signal: AbortSignal | undefined
+    vi.stubGlobal('fetch', vi.fn((_url: string, options: RequestInit) => {
+      signal = options.signal ?? undefined
+      return new Promise((_resolve, reject) => signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true }))
+    }))
+    const pending = checkHealth('alice', { timeoutMs: 50 })
+    await vi.advanceTimersByTimeAsync(50)
+    expect(await pending).toEqual({ ok: false, error: { code: 'healthcheck_timeout' } })
+    expect(signal?.aborted).toBe(true)
+  })
+
+  it('propagates losing-probe cancellation', async () => {
+    const controller = new AbortController()
+    vi.stubGlobal('fetch', vi.fn((_url: string, options: RequestInit) => new Promise((_resolve, reject) => {
+      options.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true })
+    })))
+    const pending = checkHealth('alice', { signal: controller.signal })
+    await Promise.resolve()
+    controller.abort()
+    expect(await pending).toEqual({ ok: false, error: { code: 'healthcheck_timeout' } })
+  })
+
+  it('does not mistake V1 or a TCP listener for V2 readiness', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ version: '1.18.18', healthy: true })))
+    expect((await checkHealth('alice')).ok).toBe(false)
+  })
+
+  it('returns unavailable when there is no running connection', async () => {
+    auth.mockResolvedValue(null)
+    expect(await createInstanceClient('alice')).toBeNull()
+  })
+
+  it('preserves unexpected HTTP status without misclassifying a permission as a missing session', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('', { status: 503 })))
+    expect(await checkHealth('alice')).toMatchObject({ ok: false, error: { code: 'http_status_503', status: 503 } })
+  })
+
+  it('decodes the recorded missing-session error but not unrelated 404s', () => {
+    expect(normalizeOpenCodeError({ _tag: 'SessionNotFoundError', sessionID: 'missing', name: 'SessionNotFoundError' }).error.code).toBe('session_not_found')
+    expect(normalizeOpenCodeError({ _tag: 'PermissionNotFoundError', status: 404 }).error.code).toBe('runtime_error')
+  })
+})

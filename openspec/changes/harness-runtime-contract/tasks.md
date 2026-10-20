@@ -70,11 +70,11 @@ No v2 runtime or rollout default was changed. -->
 ## 5. Runtime kind and OpenCode v2 adapter
 
 - [x] 5.1 Add `Instance.runtimeKind String? @map("runtime_kind")` and the `LegacySessionArchive` model to `prisma/schema.prisma` and `prisma/schema.sqlite.prisma` via `pnpm db:migrate` (additive only); verify migration SQL contains only `ADD COLUMN`/`CREATE TABLE`/`CREATE INDEX`.
-- [ ] 5.2 Write `runtimeKind` in the start attempt's conditional state update in `spawner/core.ts` and the desktop host, read it in `registry.ts` (null → `opencode-v1`), add `ARCHE_DEFAULT_RUNTIME_KIND` and `OPENCODE_V1_IMAGE` to config and `.env.example`; verify registry tests for mixed v1/v2 instances and unknown kind.
+- [x] 5.2 Write `runtimeKind` in the start attempt's conditional state update in `spawner/core.ts` and the desktop host, read it in `registry.ts` (null → `opencode-v1`), add `ARCHE_DEFAULT_RUNTIME_KIND` and `OPENCODE_V1_IMAGE` to config and `.env.example`; verify registry tests for mixed v1/v2 instances and unknown kind.
 - [x] 5.3 Split `runtime-artifacts.ts` into a harness-neutral model plus `renderRuntimeConfig` per adapter; verify the v1 renderer is byte-identical to today's output (existing hash tests unchanged).
 - [ ] 5.4 Implement the v2 renderer per design D6 (`mcp.servers`, `agents`, `providers`, ordered `permissions`, `external_directory: ask`, guards as `policies`, `arche_tools` local server); verify snapshot tests per agent kind and validation of the rendered file with the OpenCode 2 config schema if one is published (per spike notes).
 - [ ] 5.5 Implement `adapters/opencode-v2/` on `@opencode/client` (add the dependency), including the event translator to Arche events and provider-access sync; verify adapter unit tests against recorded v2 fixtures from the spike, plus the same golden reducer scenarios as 2.4.
-- [ ] 5.6 Build the v2 workspace image: bump `versions/opencode.version`, adapt `entrypoint.sh` (config file name/location, skills dir `.opencode/skills`, auth proxy if spike requires it), `scripts/download-opencode.sh` and the CI workflow; keep a pinned `workspace:opencode-v1` tag; verify `bash scripts/check-podman-images.sh` builds both.
+- [x] 5.6 Build the v2 workspace image: bump `versions/opencode.version`, adapt `entrypoint.sh` (config file name/location, skills dir `.opencode/skills`, auth proxy if spike requires it), `scripts/download-opencode.sh` and the CI workflow; keep a pinned `workspace:opencode-v1` tag; verify `bash scripts/check-podman-images.sh` builds both.
 - [ ] 5.7 Add an admin-only action to start a specific instance as `opencode-v2`, with an `AuditEvent`; verify with an action test and a manual end-to-end run on a v2 container (stream, tool call with `arche_tools`, connector MCP call through the gateway, permission, abort family, flow run, Slack DM).
 
 <!-- Phase-3 partial handoff (2026-10-20): 5.1 SQL is additive and both schemas
@@ -99,6 +99,24 @@ Required image script timed out after 120s in web build, before workspace check.
 Re-run with a 600s budget failed at dangling-image prune with exit 125 because
 an image is in use by a container; no external container/image was force-removed.
 Do not proceed to rollout/archive switch until phase-3 blocked gates are resolved. -->
+
+<!-- Phase-3 continuation (2026-10-20): matched client 2.0.32 is installed.
+5.2 verified: mixed/null/unknown-kind routing, V2 files bridge, existing container-keyed
+recording, separate image/state selection. Per PRD, infra/README.md replaces changes
+to the protected .env.example. Default remains V1; desktop preparation retains 1.18.18.
+5.4 strengthened with 52 renderer tests and live OpenAPI/config.get validation, but
+required caller-scoped policies cannot be expressed (agent policies are dropped).
+5.5 has matched SDK CRUD/files/text prompt mappings, live text/reasoning/tool/permission
+fixtures, snapshots/accounting and safe synchronous translations. Still partial:
+subscription requires Arche-owned partial updates/parity; provider credential removal
+reactivates old credentials; queued/retry/late-child idle confirmation and attachments
+remain unverified. These paths return typed errors, not guessed success.
+V2 startup is gated BEFORE cleanup or any state write; failed sync also cannot publish
+V2 running. 5.6 verified: both workspace images + web build; network-disabled image
+auth/config/skills checks pass. Legacy remote tag is opencode-v1-1.18.18, not v6.0.0;
+publication/deployment are human-owned. 5.7 audited admin action/tests still pass,
+manual end-to-end remains pending. Do not begin archive/rollout until 5.4/5.5 gates
+are resolved; NOTES.md and __tests__/CAPTURE.md contain evidence and remaining gates. -->
 
 ## 6. Legacy session archive and runtime switch
 

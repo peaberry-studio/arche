@@ -1,18 +1,19 @@
-import { getUserDataHostPath, ensureUserDirectory } from "@/lib/user-data";
 import type { SkillBundle } from '@/lib/skills/types'
 import {
-  getContainerSocketPath,
   getContainerProxyUrl,
+  getContainerSocketPath,
+  getKbContentHostPath,
   getOpencodeImage,
   getOpencodeNetwork,
-  getKbContentHostPath,
+  getOpencodeV1Image,
   getWorkspaceAgentPort,
-} from "./config";
+} from '@/lib/spawner/config';
 import {
   getDefaultWebRuntimeConfigContent,
   parseRuntimeConfigContent,
   serializeRuntimeConfig,
-} from "./runtime-config";
+} from '@/lib/spawner/runtime-config';
+import { ensureUserDirectory, getUserDataHostPath } from '@/lib/user-data';
 
 type DockerConstructor = typeof import("dockerode");
 type DockerClient = InstanceType<DockerConstructor>;
@@ -108,13 +109,16 @@ export async function createContainer(
   opencodeConfigContent?: string,
   agentsMd?: string,
   skills?: SkillBundle[],
-  gitAuthor?: { name: string; email?: string }
+  gitAuthor?: { name: string; email?: string },
+  runtimeKind = 'opencode-v1',
 ) {
+  if (runtimeKind !== 'opencode-v1' && runtimeKind !== 'opencode-v2') throw new Error('runtime_unsupported')
   const docker = await getContainerClient();
   const containerName = `opencode-${slug}`;
   const volumeName = `arche-workspace-${slug}`;
-  const opencodeShareVolumeName = `arche-opencode-share-${slug}`;
-  const opencodeStateVolumeName = `arche-opencode-state-${slug}`;
+  const statePrefix = runtimeKind === 'opencode-v2' ? 'arche-opencode2' : 'arche-opencode'
+  const opencodeShareVolumeName = `${statePrefix}-share-${slug}`;
+  const opencodeStateVolumeName = `${statePrefix}-state-${slug}`;
 
   const runtimeConfigContent = (() => {
     if (!opencodeConfigContent) {
@@ -204,7 +208,7 @@ export async function createContainer(
   ];
 
   const options = {
-    Image: getOpencodeImage(),
+    Image: runtimeKind === 'opencode-v2' ? getOpencodeImage() : getOpencodeV1Image(),
     name: containerName,
     WorkingDir: "/workspace",
     // arche-workspace image has an entrypoint wrapper that initializes the workspace
@@ -218,6 +222,7 @@ export async function createContainer(
     Labels: {
       "arche.managed": "true",
       "arche.user.slug": slug,
+      "arche.runtime.kind": runtimeKind,
     },
   };
 

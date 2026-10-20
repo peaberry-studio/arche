@@ -23,7 +23,7 @@ export function getOpencodeImage(): string {
 }
 
 export function getOpencodeV1Image(): string {
-  return process.env.OPENCODE_V1_IMAGE || 'ghcr.io/peaberry-studio/arche/workspace:v6.0.0'
+  return process.env.OPENCODE_V1_IMAGE || 'ghcr.io/peaberry-studio/arche/workspace:opencode-v1-1.18.18'
 }
 
 export function getDefaultRuntimeKind(): string {

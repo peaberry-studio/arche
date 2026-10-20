@@ -82,11 +82,38 @@ jobs:
         id: opencode
         run: |
           OPENCODE_VERSION="$(tr -d '[:space:]' < versions/opencode.version)"
+          OPENCODE_V1_VERSION="$(tr -d '[:space:]' < versions/opencode-v1.version)"
           if [[ -z "$OPENCODE_VERSION" ]]; then
             echo "OpenCode version is empty" >&2
             exit 1
           fi
           echo "OPENCODE_VERSION=$OPENCODE_VERSION" >> "$GITHUB_OUTPUT"
+          if [[ "$OPENCODE_V1_VERSION" != "1.18.18" ]]; then
+            echo "Legacy OpenCode must remain pinned to 1.18.18" >&2
+            exit 1
+          fi
+          echo "OPENCODE_V1_VERSION=$OPENCODE_V1_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Test runtime infrastructure
+        run: node --test infra/workspace-image/tests/runtime-infrastructure.test.mjs
+
+      - name: Build and push pinned legacy image
+        uses: docker/build-push-action@v6
+        with:
+          context: infra/workspace-image
+          file: infra/workspace-image/Containerfile
+          push: true
+          platforms: linux/${{ matrix.arch }}
+          provenance: false
+          sbom: false
+          build-args: |
+            OPENCODE_VERSION=${{ steps.opencode.outputs.OPENCODE_V1_VERSION }}
+          tags: |
+            ${{ format('{0}/{1}:opencode-v1-1.18.18-{2}{3}', env.REGISTRY, env.IMAGE_NAME, steps.tags.outputs.MODE == 'pr' && steps.tags.outputs.PR_TAG || steps.tags.outputs.SHA_TAG, steps.tags.outputs.ARCH_SUFFIX) }}
+            ${{ steps.tags.outputs.MODE != 'pr' && format('{0}/{1}:opencode-v1{2}', env.REGISTRY, env.IMAGE_NAME, steps.tags.outputs.ARCH_SUFFIX) || '' }}
+            ${{ steps.tags.outputs.MODE != 'pr' && format('{0}/{1}:opencode-v1-1.18.18{2}', env.REGISTRY, env.IMAGE_NAME, steps.tags.outputs.ARCH_SUFFIX) || '' }}
+            ${{ steps.tags.outputs.MODE != 'pr' && steps.tags.outputs.DEFAULT_ARCH_TAGS == 'true' && format('{0}/{1}:opencode-v1', env.REGISTRY, env.IMAGE_NAME) || '' }}
+            ${{ steps.tags.outputs.MODE != 'pr' && steps.tags.outputs.DEFAULT_ARCH_TAGS == 'true' && format('{0}/{1}:opencode-v1-1.18.18', env.REGISTRY, env.IMAGE_NAME) || '' }}
 
       - name: Build and push image
         uses: docker/build-push-action@v6

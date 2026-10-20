@@ -53,7 +53,7 @@ import {
   removeManagedContainerForSlug,
   inspectContainer,
   isContainerRunning,
-} from '../docker'
+} from '@/lib/spawner/docker'
 
 describe('docker', () => {
   const originalEnv = process.env
@@ -64,6 +64,7 @@ describe('docker', () => {
     process.env.CONTAINER_PROXY_HOST = 'test-proxy'
     process.env.CONTAINER_PROXY_PORT = '2375'
     process.env.OPENCODE_IMAGE = 'test-image:latest'
+    process.env.OPENCODE_V1_IMAGE = 'test-image:opencode-v1'
     process.env.OPENCODE_NETWORK = 'test-network'
     process.env.KB_CONTENT_HOST_PATH = '/opt/arche/kb-content'
   })
@@ -141,7 +142,7 @@ describe('docker', () => {
       expect(mockDockerInstance.createVolume).toHaveBeenCalledWith({ Name: 'arche-opencode-state-user-slug' })
 
       expect(mockDockerInstance.createContainer).toHaveBeenCalledWith({
-        Image: 'test-image:latest',
+        Image: 'test-image:opencode-v1',
         name: 'opencode-user-slug',
         WorkingDir: '/workspace',
         Cmd: ['serve', '--hostname', '0.0.0.0', '--port', '4096'],
@@ -170,8 +171,28 @@ describe('docker', () => {
         Labels: {
           'arche.managed': 'true',
           'arche.user.slug': 'user-slug',
+          'arche.runtime.kind': 'opencode-v1',
         },
       })
+    })
+
+    it('isolates V2 state and selects the V2 image without changing the V1 volumes', async () => {
+      await createContainer('user-slug', 'test', '{}', undefined, undefined, undefined, 'opencode-v2')
+      expect(mockDockerInstance.createContainer).toHaveBeenCalledWith(expect.objectContaining({
+        Image: 'test-image:latest',
+        HostConfig: expect.objectContaining({ Binds: expect.arrayContaining([
+          'arche-opencode2-share-user-slug:/home/workspace/.local/share/opencode',
+          'arche-opencode2-state-user-slug:/home/workspace/.local/state/opencode',
+        ]) }),
+        Labels: expect.objectContaining({ 'arche.runtime.kind': 'opencode-v2' }),
+      }))
+      expect(mockDockerInstance.createVolume).not.toHaveBeenCalledWith({ Name: 'arche-opencode-share-user-slug' })
+    })
+
+    it('rejects an unknown kind before creating resources', async () => {
+      await expect(createContainer('user-slug', 'test', '{}', undefined, undefined, undefined, 'unknown')).rejects.toThrow('runtime_unsupported')
+      expect(mockDockerInstance.createVolume).not.toHaveBeenCalled()
+      expect(mockDockerInstance.createContainer).not.toHaveBeenCalled()
     })
 
     it('writes the provided runtime config content without mutating it', async () => {

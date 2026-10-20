@@ -1,6 +1,64 @@
 # OpenCode V2 contract spike (task 1.1)
 
-## Phase-3 local re-check (2026-10-20)
+## Phase-3 continuation (2026-10-20, client/runtime 2.0.32)
+
+The matching `@opencode/client@2.0.32` is now installed and lockfile-pinned. The
+earlier dependency blocker below is historical, **not** the current blocker.
+V2 read operations and the workspace-files bridge now have their own adapter;
+recorded kinds select V1/V2 independently. Unknown kinds still fail before
+container contact. The deployment default remains `opencode-v1`.
+
+**V2 startup is still blocked.** Adapter availability is not startup readiness.
+`checkRuntimeStartupSupport` refuses V2 before password generation, container
+cleanup or DB writes. Required caller-scoped policies, effective gateway access,
+and execution/family-idle semantics are not verified. No speculative mapping may
+turn those failures into success. The audited admin action remains implemented,
+but its requested V2 start currently returns `runtime_unsupported` safely.
+
+| Gate | Confirmed on the matched local pair | Still UNVERIFIED / fail-closed boundary |
+| --- | --- | --- |
+| 1. Serve/storage | Isolated foreground loopback `serve` starts/stops; matching client reports 2.0.32. Both pinned workspace images build and pass network-disabled smoke checks. | Restart/storage upgrade and resource usage. |
+| 2. Auth/health | Basic `opencode` works with `OPENCODE_SERVER_PASSWORD`; missing/malformed auth returns 401; client `server.info` proves readiness. Both images reject missing/wrong auth; entrypoint forces the supplied server password over an inherited `OPENCODE_PASSWORD`. Health unit tests abort at the per-request deadline and propagate losing-probe cancellation. | Location discovery can lag global readiness, so smoke checks explicitly wait for configured agents/skills. No auth proxy is needed. |
+| 3. Session API | Matched SDK create/get/rename/delete; explicit workspace directory; parent-filtered children and root-only lists; a short page with a cursor is followed until an empty final page; missing get throws `SessionNotFoundError`. | Cross-location isolation beyond the explicit directory filter, nonempty permission/error fixtures. |
+| 4. Execution | Idle interrupt and missing-session rejection; slow parent and explicit background child both appear in `active`. Interrupting the parent leaves the child running; interrupting both clears that map. Permission waits remain active. | Retry, queued-input drain, nested/late/tool-created children remain unverified. `sessionStatus` still refuses with `runtime_unsupported:v2_family_idle_confirmation_unverified`; observed foreground acknowledgements do not prove the complete idle contract. |
+| 5. Files/prompt | Native file read returns bytes. `find` is bounded/fuzzy and respects `.gitignore`; `list` includes ignored entries. Fake-provider text prompts succeed; supplied message IDs survive delivery; agent/model switches are reflected in `get`. Text-only prompt mapping is implemented. | `resume:false` leaves an inbox item, NOT a delivered no-reply message, so no-reply explicitly refuses. Attachment URI/multipart semantics and synchronous completion remain unsupported rather than dropping fields. |
+| 6. Provider access | Synthetic credential create/activate/list/remove and location reload work. Removing the active OpenAI credential **reactivates an older credential**. Custom fireworks/ollama provider records omit `integrationID`. Reload/healthy info can precede catalog readiness. Separate fixture-provider generation using config `settings.apiKey` succeeds, but is not provider-sync/gateway evidence. | Effective gateway routing/revocation remains unverified: credential-API models returned `Model unavailable` before reaching the stub. Sync returns typed `sync_failed` with an explicit detail, without issuing tokens, altering credentials, contacting the runtime or recording freshness. Credential fallback/revocation cannot be guessed. |
+| 7. Events | Captured live text/reasoning/tool/permission/family events and matching snapshots; per-kind ordinals, caller IDs, per-message usage and source call IDs are preserved. Safe per-event translation and snapshots have regression tests. | Full live/snapshot parity requires Arche-owned partial message/tool updates and hydration reconciliation; subscription explicitly refuses with `runtime_unsupported` before connecting. No cross-event state or asynchronous per-delta snapshot workaround is introduced. |
+| 8. MCP | Matched config preserves `codemode:false`; a synthetic connection probe returned an empty catalog. | Invocation, exact allowlists, session metadata and attachment parity are not proven. Explicit caller fallback must continue failing closed on missing/conflicting identity. |
+| 9. Config guards | Actual mapping-only renderer output validates against live 2.0.32 OpenAPI config schema and survives client `config.get`. Agent-level `policies` are silently dropped; policy statements expose only action/resource/effect. | No caller predicate can express the required self-delegation guard. Protected models still return `runtime_config_unsupported` at `guards.selfDelegation`; no guard was weakened to overridable permissions. Protected placement/enforcement remains unverified. |
+
+The files bridge uses the ignore-aware `find(query:"", limit:10000)` inventory for
+directory listing, emitting immediate children only. At the bound it returns
+`workspace_file_limit_exceeded` rather than silently presenting an incomplete
+tree. Search remains fuzzy/ignore-aware with a 50-result bound; read validates
+workspace-relative protected paths and decodes native bytes, never calling V1
+file endpoints. V2 state volumes are separate from V1 even for an internal test.
+
+Reproduce the credential-free CRUD/files/auth probe from `apps/web/`:
+
+```sh
+node src/lib/harness/adapters/opencode-v2/__tests__/runtime.probe.mjs
+```
+
+It uses random ephemeral auth, a loopback-only process, a whitelisted child env
+and repository-local HOME/XDG/TMPDIR scratch, and removes its process and scratch
+in `finally`. It does not use the shared host service or real provider keys.
+These probes are not the manual end-to-end acceptance in task 5.7.
+
+Live execution fixtures, golden-test evidence boundaries and the fake-provider
+reproducer are documented in `__tests__/CAPTURE.md`. The reproducer emits its
+sanitized capture to stdout, with all scratch inside the repository. Full tool
+goldens, reconnect/cancellation isolation and end-to-end MCP acceptance are not
+claimed. The older 2.1 source-spike event `session.message.content.updated` is
+absent from the installed 2.0.32 generated event union.
+
+Image pins are `versions/opencode.version` (2.0.32) and the retained
+`versions/opencode-v1.version` (1.18.18). The image check builds both, without
+pruning unrelated resources, and validates config/instructions/skills plus native
+auth. Desktop preparation deliberately reads the V1 pin until phase 7. Publish
+the pinned legacy tag before deployment; do not use release `v6.0.0` (1.17.9).
+
+## Earlier phase-3 local re-check (historical)
 
 **Partial implementation; V2 is not enabled.** The installed foreground binary is
 `opencode v2.0.32`, whereas the source spike inspected client `2.1.0`. Installing
