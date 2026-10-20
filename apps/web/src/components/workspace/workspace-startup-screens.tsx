@@ -44,11 +44,11 @@ export function WorkspaceConnectingBanner({
       {failed || connectionFailed ? (
         <XCircle size={24} weight="fill" className="text-destructive/70" aria-hidden />
       ) : (
-        <ArcLoader />
+        <div aria-hidden><ArcLoader /></div>
       )}
-      <div className="space-y-1">
+      <div className="max-w-sm space-y-1">
         {starting ? (
-          <>
+          <div role="status" aria-atomic="true" className="space-y-1">
             <h2 className="type-display text-base font-semibold">
               {migrating ? "Migrating history" : "Starting workspace"}
             </h2>
@@ -57,7 +57,7 @@ export function WorkspaceConnectingBanner({
                 ? "Preserving your previous conversations before starting your workspace…"
                 : "Setting up your workspace…"}
             </p>
-          </>
+          </div>
         ) : failed ? (
           <div role="alert">
             <h2 className="type-display text-base font-semibold text-destructive">Failed to start</h2>

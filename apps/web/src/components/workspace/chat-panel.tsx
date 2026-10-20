@@ -1201,9 +1201,14 @@ export function ChatPanel({
               onSubmitted={onFlowHumanResponseSubmitted}
             />
           ) : (
-            <div className="flex items-center justify-between gap-3 rounded-xl border border-warning/20 bg-warning/10 px-4 py-3 text-sm text-warning-foreground">
-              <div className="flex items-center gap-2 text-warning-foreground">
-                <Info size={16} weight="fill" className="text-warning" />
+            <div className={cn(
+              "flex items-center justify-between gap-3 rounded-xl border px-4 py-3 text-sm",
+              activeSession?.archived
+                ? "border-border bg-muted/50 text-muted-foreground"
+                : "border-warning/20 bg-warning/10 text-warning-foreground"
+            )}>
+              <div className="flex items-start gap-2">
+                <Info size={16} weight="fill" aria-hidden className={cn("mt-0.5 shrink-0", !activeSession?.archived && "text-warning")} />
                 <span>{readOnlyNotice ?? "Subagent sessions are read-only. Return to the main conversation to continue chatting."}</span>
               </div>
               {onReturnToMainConversation ? (
