@@ -115,6 +115,15 @@ describe('instanceService', () => {
       }
     })
 
+    it('recovers only its own failed shutdown without clearing the container pointer or runtime credentials', async () => {
+      const startedAt = new Date(3)
+      await transitions.recoverStoppingTransition(instance, startedAt)
+      expect(mockPrisma.instance.updateMany).toHaveBeenCalledWith({
+        where: { id: 'i1', status: 'starting', containerId: 'legacy', startedAt },
+        data: { status: 'stopped', startedAt: instance.startedAt },
+      })
+    })
+
     it('reconciles stopped state only against its original status snapshot', async () => {
       await transitions.setStoppedIfCurrentSnapshot('alice', instance)
       expect(mockPrisma.instance.updateMany).toHaveBeenCalledWith(expect.objectContaining({

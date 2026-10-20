@@ -9,7 +9,7 @@ const { mockPrisma, mockTransaction } = vi.hoisted(() => ({
   },
   mockTransaction: {
     instance: { updateMany: vi.fn() },
-    legacySessionArchive: { upsert: vi.fn() },
+    legacySessionArchive: { upsert: vi.fn(), findMany: vi.fn(), deleteMany: vi.fn() },
   },
 }))
 
@@ -18,11 +18,14 @@ vi.mock('@/lib/prisma', () => ({ prisma: mockPrisma }))
 import { formatTimestamp } from '@/lib/format-timestamp'
 import {
   findExportedSession,
+  deleteSessionTree,
   findNextRunningV1Instance,
   findSession,
   isArchivedSession,
   listSessions,
+  reconcileSessions,
   upsertSession,
+  withArchiveWriteFence,
 } from '@/lib/services/legacy-session-archive'
 
 const record: LegacySessionArchive = {
@@ -100,6 +103,64 @@ describe('archive reads', () => {
 })
 
 describe('export storage', () => {
+  it.each([false, true])('locks the owner V1 row before invoking archive work (running only: %s)', async (onlyWhileRunning) => {
+    const work = vi.fn(async () => 'done')
+    expect(await withArchiveWriteFence('alice', work, { onlyWhileRunning })).toBe('done')
+    expect(mockTransaction.instance.updateMany).toHaveBeenCalledExactlyOnceWith({
+      where: { slug: 'alice', ...(onlyWhileRunning ? { status: 'running' } : {}), OR: [{ runtimeKind: null }, { runtimeKind: 'opencode-v1' }] },
+      data: { slug: 'alice' },
+    })
+    expect(work).toHaveBeenCalledWith(mockTransaction)
+    expect(mockTransaction.instance.updateMany.mock.invocationCallOrder[0]).toBeLessThan(work.mock.invocationCallOrder[0])
+    expect(mockPrisma.$transaction).toHaveBeenCalledWith(expect.any(Function), { maxWait: 10_000, timeout: 60_000 })
+  })
+
+  it('does not invoke fenced work without a matching owner/V1 row', async () => {
+    mockTransaction.instance.updateMany.mockResolvedValue({ count: 0 })
+    const work = vi.fn()
+    expect(await withArchiveWriteFence('alice', work)).toBeNull()
+    expect(work).not.toHaveBeenCalled()
+  })
+
+  it('holds the row fence until work finishes and propagates failures', async () => {
+    let finish!: () => void
+    let started!: () => void
+    const pending = new Promise<void>((resolve) => { finish = resolve })
+    const ready = new Promise<void>((resolve) => { started = resolve })
+    const committed = vi.fn()
+    mockPrisma.$transaction.mockImplementation(async (callback) => {
+      const result = await callback(mockTransaction)
+      committed()
+      return result
+    })
+    const work = withArchiveWriteFence('alice', async () => { started(); await pending; return 'done' })
+    await ready
+    expect(committed).not.toHaveBeenCalled()
+    finish()
+    expect(await work).toBe('done')
+    expect(committed).toHaveBeenCalledOnce()
+    await expect(withArchiveWriteFence('alice', async () => { throw new Error('failed') })).rejects.toThrow('failed')
+    expect(committed).toHaveBeenCalledOnce()
+  })
+
+  it('deletes recursively retained descendants even when missing from the live runtime', async () => {
+    mockTransaction.legacySessionArchive.findMany.mockResolvedValue([
+      { sessionId: 'grandchild', parentId: 'child' }, { sessionId: 'child', parentId: 'root' },
+      { sessionId: 'root', parentId: null }, { sessionId: 'keep', parentId: null },
+    ])
+    await withArchiveWriteFence('alice', (tx) => deleteSessionTree('alice', ['root'], tx))
+    expect(mockTransaction.legacySessionArchive.deleteMany).toHaveBeenCalledWith({
+      where: { slug: 'alice', sessionId: { in: ['root', 'child', 'grandchild'] } },
+    })
+  })
+
+  it.each([{ ids: [] }, { ids: ['root', 'child'] }])('reconciles only the owner rows absent from inventory %j', async ({ ids }) => {
+    await withArchiveWriteFence('alice', (tx) => reconcileSessions('alice', ids, tx))
+    expect(mockTransaction.legacySessionArchive.deleteMany).toHaveBeenCalledWith({
+      where: { slug: 'alice', sessionId: { notIn: ids } },
+    })
+  })
+
   it('fences background writes with an owner-scoped running-V1 row update inside the archive transaction', async () => {
     expect(await upsertSession(snapshot, { onlyWhileRunning: true })).toBe(true)
     expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1)

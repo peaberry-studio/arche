@@ -17,7 +17,7 @@ export const textEvents = [
     data: { ...address, ordinal: 0, delta: 'Hello fixture' } },
   { id: 'evt_text_end', created: 1792511016655, type: 'session.text.ended', location, durable,
     data: { ...address, ordinal: 0, text: 'Hello fixture' } },
-] satisfies OpenCodeEvent[]
+] satisfies [OpenCodeEvent, OpenCodeEvent, OpenCodeEvent, OpenCodeEvent]
 
 export const endedEvent = { id: 'evt_step_end', created: 1792511016657, type: 'session.step.ended', location, durable,
   data: { ...address, finish: 'stop', rawFinish: 'stop', cost: 0.000017, tokens },
@@ -56,7 +56,7 @@ export const toolEvents = [
     data: { ...toolAddress, input: { path: '/workspace/sample.txt' }, executed: false } },
   { id: 'evt_tool_success', created: 1792511016817, type: 'session.tool.success', location, durable: { ...toolDurable, version: 2 },
     data: { ...toolAddress, content: [toolContent[0]], metadata: { truncated: false }, executed: false } },
-] satisfies OpenCodeEvent[]
+] satisfies [OpenCodeEvent, OpenCodeEvent, OpenCodeEvent, OpenCodeEvent]
 
 export const permission = {
   id: 'per_159fb7f52001pXs4xNcoT3hndW', sessionID: TOOL_SESSION_ID, action: 'read', resources: ['sample.txt'], save: ['*'],

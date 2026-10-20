@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import type { HarnessRuntime } from '@/lib/harness/contract'
+import { readSessionFamilyRuntimeState } from '@/lib/harness/execution'
 import {
   buildWorkspacePromptParts,
   getRuntimeForSlug,
@@ -28,24 +28,6 @@ type ParsedPromptRequest = {
 
 function jsonErrorResponse(status: number, error: string) {
   return NextResponse.json({ error }, { status })
-}
-
-type SessionRuntimeState = 'busy' | 'idle' | 'unknown'
-
-async function readSessionRuntimeState(client: HarnessRuntime, sessionId: string): Promise<SessionRuntimeState> {
-  try {
-    const response = await client.sessionStatus({
-      signal: AbortSignal.timeout(8_000),
-    })
-    if (!response.ok) return 'unknown'
-    const record = response.data[sessionId]
-    if (!record) return 'idle'
-    if (record.type === 'busy' || record.type === 'retry') return 'busy'
-    if (record.type === 'idle') return 'idle'
-    return 'unknown'
-  } catch {
-    return 'unknown'
-  }
 }
 
 function parsePromptBody(body: unknown): ParsedPromptRequest | null {
@@ -115,19 +97,14 @@ export const POST = withAuth<
     return jsonErrorResponse(400, 'too_many_attachments')
   }
 
-  const runtimeState = await readSessionRuntimeState(client, sessionId)
-  if (runtimeState === 'busy') {
+  const runtimeState = await readSessionFamilyRuntimeState(client, sessionId)
+  if (runtimeState === 'not_found') return jsonErrorResponse(404, 'session_not_found')
+  if (runtimeState !== 'idle') {
     return jsonErrorResponse(409, 'session_busy')
   }
 
-  // Respect the slack/flow lock. If the runtime is idle and only a stale lock
-  // remains, reap it (the run finished) and continue. If status is unknown,
-  // skip the reap but still refuse when a run is actively locked.
   const activeRun = await messageRunService.findActiveRun(slug, sessionId)
   if (activeRun?.status === 'running') {
-    if (runtimeState === 'unknown') {
-      return jsonErrorResponse(409, 'session_busy')
-    }
     await messageRunService.markActiveRunSucceeded(slug, sessionId).catch(() => undefined)
   }
 

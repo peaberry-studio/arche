@@ -251,6 +251,7 @@ export async function startContainer(containerId: string): Promise<void> {
 
 export async function createArchiveContainer(slug: string, password: string): Promise<{ id: string; name: string }> {
   const docker = await getContainerClient()
+  if (await findLegacyArchiveSource(slug, null)) throw new Error('legacy_archive_source_not_removed')
   const name = `opencode-archive-${slug}`
   const options = {
     Image: getOpencodeV1Image(),
@@ -289,6 +290,32 @@ export async function createArchiveContainer(slug: string, password: string): Pr
     return docker.createContainer(options)
   })
   return { id: container.id, name }
+}
+
+export async function findLegacyArchiveSource(slug: string, containerId: string | null): Promise<{ id: string; name: string; running: boolean } | null> {
+  const docker = await getContainerClient()
+  const containers = await docker.listContainers({ all: true, filters: { label: ['arche.managed=true', `arche.user.slug=${slug}`] } })
+  const candidates = new Set([`opencode-${slug}`, ...containers.filter((container) => container.Labels['arche.archive'] !== 'true').map((container) => container.Id)])
+  if (containerId) candidates.add(containerId)
+  const sources = new Map<string, { id: string; name: string; running: boolean }>()
+  for (const candidate of candidates) {
+    let info
+    try {
+      info = await docker.getContainer(candidate).inspect()
+    } catch (error) {
+      if (error && typeof error === 'object' && 'statusCode' in error && error.statusCode === 404) continue
+      throw error
+    }
+    const labels = info.Config?.Labels ?? {}
+    if (labels['arche.managed'] !== 'true' || labels['arche.user.slug'] !== slug || labels['arche.archive'] === 'true' ||
+      (labels['arche.runtime.kind'] && labels['arche.runtime.kind'] !== 'opencode-v1')) {
+      throw new Error('legacy_archive_source_not_owned_v1')
+    }
+    if (!info.Id || !info.Name || typeof info.State?.Running !== 'boolean') throw new Error('legacy_archive_source_inspection_incomplete')
+    sources.set(info.Id, { id: info.Id, name: info.Name.replace(/^\//, ''), running: info.State.Running })
+  }
+  if (sources.size > 1) throw new Error('legacy_archive_multiple_sources')
+  return sources.values().next().value ?? null
 }
 
 async function removeManagedArchiveContainerWithClient(docker: DockerClient, slug: string): Promise<void> {

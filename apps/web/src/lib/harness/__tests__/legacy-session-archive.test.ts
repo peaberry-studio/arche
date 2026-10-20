@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { fakeRuntime, message, session } from '@/lib/harness/__tests__/fake-runtime'
@@ -8,15 +9,18 @@ import type { WorkspaceMessage } from '@/types/workspace-runtime'
 
 vi.mock('@/lib/services/legacy-session-archive', () => ({
   findExportedSession: vi.fn(), upsertSession: vi.fn(), findNextRunningV1Instance: vi.fn(),
+  withArchiveWriteFence: vi.fn(), reconcileSessions: vi.fn(), deleteSessionTree: vi.fn(),
 }))
 vi.mock('@/lib/harness/registry', () => ({ getRuntimeForSlug: vi.fn() }))
+vi.mock('@/lib/services/audit', () => ({ createEventStrict: vi.fn() }))
 
-import { exportLegacySessions } from '@/lib/harness/legacy-session-archive'
+import { deleteLegacySession, exportLegacySessions } from '@/lib/harness/legacy-session-archive'
 import { getRuntimeForSlug } from '@/lib/harness/registry'
 import * as storage from '@/lib/services/legacy-session-archive'
 
 const mockStorage = vi.mocked(storage)
 const mockGetRuntime = vi.mocked(getRuntimeForSlug)
+const transaction = {} as Prisma.TransactionClient
 
 function legacySession(id: string, parentId?: string): HarnessSession {
   return { ...session(id), title: id, parentId, createdAtRaw: 1_700_000_000_123, updatedAtRaw: 1_700_000_100_456 }
@@ -27,6 +31,7 @@ let runtime: ReturnType<typeof fakeRuntime>
 
 beforeEach(() => {
   vi.resetAllMocks()
+  mockStorage.withArchiveWriteFence.mockImplementation(async (_slug, work) => work(transaction))
   exported = new Map()
   runtime = fakeRuntime()
   runtime.getSession.mockImplementation(async (id) => {
@@ -51,6 +56,34 @@ afterEach(() => {
 })
 
 describe('exportLegacySessions', () => {
+  it.each(['added', 'removed', 'renamed', 'child-added'] as const)('does not reconcile an inventory that was %s during export', async (change) => {
+    const root = legacySession('root')
+    runtime.listSessions.mockResolvedValueOnce({ ok: true, data: [root] }).mockResolvedValue({
+      ok: true, data: change === 'removed' ? [] : change === 'added' ? [root, legacySession('new')] :
+        change === 'renamed' ? [{ ...root, title: 'Renamed' }] : [root],
+    })
+    if (change === 'child-added') runtime.listChildren.mockResolvedValueOnce({ ok: true, data: [] })
+      .mockImplementation(async (id) => ({ ok: true, data: id === 'root' ? [legacySession('new-child', 'root')] : [] }))
+    runtime.getSession.mockResolvedValue({ ok: true, data: root })
+    expect(await exportLegacySessions(runtime.slug, runtime)).toMatchObject({ ok: false, error: { code: 'session_busy' } })
+    expect(mockStorage.reconcileSessions).not.toHaveBeenCalled()
+  })
+
+  it('prunes only after a complete verified final inventory, including empty workspaces', async () => {
+    expect(await exportLegacySessions(runtime.slug, runtime)).toEqual({ ok: true, data: { archived: 0 } })
+    expect(runtime.listSessions).toHaveBeenCalledTimes(2)
+    expect(mockStorage.reconcileSessions).toHaveBeenCalledExactlyOnceWith(runtime.slug, [], transaction)
+  })
+
+  it('does not prune when final inventory traversal or its status check fails', async () => {
+    runtime.listSessions.mockResolvedValueOnce({ ok: true, data: [] }).mockResolvedValueOnce(harnessFailure('instance_unavailable'))
+    expect(await exportLegacySessions(runtime.slug, runtime)).toEqual(harnessFailure('instance_unavailable'))
+    expect(mockStorage.reconcileSessions).not.toHaveBeenCalled()
+    runtime.sessionStatus.mockResolvedValue(harnessFailure('runtime_error'))
+    expect(await exportLegacySessions(runtime.slug, runtime)).toEqual(harnessFailure('runtime_error'))
+    expect(mockStorage.reconcileSessions).not.toHaveBeenCalled()
+  })
+
   it('archives roots and recursive children, preserving timestamps and parts', async () => {
     runtime.listSessions.mockResolvedValue({ ok: true, data: [legacySession('root'), legacySession('other')] })
     runtime.listChildren.mockImplementation(async (id) => ({ ok: true, data: id === 'root' ? [legacySession('child', 'root')] : id === 'child' ? [legacySession('grandchild', 'child')] : [] }))
@@ -61,7 +94,7 @@ describe('exportLegacySessions', () => {
       slug: runtime.slug, sessionId: 'grandchild', parentId: 'child',
       createdAt: new Date(1_700_000_000_123), updatedAt: new Date(1_700_000_100_456),
       messages: [expect.objectContaining({ sessionId: 'grandchild', timestampRaw: 1_700_000_050_789, parts: [{ type: 'text', id: 'part-1', text: 'Done' }] })],
-    }))
+    }), {}, transaction)
     expect(runtime.listMessages).toHaveBeenCalledTimes(4)
   })
 
@@ -72,7 +105,7 @@ describe('exportLegacySessions', () => {
     runtime.listChildren.mockImplementation(async (id) => ({ ok: true, data: id === 'root' ? [legacySession('child', 'root')] : [] }))
     expect(await exportLegacySessions(runtime.slug, runtime)).toEqual({ ok: true, data: { archived: 1 } })
     expect(runtime.listMessages).toHaveBeenCalledTimes(2)
-    expect(mockStorage.upsertSession).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ sessionId: 'child' }))
+    expect(mockStorage.upsertSession).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ sessionId: 'child' }), {}, transaction)
   })
 
   it('resumes a partial export without rewriting unchanged snapshots', async () => {
@@ -95,7 +128,7 @@ describe('exportLegacySessions', () => {
     runtime.listSessions.mockResolvedValue({ ok: true, data: [{ ...source, updatedAtRaw: source.updatedAtRaw! + 1 }] })
     runtime.listMessages.mockResolvedValue({ ok: true, data: [message({ sessionId: 'active', content: 'New reply' })] })
     expect(await exportLegacySessions(runtime.slug, runtime)).toEqual({ ok: true, data: { archived: 1 } })
-    expect(mockStorage.upsertSession).toHaveBeenLastCalledWith(expect.objectContaining({ messages: [expect.objectContaining({ content: 'New reply' })] }))
+    expect(mockStorage.upsertSession).toHaveBeenLastCalledWith(expect.objectContaining({ messages: [expect.objectContaining({ content: 'New reply' })] }), {}, transaction)
     expect(await exportLegacySessions(runtime.slug, runtime)).toEqual({ ok: true, data: { archived: 0 } })
   })
 
@@ -172,7 +205,7 @@ describe('exportLegacySessions', () => {
     runtime.listSessions.mockResolvedValue({ ok: true, data: [root, child, root] })
     runtime.listChildren.mockImplementation(async (id) => ({ ok: true, data: id === 'root' ? [child, child] : [root] }))
     expect(await exportLegacySessions(runtime.slug, runtime)).toEqual({ ok: true, data: { archived: 2 } })
-    expect(runtime.listChildren).toHaveBeenCalledTimes(2)
+    expect(runtime.listChildren).toHaveBeenCalledTimes(4)
     expect(runtime.listMessages).toHaveBeenCalledTimes(2)
   })
 
@@ -224,6 +257,96 @@ describe('exportLegacySessions', () => {
   })
 })
 
+describe('live V1 deletion', () => {
+  it('purges the deleted runtime subtree under the same write fence', async () => {
+    runtime.listChildren.mockImplementation(async (id) => ({ ok: true, data: id === 'root' ? [legacySession('child', 'root')] : [] }))
+    runtime.deleteSession.mockResolvedValue({ ok: true, data: undefined })
+    expect(await deleteLegacySession(runtime.slug, runtime, 'root')).toEqual({ ok: true, data: undefined })
+    expect(mockStorage.deleteSessionTree).toHaveBeenCalledExactlyOnceWith(runtime.slug, ['root', 'child'], transaction)
+    expect(mockStorage.withArchiveWriteFence).toHaveBeenCalledWith(runtime.slug, expect.any(Function), { onlyWhileRunning: true })
+  })
+
+  it('repairs retained prearchives when retrying a runtime deletion that already succeeded', async () => {
+    runtime.listChildren.mockResolvedValue(harnessFailure('session_not_found'))
+    runtime.deleteSession.mockResolvedValue(harnessFailure('session_not_found'))
+    expect(await deleteLegacySession(runtime.slug, runtime, 'gone')).toEqual(harnessFailure('session_not_found'))
+    expect(mockStorage.deleteSessionTree).toHaveBeenCalledWith(runtime.slug, ['gone'], transaction)
+  })
+
+  it('does not delete or purge after losing the running V1 instance', async () => {
+    mockStorage.withArchiveWriteFence.mockResolvedValue(null)
+    expect(await deleteLegacySession(runtime.slug, runtime, 'root')).toMatchObject({ ok: false, error: { code: 'session_busy' } })
+    expect(runtime.deleteSession).not.toHaveBeenCalled()
+    expect(mockStorage.deleteSessionTree).not.toHaveBeenCalled()
+  })
+
+  it('keeps the prearchive when the runtime rejects deletion', async () => {
+    runtime.deleteSession.mockResolvedValue(harnessFailure('runtime_error'))
+    expect(await deleteLegacySession(runtime.slug, runtime, 'root')).toEqual(harnessFailure('runtime_error'))
+    expect(mockStorage.deleteSessionTree).not.toHaveBeenCalled()
+  })
+
+  it('returns a typed failure if archive deletion fails after runtime deletion', async () => {
+    runtime.deleteSession.mockResolvedValue({ ok: true, data: undefined })
+    mockStorage.deleteSessionTree.mockRejectedValue(new Error('database unavailable'))
+    expect(await deleteLegacySession(runtime.slug, runtime, 'root')).toMatchObject({ ok: false, error: { code: 'runtime_error' } })
+  })
+
+  it('cannot recreate a stale inventoried session when deletion wins the write fence', async () => {
+    runtime.listSessions.mockResolvedValue({ ok: true, data: [legacySession('root')] })
+    runtime.deleteSession.mockResolvedValue({ ok: true, data: undefined })
+    mockStorage.withArchiveWriteFence.mockImplementationOnce(async (_slug, work) => {
+      expect(await deleteLegacySession(runtime.slug, runtime, 'root')).toEqual({ ok: true, data: undefined })
+      runtime.getSession.mockResolvedValue(harnessFailure('session_not_found'))
+      return work(transaction)
+    })
+    expect(await exportLegacySessions(runtime.slug, runtime)).toEqual(harnessFailure('session_not_found'))
+    expect(mockStorage.deleteSessionTree).toHaveBeenCalledWith(runtime.slug, ['root'], transaction)
+    expect(mockStorage.upsertSession).not.toHaveBeenCalled()
+    expect(mockStorage.reconcileSessions).not.toHaveBeenCalled()
+  })
+
+  it.each([false, true])('serializes deletion racing a %s background export without resurrecting its snapshot', async (background) => {
+    let tail = Promise.resolve()
+    mockStorage.withArchiveWriteFence.mockImplementation(async (_slug, work) => {
+      const previous = tail
+      let release!: () => void
+      tail = new Promise<void>((resolve) => { release = resolve })
+      await previous
+      try { return await work(transaction) } finally { release() }
+    })
+    let sources = [legacySession('root')]
+    runtime.listSessions.mockImplementation(async () => ({ ok: true, data: [...sources] }))
+    runtime.deleteSession.mockImplementation(async () => { sources = []; return { ok: true, data: undefined } })
+    mockStorage.deleteSessionTree.mockImplementation(async (slug, ids) => {
+      for (const id of ids) exported.delete(`${slug}/${id}`)
+    })
+    let releaseRead!: () => void
+    let readStarted!: () => void
+    const reading = new Promise<void>((resolve) => { readStarted = resolve })
+    const pause = new Promise<void>((resolve) => { releaseRead = resolve })
+    runtime.listMessages.mockImplementationOnce(async (id) => {
+      readStarted()
+      await pause
+      return { ok: true, data: [message({ sessionId: id })] }
+    })
+    vi.resetModules()
+    const { preArchiveRunningV1Instances } = await import('@/lib/harness/legacy-session-archive')
+    mockStorage.findNextRunningV1Instance.mockResolvedValue({ slug: runtime.slug })
+    const exporting = background ? preArchiveRunningV1Instances() : exportLegacySessions(runtime.slug, runtime)
+    await reading
+    const deleting = deleteLegacySession(runtime.slug, runtime, 'root')
+    await Promise.resolve()
+    expect(runtime.deleteSession).not.toHaveBeenCalled()
+    releaseRead()
+    expect(await deleting).toEqual({ ok: true, data: undefined })
+    await exporting
+    expect(exported.size).toBe(0)
+    expect(await exportLegacySessions(runtime.slug, runtime)).toEqual({ ok: true, data: { archived: 0 } })
+    expect(exported.size).toBe(0)
+  })
+})
+
 describe('preArchiveRunningV1Instances', () => {
   async function loadJob() {
     vi.resetModules()
@@ -257,15 +380,16 @@ describe('preArchiveRunningV1Instances', () => {
   it('does not count or retain a background snapshot fenced out by migration after the read', async () => {
     const { preArchiveRunningV1Instances } = await loadJob()
     runtime.listSessions.mockResolvedValue({ ok: true, data: [legacySession('root')] })
-    mockStorage.upsertSession.mockResolvedValueOnce(false)
+    mockStorage.withArchiveWriteFence.mockResolvedValueOnce(null)
 
     expect(await preArchiveRunningV1Instances()).toBe(0)
-    expect(mockStorage.upsertSession).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ sessionId: 'root' }), { onlyWhileRunning: true })
+    expect(mockStorage.upsertSession).not.toHaveBeenCalled()
+    expect(mockStorage.withArchiveWriteFence).toHaveBeenCalledWith(runtime.slug, expect.any(Function), { onlyWhileRunning: true })
     expect(exported.size).toBe(0)
     expect(console.info).toHaveBeenCalledWith('[legacy-session-archive] Pre-archived workspace:', { slug: runtime.slug, archived: 0 })
 
     expect(await exportLegacySessions(runtime.slug, runtime)).toEqual({ ok: true, data: { archived: 1 } })
-    expect(mockStorage.upsertSession).toHaveBeenLastCalledWith(expect.objectContaining({ sessionId: 'root' }))
+    expect(mockStorage.upsertSession).toHaveBeenLastCalledWith(expect.objectContaining({ sessionId: 'root' }), {}, transaction)
   })
 
   it('skips busy sessions but archives their idle descendants without persisting partial history', async () => {
@@ -277,7 +401,7 @@ describe('preArchiveRunningV1Instances', () => {
 
     expect(await preArchiveRunningV1Instances()).toBe(1)
     expect(runtime.listMessages).toHaveBeenCalledExactlyOnceWith('child')
-    expect(mockStorage.upsertSession).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ sessionId: 'child' }), { onlyWhileRunning: true })
+    expect(mockStorage.upsertSession).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ sessionId: 'child' }), {}, transaction)
     expect(exported.has(`${runtime.slug}/root`)).toBe(false)
 
     runtime.sessionStatus.mockResolvedValue({ ok: true, data: {} })

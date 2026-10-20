@@ -29,6 +29,7 @@ export type SessionMessageCursor = {
 }
 
 export type SessionPromptRunResult = Awaited<ReturnType<typeof messageRunService.createActiveRunAfterRuntimeStateCheck>>
+  | { ok: false; error: 'session_not_found' }
 
 type SessionRunUsageInput = {
   messageRunId: string
@@ -277,19 +278,17 @@ export async function createSessionPromptRun(params: {
   slug: string
   source: string
 }): Promise<SessionPromptRunResult> {
+  const readRuntimeSessionState = async (): Promise<ActiveRunRuntimeState> => {
+    const state = await readSessionFamilyRuntimeState(params.client, params.sessionId)
+    return state === 'not_found' ? 'unknown' : state
+  }
+  const state = await readSessionFamilyRuntimeState(params.client, params.sessionId)
+  if (state === 'not_found') return { ok: false, error: 'session_not_found' }
+  if (state !== 'idle') {
+    return { ok: false, error: 'session_busy', activeRun: null }
+  }
   return messageRunService.createActiveRunAfterRuntimeStateCheck({
-    readRuntimeSessionState: async (): Promise<ActiveRunRuntimeState> => {
-      const statuses = requireData(await params.client.sessionStatus())
-      const sessionStatus = statuses[params.sessionId]
-      if (sessionStatus?.type === 'busy' || sessionStatus?.type === 'retry') {
-        return 'busy'
-      }
-      if (!sessionStatus || sessionStatus.type === 'idle') {
-        return 'idle'
-      }
-
-      return 'unknown'
-    },
+    readRuntimeSessionState,
     slug: params.slug,
     sessionId: params.sessionId,
     source: params.source,
@@ -299,6 +298,7 @@ export async function createSessionPromptRun(params: {
 type DescendantSessionDiscovery = {
   complete: boolean
   sessionIds: string[]
+  missingRoot?: boolean
 }
 
 async function awaitBeforeDeadline<T>(promise: Promise<T>, deadline: number): Promise<T | null> {
@@ -337,7 +337,7 @@ async function listDescendantSessionIds(
       client.listChildren(parentSessionId),
       deadline,
     )
-    if (!response?.ok) return { complete: false, sessionIds }
+    if (!response?.ok) return { complete: false, sessionIds, missingRoot: index === 0 && response?.error.code === 'session_not_found' }
 
     for (const child of response.data ?? []) {
       if (visited.has(child.id)) continue
@@ -347,6 +347,20 @@ async function listDescendantSessionIds(
   }
 
   return { complete: true, sessionIds }
+}
+
+export async function readSessionFamilyRuntimeState(
+  client: HarnessRuntime,
+  sessionId: string,
+): Promise<ActiveRunRuntimeState | 'not_found'> {
+  const deadline = Date.now() + 8_000
+  const discovery = await listDescendantSessionIds(client, sessionId, deadline)
+  if (discovery.missingRoot) return 'not_found'
+  if (!discovery.complete) return 'unknown'
+  const response = await awaitBeforeDeadline(client.sessionStatus({ signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())) }), deadline)
+  if (!response?.ok) return 'unknown'
+  if (discovery.sessionIds.some((id) => response.data[id]?.type === 'busy' || response.data[id]?.type === 'retry')) return 'busy'
+  return discovery.sessionIds.every((id) => !response.data[id] || response.data[id].type === 'idle') ? 'idle' : 'unknown'
 }
 
 export async function abortSessionFamilyAndConfirmIdle(params: {

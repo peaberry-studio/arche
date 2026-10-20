@@ -250,21 +250,47 @@ describe('harness execution', () => {
     expect(await describeLatestAssistantReply({ client, sessionId: 'session-1' })).toEqual({ agent: 'reviewer', assistantMessageCount: 1, messageCount: 1, modelId: 'gpt-5.5', partTypes: ['text'], providerId: 'openai' })
   })
 
-  it.each(['busy', 'retry', 'idle', 'unknown'] as const)('creates runs using normalized runtime status: %s', async (type) => {
+  it.each(['busy', 'retry', 'idle', 'unknown'] as const)('admits a run only for idle family status: %s', async (type) => {
     const client = fakeRuntime()
     client.sessionStatus.mockResolvedValue({ ok: true, data: { 'session-1': { type } } })
-    await createSessionPromptRun({ client, sessionId: 'session-1', slug: 'slack-bot', source: 'flow' })
-    const input = vi.mocked(messageRunService.createActiveRunAfterRuntimeStateCheck).mock.calls[0]?.[0]
-    expect(await input?.readRuntimeSessionState()).toBe(type === 'retry' ? 'busy' : type)
-  })
-
-  it('uses only root status when recovering a prompt run', async () => {
-    const client = fakeRuntime()
-    client.listChildren.mockResolvedValueOnce({ ok: true, data: [session('child-1')] })
-    client.sessionStatus.mockResolvedValue({ ok: true, data: { 'session-1': { type: 'idle' }, 'child-1': { type: 'busy' } } })
-    await createSessionPromptRun({ client, sessionId: 'session-1', slug: 'slack-bot', source: 'flow' })
+    const result = await createSessionPromptRun({ client, sessionId: 'session-1', slug: 'slack-bot', source: 'flow' })
+    if (type !== 'idle') {
+      expect(result).toEqual({ ok: false, error: 'session_busy', activeRun: null })
+      expect(messageRunService.createActiveRunAfterRuntimeStateCheck).not.toHaveBeenCalled()
+      return
+    }
     const input = vi.mocked(messageRunService.createActiveRunAfterRuntimeStateCheck).mock.calls[0]?.[0]
     expect(await input?.readRuntimeSessionState()).toBe('idle')
-    expect(client.listChildren).not.toHaveBeenCalled()
+  })
+
+  it.each(['busy', 'retry'] as const)('rejects a %s grandchild before creating a run', async (type) => {
+    const client = fakeRuntime()
+    client.listChildren.mockResolvedValueOnce({ ok: true, data: [session('child-1')] })
+      .mockResolvedValueOnce({ ok: true, data: [session('grandchild-1')] })
+    client.sessionStatus.mockResolvedValue({ ok: true, data: { 'session-1': { type: 'idle' }, 'grandchild-1': { type } } })
+    expect(await createSessionPromptRun({ client, sessionId: 'session-1', slug: 'slack-bot', source: 'flow' }))
+      .toEqual({ ok: false, error: 'session_busy', activeRun: null })
+    expect(messageRunService.createActiveRunAfterRuntimeStateCheck).not.toHaveBeenCalled()
+    expect(client.prompt).not.toHaveBeenCalled()
+    expect(client.listChildren).toHaveBeenCalledWith('grandchild-1')
+  })
+
+  it('bounds incomplete family discovery without creating a run', async () => {
+    vi.useFakeTimers()
+    const client = fakeRuntime()
+    client.listChildren.mockReturnValue(new Promise(() => undefined))
+    const pending = createSessionPromptRun({ client, sessionId: 'session-1', slug: 'slack-bot', source: 'flow' })
+    await vi.advanceTimersByTimeAsync(8_000)
+    expect(await pending).toEqual({ ok: false, error: 'session_busy', activeRun: null })
+    expect(messageRunService.createActiveRunAfterRuntimeStateCheck).not.toHaveBeenCalled()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('preserves a missing root rather than reporting it busy', async () => {
+    const client = fakeRuntime()
+    client.listChildren.mockResolvedValue({ ok: false, error: { code: 'session_not_found' } })
+    expect(await createSessionPromptRun({ client, sessionId: 'missing', slug: 'slack-bot', source: 'flow' }))
+      .toEqual({ ok: false, error: 'session_not_found' })
+    expect(messageRunService.createActiveRunAfterRuntimeStateCheck).not.toHaveBeenCalled()
   })
 })

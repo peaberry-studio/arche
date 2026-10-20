@@ -1,6 +1,140 @@
 # OpenCode V2 contract spike (task 1.1)
 
-## Phase-3 continuation (2026-10-20, client/runtime 2.0.32)
+## Bounded credential-purge follow-up (2026-10-20)
+
+**Correction to the earlier deferral:** removing one active credential is unsafe,
+but that observation does **not** make credential revocation impossible on 2.0.32.
+The reasonable purge-before-replacement workaround below is now runtime-verified.
+Full production sync remains deferred for narrower reasons, not the old fallback
+claim. Reproduce from `apps/web/` with:
+
+```sh
+node src/lib/harness/adapters/opencode-v2/__tests__/providers.probe.mjs
+```
+
+The probe creates its own foreground loopback server, repository-local HOME/XDG
+and scratch, synthetic credentials, and authenticated synthetic gateway. It lists
+every credential, removes inactive predecessors before active entries, asserts
+the store empty, and creates only replacement gateway credentials. All entries
+being purged were created by this probe; no real store or key is read or changed.
+The child environment inherits no provider credentials. Process, gateway sockets
+and scratch are removed in `finally`; key values are never printed.
+
+**Verified with the matched SDK and binary:**
+
+- After reload, exact synthetic bearer/API-key identity reaches the gateway and
+  the fixture response is returned for all nine production runtime IDs:
+  `openai`, `anthropic`, `fireworks-ai`, `huggingface`, `openrouter`, `zai`,
+  `opencode`, `opencode-go`, and `ollama`. The Ollama package uses the renderer's
+  `aisdk:@ai-sdk/openai-compatible` spelling. A separate custom provider also
+  consumes `credential.create({integrationID: providerID, ...})`, even though its
+  provider record omits `integrationID`; absence of that field alone is **not** a
+  credential-mapping blocker. Synthetic explicitly configured models are used;
+  this does not establish production catalog/discovery completeness.
+- Purging all replacements and reloading causes all nine generation attempts to
+  fail. No old key is sent: eight reach the gateway without a credential and are
+  rejected with 401; Z.ai rejects locally because its key is absent. Explicit
+  configured models can still report `enabled:true` after revocation, so catalog
+  availability alone cannot establish effective provider access.
+- A provider deny policy prevents generation before any gateway request. However,
+  a provider **allowlist does not pin that provider's endpoint**. With a global
+  allow for the custom ID, a project `.opencode/opencode.json` overrides its
+  `baseURL` and key; a location-scoped session successfully calls the separate
+  `/bypass/fixture/chat/completions` stub path. This is an actual same-ID endpoint
+  bypass of routing settings, not a policy-deny bypass. Production's rendered
+  project file and a provider-ID allowlist are insufficient gateway-only proof.
+- File-backed `settings.apiKey` replacement plus reload works for native and
+  custom providers too. It still needs protected placement and safe atomic
+  writes; it does not fix the endpoint override above. The pinned live OpenAPI
+  and SDK expose config patching of **shell only**, not provider/policy updates.
+- `fireworks-ai` works; the extra `fireworks` config ID has no runtime package
+  and rejects generation. The prompt primitive now resolves Arche's canonical
+  `fireworks` selection back to `fireworks-ai`, matching list-model normalization;
+  two real-adapter HTTP regressions cover switching and already-selected models.
+
+**Remaining production boundary:** preserve unknown/non-Arche credential entries,
+establish a managed-store ownership invariant before any purge, enforce protected
+gateway endpoint/package configuration, then implement serialized refresh,
+active-run deferral, token issuance, bounded reload recovery and freshness only
+after consistency. No production purge/sync success was introduced from this
+probe. Its typed failure now names gateway-only endpoint enforcement, managed
+credential ownership and complete orchestration instead of claiming the verified
+credential mechanism is unverified. Startup and protected-config guards remain
+unchanged. The focused suite passes **121 tests**; focused ESLint passes.
+
+## Goal-fix recheck (2026-10-20, SC-1 / SC-3 / SC-8 / SC-10)
+
+Re-read the native V2 migration, config, client and policies guides and reran
+`node src/lib/harness/adapters/opencode-v2/__tests__/runtime.probe.mjs` from
+`apps/web/` against the installed binary and client, both **2.0.32**. The probe
+now asserts the two rollout blockers instead of relying on the earlier narrative:
+
+- A native `agents.policy_probe.policies` self-delegation deny is absent from
+  `config.get()`'s canonical document, although the agent itself is loaded. This
+  is config retention evidence, not a successful enforcement test. The documented
+  policy statement still contains only action/resource/effect, with no caller
+  predicate. A global target deny would also block legitimate other callers;
+  per-agent permissions would be overridable. Neither satisfies D6.
+- Create/activate two synthetic OpenAI credentials, confirm only the replacement
+  is active, then remove it: the older credential becomes active again. Both
+  synthetic entries are removed and the final credential list is empty. No key
+  values or credential-list payloads are logged. This verifies fallback behavior,
+  **not** effective gateway routing or safe provider revocation.
+
+The probe also passed the existing authenticated readiness, CRUD, pagination,
+files and idle-interrupt checks. It used only repository-local disposable storage,
+an isolated whitelisted child environment, ephemeral authentication and loopback
+serve; no host service or real provider credentials were used. The first recheck
+attempt exposed an incorrect probe assumption (`config.get()` returns entries,
+not a `data` envelope); it was corrected from the installed declarations and the
+complete probe then passed.
+
+`__tests__/runtime-http.test.ts` adds **14 deterministic tests** through the real
+`createOpenCodeV2Runtime` and matching `@opencode/client`, mocking only connection
+resolution and HTTP transport. Native envelopes, 204s, root-scoped short-page
+pagination, recorded message/accounting snapshots, selected-agent/model ordering,
+caller message IDs, cancellation forwarding, permission decisions, interrupt and
+missing-session errors are exercised. Neither adapter primitives nor client
+methods are mocked. These tests are transport regressions, **not** live model,
+family-idle, protected-renderer, gateway-sync or startup acceptance evidence.
+All 121 focused runtime/client/provider/renderer tests passed; focused ESLint
+passed.
+
+**Deferred, not bypassed:** protected production rendering and startup (SC-1),
+effective provider refresh/revocation and complete execution-idle/attachment
+semantics (SC-3), and their production success-path acceptance (SC-8 / SC-10). No
+production renderer, provider or startup guard was relaxed. V2 still refuses
+startup; provider sync still fails without mutation/freshness; idle confirmation
+still refuses. Config-file credential replacement/reload was unverified at this
+recheck; the bounded follow-up above verifies its mechanism, not protected
+production enforcement. Event acceptance is independently
+owned and cannot justify opening any of these gates. Default remains V1.
+
+## Event continuation (2026-10-20, SC-2 / SC-9)
+
+**Production subscription remains guarded:** `subscribeOpenCodeEvents` returns
+typed `runtime_unsupported` before credential lookup or transport, naming the
+remaining unfinished-snapshot overlap, missed-enqueue and session/control parity
+gaps. SC-2 / SC-9 full acceptance is deferred, not enabled by a partial mapping.
+The separate adapter-internal `connectOpenCodeEvents` transport is implemented
+and directly tested with the installed 2.0.32 client. It resolves on authenticated
+SSE headers (not the first payload), scopes located events and unlocated session
+notifications, and releases only the subscriber on cancellation. Partial
+tool/message and inbox lifecycle semantics live in the
+Arche reducer, as modes under the existing closed event types; no adapter payload
+buffering or per-event HTTP requests were added. V1 golden parity remains intact.
+
+A fresh isolated local capture's complete text, tool/permission/final-reply and
+mixed reasoning conversations matched their native snapshots during offline
+replay. Transport regressions use the actual installed client with mocked HTTP;
+synthetic attachments/metadata/errors are not MCP acceptance. See
+`__tests__/CAPTURE.md` for the verified native control-message ID basis, coverage,
+and explicit limits: arbitrary unfinished-snapshot/delta overlap, missed inbox
+enqueue across reconnect, and complete session/control parity remain unresolved.
+This is not unrestricted full-parity acceptance or image/manual acceptance and
+does not relax startup, protected-policy, provider-sync or family-idle gates.
+
+## Phase-3 continuation (2026-10-20, client/runtime 2.0.32; event row superseded above)
 
 The matching `@opencode/client@2.0.32` is now installed and lockfile-pinned. The
 earlier dependency blocker below is historical, **not** the current blocker.
@@ -22,8 +156,8 @@ but its requested V2 start currently returns `runtime_unsupported` safely.
 | 3. Session API | Matched SDK create/get/rename/delete; explicit workspace directory; parent-filtered children and root-only lists; a short page with a cursor is followed until an empty final page; missing get throws `SessionNotFoundError`. | Cross-location isolation beyond the explicit directory filter, nonempty permission/error fixtures. |
 | 4. Execution | Idle interrupt and missing-session rejection; slow parent and explicit background child both appear in `active`. Interrupting the parent leaves the child running; interrupting both clears that map. Permission waits remain active. | Retry, queued-input drain, nested/late/tool-created children remain unverified. `sessionStatus` still refuses with `runtime_unsupported:v2_family_idle_confirmation_unverified`; observed foreground acknowledgements do not prove the complete idle contract. |
 | 5. Files/prompt | Native file read returns bytes. `find` is bounded/fuzzy and respects `.gitignore`; `list` includes ignored entries. Fake-provider text prompts succeed; supplied message IDs survive delivery; agent/model switches are reflected in `get`. Text-only prompt mapping is implemented. | `resume:false` leaves an inbox item, NOT a delivered no-reply message, so no-reply explicitly refuses. Attachment URI/multipart semantics and synchronous completion remain unsupported rather than dropping fields. |
-| 6. Provider access | Synthetic credential create/activate/list/remove and location reload work. Removing the active OpenAI credential **reactivates an older credential**. Custom fireworks/ollama provider records omit `integrationID`. Reload/healthy info can precede catalog readiness. Separate fixture-provider generation using config `settings.apiKey` succeeds, but is not provider-sync/gateway evidence. | Effective gateway routing/revocation remains unverified: credential-API models returned `Model unavailable` before reaching the stub. Sync returns typed `sync_failed` with an explicit detail, without issuing tokens, altering credentials, contacting the runtime or recording freshness. Credential fallback/revocation cannot be guessed. |
-| 7. Events | Captured live text/reasoning/tool/permission/family events and matching snapshots; per-kind ordinals, caller IDs, per-message usage and source call IDs are preserved. Safe per-event translation and snapshots have regression tests. | Full live/snapshot parity requires Arche-owned partial message/tool updates and hydration reconciliation; subscription explicitly refuses with `runtime_unsupported` before connecting. No cross-event state or asynchronous per-delta snapshot workaround is introduced. |
+| 6. Provider access | Single-active deletion reactivates an older key, but purge-before-replacement works. All nine runtime provider IDs and a custom provider generate through the synthetic gateway with their replacement credential; purging and reloading revokes them without old-key fallback. A provider deny blocks requests. File-backed API-key replacement also works. | Provider-ID allows do not pin endpoints: a project config redirects an allowed custom provider to a bypass stub. Managed-store ownership, protected routing, serialization/run deferral and complete token/freshness orchestration remain unverified. Sync still returns typed `sync_failed` without mutation. See bounded follow-up above; do not retain the older claim that credential mapping/purge revocation is impossible. |
+| 7. Events | Internal matched-client transport resolves on SSE headers; Arche-owned partial updates, inbox staging/delivery and selected captured full conversation parity are implemented/tested. Per-kind ordinals, caller IDs, per-message usage and source call IDs are preserved. | Production subscription returns typed `runtime_unsupported` before transport: arbitrary unfinished-snapshot/live overlap, missed enqueue at reconnect, full session/control parity and manual/image acceptance remain unverified. No payload buffering or per-event HTTP workaround is introduced. See current event note and `__tests__/CAPTURE.md`. |
 | 8. MCP | Matched config preserves `codemode:false`; a synthetic connection probe returned an empty catalog. | Invocation, exact allowlists, session metadata and attachment parity are not proven. Explicit caller fallback must continue failing closed on missing/conflicting identity. |
 | 9. Config guards | Actual mapping-only renderer output validates against live 2.0.32 OpenAPI config schema and survives client `config.get`. Agent-level `policies` are silently dropped; policy statements expose only action/resource/effect. | No caller predicate can express the required self-delegation guard. Protected models still return `runtime_config_unsupported` at `guards.selfDelegation`; no guard was weakened to overridable permissions. Protected placement/enforcement remains unverified. |
 

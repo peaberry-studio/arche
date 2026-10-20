@@ -1,0 +1,155 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+import { assistantSnapshot, permission, SESSION_ID, userSnapshot } from '@/lib/harness/adapters/opencode-v2/__tests__/fixtures'
+import { checkStartupSupport, createOpenCodeV2Runtime } from '@/lib/harness/adapters/opencode-v2/runtime'
+
+const auth = vi.hoisted(() => vi.fn())
+vi.mock('@/lib/harness/adapters/opencode-v1/connection-resolver', () => ({
+  getInstanceBasicAuth: auth,
+  getInstanceUrl: (_slug: string, baseUrl?: string) => baseUrl ?? 'http://runtime',
+}))
+
+function nativeSession(id = SESSION_ID) {
+  return { id, title: 'Fixture', time: { created: 10, updated: 20 }, location: { directory: '/workspace' }, agent: 'probe', model: { providerID: 'fixture', id: 'fixture' } }
+}
+
+type Request = { method?: string; path: string; query: URLSearchParams; body: unknown; signal?: AbortSignal | null }
+
+function transport(responses: Response[]) {
+  const requests: Request[] = []
+  const fetch = vi.fn(async (input: string | URL, options: RequestInit = {}) => {
+    const url = new URL(input)
+    expect(new Headers(options.headers).get('Authorization')).toBe('Basic fixture-only')
+    requests.push({ method: options.method, path: url.pathname, query: url.searchParams, body: typeof options.body === 'string' ? JSON.parse(options.body) : undefined, signal: options.signal })
+    const response = responses.shift()
+    if (!response) throw new Error(`Unexpected request: ${options.method} ${url.pathname}`)
+    return response
+  })
+  vi.stubGlobal('fetch', fetch)
+  return { requests, fetch, responses }
+}
+
+const empty = () => new Response(null, { status: 204 })
+
+describe('V2 adapter with the real matched HTTP client', () => {
+  beforeEach(() => { auth.mockResolvedValue({ baseUrl: 'http://runtime', authHeader: 'Basic fixture-only' }) })
+  afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks() })
+
+  it('creates, renames, re-reads and deletes using native envelopes and 204 responses', async () => {
+    const { requests, responses } = transport([
+      Response.json({ directory: '/workspace' }), Response.json({ data: nativeSession() }),
+      empty(), Response.json({ data: { ...nativeSession(), title: 'Renamed' } }), empty(),
+    ])
+    const runtime = createOpenCodeV2Runtime('alice')
+    expect(await runtime.createSession({ title: 'Fixture' })).toMatchObject({ ok: true, data: { id: SESSION_ID, title: 'Fixture', createdAtRaw: 10 } })
+    expect(await runtime.updateSession(SESSION_ID, 'Renamed')).toMatchObject({ ok: true, data: { id: SESSION_ID, title: 'Renamed' } })
+    expect(await runtime.deleteSession(SESSION_ID)).toEqual({ ok: true, data: undefined })
+    expect(requests.map(({ method, path, body }) => ({ method, path, body }))).toEqual([
+      { method: 'GET', path: '/api/location', body: undefined },
+      { method: 'POST', path: '/api/session', body: { title: 'Fixture', location: { directory: '/workspace' } } },
+      { method: 'PATCH', path: `/api/session/${SESSION_ID}`, body: { title: 'Renamed' } },
+      { method: 'GET', path: `/api/session/${SESSION_ID}`, body: undefined },
+      { method: 'DELETE', path: `/api/session/${SESSION_ID}`, body: undefined },
+    ])
+    expect(responses).toHaveLength(0)
+  })
+
+  it('follows the final short-page cursor while preserving root scope over HTTP', async () => {
+    const { requests } = transport([
+      Response.json({ directory: '/workspace' }),
+      Response.json({ data: [nativeSession()], cursor: { next: 'last-page', previous: null } }),
+      Response.json({ data: [], cursor: { next: null, previous: null } }),
+    ])
+    expect(await createOpenCodeV2Runtime('alice').listSessions({ rootsOnly: true })).toMatchObject({ ok: true, data: [{ id: SESSION_ID }] })
+    expect(requests.slice(1).map(({ query }) => Object.fromEntries(query))).toEqual([
+      { directory: '/workspace', parentID: 'null', order: 'desc', limit: '100' },
+      { directory: '/workspace', parentID: 'null', order: 'desc', limit: '100', cursor: 'last-page' },
+    ])
+  })
+
+  it('normalizes recorded message snapshots through the real client without exposing native envelopes', async () => {
+    transport([
+      Response.json({ data: nativeSession() }),
+      Response.json({ data: [userSnapshot, assistantSnapshot], cursor: { next: null, previous: null } }),
+    ])
+    expect(await createOpenCodeV2Runtime('alice').listMessages(SESSION_ID)).toMatchObject({ ok: true, data: [
+      { id: userSnapshot.id, sessionId: SESSION_ID, role: 'user', content: 'TEXT_PROBE' },
+      { id: assistantSnapshot.id, sessionId: SESSION_ID, role: 'assistant', content: 'Hello fixture', parts: expect.arrayContaining([{ type: 'step-finish', id: `${assistantSnapshot.id}:usage`, reason: 'stop', cost: 0.000017, tokens: { input: 11, output: 3 } }]) },
+    ] })
+  })
+
+  it('serializes text prompt identity and selection before submitting and forwards cancellation', async () => {
+    const { requests } = transport([
+      Response.json({ data: nativeSession() }), empty(), empty(),
+      Response.json({ data: { id: 'msg_fixture_caller', type: 'user', text: 'one\n\ntwo' } }),
+    ])
+    const signal = new AbortController().signal
+    expect(await createOpenCodeV2Runtime('alice').prompt({ sessionId: SESSION_ID, messageId: 'msg_fixture_caller', agent: 'alternate', model: { providerId: 'fixture', modelId: 'alternate' }, parts: [{ type: 'text', text: 'one' }, { type: 'text', text: 'two' }] }, { signal })).toEqual({ ok: true, data: undefined })
+    expect(requests.map(({ method, path, body }) => ({ method, path, body }))).toEqual([
+      { method: 'GET', path: `/api/session/${SESSION_ID}`, body: undefined },
+      { method: 'POST', path: `/api/session/${SESSION_ID}/agent`, body: { agent: 'alternate' } },
+      { method: 'POST', path: `/api/session/${SESSION_ID}/model`, body: { model: { providerID: 'fixture', id: 'alternate' } } },
+      { method: 'POST', path: `/api/session/${SESSION_ID}/prompt`, body: { id: 'msg_fixture_caller', text: 'one\n\ntwo' } },
+    ])
+    expect(requests.every((request) => request.signal === signal)).toBe(true)
+  })
+
+  it('does not switch an already selected agent/model', async () => {
+    const { requests } = transport([Response.json({ data: nativeSession() }), Response.json({ data: { id: 'msg_fixture_caller' } })])
+    expect(await createOpenCodeV2Runtime('alice').prompt({ sessionId: SESSION_ID, agent: 'probe', model: { providerId: 'fixture', modelId: 'fixture' }, parts: [{ type: 'text', text: 'hello' }] })).toEqual({ ok: true, data: undefined })
+    expect(requests.map(({ path }) => path)).toEqual([`/api/session/${SESSION_ID}`, `/api/session/${SESSION_ID}/prompt`])
+  })
+
+  it('does not submit after a selection failure', async () => {
+    const { requests } = transport([
+      Response.json({ data: nativeSession() }),
+      Response.json({ _tag: 'AgentNotFoundError', message: 'Unknown agent' }, { status: 404 }),
+    ])
+    expect(await createOpenCodeV2Runtime('alice').prompt({ sessionId: SESSION_ID, agent: 'missing', parts: [{ type: 'text', text: 'hello' }] })).toMatchObject({ ok: false, error: { code: 'runtime_error', detail: 'Unknown agent' } })
+    expect(requests.map(({ path }) => path)).toEqual([`/api/session/${SESSION_ID}`, `/api/session/${SESSION_ID}/agent`])
+  })
+
+  it('maps the canonical Fireworks selection back to the verified native provider ID', async () => {
+    const { requests } = transport([Response.json({ data: nativeSession() }), empty(), Response.json({ data: { id: 'msg_fixture_caller' } })])
+    expect(await createOpenCodeV2Runtime('alice').prompt({ sessionId: SESSION_ID, model: { providerId: 'fireworks', modelId: 'fixture' }, parts: [{ type: 'text', text: 'hello' }] })).toEqual({ ok: true, data: undefined })
+    expect(requests[1]).toMatchObject({ path: `/api/session/${SESSION_ID}/model`, body: { model: { providerID: 'fireworks-ai', id: 'fixture' } } })
+  })
+
+  it('does not switch an already selected native Fireworks model when the UI sends its canonical ID', async () => {
+    const { requests } = transport([Response.json({ data: { ...nativeSession(), model: { providerID: 'fireworks-ai', id: 'fixture' } } }), Response.json({ data: { id: 'msg_fixture_caller' } })])
+    expect(await createOpenCodeV2Runtime('alice').prompt({ sessionId: SESSION_ID, model: { providerId: 'fireworks', modelId: 'fixture' }, parts: [{ type: 'text', text: 'hello' }] })).toEqual({ ok: true, data: undefined })
+    expect(requests.map(({ path }) => path)).toEqual([`/api/session/${SESSION_ID}`, `/api/session/${SESSION_ID}/prompt`])
+  })
+
+  it('acknowledges only the interrupt primitive, never family idle', async () => {
+    const { requests } = transport([Response.json({ data: nativeSession() }), Response.json({ interrupted: true })])
+    const runtime = createOpenCodeV2Runtime('alice')
+    expect(await runtime.abortSession(SESSION_ID)).toEqual({ ok: true, data: undefined })
+    expect(requests[1].path).toBe(`/api/session/${SESSION_ID}/interrupt`)
+    expect(Object.fromEntries(requests[1].query)).toEqual({ resume: 'false' })
+    expect(await runtime.sessionStatus()).toMatchObject({ ok: false, error: { code: 'runtime_unsupported' } })
+    expect(requests).toHaveLength(2)
+  })
+
+  it.each(['once', 'always', 'reject'] as const)('lists a recorded permission and sends native decision %s', async (response) => {
+    const { requests } = transport([Response.json({ location: { directory: '/workspace' }, data: [permission] }), empty()])
+    const runtime = createOpenCodeV2Runtime('alice')
+    expect(await runtime.listPermissions()).toMatchObject({ ok: true, data: [{ id: permission.id, sessionId: permission.sessionID, kind: 'read', pattern: 'sample.txt', state: 'pending' }] })
+    expect(await runtime.replyPermission({ sessionId: permission.sessionID, permissionId: permission.id, response })).toEqual({ ok: true, data: undefined })
+    expect(requests[1]).toMatchObject({ method: 'POST', path: `/api/session/${permission.sessionID}/permission/${permission.id}/reply`, body: { decision: response } })
+  })
+
+  it('normalizes the actual client rejection of a missing session before interrupt', async () => {
+    const { requests } = transport([Response.json({ _tag: 'SessionNotFoundError', sessionID: 'missing', name: 'SessionNotFoundError' }, { status: 404 })])
+    expect(await createOpenCodeV2Runtime('alice').abortSession('missing')).toEqual({ ok: false, error: { code: 'session_not_found', detail: 'SessionNotFoundError', status: 404 } })
+    expect(requests).toHaveLength(1)
+  })
+
+  it('keeps startup and provider-sync gates closed without invoking the real client', async () => {
+    const { fetch } = transport([])
+    expect(checkStartupSupport()).toMatchObject({ ok: false, error: { code: 'runtime_unsupported' } })
+    expect(await createOpenCodeV2Runtime('alice').syncProviderAccess({ userId: 'user-1', force: true })).toMatchObject({ ok: false, error: { code: 'sync_failed' } })
+    expect(auth).not.toHaveBeenCalled()
+    expect(fetch).not.toHaveBeenCalled()
+  })
+})

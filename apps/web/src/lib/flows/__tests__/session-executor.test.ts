@@ -15,7 +15,8 @@ const mocks = vi.hoisted(() => ({
   waitForSessionToComplete: vi.fn(),
 }))
 
-vi.mock('@/lib/harness/execution', () => ({
+vi.mock('@/lib/harness/execution', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/lib/harness/execution')>(),
   captureSessionMessageCursor: mocks.captureSessionMessageCursor,
   describeLatestAssistantReply: mocks.describeLatestAssistantReply,
   EXECUTION_TERMINATION_UNCONFIRMED_ERROR: 'execution_termination_unconfirmed',
@@ -32,6 +33,7 @@ vi.mock('@/lib/services', () => ({
 }))
 
 import { createFlowLeaseOwner, runFlowPromptAndReadOutput } from '@/lib/flows/session-executor'
+import { fakeRuntime, session } from '@/lib/harness/__tests__/fake-runtime'
 
 type FlowPromptClient = Parameters<typeof runFlowPromptAndReadOutput>[0]['client']
 type TestFlowPromptClient = FlowPromptClient & {
@@ -51,14 +53,15 @@ function createClient(params: {
   providers?: unknown[]
 } = {}): TestFlowPromptClient {
   return {
+    ...fakeRuntime(),
     listAgents: vi.fn().mockResolvedValue({ ok: true, data: params.agents ?? [] }),
     listModels: vi.fn().mockResolvedValue({ ok: true, data: params.providers ?? [] }),
     listConnectorKeys: vi.fn().mockResolvedValue({ ok: true, data: params.config ?? [] }),
     listConnectorStatus: vi.fn().mockResolvedValue({ ok: true, data: params.mcpStatus ?? {} }),
     sessionStatus: vi.fn().mockResolvedValue({ ok: true, data: {} }),
-    abortSession: vi.fn(),
+    listChildren: vi.fn().mockResolvedValue({ ok: true, data: [] }),
     prompt: vi.fn().mockResolvedValue({ ok: true }),
-  } as TestFlowPromptClient
+  }
 }
 
 describe('runFlowPromptAndReadOutput', () => {
@@ -99,6 +102,17 @@ describe('runFlowPromptAndReadOutput', () => {
       },
     )
     expect(mocks.readLatestAssistantText).toHaveBeenCalledWith(client, 'session-1', { messageCount: 3 })
+  })
+
+  it.each([undefined, 'user-1'])('refuses a busy descendant before flow prompt/run creation (user=%s)', async (userId) => {
+    const client = fakeRuntime()
+    client.listChildren.mockResolvedValueOnce({ ok: true, data: [session('child')] })
+    client.sessionStatus.mockResolvedValue({ ok: true, data: { child: { type: 'retry' } } })
+    expect(await runFlowPromptAndReadOutput({ client, flowId: 'flow-1', leaseOwner: 'worker-1', prompt: 'Do work', runId: 'run-1', sessionId: 'session-1', slug: 'alice', userId }))
+      .toEqual({ ok: false, type: 'failed', error: 'session_busy' })
+    expect(mocks.messageRunService.createActiveRunAfterRuntimeStateCheck).not.toHaveBeenCalled()
+    expect(mocks.captureSessionMessageCursor).not.toHaveBeenCalled()
+    expect(client.prompt).not.toHaveBeenCalled()
   })
 
   it('records message run usage when an execution user is provided', async () => {

@@ -44,7 +44,7 @@ function isPart(value: unknown): boolean {
 }
 
 function isArcheEvent(event: unknown): event is ArcheEvent {
-  if (!isRecord(event) || event.v !== 1) return false
+  if (!isRecord(event) || event.v !== 1 || (event.at !== undefined && (typeof event.at !== 'number' || !Number.isFinite(event.at)))) return false
   switch (event.type) {
     case 'session.status':
       return typeof event.sessionId === 'string' && (event.status === 'busy' || event.status === 'idle')
@@ -54,18 +54,41 @@ function isArcheEvent(event: unknown): event is ArcheEvent {
       return typeof event.sessionId === 'string'
     case 'session.upserted':
       return isRecord(event.session) && typeof event.session.id === 'string' &&
+        (event.replace === undefined || typeof event.replace === 'boolean') &&
         (event.session.title === undefined || typeof event.session.title === 'string') &&
         (event.session.parentId === undefined || typeof event.session.parentId === 'string')
     case 'message.upserted': {
+      if (event.mode === 'patch') {
+        const patch = event.patch
+        return typeof event.sessionId === 'string' && typeof event.messageId === 'string' && isRecord(patch) &&
+          Object.keys(patch).every((key) => key === 'completedAt' || key === 'statusInfo' || key === 'error') &&
+          (patch.completedAt === undefined || (typeof patch.completedAt === 'number' && Number.isFinite(patch.completedAt))) &&
+          (patch.statusInfo === undefined || (isRecord(patch.statusInfo) && patch.statusInfo.status === 'error' && typeof patch.statusInfo.detail === 'string')) &&
+          (event.reset === undefined || typeof event.reset === 'boolean') &&
+          (patch.error === undefined || (isRecord(patch.error) && typeof patch.error.code === 'string' && (patch.error.detail === undefined || typeof patch.error.detail === 'string'))) &&
+          (event.removeParts === undefined || (Array.isArray(event.removeParts) && event.removeParts.every((id) => typeof id === 'string'))) &&
+          (event.parts === undefined || (Array.isArray(event.parts) && event.parts.every(isPart)))
+      }
+      if (event.mode === 'commit') return typeof event.sessionId === 'string' && typeof event.messageId === 'string' && typeof event.timestamp === 'string' && typeof event.timestampRaw === 'number' && Number.isFinite(event.timestampRaw)
+      if (event.mode !== undefined && event.mode !== 'stage') return false
       const message = event.message
       return isRecord(message) && typeof message.id === 'string' && typeof message.sessionId === 'string' &&
         (message.role === 'user' || message.role === 'assistant' || message.role === 'system') &&
         typeof message.content === 'string' && typeof message.timestamp === 'string' && Array.isArray(message.parts) && message.parts.every(isPart)
     }
     case 'message.removed':
-      return typeof event.messageId === 'string'
-    case 'part.upserted':
-      return typeof event.messageId === 'string' && isPart(event.part)
+      return typeof event.messageId === 'string' && (event.mode === undefined || (event.mode === 'staged' && typeof event.sessionId === 'string'))
+    case 'part.upserted': {
+      if (event.mode === 'tool-patch') {
+        const update = event.update
+        return typeof event.sessionId === 'string' && typeof event.messageId === 'string' && isRecord(update) && typeof update.id === 'string' &&
+          ['name', 'rawInput', 'inputDelta', 'output', 'error'].every((key) => update[key] === undefined || typeof update[key] === 'string') &&
+          (update.status === undefined || ['pending', 'running', 'completed', 'error'].includes(String(update.status))) &&
+          (update.input === undefined || isRecord(update.input)) && (update.metadata === undefined || update.metadata === null || isRecord(update.metadata)) &&
+          (event.attachments === undefined || (Array.isArray(event.attachments) && event.attachments.every(isPart)))
+      }
+      return event.mode === undefined && typeof event.messageId === 'string' && isPart(event.part) && (event.replace === undefined || typeof event.replace === 'boolean')
+    }
     case 'part.delta':
       return typeof event.messageId === 'string' && typeof event.partId === 'string' && typeof event.delta === 'string' && (event.field === 'text' || event.field === 'reasoning')
     case 'part.removed':

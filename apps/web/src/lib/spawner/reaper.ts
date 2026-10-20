@@ -1,6 +1,6 @@
 import { preArchiveRunningV1Instances } from '@/lib/harness/legacy-session-archive'
 import { auditService, instanceService, messageRunService, rateLimitService } from '@/lib/services'
-import { getIdleTimeoutMinutes } from './config'
+import { getIdleTimeoutMinutes } from '@/lib/spawner/config'
 
 export const REAPER_INTERVAL_MS = 5 * 60 * 1000
 
@@ -25,12 +25,14 @@ export async function reapIdleInstances(): Promise<number> {
   let reapedCount = 0
 
   for (const instance of idleInstances) {
+    const startedAt = new Date()
+    let ownsTransition = false
     try {
-      const startedAt = new Date()
       const claimed = await instanceService.claimStartingTransition(instance, startedAt)
       if (claimed.count === 0) continue
+      ownsTransition = true
       if (instance.containerId) {
-        const docker = await import('./docker')
+        const docker = await import('@/lib/spawner/docker')
         let stopConfirmed = false
         await docker.stopContainer(instance.containerId).then(() => { stopConfirmed = true }, (err) => {
           console.warn('[reaper] Failed to stop container:', { slug: instance.slug, containerId: instance.containerId, error: err })
@@ -56,6 +58,11 @@ export async function reapIdleInstances(): Promise<number> {
 
       reapedCount++
     } catch (err) {
+      if (ownsTransition) {
+        await instanceService.recoverStoppingTransition(instance, startedAt).catch((error) => {
+          console.error('[reaper] Failed to recover shutdown ownership:', { slug: instance.slug, error })
+        })
+      }
       console.error('[reaper] Failed to reap instance:', { slug: instance.slug, error: err })
     }
   }

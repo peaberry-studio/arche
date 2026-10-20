@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   getRuntimeForSlug: vi.fn(),
   isArchivedSession: vi.fn(),
   sessionStatus: vi.fn(),
+  listChildren: vi.fn(),
   prompt: vi.fn(),
   findIdBySlug: vi.fn(),
   messageRunService: {
@@ -75,10 +76,12 @@ describe('POST /api/w/[slug]/chat/prompt', () => {
     })
     mocks.getRuntimeForSlug.mockResolvedValue({ ok: true, data: {
       sessionStatus: mocks.sessionStatus,
+      listChildren: mocks.listChildren,
       prompt: mocks.prompt,
       syncProviderAccess: mocks.ensureProviderAccessFreshForExecution,
     } })
     mocks.sessionStatus.mockResolvedValue(statusResponse({ s1: { type: 'idle' } }))
+    mocks.listChildren.mockResolvedValue({ ok: true, data: [] })
     mocks.prompt.mockResolvedValue({ ok: true })
     mocks.getWorkspaceAgentConnection.mockResolvedValue({ baseUrl: 'http://agent:3000', authHeader: 'Basic expected' })
     mocks.buildWorkspacePromptParts.mockResolvedValue({ ok: true, parts: [{ type: 'text', text: 'Hola' }] })
@@ -227,11 +230,11 @@ describe('POST /api/w/[slug]/chat/prompt', () => {
     expect(mocks.messageRunService.markActiveRunSucceeded).not.toHaveBeenCalled()
   })
 
-  it('prompts when runtime status is unknown and no MessageRun is running', async () => {
+  it('rejects unknown runtime status even without a MessageRun lock', async () => {
     mocks.sessionStatus.mockResolvedValue({ ok: false, error: { code: 'runtime_error' } })
     const res = await POST(makeRequest({ sessionId: 's1', messageId: 'user-1', text: 'Hola' }), params())
-    expect(res.status).toBe(202)
-    expect(mocks.messageRunService.findActiveRun).toHaveBeenCalledWith('alice', 's1')
+    expect(res.status).toBe(409)
+    expect(mocks.prompt).not.toHaveBeenCalled()
     expect(mocks.messageRunService.markActiveRunSucceeded).not.toHaveBeenCalled()
   })
 
@@ -240,9 +243,30 @@ describe('POST /api/w/[slug]/chat/prompt', () => {
 
     await POST(makeRequest({ sessionId: 's1', messageId: 'user-1', text: 'Hola' }), params())
 
-    expect(timeoutSpy).toHaveBeenCalledWith(8_000)
+    expect(timeoutSpy.mock.calls.some(([ms]) => ms > 0 && ms <= 8_000)).toBe(true)
     expect(timeoutSpy).toHaveBeenCalledWith(60_000)
     timeoutSpy.mockRestore()
+  })
+
+  it.each(['busy', 'retry'])('rejects an idle root with a %s grandchild without settling its lock', async (type) => {
+    mocks.listChildren.mockImplementation(async (id: string) => ({ ok: true, data: id === 's1' ? [{ id: 'child' }] : id === 'child' ? [{ id: 'grandchild' }] : [] }))
+    mocks.sessionStatus.mockResolvedValue(statusResponse({ s1: { type: 'idle' }, grandchild: { type } }))
+    mocks.messageRunService.findActiveRun.mockResolvedValue({ id: 'run-1', status: 'running' })
+    const res = await POST(makeRequest({ sessionId: 's1', messageId: 'user-1', text: 'Hola' }), params())
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ error: 'session_busy' })
+    expect(mocks.messageRunService.markActiveRunSucceeded).not.toHaveBeenCalled()
+    expect(mocks.buildWorkspacePromptParts).not.toHaveBeenCalled()
+    expect(mocks.ensureProviderAccessFreshForExecution).not.toHaveBeenCalled()
+    expect(mocks.prompt).not.toHaveBeenCalled()
+  })
+
+  it('preserves missing-session errors from family discovery', async () => {
+    mocks.listChildren.mockResolvedValue({ ok: false, error: { code: 'session_not_found' } })
+    const res = await POST(makeRequest({ sessionId: 'missing', messageId: 'user-1', text: 'Hola' }), params())
+    expect(res.status).toBe(404)
+    expect(await res.json()).toEqual({ error: 'session_not_found' })
+    expect(mocks.prompt).not.toHaveBeenCalled()
   })
 
   it.each([

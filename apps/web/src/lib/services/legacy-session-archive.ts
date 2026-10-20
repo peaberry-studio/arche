@@ -66,8 +66,8 @@ export async function isArchivedSession(slug: string, sessionId: string): Promis
   }) !== null
 }
 
-export async function findExportedSession(slug: string, sessionId: string): Promise<(ExportedSessionMetadata & { messages: WorkspaceMessage[] }) | null> {
-  const record = await prisma.legacySessionArchive.findUnique({
+export async function findExportedSession(slug: string, sessionId: string, client: Prisma.TransactionClient = prisma): Promise<(ExportedSessionMetadata & { messages: WorkspaceMessage[] }) | null> {
+  const record = await client.legacySessionArchive.findUnique({
     where: { slug_sessionId: { slug, sessionId } },
     select: { parentId: true, title: true, createdAt: true, updatedAt: true, messages: true },
   })
@@ -78,7 +78,7 @@ export async function upsertSession(input: ExportedSessionMetadata & {
   slug: string
   sessionId: string
   messages: WorkspaceMessage[]
-}, options: { onlyWhileRunning?: boolean } = {}): Promise<boolean> {
+}, options: { onlyWhileRunning?: boolean } = {}, client: Prisma.TransactionClient = prisma): Promise<boolean> {
   const data = {
     parentId: input.parentId,
     title: input.title,
@@ -93,7 +93,7 @@ export async function upsertSession(input: ExportedSessionMetadata & {
     update: data,
   }
   if (!options.onlyWhileRunning) {
-    await prisma.legacySessionArchive.upsert(args)
+    await client.legacySessionArchive.upsert(args)
     return true
   }
   return prisma.$transaction(async (tx) => {
@@ -109,6 +109,38 @@ export async function upsertSession(input: ExportedSessionMetadata & {
     await tx.legacySessionArchive.upsert(args)
     return true
   })
+}
+
+export async function withArchiveWriteFence<T>(slug: string, work: (tx: Prisma.TransactionClient) => Promise<T>, options: { onlyWhileRunning?: boolean } = {}): Promise<T | null> {
+  return prisma.$transaction(async (tx) => {
+    const instance = await tx.instance.updateMany({
+      where: {
+        slug,
+        ...(options.onlyWhileRunning ? { status: 'running' as const } : {}),
+        OR: [{ runtimeKind: null }, { runtimeKind: 'opencode-v1' }],
+      },
+      data: { slug },
+    })
+    if (instance.count === 0) return null
+    return work(tx)
+  }, { maxWait: 10_000, timeout: 60_000 })
+}
+
+export async function deleteSessionTree(slug: string, sessionIds: string[], client: Prisma.TransactionClient): Promise<void> {
+  const records = await client.legacySessionArchive.findMany({ where: { slug }, select: { sessionId: true, parentId: true } })
+  const deleted = new Set(sessionIds)
+  let previousSize = -1
+  while (previousSize !== deleted.size) {
+    previousSize = deleted.size
+    for (const record of records) {
+      if (record.parentId && deleted.has(record.parentId)) deleted.add(record.sessionId)
+    }
+  }
+  await client.legacySessionArchive.deleteMany({ where: { slug, sessionId: { in: [...deleted] } } })
+}
+
+export async function reconcileSessions(slug: string, sessionIds: string[], client: Prisma.TransactionClient): Promise<void> {
+  await client.legacySessionArchive.deleteMany({ where: { slug, sessionId: { notIn: sessionIds } } })
 }
 
 export async function findNextRunningV1Instance(afterSlug?: string): Promise<{ slug: string } | null> {

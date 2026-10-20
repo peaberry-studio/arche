@@ -4,7 +4,8 @@ import { createFlowActorScope } from "@/lib/flows/authorization";
 import { formatTimestamp } from "@/lib/format-timestamp";
 import type { HarnessPermission, HarnessRuntime, HarnessSession, HarnessSessionStatus } from "@/lib/harness/contract";
 import { EXECUTION_TERMINATION_UNCONFIRMED_ERROR } from "@/lib/harness/errors";
-import { abortSessionFamilyAndConfirmIdle } from "@/lib/harness/execution";
+import { abortSessionFamilyAndConfirmIdle, readSessionFamilyRuntimeState } from "@/lib/harness/execution";
+import { deleteLegacySession } from "@/lib/harness/legacy-session-archive";
 import {
   getRuntimeForSlug,
   listWorkspaceFiles,
@@ -635,7 +636,9 @@ export async function deleteSessionAction(
   if (error) return { ok: false, error };
 
   try {
-    const result = await client!.deleteSession(sessionId);
+    const result = client!.kind === "opencode-v1"
+      ? await deleteLegacySession(slug, client!, sessionId, (await getSession())?.user.id)
+      : await client!.deleteSession(sessionId);
     if (!result.ok) return { ok: false, error: result.error.code };
     await slackService.deleteSessionBindingsByOpenCodeSessionId(sessionId);
     return { ok: true };
@@ -759,6 +762,11 @@ export async function sendMessageAction(
   if (error) return { ok: false, error };
 
   try {
+    const state = await readSessionFamilyRuntimeState(client!, sessionId);
+    if (state === "not_found") return { ok: false, error: "session_not_found" };
+    if (state !== "idle") {
+      return { ok: false, error: "session_busy" };
+    }
     const result = await client!.sendMessage({
       sessionId,
       parts: [{ type: "text", text }],

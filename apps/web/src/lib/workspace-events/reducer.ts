@@ -1,4 +1,4 @@
-import type { ArcheEvent, ArchePermission } from '@/lib/harness/events'
+import type { ArcheEvent, ArchePermission, ArcheToolUpdate } from '@/lib/harness/events'
 import type { MessagePart, WorkspaceMessage, WorkspaceSession } from '@/types/workspace-runtime'
 
 export type SessionRuntimeStatus = 'idle' | 'busy'
@@ -8,6 +8,8 @@ export type ChatStore = {
   permissions: Record<string, ArchePermission[]>
   sessions: WorkspaceSession[]
   pendingParts: Record<string, MessagePart[]>
+  stagedMessages?: Record<string, WorkspaceMessage>
+  pendingUpdates?: Record<string, ArcheEvent[]>
 }
 export type ReduceResult = { store: ChatStore; workspaceTouched: boolean }
 
@@ -55,10 +57,39 @@ function mergePart(existing: MessagePart, incoming: MessagePart): MessagePart {
   return incoming
 }
 
-function upsertPart(parts: MessagePart[], incoming: MessagePart): MessagePart[] {
+function upsertPart(parts: MessagePart[], incoming: MessagePart, replace = false): MessagePart[] {
   const id = 'id' in incoming ? incoming.id : undefined
   const index = id ? parts.findIndex((part) => 'id' in part && part.id === id) : -1
-  return index < 0 ? [...parts, incoming] : parts.map((part, i) => i === index ? mergePart(part, incoming) : part)
+  return index < 0 ? [...parts, incoming] : parts.map((part, i) => i === index ? replace ? incoming : mergePart(part, incoming) : part)
+}
+
+function patchTool(parts: MessagePart[], update: ArcheToolUpdate): MessagePart[] {
+  const existing = parts.find((part) => part.type === 'tool' && part.id === update.id)
+  const tool = existing?.type === 'tool' ? existing : undefined
+  const name = update.name ?? tool?.name
+  if (!name) return parts
+  const previous = tool?.state
+  const status = update.status ?? previous?.status ?? 'pending'
+  const input = update.input ?? previous?.input ?? {}
+  const metadata = update.metadata === null ? undefined : update.metadata ?? previous?.metadata
+  const extra = metadata === undefined ? {} : { metadata }
+  let state: Extract<MessagePart, { type: 'tool' }>['state']
+  if (status === 'pending') {
+    const rawInput = update.rawInput ?? `${previous?.status === 'pending' ? previous.rawInput ?? '' : ''}${update.inputDelta ?? ''}`
+    state = { status, input, rawInput, ...extra }
+  } else if (status === 'running') {
+    const title = typeof metadata?.title === 'string' ? metadata.title : undefined
+    state = { status, input, ...(title !== undefined && { title }), ...extra }
+  } else if (status === 'completed') {
+    const output = update.output ?? (previous?.status === 'completed' ? previous.output : undefined)
+    if (output === undefined) return parts
+    state = { status, input, output, title: typeof metadata?.title === 'string' ? metadata.title : name, ...extra }
+  } else {
+    const error = update.error ?? (previous?.status === 'error' ? previous.error : undefined)
+    if (error === undefined) return parts
+    state = { status, input, error, ...extra }
+  }
+  return upsertPart(parts, { type: 'tool', id: update.id, name, state })
 }
 
 function locateMessage(store: ChatStore, messageId: string): { sessionId: string; message: WorkspaceMessage } | undefined {
@@ -73,14 +104,37 @@ function replaceParts(store: ChatStore, sessionId: string, messageId: string, pa
     ? { ...message, parts, content: contentFor(message.role, parts) } : message))
 }
 
+function queueUpdate(store: ChatStore, messageId: string, event: ArcheEvent): ChatStore {
+  return { ...store, pendingUpdates: { ...store.pendingUpdates, [messageId]: [...store.pendingUpdates?.[messageId] ?? [], event] } }
+}
+
+function applyPendingUpdates(store: ChatStore, messageId: string): ChatStore {
+  const updates = store.pendingUpdates?.[messageId]
+  if (!updates) return store
+  const pendingUpdates = { ...store.pendingUpdates }
+  delete pendingUpdates[messageId]
+  return updates.reduce<ChatStore>((current, event) => reduceArcheEvent(current, event).store, { ...store, pendingUpdates })
+}
+
 export function hydrateSessionIntoStore(store: ChatStore, sessionId: string, hydrated: WorkspaceMessage[]): ChatStore {
   const byId = new Map((store.messages[sessionId] ?? []).map((message) => [message.id, message]))
   for (const incoming of hydrated) {
     const live = byId.get(incoming.id)
     const richer = live && (live.parts.length > incoming.parts.length || (live.parts.length === incoming.parts.length && live.content.length > incoming.content.length))
-    byId.set(incoming.id, richer ? { ...incoming, parts: live.parts, content: live.content } : incoming)
+    const useLive = live?.completedAt !== undefined && (incoming.completedAt === undefined || live.completedAt > incoming.completedAt)
+    const merged = useLive ? live : richer && incoming.completedAt === undefined ? { ...incoming, parts: live.parts, content: live.content } : incoming
+    let parts = merged.parts
+    if (merged.completedAt === undefined) {
+      for (const part of store.pendingParts[incoming.id] ?? []) parts = upsertPart(parts, part)
+    }
+    byId.set(incoming.id, parts === merged.parts ? merged : { ...merged, parts, content: contentFor(merged.role, parts) })
   }
-  return withMessages(store, sessionId, [...byId.values()])
+  let next = withMessages(store, sessionId, [...byId.values()])
+  for (const incoming of hydrated) {
+    if (next.pendingParts[incoming.id]) next = withPendingParts(next, incoming.id, [])
+    next = applyPendingUpdates(next, incoming.id)
+  }
+  return next
 }
 
 export function hydratePermissionsIntoStore(store: ChatStore, snapshot: Record<string, ArchePermission[]>, baseline: Record<string, ArchePermission[]> = {}): ChatStore {
@@ -101,6 +155,10 @@ export function hydratePermissionsIntoStore(store: ChatStore, snapshot: Record<s
 export function reduceArcheEvent(store: ChatStore, event: ArcheEvent): ReduceResult {
   if (event.v !== 1) return { store, workspaceTouched: false }
   let next = store
+  if ('messageId' in event && event.at !== undefined) {
+    const message = locateMessage(store, event.messageId)?.message
+    if (message?.completedAt !== undefined && event.at <= message.completedAt) return { store, workspaceTouched: false }
+  }
   switch (event.type) {
     case 'session.status':
       next = { ...store, sessionStatus: { ...store.sessionStatus, [event.sessionId]: event.status } }
@@ -119,7 +177,7 @@ export function reduceArcheEvent(store: ChatStore, event: ArcheEvent): ReduceRes
       const existing = store.sessions.find((session) => session.id === event.session.id)
       const session: WorkspaceSession = {
         id: event.session.id,
-        title: existing?.title ?? event.session.title ?? 'Untitled',
+        title: (event.replace ? event.session.title ?? existing?.title : existing?.title ?? event.session.title) ?? 'Untitled',
         status: existing?.status ?? 'idle',
         updatedAt: existing?.updatedAt ?? '',
         ...(existing?.updatedAtRaw !== undefined && { updatedAtRaw: existing.updatedAtRaw }),
@@ -140,9 +198,41 @@ export function reduceArcheEvent(store: ChatStore, event: ArcheEvent): ReduceRes
       delete sessionStatus[event.sessionId]
       delete permissions[event.sessionId]
       next = { ...store, messages, sessionStatus, permissions, pendingParts, sessions: store.sessions.filter((session) => session.id !== event.sessionId) }
+      if (store.stagedMessages) next.stagedMessages = Object.fromEntries(Object.entries(store.stagedMessages).filter(([, message]) => message.sessionId !== event.sessionId))
+      if (store.pendingUpdates) next.pendingUpdates = Object.fromEntries(Object.entries(store.pendingUpdates).filter(([, updates]) => !updates.some((update) => 'sessionId' in update && update.sessionId === event.sessionId)))
       break
     }
     case 'message.upserted': {
+      if (event.mode === 'stage') {
+        next = { ...store, stagedMessages: { ...store.stagedMessages, [event.message.id]: event.message } }
+        break
+      }
+      if (event.mode === 'commit') {
+        const staged = store.stagedMessages?.[event.messageId]
+        const stagedMessages = { ...store.stagedMessages }
+        delete stagedMessages[event.messageId]
+        next = { ...store, stagedMessages }
+        if (staged) {
+          const message = { ...staged, timestamp: event.timestamp, timestampRaw: event.timestampRaw }
+          next = reduceArcheEvent(next, { v: 1, type: 'message.upserted', message }).store
+        }
+        break
+      }
+      if (event.mode === 'patch') {
+        const messages = store.messages[event.sessionId] ?? []
+        if (!messages.some((message) => message.id === event.messageId)) {
+          next = queueUpdate(store, event.messageId, event)
+          break
+        }
+        next = withMessages(store, event.sessionId, messages.map((message) => {
+          if (message.id !== event.messageId) return message
+          let parts = (event.reset ? message.parts.filter((part) => part.type !== 'retry' && part.type !== 'step-finish') : message.parts)
+            .filter((part) => !('id' in part && part.id && event.removeParts?.includes(part.id)))
+          for (const part of event.parts ?? []) parts = upsertPart(parts, part, true)
+          return { ...message, ...(event.reset && { completedAt: undefined, statusInfo: undefined, error: undefined }), ...event.patch, parts, content: contentFor(message.role, parts) }
+        }))
+        break
+      }
       const incoming = event.message
       const messages = store.messages[incoming.sessionId] ?? []
       const existing = messages.find((message) => message.id === incoming.id)
@@ -155,19 +245,46 @@ export function reduceArcheEvent(store: ChatStore, event: ArcheEvent): ReduceRes
         for (const part of pending) merged = upsertPart(merged, part)
         next = withPendingParts(replaceParts(next, message.sessionId, message.id, merged), message.id, [])
       }
+      next = applyPendingUpdates(next, message.id)
       break
     }
     case 'message.removed': {
+      if (event.mode === 'staged') {
+        const stagedMessages = { ...store.stagedMessages }
+        delete stagedMessages[event.messageId]
+        next = { ...store, stagedMessages }
+        break
+      }
       const located = locateMessage(store, event.messageId)
       if (located) next = withMessages(store, located.sessionId, store.messages[located.sessionId].filter((message) => message.id !== event.messageId))
       next = withPendingParts(next, event.messageId, [])
+      if (store.pendingUpdates) {
+        next.pendingUpdates = { ...store.pendingUpdates }
+        delete next.pendingUpdates[event.messageId]
+      }
+      if (store.stagedMessages) {
+        next.stagedMessages = { ...store.stagedMessages }
+        delete next.stagedMessages[event.messageId]
+      }
       break
     }
     case 'part.upserted': {
-      if (event.part.type === 'patch' || event.part.type === 'step-start' || event.part.type === 'step-finish') break
+      if (event.mode === 'tool-patch') {
+        const located = locateMessage(store, event.messageId)
+        const current = located?.message.parts ?? store.pendingParts[event.messageId] ?? []
+        if (!event.update.name && !current.some((part) => part.type === 'tool' && part.id === event.update.id)) {
+          next = queueUpdate(store, event.messageId, event)
+          break
+        }
+        let parts = patchTool(current, event.update)
+        for (const attachment of event.attachments ?? []) parts = upsertPart(parts, attachment, true)
+        next = located ? replaceParts(store, located.sessionId, event.messageId, parts) : withPendingParts(store, event.messageId, parts)
+        break
+      }
+      if (!event.replace && (event.part.type === 'patch' || event.part.type === 'step-start' || event.part.type === 'step-finish')) break
       const located = locateMessage(store, event.messageId)
-      next = located ? replaceParts(store, located.sessionId, event.messageId, upsertPart(located.message.parts, event.part))
-        : withPendingParts(store, event.messageId, upsertPart(store.pendingParts[event.messageId] ?? [], event.part))
+      next = located ? replaceParts(store, located.sessionId, event.messageId, upsertPart(located.message.parts, event.part, event.replace))
+        : withPendingParts(store, event.messageId, upsertPart(store.pendingParts[event.messageId] ?? [], event.part, event.replace))
       break
     }
     case 'part.delta': {

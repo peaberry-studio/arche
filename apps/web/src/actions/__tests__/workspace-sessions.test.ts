@@ -19,7 +19,8 @@ import {
   sendMessageAction,
   updateSessionAction,
 } from '@/actions/workspace-sessions'
-import { abortSessionFamilyAndConfirmIdle } from '@/lib/harness/execution'
+import { abortSessionFamilyAndConfirmIdle, readSessionFamilyRuntimeState } from '@/lib/harness/execution'
+import { deleteLegacySession } from '@/lib/harness/legacy-session-archive'
 import { getRuntimeForSlug, listWorkspaceFiles, readWorkspaceFile, searchWorkspaceFiles } from '@/lib/harness/registry'
 import { getSession } from '@/lib/runtime/session'
 import { flowService, messageRunService, slackService, userService } from '@/lib/services'
@@ -31,7 +32,8 @@ vi.mock('@/lib/services/legacy-session-archive', () => ({ findSession: vi.fn(), 
 vi.mock('@/lib/harness/registry', () => ({
   getRuntimeForSlug: vi.fn(), listWorkspaceFiles: vi.fn(), readWorkspaceFile: vi.fn(), searchWorkspaceFiles: vi.fn(),
 }))
-vi.mock('@/lib/harness/execution', () => ({ abortSessionFamilyAndConfirmIdle: vi.fn() }))
+vi.mock('@/lib/harness/execution', () => ({ abortSessionFamilyAndConfirmIdle: vi.fn(), readSessionFamilyRuntimeState: vi.fn() }))
+vi.mock('@/lib/harness/legacy-session-archive', () => ({ deleteLegacySession: vi.fn() }))
 vi.mock('@/lib/workspace-agent/client', () => ({ createWorkspaceAgentClient: vi.fn() }))
 vi.mock('@/lib/services', () => ({
   flowService: { markRunResultSeenByIdForScope: vi.fn() },
@@ -69,6 +71,7 @@ beforeEach(() => {
   vi.mocked(createWorkspaceAgentClient).mockResolvedValue(agent)
   runtime.sessionStatus.mockResolvedValue(success({}))
   vi.mocked(abortSessionFamilyAndConfirmIdle).mockResolvedValue(true)
+  vi.mocked(readSessionFamilyRuntimeState).mockResolvedValue('idle')
   vi.mocked(messageRunService.abortActiveRun).mockResolvedValue(undefined)
   vi.mocked(slackService.deleteSessionBindingsByOpenCodeSessionId).mockResolvedValue({ dm: 0, thread: 0 })
 })
@@ -169,12 +172,14 @@ describe('session mutations and bookkeeping', () => {
     expect((await createSessionAction('alice')).session?.title).toBe('Untitled')
   })
   it('removes Slack bindings only after successful deletion', async () => {
-    runtime.deleteSession.mockResolvedValue(failure('session_not_found'))
+    vi.mocked(deleteLegacySession).mockResolvedValue(failure('session_not_found'))
     expect(await deleteSessionAction('alice', 's1')).toEqual({ ok: false, error: 'session_not_found' })
     expect(slackService.deleteSessionBindingsByOpenCodeSessionId).not.toHaveBeenCalled()
-    runtime.deleteSession.mockResolvedValue(success(undefined))
+    vi.mocked(deleteLegacySession).mockResolvedValue(success(undefined))
     expect(await deleteSessionAction('alice', 's1')).toEqual({ ok: true })
     expect(slackService.deleteSessionBindingsByOpenCodeSessionId).toHaveBeenCalledWith('s1')
+    expect(deleteLegacySession).toHaveBeenCalledWith('alice', runtime, 's1', 'user-1')
+    expect(runtime.deleteSession).not.toHaveBeenCalled()
   })
   it('confirms family termination before unlocking the active run', async () => {
     vi.mocked(abortSessionFamilyAndConfirmIdle).mockResolvedValue(false)
@@ -201,6 +206,12 @@ describe('session mutations and bookkeeping', () => {
 })
 
 describe('normalized message snapshots and sends', () => {
+  it.each(['busy', 'unknown'] as const)('rejects a %s family before synchronous dispatch', async (state) => {
+    vi.mocked(readSessionFamilyRuntimeState).mockResolvedValue(state)
+    expect(await sendMessageAction('alice', 's1', 'Hello')).toEqual({ ok: false, error: 'session_busy' })
+    expect(readSessionFamilyRuntimeState).toHaveBeenCalledWith(runtime, 's1')
+    expect(runtime.sendMessage).not.toHaveBeenCalled()
+  })
   it.each(['busy', 'retry', 'idle', 'unknown'] as const)('hydrates messages with %s status without grafting permissions', async (type) => {
     runtime.listMessages.mockResolvedValue(success([message]))
     runtime.sessionStatus.mockResolvedValue(success({ s1: { type } }))

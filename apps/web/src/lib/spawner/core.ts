@@ -132,6 +132,7 @@ export async function startInstance(
   const password = generatePassword()
   const encryptedPassword = encryptPassword(password)
   let ownedStartedAt = new Date()
+  let legacySourceContainerId: string | null = null
   if (existing) {
     const claimed = await instanceService.claimStartingTransition(existing, ownedStartedAt)
     if (claimed.count === 0) return { ok: false, error: 'already_running' }
@@ -139,12 +140,13 @@ export async function startInstance(
 
   if (existing && (existing.runtimeKind ?? 'opencode-v1') === 'opencode-v1' && selectedKind !== 'opencode-v1') {
     try {
-      const archived = await withHistoryMigrationProgress(slug, () => archiveBeforeRuntimeSwitch(slug, existing))
+      const archive = await withHistoryMigrationProgress(slug, () => archiveBeforeRuntimeSwitch(slug, existing))
       const continuedAt = new Date()
       const continued = await instanceService.continueStartingTransition(existing, ownedStartedAt, encryptedPassword, continuedAt)
       if (continued.count === 0) return { ok: false, error: 'already_running' }
       ownedStartedAt = continuedAt
-      if (!archived) {
+      legacySourceContainerId = archive.sourceContainerId
+      if (!archive.archived) {
         selectedKind = 'opencode-v1'
         selectedRuntime = getRuntimeForKind(slug, selectedKind)
         if (!selectedRuntime.ok) return { ok: false, error: 'runtime_unsupported' }
@@ -167,6 +169,7 @@ export async function startInstance(
 
   try {
     await docker.removeManagedArchiveContainerForSlug(slug)
+    if (legacySourceContainerId) await docker.removeContainer(legacySourceContainerId)
     if (existing?.containerId) {
       await docker.removeContainer(existing.containerId).catch(() => {})
     }
@@ -264,49 +267,53 @@ export async function startInstance(
   }
 }
 
-async function archiveBeforeRuntimeSwitch(slug: string, existing: InstanceRecord): Promise<boolean> {
+async function archiveBeforeRuntimeSwitch(slug: string, existing: InstanceRecord): Promise<{ archived: boolean; sourceContainerId: string | null }> {
+  await docker.removeManagedArchiveContainerForSlug(slug)
+  const sourceContainer = await docker.findLegacyArchiveSource(slug, existing.containerId)
+  if (sourceContainer && !sourceContainer.running) await docker.removeContainer(sourceContainer.id)
+  const runningSource = sourceContainer?.running ? sourceContainer : null
+  const password = runningSource ? decryptPassword(existing.serverPassword) : generatePassword()
   let archiveContainerId: string | null = null
+  let baseUrl = runningSource ? `http://${runningSource.name}:4096` : getRuntimeBaseUrl(slug)
+  if (!runningSource) {
+    const container = await docker.createArchiveContainer(slug, password)
+    archiveContainerId = container.id
+    baseUrl = `http://${container.name}:4096`
+  }
+  const result = (archived: boolean) => ({ archived, sourceContainerId: runningSource?.id ?? null })
   try {
-    const running = existing.containerId && await docker.isContainerRunning(existing.containerId)
-    const password = running ? decryptPassword(existing.serverPassword) : generatePassword()
-    let baseUrl = getRuntimeBaseUrl(slug)
-    if (!running) {
-      const container = await docker.createArchiveContainer(slug, password)
-      archiveContainerId = container.id
-      baseUrl = `http://${container.name}:4096`
-      await docker.startContainer(container.id)
-    }
+    if (archiveContainerId) await docker.startContainer(archiveContainerId)
     const connection = {
       baseUrl,
       authHeader: `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}`,
       signal: AbortSignal.timeout(getStartTimeoutMs()),
     }
     const selected = getRuntimeForKind(slug, 'opencode-v1', connection)
-    if (!selected.ok) return false
+    if (!selected.ok) return result(false)
     if (archiveContainerId) {
       const health = await waitForHealthy(archiveContainerId, slug, password, selected.data)
-      if (!health.ok) return false
+      if (!health.ok) return result(false)
       if (health.baseUrl) connection.baseUrl = health.baseUrl
     }
     const source = getRuntimeForKind(slug, 'opencode-v1', connection)
-    if (!source.ok) return false
+    if (!source.ok) return result(false)
     const statuses = await source.data.sessionStatus({ signal: connection.signal })
-    if (!statuses.ok) return false
+    if (!statuses.ok) return result(false)
     for (const [sessionId, status] of Object.entries(statuses.data)) {
       if (status.type !== 'idle' && !await abortSessionFamilyAndConfirmIdle({ client: source.data, rootSessionId: sessionId })) {
-        return false
+        return result(false)
       }
     }
-    const result = await exportLegacySessions(slug, source.data)
-    if (!result.ok) {
-      console.error('[spawner] Legacy session export failed', { slug, error: result.error.code })
-      return false
+    const exported = await exportLegacySessions(slug, source.data)
+    if (!exported.ok) {
+      console.error('[spawner] Legacy session export failed', { slug, error: exported.error.code })
+      return result(false)
     }
-    console.info('[spawner] Archived legacy session history', { slug, archived: result.data.archived })
-    return true
+    console.info('[spawner] Archived legacy session history', { slug, archived: exported.data.archived })
+    return result(true)
   } catch (error) {
     console.error('[spawner] Legacy session export failed', { slug, error })
-    return false
+    return result(false)
   } finally {
     if (archiveContainerId) {
       // Never start a second process on the legacy volume unless removal is confirmed.
@@ -323,10 +330,12 @@ export async function stopInstance(slug: string, userId: string): Promise<StopRe
   }
   if (instance.status === 'starting') return { ok: false, error: 'stop_failed' }
 
+  const startedAt = new Date()
+  let ownsTransition = false
   try {
-    const startedAt = new Date()
     const claimed = await instanceService.claimStartingTransition(instance, startedAt)
     if (claimed.count === 0) return { ok: false, error: 'stop_failed' }
+    ownsTransition = true
     if (instance.containerId) {
       let stopConfirmed = false
       try {
@@ -353,6 +362,11 @@ export async function stopInstance(slug: string, userId: string): Promise<StopRe
 
     return { ok: true, status: 'stopped' }
   } catch {
+    if (ownsTransition) {
+      await instanceService.recoverStoppingTransition(instance, startedAt).catch((error) => {
+        console.error('[spawner] Failed to recover shutdown ownership', { slug, error })
+      })
+    }
     return { ok: false, error: 'stop_failed' }
   }
 }

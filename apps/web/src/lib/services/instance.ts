@@ -222,6 +222,13 @@ export function finishStoppingTransition(id: string, startedAt: Date): Promise<{
   })
 }
 
+export function recoverStoppingTransition(instance: InstanceRecord, startedAt: Date): Promise<{ count: number }> {
+  return prisma.instance.updateMany({
+    where: { id: instance.id, status: 'starting', containerId: instance.containerId, startedAt },
+    data: { status: instance.status, startedAt: instance.startedAt },
+  })
+}
+
 export function setStoppedIfCurrentSnapshot(slug: string, instance: Pick<InstanceStatusDetails, 'status' | 'containerId' | 'startedAt'>): Promise<{ count: number }> {
   return prisma.instance.updateMany({
     where: { slug, status: instance.status, containerId: instance.containerId, startedAt: instance.startedAt },

@@ -6,7 +6,7 @@ import { syncProviderAccess } from '@/lib/harness/adapters/opencode-v2/providers
 import { toArchePermission, toHarnessMessage, toHarnessSession } from '@/lib/harness/adapters/opencode-v2/transform'
 import type { HarnessRuntime, HarnessSession } from '@/lib/harness/contract'
 import { harnessFailure, type HarnessResult } from '@/lib/harness/errors'
-import { getCanonicalProviderId, getProviderLabel } from '@/lib/providers/catalog'
+import { getCanonicalProviderId, getProviderLabel, resolveRuntimeProviderId } from '@/lib/providers/catalog'
 
 async function collectPages<T extends { id: string }>(fetchPage: (cursor?: string) => Promise<{ data: T[]; cursor: { next?: string | null } }>, limit?: number): Promise<T[]> {
   const items = new Map<string, T>()
@@ -87,8 +87,9 @@ export function createOpenCodeV2Runtime(slug: string): HarnessRuntime {
       if (input.parts.some((part) => part.type !== 'text')) return harnessFailure('runtime_unsupported', 'v2_prompt_file_parts_unverified')
       return withClient(async (client) => {
         if (input.agent && input.agent !== session.data.agent) await client.session.switchAgent({ sessionID: input.sessionId, agent: input.agent }, options)
-        if (input.model && (input.model.providerId !== session.data.model?.providerID || input.model.modelId !== session.data.model.id)) {
-          await client.session.switchModel({ sessionID: input.sessionId, model: { providerID: input.model.providerId, id: input.model.modelId } }, options)
+        const model = input.model ? { providerID: resolveRuntimeProviderId(input.model.providerId), id: input.model.modelId } : undefined
+        if (model && (model.providerID !== session.data.model?.providerID || model.id !== session.data.model.id)) {
+          await client.session.switchModel({ sessionID: input.sessionId, model }, options)
         }
         await client.session.prompt({
           sessionID: input.sessionId, id: input.messageId,

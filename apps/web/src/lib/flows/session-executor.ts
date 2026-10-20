@@ -3,7 +3,9 @@ import { FlowRunStatus } from '@prisma/client'
 import type { HarnessRuntime } from '@/lib/harness/contract'
 import {
   captureSessionMessageCursor,
+  createSessionPromptRun,
   describeLatestAssistantReply,
+  readSessionFamilyRuntimeState,
   readLatestAssistantText,
   waitForSessionToComplete,
 } from '@/lib/harness/execution'
@@ -235,23 +237,19 @@ export async function runFlowPromptAndReadOutput(params: {
 
   let messageRunId: string | null = null
   if (params.userId) {
-    const runResult = await messageRunService.createActiveRunAfterRuntimeStateCheck({
-      readRuntimeSessionState: async () => {
-        const statusResult = await params.client.sessionStatus()
-        if (!statusResult.ok) return 'unknown'
-        const sessionStatus = statusResult.data[params.sessionId]
-        if (sessionStatus?.type === 'busy' || sessionStatus?.type === 'retry') return 'busy'
-        if (!sessionStatus || sessionStatus.type === 'idle') return 'idle'
-        return 'unknown'
-      },
+    const runResult = await createSessionPromptRun({
+      client: params.client,
       sessionId: params.sessionId,
       slug: params.slug,
       source: 'flow',
     })
     if (!runResult.ok) {
-      return { ok: false, type: 'failed', error: 'session_busy' }
+      return { ok: false, type: 'failed', error: runResult.error }
     }
     messageRunId = runResult.run.id
+  } else {
+    const state = await readSessionFamilyRuntimeState(params.client, params.sessionId)
+    if (state !== 'idle') return { ok: false, type: 'failed', error: state === 'not_found' ? 'session_not_found' : 'session_busy' }
   }
 
   let cursor: Awaited<ReturnType<typeof captureSessionMessageCursor>>

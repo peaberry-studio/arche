@@ -12,6 +12,7 @@ const mockDockerInstance = {
   createContainer: vi.fn().mockResolvedValue(mockContainer),
   getContainer: vi.fn().mockReturnValue(mockContainer),
   createVolume: vi.fn().mockResolvedValue({}),
+  listContainers: vi.fn(),
 }
 
 const mockDockerConstructor = vi.fn(function Docker() {
@@ -48,6 +49,7 @@ vi.mock('@/lib/user-data', () => ({
 import {
   createContainer,
   createArchiveContainer,
+  findLegacyArchiveSource,
   removeManagedArchiveContainerForSlug,
   startContainer,
   stopContainer,
@@ -69,6 +71,9 @@ describe('docker', () => {
     process.env.OPENCODE_V1_IMAGE = 'test-image:opencode-v1'
     process.env.OPENCODE_NETWORK = 'test-network'
     process.env.KB_CONTENT_HOST_PATH = '/opt/arche/kb-content'
+    mockDockerInstance.listContainers.mockResolvedValue([])
+    mockDockerInstance.getContainer.mockReturnValue(mockContainer)
+    mockContainer.inspect.mockRejectedValue({ statusCode: 404 })
   })
 
   afterEach(() => {
@@ -77,6 +82,55 @@ describe('docker', () => {
   })
 
   describe('createContainer', () => {
+    const ownedSource = {
+      Id: 'source', Name: '/opencode-user-slug', State: { Running: true },
+      Config: { Labels: { 'arche.managed': 'true', 'arche.user.slug': 'user-slug' } },
+    }
+
+    it.each([null, 'stale-pointer'])('discovers the owned running source independently of pointer %s', async (pointer) => {
+      mockDockerInstance.listContainers.mockResolvedValue([{ Id: 'source', Labels: ownedSource.Config.Labels }])
+      mockContainer.inspect.mockImplementation(async function () { throw { statusCode: 404 } })
+      mockDockerInstance.getContainer.mockImplementation((id: string) => ({
+        ...mockContainer, inspect: async () => {
+          if (id !== 'source') throw { statusCode: 404 }
+          return { ...ownedSource, Name: '/renamed-source' }
+        },
+      }))
+      await expect(findLegacyArchiveSource('user-slug', pointer)).resolves.toEqual({ id: 'source', name: 'renamed-source', running: true })
+      expect(mockDockerInstance.listContainers).toHaveBeenCalledWith({ all: true, filters: { label: ['arche.managed=true', 'arche.user.slug=user-slug'] } })
+    })
+
+    it('never mounts a helper while any owned source remains, running or stopped', async () => {
+      for (const running of [true, false]) {
+        mockContainer.inspect.mockResolvedValue({ ...ownedSource, State: { Running: running } })
+        await expect(createArchiveContainer('user-slug', 'fixture')).rejects.toThrow('legacy_archive_source_not_removed')
+      }
+      expect(mockDockerInstance.createContainer).not.toHaveBeenCalled()
+    })
+
+    it('allows a helper only on confirmed source absence, not uncertain inspections or inventory', async () => {
+      mockContainer.inspect.mockRejectedValueOnce(new Error('proxy down'))
+      await expect(createArchiveContainer('user-slug', 'fixture')).rejects.toThrow('proxy down')
+      mockDockerInstance.listContainers.mockRejectedValueOnce(new Error('inventory unavailable'))
+      await expect(createArchiveContainer('user-slug', 'fixture')).rejects.toThrow('inventory unavailable')
+      expect(mockDockerInstance.createContainer).not.toHaveBeenCalled()
+    })
+
+    it.each([
+      { labels: { 'arche.managed': 'true', 'arche.user.slug': 'other' }, error: 'legacy_archive_source_not_owned_v1' },
+      { labels: { ...ownedSource.Config.Labels, 'arche.runtime.kind': 'opencode-v2' }, error: 'legacy_archive_source_not_owned_v1' },
+    ])('fails closed on uncertain source ownership: $error', async ({ labels, error }) => {
+      mockContainer.inspect.mockResolvedValue({ ...ownedSource, Config: { Labels: labels } })
+      await expect(findLegacyArchiveSource('user-slug', null)).rejects.toThrow(error)
+    })
+
+    it('rejects incomplete inspections and multiple owned sources', async () => {
+      mockContainer.inspect.mockResolvedValueOnce({ ...ownedSource, State: {} })
+      await expect(findLegacyArchiveSource('user-slug', null)).rejects.toThrow('legacy_archive_source_inspection_incomplete')
+      mockContainer.inspect.mockResolvedValueOnce(ownedSource).mockResolvedValueOnce({ ...ownedSource, Id: 'second' })
+      await expect(findLegacyArchiveSource('user-slug', 'second')).rejects.toThrow('legacy_archive_multiple_sources')
+    })
+
     it('boots legacy archive mode without project config, providers, MCP, startup scripts or writable workspace', async () => {
       const result = await createArchiveContainer('user-slug', 'archive-only')
       expect(result).toEqual({ id: 'container-123', name: 'opencode-archive-user-slug' })
@@ -107,6 +161,7 @@ describe('docker', () => {
 
     it('reclaims only an owned archive container left by an interrupted migration', async () => {
       mockDockerInstance.createContainer.mockRejectedValueOnce(new Error('container name is already in use'))
+      mockContainer.inspect.mockRejectedValueOnce({ statusCode: 404 })
       mockContainer.inspect.mockResolvedValueOnce({ Config: { Labels: {
         'arche.managed': 'true', 'arche.user.slug': 'user-slug', 'arche.archive': 'true',
       } } })
@@ -118,6 +173,7 @@ describe('docker', () => {
 
     it('never removes an unmanaged archive-name conflict', async () => {
       mockDockerInstance.createContainer.mockRejectedValueOnce(new Error('container name is already in use'))
+      mockContainer.inspect.mockRejectedValueOnce({ statusCode: 404 })
       mockContainer.inspect.mockResolvedValueOnce({ Config: { Labels: { 'arche.managed': 'true', 'arche.user.slug': 'other', 'arche.archive': 'true' } } })
       await expect(createArchiveContainer('user-slug', 'fixture')).rejects.toThrow('archive_container_not_managed')
       expect(mockContainer.remove).not.toHaveBeenCalled()

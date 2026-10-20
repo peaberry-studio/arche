@@ -22,7 +22,15 @@ await mkdir(resolve(directory, '.git'))
 await mkdir(resolve(directory, 'nested'))
 await mkdir(resolve(directory, 'ignored-dir'))
 await mkdir(resolve(root, 'tmp'))
-await writeFile(resolve(directory, 'opencode.json'), JSON.stringify({ update: 'disable', mcp: { servers: {} } }))
+await writeFile(resolve(directory, 'opencode.json'), JSON.stringify({
+  update: 'disable',
+  mcp: { servers: {} },
+  agents: { policy_probe: {
+    mode: 'primary',
+    system: 'Do not perform any work.',
+    policies: [{ action: 'tool.use', resource: 'subagent:policy_probe', effect: 'deny' }],
+  } },
+}))
 await writeFile(resolve(directory, 'hello.txt'), 'hello v2\n')
 await writeFile(resolve(directory, '.gitignore'), 'ignored.txt\nignored-dir/\n')
 await writeFile(resolve(directory, 'ignored.txt'), 'hidden\n')
@@ -58,6 +66,21 @@ try {
   assert(ready, 'server readiness')
   assert.equal((await fetch(`${baseUrl}/api/info`)).status, 401)
   assert.equal((await fetch(`${baseUrl}/api/info`, { headers: { Authorization: 'Basic invalid' } })).status, 401)
+  const config = await client.config.get({ location: { directory } })
+  const configuredAgent = config.find((entry) => entry.type === 'document' && entry.info.agents?.policy_probe)?.info.agents.policy_probe
+  assert(configuredAgent, 'configured agent loaded')
+  assert.equal(configuredAgent.policies, undefined, 'agent policy is silently dropped')
+  const oldCredential = await client.credential.create({ integrationID: 'openai', value: { type: 'key', key: randomBytes(24).toString('hex') }, activate: true })
+  const replacement = await client.credential.create({ integrationID: 'openai', value: { type: 'key', key: randomBytes(24).toString('hex') }, activate: true })
+  let credentials = await client.credential.list()
+  assert.equal(credentials.find((entry) => entry.id === oldCredential.id)?.active, false)
+  assert.equal(credentials.find((entry) => entry.id === replacement.id)?.active, true)
+  await client.credential.remove({ credentialID: replacement.id })
+  credentials = await client.credential.list()
+  assert.equal(credentials.find((entry) => entry.id === oldCredential.id)?.active, true, 'removal reactivates the older credential')
+  await client.credential.remove({ credentialID: oldCredential.id })
+  assert.deepEqual(await client.credential.list(), [])
+  console.log('BLOCKERS_CONFIRMED: agent policies dropped; active credential removal reactivates an older credential (synthetic values only)')
   const parent = await client.session.create({ title: 'parent', location: { directory } })
   const childSession = await client.session.create({ title: 'child', parentID: parent.id })
   const location = await client.location.get()

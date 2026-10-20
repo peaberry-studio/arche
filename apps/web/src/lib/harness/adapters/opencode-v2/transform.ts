@@ -65,11 +65,26 @@ function unknownPart(value: Record<string, unknown>): MessagePart {
   return { type: 'unknown', originalType: getString(value.type) ?? 'unknown', data: record(value) ?? {} }
 }
 
+export function toolResultParts(id: string, content: unknown[]): { output: string; attachments: MessagePart[] } {
+  const output = content.flatMap((entry: unknown) => isRecord(entry) && entry.type === 'text' && typeof entry.text === 'string' ? [entry.text] : []).join('\n')
+  const attachments = content.flatMap((entry: unknown, index: number): MessagePart[] => {
+    if (isRecord(entry) && entry.type === 'file' && typeof entry.uri === 'string' && typeof entry.mime === 'string') {
+      return [filePart(`${id}:file:${index}`, entry.uri, entry.mime, getString(entry.name))]
+    }
+    return []
+  })
+  return { output, attachments }
+}
+
 function transformTool(value: Record<string, unknown>): MessagePart[] {
   const id = getString(value.id)
   const name = getString(value.name)
   const state = isRecord(value.state) ? value.state : undefined
-  if (!id || !name || !state || !isRecord(state.input)) return [unknownPart(value)]
+  if (!id || !name || !state) return [unknownPart(value)]
+  if (state.status === 'streaming' && typeof state.input === 'string') {
+    return [{ type: 'tool', id, name, state: { status: 'pending', input: {}, rawInput: state.input } }]
+  }
+  if (!isRecord(state.input)) return [unknownPart(value)]
   const input = record(state.input) ?? {}
   const metadata = record(state.metadata)
   const metadataProps = metadata ? { metadata } : {}
@@ -79,7 +94,7 @@ function transformTool(value: Record<string, unknown>): MessagePart[] {
     normalized = { status: 'running', input, ...(title !== undefined && { title }), ...metadataProps }
   } else if (state.status === 'completed' && Array.isArray(state.content)) {
     if (state.content.some((entry) => !isRecord(entry) || (entry.type !== 'text' && entry.type !== 'file'))) return [unknownPart(value)]
-    const output = state.content.flatMap((entry: unknown) => isRecord(entry) && entry.type === 'text' && typeof entry.text === 'string' ? [entry.text] : []).join('\n')
+    const { output } = toolResultParts(id, state.content)
     normalized = { status: 'completed', input, output, title: getString(metadata?.title) ?? name, ...metadataProps }
   } else if (state.status === 'error') {
     const error = toHarnessError(state.error)
@@ -87,13 +102,7 @@ function transformTool(value: Record<string, unknown>): MessagePart[] {
     normalized = { status: 'error', input, error: error.detail, ...metadataProps }
   } else return [unknownPart(value)]
   const parts: MessagePart[] = [{ type: 'tool', id, name, state: normalized }]
-  if (Array.isArray(state.content)) {
-    state.content.forEach((entry: unknown, index: number) => {
-      if (isRecord(entry) && entry.type === 'file' && typeof entry.uri === 'string' && typeof entry.mime === 'string') {
-        parts.push(filePart(`${id}:file:${index}`, entry.uri, entry.mime, getString(entry.name)))
-      }
-    })
-  }
+  if (Array.isArray(state.content)) parts.push(...toolResultParts(id, state.content).attachments)
   return parts
 }
 

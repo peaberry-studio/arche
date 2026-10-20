@@ -62,25 +62,54 @@ Synthetic metadata/attachment/error cases in unit tests are not live captures.
   and execution-interrupted. Step-failed has neither agent/model nor original
   creation timestamp; step-ended similarly cannot create a full message.
 
-## Why subscription fails closed
+## Current subscription and parity evidence (SC-2 / SC-9)
 
-`subscribeOpenCodeEvents` returns typed `runtime_unsupported` with an explicit
-`UNVERIFIED` detail before connecting. Safe synchronous translations and snapshot
-transforms are implemented/tested, but a partial live stream is not represented
-as a working subscription. Complete reduce/live/snapshot equivalence is **not**
-claimed. Only text-prefix/permission goldens and hydration-after-stream parity
-pass under the present Arche reducer.
+**Production subscription is guarded.** `subscribeOpenCodeEvents` returns typed
+`runtime_unsupported` before credential lookup or transport because unfinished
+snapshot/delta overlap, missed inbox enqueue at reconnect and full session/control
+parity remain unresolved. A regression proves it opens no production transport.
+There is no test-only runtime flag or gate bypass; the runtime contract still
+calls only this guarded wrapper. SC-2 / SC-9 full acceptance remains deferred.
 
-The permitted changes exclude the shared Arche schema/reducer. Completing D2
-requires Arche-owned partial-message/tool updates, raw tool-input semantics,
-authoritative content replacement/removal, and replay/hydration reconciliation.
-Tool patches must merge by native call ID without inventing missing names or
-inputs. Message patches must address the exact message and preserve prior
-agent/model/timestamps while updating completion/errors/accounting. An inbox
-event cannot safely provide a durable user-message timestamp before delivery.
-Session rename also needs the reducer to apply incoming titles (it currently
-keeps existing titles). None of this should introduce adapter cross-event state
-or per-event snapshot HTTP requests.
+The separate adapter-internal `connectOpenCodeEvents` transport is implemented
+and directly tested using the installed client. It returns after authenticated
+SSE **headers**, without waiting for a first event. Its initial
+location/session inventory scopes notifications that lack a location; located
+events are filtered to the workspace. Only ownership IDs/cursors are retained
+in the adapter, not cross-event message/tool payloads. Translation remains a
+synchronous per-event function, with no per-event HTTP requests. Connect failures
+are typed; caller cancellation or iterator exit releases only the subscription,
+never session execution. The BFF continues owning its existing connect deadline
+and ten-second heartbeat.
+
+Partial updates use discriminated modes under the existing closed Arche event
+types: `message.upserted` (full, patch, stage, commit), `message.removed`
+(including staged cancellation), and `part.upserted` (including tool patches).
+The shared reducer merges call IDs, retains explicit raw input while pending,
+applies addressed completion/errors/accounting, and stages inbox input until
+delivery supplies its durable timestamp. Ended text is authoritative, including
+shorter replacement. V1's default full-upsert behavior remains unchanged and its
+frozen golden suite passes. Session renames opt into replacement semantics.
+
+The isolated capture was rerun on **2.0.32** during this fix. A temporary offline
+replay check (removed afterward, not a filesystem-dependent CI test) reduced its
+entire event stream and matched **complete** native conversation snapshots for
+text, read/permission/tool plus final reply, and mixed reasoning/text sessions.
+This included instruction records, delivered user messages, agent/model,
+creation/completion times, tool metadata, and accounting, without hydration.
+System/synthetic message identity is not guessed: installed
+`dist/chunks/shared-events-m77rqa4a.js:13` defines `messageIDFromEvent` as
+`eventID.replace(/^evt_/, "msg_")`; lines 628–648 apply it to instructions and
+synthetic events. The new capture also verified instruction IDs against native
+message snapshots. Synthetic-only tool attachment/chart/error tests remain
+separately labeled as synthetic evidence, not live MCP acceptance.
+
+Deterministic tests additionally cover native snapshot transforms at text
+reconnect cut points, stale events against completed snapshots, shared pending
+tool updates awaiting hydration, permissions, retries/errors, children/rename,
+source failure/reconnect, quiet headers-only streams, auth/location isolation,
+and subscriber-local cancellation through the real installed client with mocked
+HTTP transport. They do not prove every possible concurrent hydration race.
 
 `OpenCodeEvent` is the installed generated `EventSubscribeOutput` union. Despite
 the package also declaring a broader `V2Event`, it does not admit
@@ -93,11 +122,17 @@ the package also declaring a broader `V2Event`, it does not admit
 - MCP direct/Code Mode metadata and actual chart/document/file tool results;
   identity propagation. Synthetic metadata preservation tests are not evidence
   of MCP transport behavior.
-- Multi-part authoritative replacement, reconnect/hydration races, stale delta
-  duplication, subscriber isolation and complete event parity.
+- Arbitrary in-flight snapshot/live overlap has no verified replay cursor or
+  snapshot watermark in 2.0.32. Millisecond timestamps do not prove delta
+  deduplication for an unfinished snapshot. Completed snapshots reject old
+  message-addressed events, but that is not a universal overlap solution.
+- A reconnect that misses inbox enqueue and observes only delivery lacks the
+  payload until normal history hydration. Full session timestamp/outcome parity
+  and all control-record/content-replacement cases remain unproven. Thus SC-2's
+  unrestricted full live/snapshot acceptance is **not claimed complete**.
 - Image behavior and manual UI/end-to-end acceptance. No default runtime flip.
 
-## Verification at handoff
+## Previous phase verification (historical)
 
 - Baseline web suite: 537 files / 5,557 tests passed; 5 files / 19 tests skipped.
 - Final web suite: 544 files / 5,657 tests passed; 5 files / 19 tests skipped

@@ -25,6 +25,7 @@ vi.mock('@/lib/services', () => ({
     continueStartingTransition: vi.fn(),
     failStartingTransition: vi.fn(),
     finishStoppingTransition: vi.fn(),
+    recoverStoppingTransition: vi.fn().mockResolvedValue({ count: 1 }),
     upsertStarting: vi.fn(),
     setContainerId: vi.fn(),
     setError: vi.fn(),

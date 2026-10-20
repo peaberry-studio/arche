@@ -27,22 +27,34 @@ const staleRun: MessageRunRecord = {
 describe('prompt-run stale-lock recovery', () => {
   beforeEach(() => { vi.clearAllMocks() })
 
-  it.each(['busy historical child', 'failed child discovery'])('recovers an idle root lock despite %s', async (scenario) => {
+  it.each(['busy historical child', 'failed child discovery'])('retains an idle root lock with %s', async (scenario) => {
     const client = fakeRuntime()
     client.sessionStatus.mockResolvedValue({ ok: true, data: { 'session-1': { type: 'idle' }, 'child-1': { type: 'busy' } } })
     if (scenario === 'failed child discovery') client.listChildren.mockRejectedValue(new Error('children unavailable'))
     else client.listChildren.mockResolvedValue({ ok: true, data: [session('child-1')] })
-    const nextRun: MessageRunRecord = { ...staleRun, id: 'next-run' }
     mocks.transaction.mockRejectedValueOnce({ code: 'P2002' })
-      .mockResolvedValueOnce([{ count: 1 }, { count: 1 }])
-      .mockResolvedValueOnce(nextRun)
     mocks.findLock.mockResolvedValue({ run: staleRun })
     mocks.finishRun.mockResolvedValue({ count: 1 })
     mocks.deleteLock.mockResolvedValue({ count: 1 })
 
-    expect(await createSessionPromptRun({ client, sessionId: 'session-1', slug: 'slack-bot', source: 'slack' })).toEqual({ ok: true, run: nextRun })
-    expect(mocks.finishRun).toHaveBeenCalledWith({ where: { id: 'stale-run', status: 'running' }, data: { status: 'succeeded', error: null, finishedAt: expect.any(Date) } })
-    expect(mocks.deleteLock).toHaveBeenCalledWith({ where: { runId: 'stale-run' } })
-    expect(client.listChildren).not.toHaveBeenCalled()
+    expect(await createSessionPromptRun({ client, sessionId: 'session-1', slug: 'slack-bot', source: 'slack' })).toEqual({ ok: false, error: 'session_busy', activeRun: null })
+    expect(mocks.transaction).not.toHaveBeenCalled()
+    expect(mocks.finishRun).not.toHaveBeenCalled()
+    expect(mocks.deleteLock).not.toHaveBeenCalled()
+    expect(client.prompt).not.toHaveBeenCalled()
+  })
+
+  it('rechecks descendants before settling a stale lock after admission', async () => {
+    const client = fakeRuntime()
+    client.listChildren.mockImplementation(async (id) => ({ ok: true, data: id === 'session-1' ? [session('child-1')] : [] }))
+    client.sessionStatus.mockResolvedValueOnce({ ok: true, data: {} })
+      .mockResolvedValueOnce({ ok: true, data: { 'child-1': { type: 'retry' } } })
+    mocks.transaction.mockRejectedValueOnce({ code: 'P2002' })
+    mocks.findLock.mockResolvedValue({ run: staleRun })
+    expect(await createSessionPromptRun({ client, sessionId: 'session-1', slug: 'slack-bot', source: 'slack' }))
+      .toEqual({ ok: false, error: 'session_busy', activeRun: staleRun })
+    expect(mocks.transaction).toHaveBeenCalledOnce()
+    expect(mocks.finishRun).not.toHaveBeenCalled()
+    expect(mocks.deleteLock).not.toHaveBeenCalled()
   })
 })

@@ -9,6 +9,7 @@ vi.mock('@/lib/services', () => ({
     claimStartingTransition: vi.fn(),
     findIdleInstances: vi.fn(),
     finishStoppingTransition: vi.fn(),
+    recoverStoppingTransition: vi.fn().mockResolvedValue({ count: 1 }),
   },
   auditService: {
     createEvent: vi.fn(),

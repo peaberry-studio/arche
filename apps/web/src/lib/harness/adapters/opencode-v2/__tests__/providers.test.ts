@@ -41,7 +41,7 @@ describe('syncProviderAccess', () => {
       ok: false,
       error: {
         code: 'sync_failed',
-        detail: 'OpenCode V2 gateway credential mapping, fallback-free revocation and effective post-reload access are unverified; no credentials changed, reload performed or freshness recorded',
+        detail: 'OpenCode V2 gateway-only endpoint enforcement, managed credential ownership and complete provider sync orchestration are unverified; no credentials changed, reload performed or freshness recorded',
       },
     })
     expect(fetch).not.toHaveBeenCalled()

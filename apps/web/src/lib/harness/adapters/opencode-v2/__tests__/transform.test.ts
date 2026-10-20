@@ -67,9 +67,9 @@ describe('v2 snapshot transforms', () => {
     expect(() => JSON.stringify(parts)).not.toThrow()
   })
 
-  it('keeps unrepresentable streaming input as unknown instead of inventing an object input', () => {
+  it('preserves streaming raw input in an explicitly pending tool without parsing partial JSON', () => {
     const tool = { type: 'tool', id: 't', name: 'read', state: { status: 'streaming', input: '{"path":' } }
-    expect(transformParts([tool], 'm')).toEqual([{ type: 'unknown', originalType: 'tool', data: tool }])
+    expect(transformParts([tool], 'm')).toEqual([{ type: 'tool', id: 't', name: 'read', state: { status: 'pending', input: {}, rawInput: '{"path":' } }])
   })
 
   it('preserves future part shapes without logging provider data', () => {

@@ -4,12 +4,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PrismaClient } from '@/generated/prisma-desktop'
 import { fakeRuntime, message, session } from '@/lib/harness/__tests__/fake-runtime'
 import type { HarnessSession } from '@/lib/harness/contract'
-import { exportLegacySessions } from '@/lib/harness/legacy-session-archive'
+import { deleteLegacySession, exportLegacySessions } from '@/lib/harness/legacy-session-archive'
 import * as archive from '@/lib/services/legacy-session-archive'
 
 vi.mock('@/lib/prisma', () => ({ prisma: {
   get instance() { return client.instance },
   get legacySessionArchive() { return client.legacySessionArchive },
+  $transaction: (callback: Parameters<PrismaClient['$transaction']>[0], options: object) => client.$transaction(callback, options),
 } }))
 vi.mock('@/lib/harness/registry', () => ({ getRuntimeForSlug: vi.fn() }))
 
@@ -33,7 +34,7 @@ function sourceMessage(sessionId: string) {
 
 function sourceRuntime(sessions: HarnessSession[]) {
   const runtime = { ...fakeRuntime(), slug: 'alice' }
-  runtime.listSessions.mockResolvedValue({ ok: true, data: sessions.filter((item) => !item.parentId) })
+  runtime.listSessions.mockImplementation(async () => ({ ok: true, data: sessions.filter((item) => !item.parentId) }))
   runtime.listChildren.mockImplementation(async (id) => ({ ok: true, data: sessions.filter((item) => item.parentId === id) }))
   runtime.getSession.mockImplementation(async (id) => {
     const found = sessions.find((item) => item.id === id)
@@ -49,7 +50,8 @@ describe('legacy archive export and SQLite storage', () => {
     for (const sql of [
       'PRAGMA foreign_keys = ON',
       'CREATE TABLE users (id TEXT PRIMARY KEY, slug TEXT NOT NULL UNIQUE)',
-      'CREATE TABLE instances (id TEXT PRIMARY KEY, slug TEXT NOT NULL UNIQUE, runtime_kind TEXT)',
+      'CREATE TABLE audit_events (id TEXT PRIMARY KEY, actor_user_id TEXT, action TEXT NOT NULL, metadata JSONB, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)',
+      "CREATE TABLE instances (id TEXT PRIMARY KEY, slug TEXT NOT NULL UNIQUE, runtime_kind TEXT, status TEXT NOT NULL DEFAULT 'running')",
       `CREATE TABLE legacy_session_archives (
         id TEXT PRIMARY KEY, slug TEXT NOT NULL, session_id TEXT NOT NULL, parent_id TEXT, title TEXT NOT NULL,
         created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL, messages JSONB NOT NULL,
@@ -57,7 +59,7 @@ describe('legacy archive export and SQLite storage', () => {
         UNIQUE (slug, session_id), FOREIGN KEY (slug) REFERENCES users(slug) ON DELETE CASCADE ON UPDATE CASCADE
       )`,
       "INSERT INTO users VALUES ('alice-id', 'alice'), ('bob-id', 'bob')",
-      "INSERT INTO instances VALUES ('alice-instance', 'alice', NULL), ('bob-instance', 'bob', 'opencode-v2')",
+      "INSERT INTO instances (id, slug, runtime_kind) VALUES ('alice-instance', 'alice', NULL), ('bob-instance', 'bob', 'opencode-v2')",
     ]) await client.$executeRawUnsafe(sql)
   })
 
@@ -85,10 +87,11 @@ describe('legacy archive export and SQLite storage', () => {
     expect(await archive.isArchivedSession('bob', 'child-0')).toBe(false)
     const stored = await client.legacySessionArchive.findMany({ orderBy: { sessionId: 'asc' } })
     expect(stored[0]).toMatchObject({ createdAt: new Date(1_700_000_000_123), updatedAt: new Date(1_700_000_100_456) })
-    expect(await exportLegacySessions('alice', runtime)).toEqual({ ok: true, data: { archived: 0 } })
+    expect(await exportLegacySessions('alice', runtime)).toMatchObject({ ok: false, error: { code: 'session_busy' } })
     expect(await client.legacySessionArchive.findMany({ orderBy: { sessionId: 'asc' } })).toEqual(stored)
 
     await client.instance.update({ where: { slug: 'alice' }, data: { runtimeKind: 'opencode-v1' }, select: { id: true } })
+    expect(await exportLegacySessions('alice', runtime)).toEqual({ ok: true, data: { archived: 0 } })
     expect(await archive.findSession('alice', 'child-0')).toBeNull()
     expect(await archive.listSessions('alice')).toEqual([])
     expect(await client.legacySessionArchive.count()).toBe(40)
@@ -113,5 +116,60 @@ describe('legacy archive export and SQLite storage', () => {
     expect(await client.legacySessionArchive.findMany()).toEqual([expect.objectContaining({ slug: 'bob', sessionId: 'root' })])
     expect(await archive.findSession('bob', 'root')).toMatchObject({ messages: [sourceMessage('root')] })
     expect(await client.$queryRawUnsafe('PRAGMA foreign_key_check')).toEqual([])
+  })
+
+  it('physically purges deleted root/descendant snapshots and preserves another owner with the same ids', async () => {
+    const sources = [sourceSession('root'), sourceSession('child', 'root'), sourceSession('grandchild', 'child'), sourceSession('keep')]
+    const runtime = sourceRuntime(sources)
+    expect(await exportLegacySessions('alice', runtime)).toMatchObject({ ok: true })
+    const shared = await client.legacySessionArchive.findUniqueOrThrow({ where: { slug_sessionId: { slug: 'alice', sessionId: 'root' } } })
+    await archive.upsertSession({ ...shared, slug: 'bob', messages: [sourceMessage('root')] })
+    runtime.deleteSession.mockImplementation(async () => { sources.splice(0, 3); return { ok: true, data: undefined } })
+    expect(await deleteLegacySession('alice', runtime, 'root', 'alice-id')).toEqual({ ok: true, data: undefined })
+    expect(await client.legacySessionArchive.findMany({ orderBy: { slug: 'asc' } })).toEqual([
+      expect.objectContaining({ slug: 'alice', sessionId: 'keep' }), expect.objectContaining({ slug: 'bob', sessionId: 'root' }),
+    ])
+    expect(await client.auditEvent.findFirst()).toMatchObject({ action: 'workspace.session.deleted', actorUserId: 'alice-id' })
+    expect(await exportLegacySessions('alice', runtime)).toEqual({ ok: true, data: { archived: 0 } })
+    await client.instance.update({ where: { slug: 'alice' }, data: { runtimeKind: 'opencode-v2' }, select: { id: true } })
+    expect(await archive.listSessions('alice')).toEqual([expect.objectContaining({ id: 'keep' })])
+  })
+
+  it('prunes out-of-band deletions only after final verification, including a completely empty inventory', async () => {
+    const sources = [sourceSession('root'), sourceSession('child', 'root')]
+    const runtime = sourceRuntime(sources)
+    expect(await exportLegacySessions('alice', runtime)).toMatchObject({ ok: true })
+    sources.splice(0)
+    runtime.listSessions.mockResolvedValueOnce({ ok: false, error: { code: 'instance_unavailable' } })
+    expect(await exportLegacySessions('alice', runtime)).toMatchObject({ ok: false })
+    expect(await client.legacySessionArchive.count()).toBe(2)
+    runtime.listSessions.mockResolvedValue({ ok: true, data: [] })
+    expect(await exportLegacySessions('alice', runtime)).toEqual({ ok: true, data: { archived: 0 } })
+    expect(await client.legacySessionArchive.count()).toBe(0)
+  })
+
+  it('serializes a real SQLite archive transaction against live deletion without retained message rows', async () => {
+    const sources = [sourceSession('root')]
+    const runtime = sourceRuntime(sources)
+    let releaseRead!: () => void
+    let readStarted!: () => void
+    const paused = new Promise<void>((resolve) => { releaseRead = resolve })
+    const started = new Promise<void>((resolve) => { readStarted = resolve })
+    runtime.listMessages.mockImplementationOnce(async (id) => {
+      readStarted()
+      await paused
+      return { ok: true, data: [sourceMessage(id)] }
+    })
+    runtime.deleteSession.mockImplementation(async () => { sources.splice(0); return { ok: true, data: undefined } })
+    const exporting = exportLegacySessions('alice', runtime)
+    await started
+    const deleting = deleteLegacySession('alice', runtime, 'root', 'alice-id')
+    expect(runtime.deleteSession).not.toHaveBeenCalled()
+    releaseRead()
+    const [exported, deleted] = await Promise.all([exporting, deleting])
+    expect(deleted).toEqual({ ok: true, data: undefined })
+    expect(exported).toMatchObject({ ok: false, error: { code: 'session_busy' } })
+    expect(await client.legacySessionArchive.count()).toBe(0)
+    expect(await exportLegacySessions('alice', runtime)).toEqual({ ok: true, data: { archived: 0 } })
   })
 })

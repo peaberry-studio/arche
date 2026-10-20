@@ -288,7 +288,7 @@ export function useWorkspaceEventBus({
       const archivedIds = getArchivedSessionIds();
       const sessionId = "sessionId" in event ? event.sessionId
         : event.type === "session.upserted" ? event.session.id
-        : event.type === "message.upserted" ? event.message.sessionId
+        : event.type === "message.upserted" && "message" in event ? event.message.sessionId
         : event.type === "permission.asked" ? event.permission.sessionId
         : undefined;
       if (sessionId && archivedIds.has(sessionId)) return;

@@ -60,7 +60,7 @@ export type WorkspaceMessage = {
  * Tool invocation state for UI display.
  */
 export type ToolState = 
-  | { status: 'pending'; input: Record<string, unknown>; metadata?: Record<string, unknown> }
+  | { status: 'pending'; input: Record<string, unknown>; rawInput?: string; metadata?: Record<string, unknown> }
   | { status: 'running'; input: Record<string, unknown>; title?: string; metadata?: Record<string, unknown> }
   | { status: 'completed'; input: Record<string, unknown>; output: string; title: string; metadata?: Record<string, unknown> }
   | { status: 'error'; input: Record<string, unknown>; error: string; metadata?: Record<string, unknown> }
