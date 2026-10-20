@@ -1,21 +1,21 @@
 ## 1. Spike and contract foundation
 
 - [x] 1.1 Time-boxed spike (≤1 day) against a real OpenCode 2.x container built from `ghcr.io/anomalyco/opencode:<2.x>`: confirm headless serve command and flags, auth (basic auth or none), health endpoint, event stream endpoint and event type names, session/permission/abort/children endpoints in `@opencode/client`, provider auth sync and dispose equivalents, MCP tool-id prefixing, MCP `_meta` forwarding to stdio servers, and how to opt a server out of Code Mode. Deliver `apps/web/src/lib/harness/adapters/opencode-v2/NOTES.md` with a v1→v2 operation table; verify every contract operation in design D1 has a mapped endpoint or a written workaround.
-- [ ] 1.2 Create `apps/web/src/lib/harness/{contract,events,errors,registry,execution}.ts` with the `HarnessRuntime` type (operations from spec `harness-runtime`, including provider-access sync), the versioned Arche event union and part kinds (spec `workspace-event-stream`) and stable error codes (`session_not_found`, `session_busy`, `session_archived`, `runtime_unsupported`, `execution_termination_unconfirmed`, `caller_identity_unavailable`); verify with `pnpm exec tsc --noEmit` and an ACP mapping table (contract operation → ACP method or Arche-side answer) added to `NOTES.md` (D4).
-- [ ] 1.3 Move UI-facing types from `src/lib/opencode/types.ts` to `src/types/workspace-runtime.ts` (and file-tree types to `src/types/workspace.ts`), update imports in components/hooks/contexts/types; verify `pnpm exec tsc --noEmit` and `pnpm test` pass with no behavior change.
+- [x] 1.2 Create `apps/web/src/lib/harness/{contract,events,errors,registry,execution}.ts` with the `HarnessRuntime` type (operations from spec `harness-runtime`, including provider-access sync), the versioned Arche event union and part kinds (spec `workspace-event-stream`) and stable error codes (`session_not_found`, `session_busy`, `session_archived`, `runtime_unsupported`, `execution_termination_unconfirmed`, `caller_identity_unavailable`); verify with `pnpm exec tsc --noEmit` and an ACP mapping table (contract operation → ACP method or Arche-side answer) added to `NOTES.md` (D4).
+- [x] 1.3 Move UI-facing types from `src/lib/opencode/types.ts` to `src/types/workspace-runtime.ts` (and file-tree types to `src/types/workspace.ts`), update imports in components/hooks/contexts/types; verify `pnpm exec tsc --noEmit` and `pnpm test` pass with no behavior change.
 
 ## 2. OpenCode v1 adapter and BFF event translation
 
 - [x] 2.1 Create `src/lib/harness/adapters/opencode-v1/` by moving `client.ts`, `client-factory.ts`, `connection-resolver.ts`, `providers.ts`, `permission.ts`, `transform.ts`, `workspace-prompt.ts`, `session-utils.ts` and their `__tests__`; implement `HarnessRuntime` primitives on top of them; verify the moved tests pass unchanged.
 - [x] 2.2 Move orchestration from `session-execution.ts` (prompt-run creation, abort-family-and-confirm-idle, wait-for-completion, cursor capture, latest-assistant-reply) into `src/lib/harness/execution.ts` written against contract primitives; verify existing `session-execution` tests, ported to run against a fake `HarnessRuntime`, pass.
 - [x] 2.3 Implement `registry.ts` `getRuntimeForSlug(slug)` returning the v1 adapter for every instance (runtime kind arrives in group 5) and `runtime_unsupported` for unknown kinds; verify with unit tests.
-- [ ] 2.4 Implement the v1 event translator (OpenCode event → Arche events) from the field-extraction logic in `event-reducer.ts`; record v1 event-stream fixtures (text streaming, tool call, permission ask/reply, subagent child session, error, file touch) and add golden tests asserting `reduceArche(translate(fixture))` equals today's `reduceOpenCodeEvent(fixture)` store; verify golden tests pass.
+- [x] 2.4 Implement the v1 event translator (OpenCode event → Arche events) from the field-extraction logic in `event-reducer.ts`; record v1 event-stream fixtures (text streaming, tool call, permission ask/reply, subagent child session, error, file touch) and add golden tests asserting `reduceArche(translate(fixture))` equals today's `reduceOpenCodeEvent(fixture)` store; verify golden tests pass.
 - [x] 2.5 Switch `/api/w/[slug]/events` to `runtime.subscribeEvents(signal)` and write Arche frames, keeping heartbeat, connect deadline, broadcast injection and non-aborting close; move the client reducer to `src/lib/workspace-events/reducer.ts` handling only Arche events; switch `listMessagesAction` snapshots to Arche parts; verify updated route tests and `use-workspace-event-bus` tests, plus spec scenarios for unknown events and `workspace.touched`.
 - [x] 2.6 Measure translation overhead: add a micro-benchmark (Vitest bench) translating a recorded 2,000-event streaming fixture and log p50/p99 per-event cost in `NOTES.md`; verify p99 < 0.5 ms per event.
 
 ## 3. Consumers on the contract and seam enforcement
 
-- [ ] 3.1 Rewrite `src/actions/opencode.ts` as `src/actions/workspace-sessions.ts` using `getRuntimeForSlug` (file/search actions keep using the workspace agent); update hook imports; verify action tests (ported) pass.
+- [x] 3.1 Rewrite `src/actions/opencode.ts` as `src/actions/workspace-sessions.ts` using `getRuntimeForSlug`; file list/read/search keep today's OpenCode-backed semantics (ignore-aware, bounded fuzzy search) through the adapter's typed workspace-files bridge, which the v2 adapter must also provide; update hook imports; verify action tests (ported) pass.
 - [x] 3.2 Port `/api/w/[slug]/chat/{prompt,permissions/[permissionId]}`, `/api/internal/learning/{auth,session-history}`, `/api/u/[slug]/learning/runs/[runId]/cancel` to the contract; verify their route tests pass.
 - [x] 3.3 Port `lib/flows/{runner,session-executor,node-executor-types}.ts`, `lib/learning/{run-executor,session-history}.ts`, `lib/slack/{dm-handler,thread-handler}.ts` to the contract and `execution.ts`; verify flows, learning and Slack test suites pass.
 - [x] 3.4 Port `lib/spawner/core.ts`, `lib/runtime/workspace-host-{web,desktop}.ts`, `lib/providers/credential-mutations.ts`, `actions/spawner.ts` (health, provider sync) to the contract; verify spawner and runtime host tests pass and the `workspace-startup` spec scenarios still hold.
@@ -33,6 +33,15 @@ in-memory tarball inspection to respect the repository write boundary.
 the seam: the sidecar lacks equivalent ignore-aware bounded fuzzy search. This
 needs a scope decision, not a silent behavior change. 3.6 requires the human UI walkthrough.
 Phase 1 is not fully accepted; do not treat the unchecked tasks as completed. -->
+
+<!-- Phase-1 acceptance decisions (2026-10-20, reviewer):
+- Typecheck gate = no production-source diagnostics and no new test diagnostics vs main.
+  Measured: main 281 diagnostics, branch 241, 0 in production source. 1.2/1.3 accepted.
+- 2.4: goldens over the existing regression shapes are accepted; a live-container capture
+  is not required for this change.
+- 3.1: the workspace-files bridge through the adapter is the accepted design (task text
+  updated); sidecar parity is out of scope.
+- 3.6 stays unticked: manual walkthrough by a human before merge. It does not block later phases. -->
 
 - [ ] 4.1 Create `infra/workspace-image/arche-tools/` (package.json with `@modelcontextprotocol/sdk`, zod, existing tool deps) and a stdio `server.js` with a shim that registers each existing tool definition as an MCP tool (zod → JSON schema, `toToolOutput` → MCP content incl. attachment metadata); move `shared/` and `tools/` into it; verify `node --test` / existing `opencode-config/tests` ported to call tools through an in-process MCP client pass.
 - [ ] 4.2 Implement caller identity for `learning` and `session_history` per design D5 (MCP `_meta` if spike 1.1 confirms forwarding, otherwise explicit argument), returning `caller_identity_unavailable` when absent; verify with tool tests for both paths.
