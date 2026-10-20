@@ -42,6 +42,7 @@
   "dependencies": {
     "@arche/desktop-runtime": "link:../desktop-runtime",
     "@opencode-ai/sdk": "1.18.18",
+    "@opencode/client": "2.0.32",
     "@phosphor-icons/react": "2.1.10",
     "@prisma/adapter-better-sqlite3": "7.5.0",
     "@prisma/adapter-pg": "7.3.0",
