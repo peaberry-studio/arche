@@ -40,10 +40,10 @@ describe('connection-resolver', () => {
     isE2eFakeRuntimeEnabledMock.mockReturnValue(false)
     getRuntimeCapabilitiesMock.mockReturnValue({ containers: true })
     findCredentialsBySlugMock.mockResolvedValue({
-      serverPassword: 'encrypted-password',
+      serverPassword: 'enc-pw',
       status: 'running',
     })
-    decryptPasswordMock.mockReturnValue('plain-password')
+    decryptPasswordMock.mockReturnValue('plain')
   })
 
   afterEach(() => {
@@ -70,15 +70,15 @@ describe('connection-resolver', () => {
     const connection = await resolveInstanceConnection('alice')
 
     expect(findCredentialsBySlugMock).toHaveBeenCalledWith('alice')
-    expect(decryptPasswordMock).toHaveBeenCalledWith('encrypted-password')
+    expect(decryptPasswordMock).toHaveBeenCalledWith('enc-pw')
     expect(connection).toEqual({
-      authHeader: `Basic ${Buffer.from('opencode:plain-password').toString('base64')}`,
+      authHeader: `Basic ${Buffer.from('opencode:plain').toString('base64')}`,
       baseUrl: 'http://opencode-alice:4096',
-      password: 'plain-password',
+      password: 'plain',
       username: 'opencode',
     })
     await expect(getInstanceBasicAuth('alice')).resolves.toEqual({
-      authHeader: `Basic ${Buffer.from('opencode:plain-password').toString('base64')}`,
+      authHeader: `Basic ${Buffer.from('opencode:plain').toString('base64')}`,
       baseUrl: 'http://opencode-alice:4096',
     })
   })
@@ -87,7 +87,7 @@ describe('connection-resolver', () => {
     findCredentialsBySlugMock.mockResolvedValueOnce(null)
     await expect(resolveInstanceConnection('missing')).resolves.toBeNull()
 
-    findCredentialsBySlugMock.mockResolvedValueOnce({ status: 'stopped', serverPassword: 'encrypted-password' })
+    findCredentialsBySlugMock.mockResolvedValueOnce({ status: 'stopped', serverPassword: 'enc-pw' })
     await expect(resolveInstanceConnection('stopped')).resolves.toBeNull()
 
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -104,14 +104,14 @@ describe('connection-resolver', () => {
     isE2eFakeRuntimeEnabledMock.mockReturnValue(true)
     getE2eRuntimeConnectionMock.mockReturnValue({
       baseUrl: 'http://127.0.0.1:7777',
-      password: 'fake-password',
+      password: 'fake',
     })
 
     expect(getInstanceUrl('alice')).toBe('http://127.0.0.1:7777')
     const connection = await resolveInstanceConnection('alice')
     expect(connection).toMatchObject({
       baseUrl: 'http://127.0.0.1:7777',
-      password: 'fake-password',
+      password: 'fake',
       username: 'opencode',
     })
     expect(decryptPasswordMock).not.toHaveBeenCalled()
