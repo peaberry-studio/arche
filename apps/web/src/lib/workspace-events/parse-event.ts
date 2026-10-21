@@ -70,14 +70,14 @@ function isArcheEvent(event: unknown): event is ArcheEvent {
           (event.parts === undefined || (Array.isArray(event.parts) && event.parts.every(isPart)))
       }
       if (event.mode === 'commit') return typeof event.sessionId === 'string' && typeof event.messageId === 'string' && typeof event.timestamp === 'string' && typeof event.timestampRaw === 'number' && Number.isFinite(event.timestampRaw)
-      if (event.mode !== undefined && event.mode !== 'stage') return false
+      if (event.mode !== undefined) return false
       const message = event.message
       return isRecord(message) && typeof message.id === 'string' && typeof message.sessionId === 'string' &&
         (message.role === 'user' || message.role === 'assistant' || message.role === 'system') &&
         typeof message.content === 'string' && typeof message.timestamp === 'string' && Array.isArray(message.parts) && message.parts.every(isPart)
     }
     case 'message.removed':
-      return typeof event.messageId === 'string' && (event.mode === undefined || (event.mode === 'staged' && typeof event.sessionId === 'string'))
+      return typeof event.messageId === 'string'
     case 'part.upserted': {
       if (event.mode === 'tool-patch') {
         const update = event.update

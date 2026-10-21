@@ -3,7 +3,7 @@ import type { SessionInboxUser, SessionInfo, SessionMessageInfo, SessionPromptIn
 import { checkHealth, createInstanceClient, normalizeOpenCodeError, type OpenCodeV2Client } from '@/lib/harness/adapters/opencode-v2/client'
 import { subscribeOpenCodeEvents } from '@/lib/harness/adapters/opencode-v2/events'
 import { syncProviderAccess } from '@/lib/harness/adapters/opencode-v2/providers'
-import { toArchePermission, toHarnessMessage, toHarnessSession } from '@/lib/harness/adapters/opencode-v2/transform'
+import { toArchePermission, toHarnessMessage, toHarnessSession, toInboxMessage } from '@/lib/harness/adapters/opencode-v2/transform'
 import type {
   HarnessOperationOptions,
   HarnessPrompt,
@@ -146,12 +146,13 @@ export function createOpenCodeV2Runtime(slug: string): HarnessRuntime {
     )),
     listMessages: (sessionId) => withClient(async (client) => {
       await client.session.get({ sessionID: sessionId })
-      // 2.0.32 rejects `order` alongside a cursor; the cursor keeps the first page's order.
-      const messages = await collectPages<SessionMessageInfo>((cursor) => client.message.list(cursor ? { sessionID: sessionId, limit: 100, cursor } : { sessionID: sessionId, order: 'asc', limit: 100 }))
-      return messages.flatMap((message) => {
-        const normalized = toHarnessMessage({ ...message, sessionID: sessionId })
-        return normalized ? [normalized] : []
-      })
+      const inbox = await client.session.inbox.list({ sessionID: sessionId })
+      const messages = await collectPages<SessionMessageInfo>((cursor) => client.message.list({ sessionID: sessionId, limit: 100, ...(cursor ? { cursor } : { order: 'asc' }) }))
+      const delivered = new Set(messages.map((message) => message.id))
+      return [
+        ...messages.map((message) => toHarnessMessage({ ...message, sessionID: sessionId })),
+        ...inbox.filter((item) => !delivered.has(item.id)).map((item) => toInboxMessage(sessionId, item)),
+      ].flatMap((message) => message ? [message] : [])
     }),
     async prompt(input, options) {
       const submitted = await submitPrompt(input, options)

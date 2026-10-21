@@ -8,7 +8,6 @@ export type ChatStore = {
   permissions: Record<string, ArchePermission[]>
   sessions: WorkspaceSession[]
   pendingParts: Record<string, MessagePart[]>
-  stagedMessages?: Record<string, WorkspaceMessage>
   pendingUpdates?: Record<string, ArcheEvent[]>
 }
 export type ReduceResult = { store: ChatStore; workspaceTouched: boolean }
@@ -122,7 +121,9 @@ export function hydrateSessionIntoStore(store: ChatStore, sessionId: string, hyd
     const live = byId.get(incoming.id)
     const richer = live && (live.parts.length > incoming.parts.length || (live.parts.length === incoming.parts.length && live.content.length > incoming.content.length))
     const useLive = live?.completedAt !== undefined && (incoming.completedAt === undefined || live.completedAt > incoming.completedAt)
-    const merged = useLive ? live : richer && incoming.completedAt === undefined ? { ...incoming, parts: live.parts, content: live.content } : incoming
+    const chosen = useLive ? live : richer && incoming.completedAt === undefined ? { ...incoming, parts: live.parts, content: live.content } : incoming
+    const delivered = live?.role === 'user' && live.timestampRaw !== undefined && live.timestampRaw > (chosen.timestampRaw ?? 0)
+    const merged = delivered ? { ...chosen, timestamp: live.timestamp, timestampRaw: live.timestampRaw } : chosen
     let parts = merged.parts
     if (merged.completedAt === undefined) {
       for (const part of store.pendingParts[incoming.id] ?? []) parts = upsertPart(parts, part)
@@ -198,30 +199,19 @@ export function reduceArcheEvent(store: ChatStore, event: ArcheEvent): ReduceRes
       delete sessionStatus[event.sessionId]
       delete permissions[event.sessionId]
       next = { ...store, messages, sessionStatus, permissions, pendingParts, sessions: store.sessions.filter((session) => session.id !== event.sessionId) }
-      if (store.stagedMessages) next.stagedMessages = Object.fromEntries(Object.entries(store.stagedMessages).filter(([, message]) => message.sessionId !== event.sessionId))
       if (store.pendingUpdates) next.pendingUpdates = Object.fromEntries(Object.entries(store.pendingUpdates).filter(([, updates]) => !updates.some((update) => 'sessionId' in update && update.sessionId === event.sessionId)))
       break
     }
     case 'message.upserted': {
-      if (event.mode === 'stage') {
-        next = { ...store, stagedMessages: { ...store.stagedMessages, [event.message.id]: event.message } }
-        break
-      }
-      if (event.mode === 'commit') {
-        const staged = store.stagedMessages?.[event.messageId]
-        const stagedMessages = { ...store.stagedMessages }
-        delete stagedMessages[event.messageId]
-        next = { ...store, stagedMessages }
-        if (staged) {
-          const message = { ...staged, timestamp: event.timestamp, timestampRaw: event.timestampRaw }
-          next = reduceArcheEvent(next, { v: 1, type: 'message.upserted', message }).store
-        }
-        break
-      }
-      if (event.mode === 'patch') {
+      if (event.mode === 'commit' || event.mode === 'patch') {
         const messages = store.messages[event.sessionId] ?? []
         if (!messages.some((message) => message.id === event.messageId)) {
           next = queueUpdate(store, event.messageId, event)
+          break
+        }
+        if (event.mode === 'commit') {
+          next = withMessages(store, event.sessionId, messages.map((message) => message.id === event.messageId
+            ? { ...message, timestamp: event.timestamp, timestampRaw: event.timestampRaw } : message))
           break
         }
         next = withMessages(store, event.sessionId, messages.map((message) => {
@@ -249,22 +239,12 @@ export function reduceArcheEvent(store: ChatStore, event: ArcheEvent): ReduceRes
       break
     }
     case 'message.removed': {
-      if (event.mode === 'staged') {
-        const stagedMessages = { ...store.stagedMessages }
-        delete stagedMessages[event.messageId]
-        next = { ...store, stagedMessages }
-        break
-      }
       const located = locateMessage(store, event.messageId)
       if (located) next = withMessages(store, located.sessionId, store.messages[located.sessionId].filter((message) => message.id !== event.messageId))
       next = withPendingParts(next, event.messageId, [])
       if (store.pendingUpdates) {
         next.pendingUpdates = { ...store.pendingUpdates }
         delete next.pendingUpdates[event.messageId]
-      }
-      if (store.stagedMessages) {
-        next.stagedMessages = { ...store.stagedMessages }
-        delete next.stagedMessages[event.messageId]
       }
       break
     }

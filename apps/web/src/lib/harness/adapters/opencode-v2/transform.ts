@@ -197,6 +197,11 @@ export function toHarnessMessage(value: unknown): HarnessMessage | null {
   }
 }
 
+export function toInboxMessage(sessionId: string, item: unknown): HarnessMessage | null {
+  if (!isRecord(item) || (item.type !== 'user' && item.type !== 'synthetic') || !isRecord(item.payload)) return null
+  return toHarnessMessage({ ...item.payload, id: item.id, sessionID: sessionId, type: item.type, time: item.time })
+}
+
 export function toArchePermission(value: unknown): ArchePermission | null {
   if (!isRecord(value)) return null
   const id = getString(value.id)

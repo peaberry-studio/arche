@@ -174,7 +174,7 @@ describe('V2 runtime', () => {
   })
 
   it('supplies the requested session ID missing from native message records', async () => {
-    mocks.client.mockResolvedValue({ session: { get: vi.fn().mockResolvedValue(session('s1')) }, message: { list: vi.fn().mockResolvedValue({
+    mocks.client.mockResolvedValue({ session: { get: vi.fn().mockResolvedValue(session('s1')), inbox: { list: vi.fn().mockResolvedValue([]) } }, message: { list: vi.fn().mockResolvedValue({
       data: [{ id: 'msg1', type: 'user', text: 'hello', time: { created: 1 } }], cursor: { next: null },
     }) } })
     const result = await createOpenCodeV2Runtime('alice').listMessages('s1')
@@ -187,11 +187,34 @@ describe('V2 runtime', () => {
       .mockResolvedValueOnce({ data: [message('msg1', 'old')], cursor: { next: 'one' } })
       .mockResolvedValueOnce({ data: [message('msg1', 'updated'), message('msg2', 'next')], cursor: { next: 'two' } })
       .mockResolvedValueOnce({ data: [], cursor: { next: null } })
-    mocks.client.mockResolvedValue({ session: { get: vi.fn().mockResolvedValue(session('s1')) }, message: { list } })
+    mocks.client.mockResolvedValue({ session: { get: vi.fn().mockResolvedValue(session('s1')), inbox: { list: vi.fn().mockResolvedValue([]) } }, message: { list } })
     const result = await createOpenCodeV2Runtime('alice').listMessages('s1')
     expect(result.ok && result.data.map(({ id, content }) => ({ id, content }))).toEqual([{ id: 'msg1', content: 'updated' }, { id: 'msg2', content: 'next' }])
     expect(list).toHaveBeenNthCalledWith(1, { sessionID: 's1', order: 'asc', limit: 100 })
     expect(list).toHaveBeenNthCalledWith(3, { sessionID: 's1', limit: 100, cursor: 'two' })
+  })
+
+  it('appends undelivered user/synthetic inbox input read before the history, without duplicating delivered input', async () => {
+    const order: string[] = []
+    const inbox = vi.fn(async () => {
+      order.push('inbox')
+      return [
+        { id: 'msg1', sessionID: 's1', type: 'user', delivery: 'steer', payload: { text: 'delivered meanwhile' }, time: { created: 1 } },
+        { id: 'queued', sessionID: 's1', type: 'user', delivery: 'queue', payload: { text: 'pending' }, time: { created: 3 } },
+        { id: 'compact', sessionID: 's1', type: 'compaction', delivery: 'queue', payload: {}, time: { created: 4 } },
+      ]
+    })
+    const list = vi.fn(async () => {
+      order.push('messages')
+      return { data: [{ id: 'msg1', type: 'user', text: 'delivered meanwhile', time: { created: 2 } }], cursor: { next: null } }
+    })
+    mocks.client.mockResolvedValue({ session: { get: vi.fn().mockResolvedValue(session('s1')), inbox: { list: inbox } }, message: { list } })
+    const result = await createOpenCodeV2Runtime('alice').listMessages('s1')
+    expect(result.ok && result.data.map(({ id, role, content, timestampRaw }) => ({ id, role, content, timestampRaw }))).toEqual([
+      { id: 'msg1', role: 'user', content: 'delivered meanwhile', timestampRaw: 2 },
+      { id: 'queued', role: 'user', content: 'pending', timestampRaw: 3 },
+    ])
+    expect(order).toEqual(['inbox', 'messages'])
   })
 
   it('lists only enabled models with canonical provider IDs, native defaults and untiered prices', async () => {

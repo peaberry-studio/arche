@@ -68,14 +68,23 @@ describe('V2 adapter with the real matched HTTP client', () => {
   })
 
   it('normalizes recorded message snapshots through the real client without exposing native envelopes', async () => {
-    transport([
+    const { requests } = transport([
       Response.json({ data: nativeSession() }),
-      Response.json({ data: [userSnapshot, assistantSnapshot], cursor: { next: null, previous: null } }),
+      Response.json({ data: [{ id: 'msg_queued', sessionID: SESSION_ID, type: 'user', delivery: 'steer', payload: { text: 'QUEUED_PROBE' }, time: { created: 1792511016700 } }] }),
+      Response.json({ data: [userSnapshot, assistantSnapshot], cursor: { next: 'after-last', previous: null } }),
+      Response.json({ data: [], cursor: { next: null, previous: null } }),
     ])
     expect(await createOpenCodeV2Runtime('alice').listMessages(SESSION_ID)).toMatchObject({ ok: true, data: [
       { id: userSnapshot.id, sessionId: SESSION_ID, role: 'user', content: 'TEXT_PROBE' },
       { id: assistantSnapshot.id, sessionId: SESSION_ID, role: 'assistant', content: 'Hello fixture', parts: expect.arrayContaining([{ type: 'step-finish', id: `${assistantSnapshot.id}:usage`, reason: 'stop', cost: 0.000017, tokens: { input: 11, output: 3 } }]) },
+      { id: 'msg_queued', sessionId: SESSION_ID, role: 'user', content: 'QUEUED_PROBE', timestampRaw: 1792511016700 },
     ] })
+    expect(requests.map(({ path, query }) => [path, Object.fromEntries(query)])).toEqual([
+      [`/api/session/${SESSION_ID}`, {}],
+      [`/api/session/${SESSION_ID}/inbox`, {}],
+      [`/api/session/${SESSION_ID}/message`, { order: 'asc', limit: '100' }],
+      [`/api/session/${SESSION_ID}/message`, { limit: '100', cursor: 'after-last' }],
+    ])
   })
 
   it('serializes text prompt identity and selection before submitting and forwards cancellation', async () => {

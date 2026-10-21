@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { SESSION_ID, textEvents } from '@/lib/harness/adapters/opencode-v2/__tests__/fixtures'
-import { connectOpenCodeEvents, subscribeOpenCodeEvents, V2_EVENT_STREAM_UNVERIFIED } from '@/lib/harness/adapters/opencode-v2/events'
+import { subscribeOpenCodeEvents } from '@/lib/harness/adapters/opencode-v2/events'
 import { createOpenCodeV2Runtime } from '@/lib/harness/adapters/opencode-v2/runtime'
 
 const auth = vi.hoisted(() => vi.fn())
@@ -28,15 +28,21 @@ describe('V2 event transport using the installed client', () => {
   beforeEach(() => { auth.mockImplementation(async (slug: string) => ({ baseUrl: `http://${slug}`, authHeader: `Basic ${slug}` })) })
   afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); vi.useRealTimers() })
 
-  it.each([
-    { name: 'adapter', subscribe: subscribeOpenCodeEvents },
-    { name: 'runtime contract', subscribe: (slug: string, signal: AbortSignal) => createOpenCodeV2Runtime(slug).subscribeEvents(signal) },
-  ])('keeps $name subscription unsupported without resolving credentials or opening transport', async ({ subscribe }) => {
-    const fetch = vi.fn().mockRejectedValue(new Error('must not connect'))
+  it('serves the runtime contract subscription through the production transport', async () => {
+    const source = stream()
+    const fetch = vi.fn(async (url: string) => String(url).endsWith('/api/event') ? source.response : snapshotResponse(url))
     vi.stubGlobal('fetch', fetch)
-    expect(await subscribe('alice', new AbortController().signal)).toEqual({ ok: false, error: { code: 'runtime_unsupported', detail: V2_EVENT_STREAM_UNVERIFIED } })
-    expect(auth).not.toHaveBeenCalled()
-    expect(fetch).not.toHaveBeenCalled()
+    const controller = new AbortController()
+    const subscribed = await createOpenCodeV2Runtime('alice').subscribeEvents(controller.signal)
+    if (!subscribed.ok) throw new Error(subscribed.error.code)
+    expect(auth).toHaveBeenCalledWith('alice')
+    const iterator = subscribed.data[Symbol.asyncIterator]()
+    const next = iterator.next()
+    source.send(textEvents[2])
+    expect((await next).value).toMatchObject({ type: 'part.delta', delta: 'Hello fixture' })
+    controller.abort()
+    await iterator.return?.()
+    expect(fetch.mock.calls.every(([url]) => !String(url).includes('interrupt'))).toBe(true)
   })
 
   it('primes the lazy connection, authenticates, and forwards before reading the next event', async () => {
@@ -45,7 +51,7 @@ describe('V2 event transport using the installed client', () => {
     vi.stubGlobal('fetch', fetch)
     source.send({ id: 'connected', type: 'server.connected', data: {} })
     const controller = new AbortController()
-    const subscribed = await connectOpenCodeEvents('alice', controller.signal)
+    const subscribed = await subscribeOpenCodeEvents('alice', controller.signal)
     expect(subscribed.ok).toBe(true)
     if (!subscribed.ok) throw new Error(subscribed.error.code)
     expect(fetch.mock.calls.map(([url]) => new URL(String(url)).pathname)).toEqual(['/api/location', '/api/session', '/api/event'])
@@ -70,7 +76,7 @@ describe('V2 event transport using the installed client', () => {
     vi.stubGlobal('fetch', fetch)
     for (const source of sources) source.send({ id: 'connected', type: 'server.connected', data: {} })
     const controllers = [new AbortController(), new AbortController()]
-    const [alice, bob] = await Promise.all([connectOpenCodeEvents('alice', controllers[0].signal), connectOpenCodeEvents('bob', controllers[1].signal)])
+    const [alice, bob] = await Promise.all([subscribeOpenCodeEvents('alice', controllers[0].signal), subscribeOpenCodeEvents('bob', controllers[1].signal)])
     if (!alice.ok || !bob.ok) throw new Error('subscription failed')
     const a = alice.data[Symbol.asyncIterator]()
     const b = bob.data[Symbol.asyncIterator]()
@@ -88,14 +94,14 @@ describe('V2 event transport using the installed client', () => {
 
   it('returns a typed connect failure and does not mistake iterator creation for readiness', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => String(url).endsWith('/api/event') ? new Response('', { status: 503 }) : snapshotResponse(url)))
-    expect(await connectOpenCodeEvents('alice', new AbortController().signal)).toMatchObject({ ok: false, error: { code: 'event_stream_unavailable' } })
+    expect(await subscribeOpenCodeEvents('alice', new AbortController().signal)).toMatchObject({ ok: false, error: { code: 'event_stream_unavailable' } })
   })
 
   it('forwards unlocated execution only for known workspace sessions', async () => {
     const source = stream()
     vi.stubGlobal('fetch', vi.fn(async (url: string) => String(url).endsWith('/api/event') ? source.response : snapshotResponse(url)))
     const controller = new AbortController()
-    const subscription = await connectOpenCodeEvents('alice', controller.signal)
+    const subscription = await subscribeOpenCodeEvents('alice', controller.signal)
     if (!subscription.ok) throw new Error(subscription.error.code)
     const iterator = subscription.data[Symbol.asyncIterator]()
     const next = iterator.next()
@@ -112,7 +118,7 @@ describe('V2 event transport using the installed client', () => {
     const source = stream()
     vi.stubGlobal('fetch', vi.fn(async (url: string) => String(url).endsWith('/api/event') ? source.response : snapshotResponse(url)))
     const controller = new AbortController()
-    const subscribed = await connectOpenCodeEvents('alice', controller.signal)
+    const subscribed = await subscribeOpenCodeEvents('alice', controller.signal)
     if (!subscribed.ok) throw new Error(subscribed.error.code)
     await vi.advanceTimersByTimeAsync(30_000)
     const iterator = subscribed.data[Symbol.asyncIterator]()
@@ -130,7 +136,7 @@ describe('V2 event transport using the installed client', () => {
       return new Promise<Response>((_resolve, reject) => options.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true }))
     }))
     const controller = new AbortController()
-    const subscribing = connectOpenCodeEvents('alice', controller.signal)
+    const subscribing = subscribeOpenCodeEvents('alice', controller.signal)
     await vi.advanceTimersByTimeAsync(8_000)
     controller.abort()
     expect(await subscribing).toMatchObject({ ok: false, error: { code: 'event_stream_unavailable' } })
@@ -141,7 +147,7 @@ describe('V2 event transport using the installed client', () => {
     let connections = 0
     vi.stubGlobal('fetch', vi.fn(async (url: string) => String(url).endsWith('/api/event') ? sources[connections++].response : snapshotResponse(url)))
     sources[0].send({ id: 'connected', type: 'server.connected', data: {} })
-    const first = await connectOpenCodeEvents('alice', new AbortController().signal)
+    const first = await subscribeOpenCodeEvents('alice', new AbortController().signal)
     if (!first.ok) throw new Error(first.error.code)
     const iterator = first.data[Symbol.asyncIterator]()
     const next = iterator.next()
@@ -149,7 +155,7 @@ describe('V2 event transport using the installed client', () => {
     await expect(next).rejects.toBeDefined()
     sources[1].send({ id: 'connected-again', type: 'server.connected', data: {} })
     const controller = new AbortController()
-    const second = await connectOpenCodeEvents('alice', controller.signal)
+    const second = await subscribeOpenCodeEvents('alice', controller.signal)
     if (!second.ok) throw new Error(second.error.code)
     const resumed = second.data[Symbol.asyncIterator]()
     const event = resumed.next()
