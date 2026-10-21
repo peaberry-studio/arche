@@ -45,6 +45,12 @@ function pendingSubscription() {
   }))
 }
 
+const CONNECTED = ': connected\n\n'
+
+async function readText(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<string> {
+  return new TextDecoder().decode((await reader.read()).value)
+}
+
 function eventSubscription(events: ArcheEvent[]) {
   mocks.subscribeEvents.mockResolvedValue({ ok: true, data: (async function* () { yield* events })() })
 }
@@ -110,6 +116,7 @@ describe('GET /api/w/[slug]/events', () => {
     vi.useFakeTimers()
     const response = await request()
     const reader = response.body!.getReader()
+    expect(await readText(reader)).toBe(CONNECTED)
     const firstRead = reader.read()
     await vi.advanceTimersByTimeAsync(10_000)
     expect(new TextDecoder().decode((await firstRead).value)).toMatch(/^: heartbeat \d+\n\n$/)
@@ -118,12 +125,19 @@ describe('GET /api/w/[slug]/events', () => {
     await reader.cancel()
   })
 
+  it('flushes a frame at connect so the client sees the stream open before any event', async () => {
+    const response = await request()
+    const reader = response.body!.getReader()
+    expect(await readText(reader)).toBe(CONNECTED)
+    await reader.cancel()
+  })
+
   it('writes normalized Arche frames and closes on upstream EOF', async () => {
     const events: ArcheEvent[] = [{ v: 1, type: 'session.status', sessionId: 's1', status: 'busy' }, { v: 1, type: 'workspace.touched' }]
     eventSubscription(events)
     const response = await request()
     expect(response.headers.get('content-type')).toBe('text/event-stream')
-    expect(await response.text()).toBe(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(''))
+    expect(await response.text()).toBe(CONNECTED + events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(''))
     expect(mocks.getRuntimeForSlug).toHaveBeenCalledWith('alice')
   })
 
@@ -137,7 +151,8 @@ describe('GET /api/w/[slug]/events', () => {
     })() })
     const response = await request()
     const reader = response.body!.getReader()
-    expect(new TextDecoder().decode((await reader.read()).value)).toContain('workspace.touched')
+    expect(await readText(reader)).toBe(CONNECTED)
+    expect(await readText(reader)).toContain('workspace.touched')
     release()
     expect(new TextDecoder().decode((await reader.read()).value)).toContain('workspace.touched')
     expect((await reader.read()).done).toBe(true)
@@ -157,6 +172,7 @@ describe('GET /api/w/[slug]/events', () => {
   it('injects only modeled workspace broadcasts with a schema version', async () => {
     const response = await request()
     const reader = response.body!.getReader()
+    expect(await readText(reader)).toBe(CONNECTED)
     broadcast.listener?.({ type: 'unmodeled.notification' })
     broadcast.listener?.({ type: 'knowledge.proposals_changed' })
     expect(new TextDecoder().decode((await reader.read()).value)).toBe('data: {"v":1,"type":"knowledge.proposals_changed"}\n\n')
@@ -167,7 +183,7 @@ describe('GET /api/w/[slug]/events', () => {
   it('closes on upstream failure without aborting execution', async () => {
     mocks.subscribeEvents.mockResolvedValue({ ok: true, data: (async function* () { throw new Error('disconnected'); yield* [] })() })
     const response = await request()
-    expect(await response.text()).toBe('')
+    expect(await response.text()).toBe(CONNECTED)
     expect(mocks.abortSession).not.toHaveBeenCalled()
     expect(broadcast.unsubscribe).toHaveBeenCalledOnce()
   })

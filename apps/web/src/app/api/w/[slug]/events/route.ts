@@ -10,6 +10,7 @@ export const dynamic = 'force-dynamic'
 
 const HEARTBEAT_INTERVAL_MS = 10_000
 const UPSTREAM_CONNECT_TIMEOUT_MS = 8_000
+const CONNECTED_FRAME = ': connected\n\n'
 
 export const GET = withAuth<unknown, { slug: string }>(
   { csrf: false },
@@ -49,6 +50,9 @@ export const GET = withAuth<unknown, { slug: string }>(
           abort()
           try { controller.close() } catch { /* already closed */ }
         }
+        // Headers reach the client only with the first chunk; without this the
+        // client sees the stream open at the first event or heartbeat.
+        controller.enqueue(encoder.encode(CONNECTED_FRAME))
         const send = (event: ArcheEvent) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
         const unsubscribeBroadcast = subscribeWorkspaceEvents(user.id, (event) => {
           if (closed || event.type !== 'knowledge.proposals_changed') return
