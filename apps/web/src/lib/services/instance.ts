@@ -335,13 +335,14 @@ export function correctToRunningIfCurrentContainer(
   })
 }
 
-export function setRunning(slug: string, appliedConfigSha: string | null) {
+export function setRunning(slug: string, appliedConfigSha: string | null, runtimeKind: string) {
   return prisma.instance.update({
     where: { slug },
     data: {
       status: 'running',
       lastActivityAt: new Date(),
       appliedConfigSha,
+      runtimeKind,
     },
   })
 }

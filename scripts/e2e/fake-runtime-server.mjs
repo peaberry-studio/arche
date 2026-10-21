@@ -27,6 +27,9 @@ const state = {
   eventClients: new Set(),
   nextEventClientGeneration: 1,
   pendingEventBatches: [],
+  credentials: [],
+  nextCredentialId: 1,
+  nextEventId: 1,
 }
 
 function now() {
@@ -314,14 +317,14 @@ function listSessionsForSdk(url) {
   return sessions.map((session) => mapSessionToSdk(session))
 }
 
-function createPromptResponse(session, prompt) {
+function createPromptResponse(session, prompt, requestedUserMessageId) {
   const readFilePath = extractE2eReadFilePath(prompt)
   const reply = prompt.includes(PDF_TOKEN)
     ? `PDF_OK: ${PDF_TOKEN}`
     : readFilePath
       ? `E2E_FILE_READY: ${readFilePath}`
       : `E2E_OK: ${prompt}`
-  const userMessageId = `message-${state.nextMessageId++}`
+  const userMessageId = requestedUserMessageId ?? `message-${state.nextMessageId++}`
   const assistantMessageId = `message-${state.nextMessageId++}`
   const assistantPartId = `part-${state.nextPartId++}`
 
@@ -379,8 +382,9 @@ function createPromptResponse(session, prompt) {
   }
 }
 
-function addEventClient(response) {
+function addEventClient(response, api = 'v1') {
   const client = {
+    api,
     generation: state.nextEventClientGeneration++,
     response,
   }
@@ -404,16 +408,23 @@ function flushPendingEventBatches() {
   const remainingBatches = []
   const batches = state.pendingEventBatches.splice(0)
   for (const batch of batches) {
-    const eligibleClients = Array.from(state.eventClients)
-      .filter((client) => client.generation >= batch.minEventClientGeneration)
+    const v1Clients = Array.from(state.eventClients)
+      .filter((client) => client.api === 'v1' && client.generation >= batch.minEventClientGeneration)
+    // The v2 BFF filters events by location and session itself, so every open
+    // subscription gets them: a stale one left by an earlier page must not
+    // swallow events meant for the current one.
+    const v2Clients = Array.from(state.eventClients).filter((client) => client.api === 'v2')
 
-    if (eligibleClients.length === 0) {
+    if (v1Clients.length === 0 && v2Clients.length === 0) {
       remainingBatches.push(batch)
       continue
     }
 
     for (const event of batch.events) {
-      broadcastEvent(event, eligibleClients)
+      broadcastEvent(event, v1Clients)
+    }
+    for (const event of batch.v2Events ?? []) {
+      broadcastEvent(event, v2Clients)
     }
 
     batch.session.status = 'idle'
@@ -421,7 +432,8 @@ function flushPendingEventBatches() {
     broadcastEvent({
       type: 'session.idle',
       properties: { sessionID: batch.session.id },
-    }, eligibleClients)
+    }, v1Clients)
+    broadcastEvent(v2Event('session.execution.succeeded', { sessionID: batch.session.id }), v2Clients)
   }
 
   state.pendingEventBatches.push(...remainingBatches)
@@ -435,6 +447,7 @@ function queuePromptEvents(session, userMessage, assistantMessage, assistantPart
   state.pendingEventBatches.push({
     minEventClientGeneration,
     session,
+    v2Events: buildV2PromptEvents(session, userMessage, assistantMessage, reply),
     events: [
       {
         type: 'session.status',
@@ -496,6 +509,384 @@ function listFilesUnder(prefix) {
   }
 
   return results.sort((left, right) => left.path.localeCompare(right.path))
+}
+
+// OpenCode 2 (`@opencode/client` 2.0.32) shapes. The Arche v2 adapter is the
+// only consumer; see apps/web/src/lib/harness/adapters/opencode-v2.
+const V2_VERSION = '2.0.32'
+const V2_LOCATION = { directory: DEFAULT_DIRECTORY }
+const V2_MODEL = { id: DEFAULT_MODEL_ID, providerID: DEFAULT_PROVIDER_ID }
+const V2_TOKENS = { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }
+// Without a subscriber the prompt events never flush; settle the run anyway so
+// synchronous callers polling `session/active` see it finish.
+const V2_IDLE_FALLBACK_MS = 1_500
+
+function v2Event(type, data) {
+  return { id: `evt_e2e_${state.nextEventId++}`, created: now(), type, location: V2_LOCATION, data }
+}
+
+function mapSessionToV2(session) {
+  return {
+    id: session.id,
+    title: session.title,
+    ...(session.parentID ? { parentID: session.parentID } : {}),
+    time: { created: session.createdAt, updated: session.updatedAt },
+    location: V2_LOCATION,
+    agent: DEFAULT_AGENT,
+    model: V2_MODEL,
+  }
+}
+
+function mapAssistantContentToV2(message) {
+  if (!message.parts) return [{ type: 'text', text: message.text ?? '' }]
+  return message.parts.map((part) => part.type === 'tool'
+    ? {
+        type: 'tool',
+        id: part.callID,
+        name: part.tool,
+        executed: false,
+        state: {
+          status: 'completed',
+          input: part.state.input,
+          content: [{ type: 'text', text: part.state.output }],
+          metadata: { title: part.state.title },
+        },
+        time: { created: message.createdAt, ran: message.createdAt, completed: message.createdAt },
+      }
+    : { type: 'text', text: part.text ?? '' })
+}
+
+function mapMessageToV2(message) {
+  if (message.role === 'assistant') {
+    return {
+      id: message.id,
+      sessionID: message.sessionId,
+      type: 'assistant',
+      agent: DEFAULT_AGENT,
+      model: V2_MODEL,
+      time: { created: message.createdAt, completed: message.createdAt },
+      content: mapAssistantContentToV2(message),
+      finish: 'stop',
+      rawFinish: 'stop',
+      cost: 0,
+      tokens: V2_TOKENS,
+    }
+  }
+
+  return {
+    id: message.id,
+    sessionID: message.sessionId,
+    type: 'user',
+    text: message.text ?? '',
+    time: { created: message.createdAt },
+  }
+}
+
+function buildV2PromptEvents(session, userMessage, assistantMessage, reply) {
+  const sessionID = session.id
+  const address = { sessionID, assistantMessageID: assistantMessage.id }
+  const toolEvents = (assistantMessage.parts ?? []).filter((part) => part.type === 'tool').flatMap((part) => [
+    v2Event('session.tool.input.started', { ...address, id: part.callID, name: part.tool }),
+    v2Event('session.tool.called', { ...address, id: part.callID, input: part.state.input, executed: false }),
+    v2Event('session.tool.success', {
+      ...address,
+      id: part.callID,
+      content: [{ type: 'text', text: part.state.output }],
+      metadata: { title: part.state.title },
+      executed: false,
+    }),
+  ])
+
+  return [
+    v2Event('session.inbox.enqueued', { sessionID, inboxID: userMessage.id, item: { type: 'user', payload: { text: userMessage.text }, delivery: 'steer' } }),
+    v2Event('session.execution.started', { sessionID }),
+    v2Event('session.inbox.delivered', { sessionID, inboxID: userMessage.id }),
+    v2Event('session.step.started', { ...address, agent: DEFAULT_AGENT, model: V2_MODEL, started: assistantMessage.createdAt }),
+    ...toolEvents,
+    v2Event('session.text.started', { ...address, ordinal: 0 }),
+    v2Event('session.text.delta', { ...address, ordinal: 0, delta: reply }),
+    v2Event('session.text.ended', { ...address, ordinal: 0, text: reply }),
+    v2Event('session.step.ended', { ...address, finish: 'stop', rawFinish: 'stop', cost: 0, tokens: V2_TOKENS }),
+  ]
+}
+
+function sendV2NotFound(response, message) {
+  sendJson(response, 404, { _tag: 'SessionNotFoundError', message })
+}
+
+function listV2Sessions(url) {
+  const parentID = url.searchParams.get('parentID')
+  return Array.from(state.sessions.values())
+    .filter((session) => parentID === null || (parentID === 'null' ? !session.parentID : session.parentID === parentID))
+    .sort((left, right) => right.updatedAt - left.updatedAt)
+    .map((session) => mapSessionToV2(session))
+}
+
+function listV2FsEntries(type) {
+  const entries = new Map()
+  for (const filePath of state.files.keys()) {
+    const parts = filePath.replace(/^\/+|\/+$/g, '').split('/')
+    for (let index = 1; index < parts.length; index++) {
+      const directory = parts.slice(0, index).join('/')
+      entries.set(`${directory}/`, { path: `${directory}/`, type: 'directory' })
+    }
+    entries.set(parts.join('/'), { path: parts.join('/'), type: 'file' })
+  }
+  return Array.from(entries.values()).filter((entry) => !type || entry.type === type)
+}
+
+async function handleV2Prompt(request, response, session) {
+  const body = JSON.parse((await readBody(request)).toString('utf8') || '{}')
+  const prompt = reconstructPrompt(body)
+  const requestedId = typeof body.id === 'string' && body.id.startsWith('msg_') ? body.id : undefined
+  const { reply, userMessage, assistantMessage, assistantPartId } = createPromptResponse(session, prompt, requestedId)
+  sendJson(response, 200, {
+    data: {
+      id: userMessage.id,
+      sessionID: session.id,
+      type: 'user',
+      payload: { text: userMessage.text },
+      delivery: 'steer',
+      time: { created: userMessage.createdAt },
+    },
+  })
+  queuePromptEvents(session, userMessage, assistantMessage, assistantPartId, reply)
+  setTimeout(() => {
+    const pending = state.pendingEventBatches.some((batch) => batch.session === session)
+    if (pending && state.eventClients.size === 0) {
+      session.status = 'idle'
+      session.updatedAt = now()
+    }
+  }, V2_IDLE_FALLBACK_MS)
+}
+
+async function handleV2Request(request, response, method, pathname, url) {
+  if (method === 'GET' && pathname === '/api/info') {
+    sendJson(response, 200, { version: V2_VERSION, pid: process.pid, urls: [runtimeBaseUrl] })
+    return true
+  }
+
+  if (method === 'GET' && pathname === '/api/location') {
+    sendJson(response, 200, V2_LOCATION)
+    return true
+  }
+
+  if (method === 'POST' && pathname === '/api/location/reload') {
+    response.writeHead(204)
+    response.end()
+    return true
+  }
+
+  if (method === 'GET' && pathname === '/api/credential') {
+    sendJson(response, 200, { data: state.credentials })
+    return true
+  }
+
+  if (method === 'POST' && pathname === '/api/credential') {
+    const body = JSON.parse((await readBody(request)).toString('utf8') || '{}')
+    const entry = {
+      id: `cred_e2e_${state.nextCredentialId++}`,
+      integrationID: body.integrationID,
+      label: body.label,
+      active: body.activate !== false,
+    }
+    if (entry.active) {
+      for (const existing of state.credentials) {
+        if (existing.integrationID === entry.integrationID) existing.active = false
+      }
+    }
+    state.credentials.push(entry)
+    state.providerAuth.set(entry.integrationID, { auth: body.value ?? {}, updatedAt: now() })
+    sendJson(response, 200, { data: entry })
+    return true
+  }
+
+  if (method === 'DELETE' && /^\/api\/credential\/[^/]+$/.test(pathname)) {
+    const credentialID = decodeURIComponent(pathname.split('/')[3] ?? '')
+    state.credentials = state.credentials.filter((entry) => entry.id !== credentialID)
+    response.writeHead(204)
+    response.end()
+    return true
+  }
+
+  if (method === 'GET' && pathname === '/api/model') {
+    sendJson(response, 200, { data: [{ ...V2_MODEL, name: 'E2E Model', enabled: true, cost: [{ input: 0, output: 0 }] }] })
+    return true
+  }
+
+  if (method === 'GET' && pathname === '/api/model/default') {
+    sendJson(response, 200, { data: V2_MODEL })
+    return true
+  }
+
+  if (method === 'GET' && pathname === '/api/agent') {
+    sendJson(response, 200, { data: [{ id: DEFAULT_AGENT, name: DEFAULT_AGENT, description: 'Assistant' }] })
+    return true
+  }
+
+  if (method === 'GET' && pathname === '/api/mcp') {
+    sendJson(response, 200, { data: [] })
+    return true
+  }
+
+  if (method === 'GET' && pathname === '/api/permission/request') {
+    sendJson(response, 200, { location: V2_LOCATION, data: [] })
+    return true
+  }
+
+  if (method === 'GET' && pathname === '/api/fs/find') {
+    const query = (url.searchParams.get('query') ?? '').trim().toLowerCase()
+    const type = url.searchParams.get('type') ?? undefined
+    sendJson(response, 200, { data: listV2FsEntries(type).filter((entry) => !query || entry.path.toLowerCase().includes(query)) })
+    return true
+  }
+
+  if (method === 'GET' && pathname.startsWith('/api/fs/read/')) {
+    const requested = decodeURIComponent(pathname.slice('/api/fs/read/'.length)).replace(/^\/+/, '')
+    const filePath = requested.startsWith(`${DEFAULT_DIRECTORY.slice(1)}/`) ? requested.slice(DEFAULT_DIRECTORY.length) : requested
+    const file = state.files.get(filePath)
+    if (!file) {
+      sendJson(response, 404, { _tag: 'NotFoundError', message: 'File not found' })
+      return true
+    }
+    response.writeHead(200, { 'Content-Type': 'application/octet-stream' })
+    response.end(file.content)
+    return true
+  }
+
+  if (method === 'GET' && pathname === '/api/event') {
+    response.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    })
+    response.write(`data: ${JSON.stringify({ id: `evt_e2e_${state.nextEventId++}`, type: 'server.connected', data: {} })}\n\n`)
+    const client = addEventClient(response, 'v2')
+    request.on('close', () => {
+      state.eventClients.delete(client)
+    })
+    return true
+  }
+
+  if (method === 'GET' && pathname === '/api/session') {
+    sendJson(response, 200, {
+      data: url.searchParams.get('cursor') ? [] : listV2Sessions(url),
+      cursor: { next: null, previous: null },
+    })
+    return true
+  }
+
+  if (method === 'POST' && pathname === '/api/session') {
+    const body = JSON.parse((await readBody(request)).toString('utf8') || '{}')
+    const session = getOrCreateSession('')
+    session.parentID = typeof body.parentID === 'string' && body.parentID.length > 0 ? body.parentID : undefined
+    if (typeof body.title === 'string' && body.title.trim()) {
+      session.title = body.title.trim()
+    }
+    session.updatedAt = now()
+    broadcastEvent(v2Event('session.created', {
+      sessionID: session.id,
+      title: session.title,
+      ...(session.parentID ? { parentID: session.parentID } : {}),
+      location: V2_LOCATION,
+      agent: DEFAULT_AGENT,
+    }), Array.from(state.eventClients).filter((client) => client.api === 'v2'))
+    sendJson(response, 200, { data: mapSessionToV2(session) })
+    return true
+  }
+
+  if (method === 'GET' && pathname === '/api/session/active') {
+    sendJson(response, 200, {
+      data: Object.fromEntries(Array.from(state.sessions.values())
+        .filter((session) => session.status === 'busy')
+        .map((session) => [session.id, { type: 'running' }])),
+    })
+    return true
+  }
+
+  const sessionMatch = pathname.match(/^\/api\/session\/([^/]+)(?:\/(.+))?$/)
+  if (!sessionMatch) return false
+
+  const sessionId = decodeURIComponent(sessionMatch[1])
+  const action = sessionMatch[2] ?? ''
+  const session = state.sessions.get(sessionId)
+  if (!session) {
+    sendV2NotFound(response, `Session not found: ${sessionId}`)
+    return true
+  }
+
+  if (action === '' && method === 'GET') {
+    sendJson(response, 200, { data: mapSessionToV2(session) })
+    return true
+  }
+
+  if (action === '' && method === 'PATCH') {
+    const body = JSON.parse((await readBody(request)).toString('utf8') || '{}')
+    if (typeof body.title === 'string') session.title = body.title
+    session.updatedAt = now()
+    response.writeHead(204)
+    response.end()
+    return true
+  }
+
+  if (action === '' && method === 'DELETE') {
+    state.sessions.delete(sessionId)
+    response.writeHead(204)
+    response.end()
+    return true
+  }
+
+  if (method === 'POST' && (action === 'agent' || action === 'model')) {
+    await readBody(request)
+    response.writeHead(204)
+    response.end()
+    return true
+  }
+
+  if (method === 'POST' && action === 'prompt') {
+    await handleV2Prompt(request, response, session)
+    return true
+  }
+
+  if (method === 'POST' && action === 'interrupt') {
+    session.status = 'idle'
+    session.updatedAt = now()
+    sendJson(response, 200, {})
+    return true
+  }
+
+  if (method === 'GET' && action === 'inbox') {
+    sendJson(response, 200, { data: [] })
+    return true
+  }
+
+  if (method === 'DELETE' && action.startsWith('inbox/')) {
+    response.writeHead(204)
+    response.end()
+    return true
+  }
+
+  if (method === 'GET' && action === 'message') {
+    sendJson(response, 200, {
+      data: url.searchParams.get('cursor') ? [] : session.messages.map((message) => mapMessageToV2(message)),
+      cursor: { next: null, previous: null },
+    })
+    return true
+  }
+
+  if (method === 'GET' && action === 'diff') {
+    sendJson(response, 200, { data: [] })
+    return true
+  }
+
+  if (method === 'POST' && /^permission\/[^/]+\/reply$/.test(action)) {
+    await readBody(request)
+    response.writeHead(204)
+    response.end()
+    return true
+  }
+
+  return false
 }
 
 function reconstructPrompt(body) {
@@ -676,6 +1067,10 @@ const server = createServer(async (request, response) => {
     }
 
     if (!requireBasicAuth(request, response)) {
+      return
+    }
+
+    if (pathname.startsWith('/api/') && await handleV2Request(request, response, method, pathname, url)) {
       return
     }
 

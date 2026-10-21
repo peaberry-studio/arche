@@ -7,6 +7,7 @@ vi.mock('@/lib/spawner/core', () => ({
 }))
 
 vi.mock('@/lib/harness/registry', () => ({
+  CURRENT_RUNTIME_KIND: 'opencode-v2',
   getRuntimeConnection: vi.fn().mockResolvedValue(null),
 }))
 

@@ -296,12 +296,12 @@ describe('instanceService', () => {
   })
 
   describe('setRunning', () => {
-    it('sets running with config sha', async () => {
+    it('sets running with config sha and runtime kind', async () => {
       mockPrisma.instance.update.mockResolvedValue({})
-      await setRunning('alice', 'sha-abc')
+      await setRunning('alice', 'sha-abc', 'opencode-v2')
       expect(mockPrisma.instance.update).toHaveBeenCalledWith({
         where: { slug: 'alice' },
-        data: expect.objectContaining({ status: 'running', appliedConfigSha: 'sha-abc' }),
+        data: expect.objectContaining({ status: 'running', appliedConfigSha: 'sha-abc', runtimeKind: 'opencode-v2' }),
       })
     })
   })

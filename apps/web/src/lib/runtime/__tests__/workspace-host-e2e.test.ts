@@ -75,7 +75,7 @@ describe('E2E workspace hosts', () => {
 
     expect(mocks.encryptPassword).toHaveBeenCalledWith('runtime-password')
     expect(mocks.upsertStarting).toHaveBeenCalledWith('alice', 'encrypted:runtime-password')
-    expect(mocks.setRunning).toHaveBeenCalledWith('alice', null)
+    expect(mocks.setRunning).toHaveBeenCalledWith('alice', null, 'opencode-v2')
   })
 
   it('stops only active fake runtime instances', async () => {
