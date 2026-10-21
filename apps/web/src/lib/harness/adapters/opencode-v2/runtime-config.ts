@@ -89,16 +89,20 @@ function permissionRules(value: unknown, path: string): Rule[] {
 
 function toolRules(value: unknown, permissions: Rule[], path: string, allowlist: boolean): Rule[] {
   if (value === undefined) return permissions
-  const tools = record(value, path)
   const rules: Rule[] = allowlist ? [{ action: '*', resource: '*', effect: 'deny' }] : [...permissions]
-  const aliases = new Map<string, boolean>()
-  for (const [tool, enabled] of orderedEntries(tools)) {
+  const entries: { tool: string; target: string; enabled: boolean }[] = []
+  for (const [tool, enabled] of orderedEntries(record(value, path))) {
     if (typeof enabled !== 'boolean') unsupported(`${path}.${tool}`, 'Expected a tool boolean')
-    if (LEGACY_ONLY_AGENT_TOOLS.has(tool)) continue
-    const target = action(tool, `${path}.${tool}`)
-    const previous = aliases.get(target)
-    if (previous !== undefined && previous !== enabled) unsupported(`${path}.${tool}`, 'V2 merges tool actions with conflicting grants')
-    aliases.set(target, enabled)
+    if (!LEGACY_ONLY_AGENT_TOOLS.has(tool)) entries.push({ tool, target: action(tool, `${path}.${tool}`), enabled })
+  }
+  // V2 has one action per alias group (read/list, write/patch/edit): the tool
+  // named like the action decides, otherwise any denial wins, so an alias never widens access.
+  const grant = (target: string) => {
+    const group = entries.filter((entry) => entry.target === target)
+    return group.find((entry) => entry.tool === target)?.enabled ?? group.every((entry) => entry.enabled)
+  }
+  for (const { target } of entries) {
+    const enabled = grant(target)
     rules.push({ action: target, resource: '*', effect: enabled ? 'allow' : 'deny' })
     if (enabled) {
       rules.push(...permissions.filter((rule) => matches(rule.action, target)).map((rule) => ({ ...rule, action: target })))
@@ -195,7 +199,9 @@ function renderMcp(targets: Record<string, unknown> = {}): Record<string, unknow
       ...server,
       ...(enabled === undefined ? {} : { disabled: !enabled }),
       ...(timeout === undefined ? {} : { timeout: { catalog: timeout, execution: timeout } }),
-      ...(id === 'arche_tools' ? { codemode: false } : {}),
+      // Code Mode (the 2.0.32 default) hides each MCP tool behind `execute`, so
+      // per-tool permissions and tool parts would not apply; v1 invokes tools directly.
+      codemode: id === 'arche_tools' ? false : server.codemode ?? false,
     }]
   }))
 }

@@ -247,7 +247,7 @@ describe('V2 runtime config renderer', () => {
       snapshots: false,
       mcp: { servers: {
         arche_tools: { type: 'local', command: ['node', '/opt/arche/arche-tools/server.js'], disabled: false, codemode: false },
-        arche_linear_1: { type: 'remote', url: 'https://gateway.example/mcp', headers: { Authorization: 'Bearer token' }, oauth: false, disabled: true, timeout: { catalog: 1234, execution: 1234 } },
+        arche_linear_1: { type: 'remote', url: 'https://gateway.example/mcp', headers: { Authorization: 'Bearer token' }, oauth: false, disabled: true, timeout: { catalog: 1234, execution: 1234 }, codemode: false },
       } },
       providers: {
         ollama: { package: 'aisdk:@ai-sdk/openai-compatible', settings: { baseURL: 'https://gateway.example/ollama', apiKey: '{env:TOKEN}' }, models: { coding: { modelID: 'upstream-coding', name: 'Coding' } } },
@@ -329,6 +329,17 @@ describe('V2 runtime config renderer', () => {
     expect(decision(worker, 'shell', '*')).toBe('deny')
   })
 
+  it.each([
+    { tools: { read: true, list: false }, action: 'read', expected: 'allow' },
+    { tools: { read: false, list: true }, action: 'read', expected: 'deny' },
+    { tools: { edit: false, write: true }, action: 'edit', expected: 'deny' },
+    { tools: { patch: true, write: false }, action: 'edit', expected: 'deny' },
+    { tools: { bash: true, shell: false }, action: 'shell', expected: 'deny' },
+  ])('resolves conflicting V1 aliases of one V2 action without widening access: $tools', ({ tools, action, expected }) => {
+    const worker = rules(agentConfig(config(unprotectedModel({ agent: { worker: { tools } } })), 'worker').permissions)
+    expect(decision(worker, action, '*')).toBe(expected)
+  })
+
   it('hardens workspace writes with policies without globally denying delegation targets', () => {
     const rendered = config(unprotectedModel({
       policies: [{ action: 'tool.use', resource: 'edit:*', effect: 'allow' }],
@@ -351,8 +362,6 @@ describe('V2 runtime config renderer', () => {
     { source: { permission: { read: 'deny', list: 'allow' } }, path: 'access.list' },
     { source: { permission: { bash: { '*': 'deny' }, shell: { '*': 'allow' } } }, path: 'access.shell' },
     { source: { agent: { worker: { permission: { edit: 'ask', write: 'allow' } } } }, path: 'agents.worker.access.write' },
-    { source: { agent: { worker: { tools: { read: true, list: false } } } }, path: 'agents.worker.tools.list' },
-    { source: { agent: { worker: { tools: { edit: false, write: true } } } }, path: 'agents.worker.tools.write' },
     { source: { policies: [{ action: 'edit', resource: '*', effect: 'deny' }] }, path: 'policies.0.action' },
     { source: { experimental: { policies: [] } }, path: 'experimental' },
     { source: { provider: { custom: { options: { unknown: true } } } }, path: 'providers.custom.options.unknown' },
