@@ -1,12 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mockFindIdBySlug = vi.fn()
+const mockFindRuntimeKindBySlug = vi.fn()
 const mockIsDesktop = vi.fn()
 const mockGetDesktopProviderGatewayConfig = vi.fn()
 const mockBuildWorkspaceRuntimeArtifacts = vi.fn()
 const mockHashWorkspaceRuntimeArtifacts = vi.fn()
 
 vi.mock('@/lib/services', () => ({
+  instanceService: {
+    findRuntimeKindBySlug: (...args: unknown[]) => mockFindRuntimeKindBySlug(...args),
+  },
   userService: {
     findIdBySlug: (...args: unknown[]) => mockFindIdBySlug(...args),
   },
@@ -17,6 +21,7 @@ vi.mock('@/lib/runtime/mode', () => ({
 }))
 
 vi.mock('@/lib/runtime/desktop/config', () => ({
+  getDesktopArcheToolsCommand: () => ['desktop-node', 'arche-tools.js'],
   getDesktopProviderGatewayConfig: () => mockGetDesktopProviderGatewayConfig(),
 }))
 
@@ -31,6 +36,7 @@ import { getRuntimeConfigHashForSlug } from '../runtime-config-hash'
 describe('getRuntimeConfigHashForSlug', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockFindRuntimeKindBySlug.mockResolvedValue({ runtimeKind: 'opencode-v2' })
   })
 
   it('returns error when user is not found', async () => {
@@ -48,7 +54,7 @@ describe('getRuntimeConfigHashForSlug', () => {
 
     const result = await getRuntimeConfigHashForSlug('alice')
     expect(result).toEqual({ ok: true, hash: 'abc123hash' })
-    expect(mockBuildWorkspaceRuntimeArtifacts).toHaveBeenCalledWith('alice', { desktopConfig: true })
+    expect(mockBuildWorkspaceRuntimeArtifacts).toHaveBeenCalledWith('alice', { desktopConfig: true }, { archeToolsCommand: ['desktop-node', 'arche-tools.js'], runtimeKind: 'opencode-v2' })
     expect(mockHashWorkspaceRuntimeArtifacts).toHaveBeenCalledWith({ artifacts: 'desktop' })
   })
 
@@ -60,8 +66,18 @@ describe('getRuntimeConfigHashForSlug', () => {
 
     const result = await getRuntimeConfigHashForSlug('alice')
     expect(result).toEqual({ ok: true, hash: 'webhash456' })
-    expect(mockBuildWorkspaceRuntimeArtifacts).toHaveBeenCalledWith('alice', { webConfig: true })
+    expect(mockBuildWorkspaceRuntimeArtifacts).toHaveBeenCalledWith('alice', { webConfig: true }, { runtimeKind: 'opencode-v2' })
     expect(mockHashWorkspaceRuntimeArtifacts).toHaveBeenCalledWith({ artifacts: 'web' })
+  })
+
+  it('hashes the legacy runtime when the instance has no recorded kind', async () => {
+    mockFindIdBySlug.mockResolvedValue({ id: 'user-1' })
+    mockFindRuntimeKindBySlug.mockResolvedValue(null)
+    mockIsDesktop.mockReturnValue(false)
+    mockBuildWorkspaceRuntimeArtifacts.mockResolvedValue({ artifacts: 'web' })
+
+    await getRuntimeConfigHashForSlug('alice')
+    expect(mockBuildWorkspaceRuntimeArtifacts).toHaveBeenCalledWith('alice', { webConfig: true }, { runtimeKind: null })
   })
 
   it('returns error when an exception is thrown', async () => {
