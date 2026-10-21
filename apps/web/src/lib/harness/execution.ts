@@ -15,6 +15,8 @@ const ACTIVITY_TOUCH_INTERVAL_MS = 20_000
 const INSTANCE_START_POLL_INTERVAL_MS = 2_000
 const IDLE_WITHOUT_ASSISTANT_GRACE_MS = 15_000
 const ABORT_CONFIRMATION_TIMEOUT_MS = 10_000
+// Stopping is user-facing and status reads are cheap, so confirm faster than run polling.
+const ABORT_CONFIRMATION_POLL_INTERVAL_MS = 250
 
 export { EXECUTION_TERMINATION_UNCONFIRMED_ERROR }
 
@@ -425,7 +427,7 @@ export async function abortSessionFamilyAndConfirmIdle(params: {
       }
     }
 
-    await sleep(Math.min(RUN_POLL_INTERVAL_MS, Math.max(0, deadline - Date.now())))
+    await sleep(Math.min(ABORT_CONFIRMATION_POLL_INTERVAL_MS, Math.max(0, deadline - Date.now())))
   }
 
   console.warn('[harness/execution] Session abort was not confirmed', {
