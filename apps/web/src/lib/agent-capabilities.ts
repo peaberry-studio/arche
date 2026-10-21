@@ -37,6 +37,10 @@ export const OPENCODE_AGENT_TOOLS = [
 
 export type OpenCodeAgentToolId = (typeof OPENCODE_AGENT_TOOLS)[number]
 
+// OpenCode 1 tools that OpenCode 2 does not ship. They stay valid in stored
+// configs (a rollback to v1 still renders them) but are not offered for new choices.
+export const LEGACY_ONLY_AGENT_TOOLS: ReadonlySet<string> = new Set<OpenCodeAgentToolId>(['codesearch', 'lsp', 'todoread', 'todowrite'])
+
 export const OPENCODE_AGENT_TOOL_OPTIONS: Array<{
   id: OpenCodeAgentToolId
   label: string

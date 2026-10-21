@@ -1,3 +1,4 @@
+import { LEGACY_ONLY_AGENT_TOOLS } from '@/lib/agent-capabilities'
 import type { RuntimeAgentModel, RuntimeConfigModel, RuntimeConfigRenderResult } from '@/lib/harness/runtime-config'
 import { isRecord } from '@/lib/records'
 import {
@@ -35,9 +36,6 @@ const ACTIONS: Record<string, string> = {
   spreadsheet_stats: 'arche_tools_spreadsheet_stats',
 }
 
-// V1 tools that OpenCode 2.0.32 does not ship: granting or denying them has no effect.
-const ABSENT_TOOLS = new Set(['codesearch', 'lsp', 'todoread', 'todowrite'])
-
 class UnsupportedConfig extends Error {
   constructor(readonly path: string, message: string) { super(message) }
 }
@@ -74,7 +72,8 @@ function permissionRules(value: unknown, path: string): Rule[] {
   if (typeof value === 'string') return [{ action: '*', resource: '*', effect: effect(value, path) }]
   const aliases = new Map<string, Rule[]>()
   return orderedEntries(record(value, path)).flatMap(([key, entry]) => {
-    if (ABSENT_TOOLS.has(key)) return []
+    // Not shipped by 2.0.32: granting or denying it has no effect.
+    if (LEGACY_ONLY_AGENT_TOOLS.has(key)) return []
     const target = action(key, `${path}.${key}`)
     const rules = typeof entry === 'string'
       ? [{ action: target, resource: '*', effect: effect(entry, `${path}.${key}`) }]
@@ -95,7 +94,7 @@ function toolRules(value: unknown, permissions: Rule[], path: string, allowlist:
   const aliases = new Map<string, boolean>()
   for (const [tool, enabled] of orderedEntries(tools)) {
     if (typeof enabled !== 'boolean') unsupported(`${path}.${tool}`, 'Expected a tool boolean')
-    if (ABSENT_TOOLS.has(tool)) continue
+    if (LEGACY_ONLY_AGENT_TOOLS.has(tool)) continue
     const target = action(tool, `${path}.${tool}`)
     const previous = aliases.get(target)
     if (previous !== undefined && previous !== enabled) unsupported(`${path}.${tool}`, 'V2 merges tool actions with conflicting grants')
