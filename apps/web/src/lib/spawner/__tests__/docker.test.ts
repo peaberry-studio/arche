@@ -100,8 +100,11 @@ describe('docker', () => {
     })
 
     it('waits for old blue-green web containers outside compose', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
       backend({ 'arche.role': 'web' }, process.env.DATABASE_URL!)
       await expect(hasLegacyBackendWriters()).resolves.toBe(true)
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('runtime contract'), { container: 'backend' })
+      warn.mockRestore()
     })
 
     it.each([

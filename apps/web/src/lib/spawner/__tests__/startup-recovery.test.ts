@@ -14,7 +14,7 @@ vi.mock('@/lib/harness/execution', () => ({}))
 vi.mock('@/lib/harness/legacy-session-archive', () => ({ exportLegacySessions: async () => ({ ok: true, data: { archived: 1 } }) }))
 vi.mock('@/lib/services/runtime-migration', () => ({ settleRuntimeMigratedRuns: async () => {} }))
 vi.mock('@/lib/spawner/legacy-archive', () => ({ withHistoryMigrationProgress: (_slug: string, work: () => Promise<unknown>) => work() }))
-vi.mock('@/lib/spawner/crypto', () => ({ generatePassword: () => 'next', encryptPassword: (value: string) => `enc:${value}`, decryptPassword: (value: string) => value.slice(4) }))
+vi.mock('@/lib/spawner/crypto', () => ({ generatePassword: () => 'new', encryptPassword: (value: string) => `enc:${value}`, decryptPassword: (value: string) => value.slice(4) }))
 vi.mock('@/lib/spawner/runtime-artifacts', () => ({
   buildWorkspaceRuntimeArtifacts: async () => ({ owner: null, opencodeConfigContent: '{}', skills: [] }),
   hashWorkspaceRuntimeArtifacts: () => 'hash', getWebProviderGatewayConfig: () => ({}),
@@ -26,7 +26,7 @@ vi.mock('@/lib/harness/registry', () => ({
   getRuntimeBaseUrl: () => 'http://opencode-alice:4096',
   getLegacySessionReader: (_slug: string, connection: { authHeader: string }) => {
     mocks.authHeaders.push(connection.authHeader)
-    return { sessionStatus: async () => connection.authHeader === `Basic ${Buffer.from('opencode:previous').toString('base64')}`
+    return { sessionStatus: async () => connection.authHeader === `Basic ${Buffer.from('opencode:old').toString('base64')}`
       ? { ok: true, data: {} } : { ok: false, error: { code: 'http_status_401' } } }
   },
 }))
@@ -47,7 +47,7 @@ beforeEach(() => {
   current = {
     id: 'instance', slug: 'alice', status: 'running', containerId: 'legacy', runtimeKind: 'opencode-v1',
     createdAt: new Date(0), startedAt: new Date(1), stoppedAt: null, lastActivityAt: new Date(2),
-    serverPassword: 'enc:previous', appliedConfigSha: null, providerSyncHash: null, providerSyncedAt: null,
+    serverPassword: 'enc:old', appliedConfigSha: null, providerSyncHash: null, providerSyncedAt: null,
   }
   mocks.findUnique.mockImplementation(async () => ({ ...current }))
   const update = async ({ where, data }: { where: Partial<InstanceRecord>; data: Partial<InstanceRecord> }) => {
@@ -73,10 +73,10 @@ beforeEach(() => {
 describe('legacy migration recovery', () => {
   it('retries a failed teardown using the original live source credentials before rotating them', async () => {
     expect(await startInstance('alice', 'owner')).toEqual({ ok: false, error: 'start_failed', detail: 'legacy_archive_cleanup_failed' })
-    expect(current).toMatchObject({ status: 'error', runtimeKind: 'opencode-v1', serverPassword: 'enc:previous' })
+    expect(current).toMatchObject({ status: 'error', runtimeKind: 'opencode-v1', serverPassword: 'enc:old' })
 
     expect(await startInstance('alice', 'owner')).toEqual({ ok: true, status: 'running' })
-    expect(current).toMatchObject({ status: 'running', runtimeKind: 'opencode-v2', serverPassword: 'enc:next', containerId: 'next' })
-    expect(mocks.authHeaders).toEqual(Array(2).fill(`Basic ${Buffer.from('opencode:previous').toString('base64')}`))
+    expect(current).toMatchObject({ status: 'running', runtimeKind: 'opencode-v2', serverPassword: 'enc:new', containerId: 'next' })
+    expect(mocks.authHeaders).toEqual(Array(2).fill(`Basic ${Buffer.from('opencode:old').toString('base64')}`))
   })
 })

@@ -182,7 +182,9 @@ describe('archive-on-start', () => {
   it.each(['legacy', 'inventory'] as const)('does not mutate legacy state before old backend writers are drained (%s)', async (reason) => {
     if (reason === 'legacy') vi.mocked(docker.hasLegacyBackendWriters).mockResolvedValueOnce(true)
     else vi.mocked(docker.hasLegacyBackendWriters).mockRejectedValueOnce(new Error('inventory unavailable'))
-    expect(await startInstance('alice', 'owner')).toEqual({ ok: false, error: 'runtime_upgrade_pending' })
+    expect(await startInstance('alice', 'owner')).toEqual(reason === 'legacy'
+      ? { ok: false, error: 'runtime_upgrade_pending' }
+      : { ok: false, error: 'start_failed', detail: 'runtime_upgrade_check_failed' })
     expect(instanceService.claimStartingTransition).not.toHaveBeenCalled()
     expect(settleRuntimeMigratedRuns).not.toHaveBeenCalled()
     expect(exportLegacySessions).not.toHaveBeenCalled()

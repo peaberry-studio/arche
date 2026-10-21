@@ -123,8 +123,9 @@ export async function startInstance(
 
   try {
     if (await docker.hasLegacyBackendWriters()) return { ok: false, error: 'runtime_upgrade_pending' }
-  } catch {
-    return { ok: false, error: 'runtime_upgrade_pending' }
+  } catch (error) {
+    console.error('[spawner] Could not verify backend runtime contracts; refusing to start', { slug, error })
+    return { ok: false, error: 'start_failed', detail: 'runtime_upgrade_check_failed' }
   }
 
   const password = generatePassword()

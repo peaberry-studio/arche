@@ -122,7 +122,12 @@ export async function hasLegacyBackendWriters(): Promise<boolean> {
     }
     if (!info.State.Running) continue
     const databaseUrl = info.Config.Env?.find((value) => value.startsWith('DATABASE_URL='))?.slice('DATABASE_URL='.length)
-    if (databaseUrl && databaseScope(databaseUrl) === currentDatabase) return true
+    if (databaseUrl && databaseScope(databaseUrl) === currentDatabase) {
+      console.warn('[spawner] Backend without the opencode-v2 runtime contract still shares the database', {
+        container: container.Names?.[0] ?? container.Id,
+      })
+      return true
+    }
     if (!databaseUrl && labels['arche.role'] === 'web') throw new Error('runtime_upgrade_database_unavailable')
   }
   return false
