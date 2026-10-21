@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { assistantSnapshot, permission, SESSION_ID, userSnapshot } from '@/lib/harness/adapters/opencode-v2/__tests__/fixtures'
-import { checkStartupSupport, createOpenCodeV2Runtime } from '@/lib/harness/adapters/opencode-v2/runtime'
+import { createOpenCodeV2Runtime } from '@/lib/harness/adapters/opencode-v2/runtime'
 
 const auth = vi.hoisted(() => vi.fn())
 vi.mock('@/lib/harness/adapters/opencode-v1/connection-resolver', () => ({
@@ -234,10 +234,4 @@ describe('V2 adapter with the real matched HTTP client', () => {
     expect(requests).toHaveLength(1)
   })
 
-  it('keeps the startup gate closed without invoking the real client', async () => {
-    const { fetch } = transport([])
-    expect(checkStartupSupport()).toMatchObject({ ok: false, error: { code: 'runtime_unsupported' } })
-    expect(auth).not.toHaveBeenCalled()
-    expect(fetch).not.toHaveBeenCalled()
-  })
 })

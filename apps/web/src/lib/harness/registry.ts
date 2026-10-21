@@ -12,7 +12,7 @@ import {
   normalizeMessageAttachments as normalizeV1MessageAttachments,
 } from '@/lib/harness/adapters/opencode-v1/workspace-prompt'
 import { renderRuntimeConfig as renderV2RuntimeConfig } from '@/lib/harness/adapters/opencode-v2/runtime-config'
-import { checkStartupSupport as checkV2StartupSupport, createOpenCodeV2Runtime } from '@/lib/harness/adapters/opencode-v2/runtime'
+import { createOpenCodeV2Runtime } from '@/lib/harness/adapters/opencode-v2/runtime'
 import {
   listWorkspaceFiles as listV2WorkspaceFiles,
   readWorkspaceFile as readV2WorkspaceFile,
@@ -57,8 +57,7 @@ export function getRuntimeForKind(slug: string, kind: string | null = null, conn
 }
 
 export function checkRuntimeStartupSupport(kind: string | null): HarnessResult<void> {
-  if (kind === 'opencode-v2') return checkV2StartupSupport()
-  return kind === null || kind === 'opencode-v1' ? { ok: true, data: undefined } : harnessFailure('runtime_unsupported', kind)
+  return kind === null || kind === 'opencode-v1' || kind === 'opencode-v2' ? { ok: true, data: undefined } : harnessFailure('runtime_unsupported', kind)
 }
 
 export async function getRuntimeForSlug(slug: string): Promise<HarnessResult<HarnessRuntime>> {

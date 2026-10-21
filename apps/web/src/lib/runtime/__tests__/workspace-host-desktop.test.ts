@@ -370,8 +370,8 @@ describe('desktopWorkspaceHost', () => {
     )
   })
 
-  it('refuses the unresolved V2 gate before changing state, files or processes', async () => {
-    process.env.ARCHE_DEFAULT_RUNTIME_KIND = 'opencode-v2'
+  it('refuses an unknown runtime kind before changing state, files or processes', async () => {
+    process.env.ARCHE_DEFAULT_RUNTIME_KIND = 'codex'
     const { desktopWorkspaceHost } = await import('../workspace-host-desktop')
     await expect(desktopWorkspaceHost.start('local', 'user-1')).resolves.toMatchObject({ ok: false, error: 'runtime_unsupported' })
     expect(mockSpawn).not.toHaveBeenCalled()

@@ -67,10 +67,6 @@ function requireSession(value: unknown): HarnessSession {
   return session
 }
 
-export function checkStartupSupport(): HarnessResult<void> {
-  return harnessFailure('runtime_unsupported', 'v2_startup_unverified:protected_config,provider_gateway,family_idle,event_stream,prompt_parts')
-}
-
 export function createOpenCodeV2Runtime(slug: string): HarnessRuntime {
   async function withClient<T>(work: (client: OpenCodeV2Client) => Promise<T>): Promise<HarnessResult<T>> {
     try {

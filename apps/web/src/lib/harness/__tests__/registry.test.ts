@@ -10,10 +10,7 @@ const files = vi.hoisted(() => ({ listWorkspaceFiles: vi.fn(), readWorkspaceFile
 const v2Files = vi.hoisted(() => ({ listWorkspaceFiles: vi.fn(), readWorkspaceFile: vi.fn(), searchWorkspaceFiles: vi.fn() }))
 vi.mock('@/lib/services', () => ({ instanceService: { findRuntimeKindBySlug } }))
 vi.mock('@/lib/harness/adapters/opencode-v1/runtime', () => ({ createOpenCodeV1Runtime: factory }))
-vi.mock('@/lib/harness/adapters/opencode-v2/runtime', () => ({
-  createOpenCodeV2Runtime: v2Factory,
-  checkStartupSupport: () => ({ ok: false, error: { code: 'runtime_unsupported', detail: 'v2_startup_unverified' } }),
-}))
+vi.mock('@/lib/harness/adapters/opencode-v2/runtime', () => ({ createOpenCodeV2Runtime: v2Factory }))
 vi.mock('@/lib/harness/adapters/opencode-v1/workspace-files', () => files)
 vi.mock('@/lib/harness/adapters/opencode-v2/workspace-files', () => v2Files)
 vi.mock('@/lib/harness/adapters/opencode-v1/client', () => ({ DEFAULT_HEALTH_TIMEOUT_MS: 5000, getInstanceBasicAuth: vi.fn(), getInstanceUrl: vi.fn() }))
@@ -62,10 +59,11 @@ describe('runtime registry', () => {
     expect(factory).not.toHaveBeenCalled()
   })
 
-  it('keeps V2 startup readiness distinct from read-only adapter availability', () => {
-    expect(getRuntimeForKind('alice', 'opencode-v2').ok).toBe(true)
-    expect(checkRuntimeStartupSupport('opencode-v2')).toEqual({ ok: false, error: { code: 'runtime_unsupported', detail: 'v2_startup_unverified' } })
+  it('accepts both known runtime kinds for startup and refuses unknown ones', () => {
+    expect(checkRuntimeStartupSupport('opencode-v2')).toEqual({ ok: true, data: undefined })
     expect(checkRuntimeStartupSupport('opencode-v1')).toEqual({ ok: true, data: undefined })
+    expect(checkRuntimeStartupSupport(null)).toEqual({ ok: true, data: undefined })
+    expect(checkRuntimeStartupSupport('codex')).toEqual({ ok: false, error: { code: 'runtime_unsupported', detail: 'codex' } })
   })
 
   it('dispatches the file bridge by recorded kind without contacting v1', async () => {

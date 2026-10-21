@@ -1,5 +1,28 @@
 # OpenCode V2 contract spike (task 1.1)
 
+## Current status: v1-parity acceptance (2026-10-21, design D9)
+
+This section supersedes every earlier "blocked", "deferred" or "UNVERIFIED"
+statement below where they conflict. The acceptance bar is design D9: v2 must
+give at least the guarantees v1 gives in production today, plus what 2.0.32
+offers natively. Gaps that v1 shares are recorded as known risks, not v2
+blockers. Everything here was checked against the local `opencode` 2.0.32 with
+`@opencode/client@2.0.32`, using isolated loopback servers, repository-local
+scratch, a fake provider and a synthetic gateway (never the host service or
+real keys).
+
+| Gate | Accepted behavior and evidence | Known risk (shared with v1 unless marked) |
+| --- | --- | --- |
+| 4. Execution | `sessionStatus` is `session.active()`; retry backoff, permission waits and background sessions report busy, absence is idle (as v1). Family abort interrupts leaf-first, cancels the inbox, retries unconfirmed aborts, rediscovers descendants and confirms the whole family inactive, otherwise `execution_termination_unconfirmed`. Live: parent + two busy children confirmed; a continuously restarted child is unconfirmed after 10s (`adapter-live.probe.test.ts`). | Confirmation takes one family snapshot once all known sessions are idle; a child restarted right after it is missed. Retry is plain `busy`. |
+| 5. Files/prompt | Every v1 attachment form: workspace `file://` URIs of any MIME (runtime sniffs bytes) and jpeg/png/gif/webp data URIs; other forms rejected (v1's builder never emits them). No-reply is Arche-side: `resume:false` queues input without a provider call; the next prompt delivers it first. Synchronous prompts go through shared execution with a 60s family-idle bound. Busy refusal, run admission, cursor capture and per-message usage booking work through the real adapter. `message.list` sends `order` only on the first page (2.0.32 rejects `order` with `cursor`). | v2-only: no-reply input is not in history until the next turn and an abort cancels it. No caller in `src` uses no-reply today. |
+| 6. Provider access | Sync keeps v1's guarantees (per-workspace lock on both paths, scoped gateway tokens, hash/TTL freshness, active-run deferral, `location.reload` with bounded recovery, freshness only after success, no key logging). Arche credentials carry the label `arche-managed:<runtimeId>`; managed-provider entries are purged, unrelated unlabelled entries kept. Replacement-first, then stale entries removed inactive-first (credentials apply without reload). Live: sync, refresh, revocation without fallback, unrelated entry preserved. | Project config can override an allowed provider's `baseURL` in v1 and v2 alike; mitigated by config-path edit policies (gate 9) and gateway token versioning. A partial sync failure can leave mixed credentials until the next sync (no freshness recorded). `location.reload` vs. a run starting after the deferral check (same race as v1 dispose). |
+| 7. Events | Production `subscribeOpenCodeEvents` is wired. The same conversation was captured on 1.18.18 and 2.0.32 and replayed with reconnects at five cut points (`__tests__/captures`, `reconnect-golden.test.ts`): every variant converges to the continuously connected client, and v2's final snapshot equals the live state including accounting (v1 only after ignoring step parts). Snapshots include undelivered inbox input. Live BFF check (`subscription-live.test.ts`): heartbeat ≤10s, closing a subscriber does not interrupt the session, connect failures return 502. See `__tests__/CAPTURE.md` "Reconnect parity acceptance". | In-flight text/reasoning missing from snapshots until the part ends (v1 too). Stale-snapshot races can revive a resolved permission or regress a tool state (v1 too; v1 also loses text there, v2 does not). v2-only: a running subagent tool has `metadata: {}` in the snapshot, so the delegation card links to the child only after progress/completion. Connect pages every session in the location first, which could exceed the 8s connect deadline on very large workspaces. |
+| 9. Config guards | Production-rendered config round-trips through `config.get`. Agent `system` equals v1's prompt (same transforms, same order). Each agent ends with a native `subagent:<self>` deny; the execution guard's non-primary `subagent * deny` matches v1. KB, workspace and runtime-config paths (`opencode.json(c)` at any depth, `.opencode/**`, `AGENTS.md`) are `tool.use` deny policies; a permissive project `.opencode/opencode.json` cannot lift them ("Blocked by configuration policy"; negative control succeeds without them). Self-deny enforced live; primaries cannot run as subagents (`config-guards.probe.mjs`). | Per-agent permissions (self-deny, execution deny) can be re-allowed by a planted `.opencode/opencode.json`; tools cannot write it, but shell policies are string matches, as in v1. Policies are not a sandbox. |
+
+Startup is no longer refused for `opencode-v2`; the deployment default stays
+`opencode-v1`. Remaining human acceptance: task 5.7 (manual end-to-end), 6.7
+(staging flip and rollback), 7.2 (desktop vault upgrade).
+
 ## Second goal-fix execution verification (2026-10-20; updates gates 4–5 below)
 
 `node src/lib/harness/adapters/opencode-v2/__tests__/execution-local.mjs`
