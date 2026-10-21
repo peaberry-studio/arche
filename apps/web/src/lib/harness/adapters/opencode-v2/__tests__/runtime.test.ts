@@ -110,13 +110,16 @@ describe('V2 runtime', () => {
     expect(update).toHaveBeenCalledWith({ sessionID: 's1', title: 'renamed' })
   })
 
-  it('does not turn interrupt acknowledgement into family-idle confirmation', async () => {
+  it('reports status from active drains only, independent of the interrupt acknowledgement', async () => {
     const interrupt = vi.fn().mockResolvedValue({ interrupted: false })
-    mocks.client.mockResolvedValue({ session: { get: vi.fn().mockResolvedValue(session('s1')), interrupt, inbox: { list: vi.fn().mockResolvedValue([]) } } })
+    const active = vi.fn().mockResolvedValue({ s1: { type: 'running' } })
+    mocks.client.mockResolvedValue({ session: { get: vi.fn().mockResolvedValue(session('s1')), interrupt, active, inbox: { list: vi.fn().mockResolvedValue([]) } } })
     const runtime = createOpenCodeV2Runtime('alice')
+    const signal = new AbortController().signal
     expect(await runtime.abortSession('s1')).toEqual({ ok: true, data: undefined })
     expect(interrupt).toHaveBeenCalledWith({ sessionID: 's1', resume: false })
-    expect(await runtime.sessionStatus()).toEqual({ ok: false, error: { code: 'runtime_unsupported', detail: 'v2_family_idle_confirmation_unverified' } })
+    expect(await runtime.sessionStatus({ signal })).toEqual({ ok: true, data: { s1: { type: 'busy' } } })
+    expect(active).toHaveBeenCalledWith({ signal })
   })
 
   it('does not interrupt a nonexistent session even if native interrupt would acknowledge it', async () => {
@@ -151,11 +154,11 @@ describe('V2 runtime', () => {
     expect(await createOpenCodeV2Runtime('alice').abortSession('s1')).toMatchObject({ ok: false, error: { code: 'fetch_failed' } })
   })
 
-  it('fails unsupported prompt behavior explicitly without submitting a lossy prompt', async () => {
-    const prompt = vi.fn()
-    mocks.client.mockResolvedValue({ session: { get: vi.fn().mockResolvedValue(session('s1')), prompt } })
-    expect(await createOpenCodeV2Runtime('alice').prompt({ sessionId: 's1', agent: 'reviewer', model: { providerId: 'openai', modelId: 'test' }, noReply: true, parts: [{ type: 'text', text: 'hello' }] })).toMatchObject({ ok: false, error: { code: 'runtime_unsupported' } })
-    expect(prompt).not.toHaveBeenCalled()
+  it('keeps no-reply input queued without resuming the session', async () => {
+    const prompt = vi.fn().mockResolvedValue({ id: 'msg_note', type: 'user' })
+    mocks.client.mockResolvedValue({ session: { get: vi.fn().mockResolvedValue({ ...session('s1'), agent: 'reviewer' }), prompt } })
+    expect(await createOpenCodeV2Runtime('alice').prompt({ sessionId: 's1', messageId: 'msg_note', agent: 'reviewer', noReply: true, parts: [{ type: 'text', text: 'hello' }] })).toEqual({ ok: true, data: undefined })
+    expect(prompt).toHaveBeenCalledWith({ sessionID: 's1', id: 'msg_note', text: 'hello', resume: false }, undefined)
   })
 
   it('preserves verified text prompt IDs, selection and cancellation at the native boundary', async () => {
@@ -187,7 +190,8 @@ describe('V2 runtime', () => {
     mocks.client.mockResolvedValue({ session: { get: vi.fn().mockResolvedValue(session('s1')) }, message: { list } })
     const result = await createOpenCodeV2Runtime('alice').listMessages('s1')
     expect(result.ok && result.data.map(({ id, content }) => ({ id, content }))).toEqual([{ id: 'msg1', content: 'updated' }, { id: 'msg2', content: 'next' }])
-    expect(list).toHaveBeenNthCalledWith(3, { sessionID: 's1', order: 'asc', limit: 100, cursor: 'two' })
+    expect(list).toHaveBeenNthCalledWith(1, { sessionID: 's1', order: 'asc', limit: 100 })
+    expect(list).toHaveBeenNthCalledWith(3, { sessionID: 's1', limit: 100, cursor: 'two' })
   })
 
   it('lists only enabled models with canonical provider IDs, native defaults and untiered prices', async () => {
