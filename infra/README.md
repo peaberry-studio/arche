@@ -11,67 +11,66 @@ This directory contains everything needed to run Arche as a full stack (local an
 
 ## Workspace runtime selection
 
-Keep `ARCHE_DEFAULT_RUNTIME_KIND=opencode-v1` during adapter validation. Running
-instances use their recorded kind (null means V1), not the deployment default.
-`OPENCODE_IMAGE` selects the V2 workspace image; `OPENCODE_V1_IMAGE` selects the
-separately built legacy image for V1 starts and the later archive/rollback path.
-After the dual-image workflow has published the pinned legacy build, configure:
+New starts use `ARCHE_DEFAULT_RUNTIME_KIND`, which defaults to `opencode-v2`.
+Running instances keep their recorded kind (null means V1) until they restart;
+this is never an in-place switch. `OPENCODE_IMAGE` is the V2 workspace image and
+`OPENCODE_V1_IMAGE` the pinned legacy image used to archive V1 history and for
+rollback:
 
 ```text
-ARCHE_DEFAULT_RUNTIME_KIND=opencode-v1
 OPENCODE_V1_IMAGE=ghcr.io/peaberry-studio/arche/workspace:opencode-v1-1.18.18
 ```
 
-For arm64, use the `opencode-v1-1.18.18-arm64` tag. The old `v6.0.0` release is
-**not** this legacy pin: it contains OpenCode 1.17.9, not 1.18.18. Update existing
-deployment overrides as well as examples; the new code default cannot override
-an explicitly configured old value. These remote tags must exist before deploy.
-For local validation use `OPENCODE_V1_IMAGE=arche-workspace:opencode-v1` and
-`OPENCODE_IMAGE=arche-workspace:opencode-v2` from the image-check script.
+For arm64, use the `opencode-v1-1.18.18-arm64` tag. The workspace image workflow
+publishes both tags from `main`; they must exist before deploying. The old
+`v6.0.0` release is **not** this legacy pin: it contains OpenCode 1.17.9, not
+1.18.18. Update existing deployment overrides as well as examples; the code
+default cannot override an explicitly configured old value. For local
+validation, `infra/deploy/deploy.sh --local-dev` builds
+`arche-workspace:opencode-v1-1.18.18` next to `arche-workspace:latest`.
 
-V2 startup currently fails closed before changing an existing workspace because
-required policy, provider-access and event/execution gates remain unresolved;
-the admin-only audited start action is not a rollout bypass. See
-`apps/web/src/lib/harness/adapters/opencode-v2/NOTES.md`. Do not flip the default
-until those gates and archive acceptance are complete. V1 and V2 data use separate
-`arche-opencode-share-*` and `arche-opencode2-share-*` volumes. Desktop preparation
-continues bundling the legacy pin until the desktop archive/upgrade phase.
+V1 and V2 keep separate state: `arche-opencode-share-*` / `arche-opencode-state-*`
+for V1 and `arche-opencode2-share-*` / `arche-opencode2-state-*` for V2. Desktop
+bundles both binaries and keeps V2 data in `.runtime/opencode-v2`.
 
-### Archive rollout and rollback (operator-owned)
+### First V2 start of an existing workspace
 
-The committed default stays V1. **Do not deploy the V2 flip while the startup
-gate above is unresolved.** After adapter acceptance, image publication and the
-additive database migration, stage the following sequence on a workspace with
-known V1 root and child conversations:
+When a workspace recorded as V1 starts while the default is V2:
 
-1. Keep `OPENCODE_V1_IMAGE` pinned to the exact 1.18.18 image above. Allow the
-   reaper's bounded pre-archive pass to populate history for running V1 workspaces.
-   Pre-archive does not make their live conversations read-only.
-2. Set `ARCHE_DEFAULT_RUNTIME_KIND=opencode-v2` in the deployment env consumed by
-   **web, flows and reaper**, recreate those services using the normal deployment
-   procedure, then stop/start the test workspace. Existing running containers
-   retain their recorded adapter until restarted; this is not an in-place switch.
-3. Verify the migrating-history indicator, the per-workspace archive log, all
-   archived root/child messages, a new live V2 conversation and integration
-   rebinding. A failed export must restart V1 and retry on its next start.
-   For a stopped source, a temporary pinned V1 container reads the original
-   state with project config, plugins, MCP and providers disabled. Its workspace
-   mount is read-only and it is removed before either runtime starts serving.
-   Startup/stop/reaper transitions are attempt-scoped; stop requests are refused
-   while startup owns the instance. A retry cannot start either runtime until
-   the archive helper is confirmed removed or absent, even after cleanup failure.
-4. Roll back by setting `ARCHE_DEFAULT_RUNTIME_KIND=opencode-v1`, recreating
-   web/flows/reaper, and stop/starting the workspace. Confirm its original V1
-   sessions are live on `arche-opencode-share-<slug>` again. Keep both runtime
-   images and both share/state volume families; never delete the V1 volumes as
-   part of this deploy. Archive rows remain harmless and are hidden on V1.
+1. The workspace shows "migrating history" while its V1 conversations (roots and
+   subagent children) are exported to `legacy_session_archives`, through the
+   running V1 container or a temporary pinned V1 helper with project config,
+   plugins, MCP and providers disabled and a read-only workspace mount. The
+   helper is removed before either runtime serves.
+2. V2 starts on the V2 volumes. Archived conversations are listed with an
+   "Archived" marker and open read-only.
+3. If the export fails, the workspace starts on V1 and retries on its next start.
+   In-flight V1 message and flow runs are settled with `runtime_migrated` only
+   after a successful export; Slack bindings to archived sessions rebind to a new
+   session on the next message.
+
+The reaper pre-archives running V1 workspaces in the background, one at a time,
+so most first starts only export what changed since. Startup, stop and reaper
+transitions are attempt-scoped; stop requests are refused while startup owns the
+instance.
+
+### Rollback
+
+Set `ARCHE_DEFAULT_RUNTIME_KIND=opencode-v1` in the env consumed by **web, flows
+and reaper**, recreate those services with the normal deployment procedure, and
+stop/start the affected workspaces. They start on their untouched V1 volumes with
+the original V1 conversations live; archive rows are hidden on V1. Conversations
+created on V2 stay on the V2 volumes and reappear when the workspace runs V2
+again, and that switch only archives the V1 conversations created in between.
 
 The database is not rolled back. Do not revert to a pre-seam web build while V2
-instances still run: it cannot dispatch their recorded adapter. In-flight V1
-message/flow runs are settled with `runtime_migrated` only after successful export;
-sessionless flows awaiting startup are preserved. Bound runs are settled even if
-their source session was deleted; they are not resumed as V2 executions. Staging deployment, rollback acceptance
-and the default flip are deliberately left to an operator, not this branch.
+instances still run: it cannot dispatch their recorded adapter. Keep both runtime
+images and both volume families until the contract phase below.
+
+Known V1-only gap: on V1, the session history and knowledge proposal tools called
+from chat fail with `caller_identity_unavailable`, because OpenCode 1 does not
+forward session metadata to MCP servers. Learning runs pass their session
+explicitly and are unaffected.
 
 ### Retiring V1 share volumes (contract phase only)
 

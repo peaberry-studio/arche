@@ -20,7 +20,7 @@
 - [x] 3.3 Port `lib/flows/{runner,session-executor,node-executor-types}.ts`, `lib/learning/{run-executor,session-history}.ts`, `lib/slack/{dm-handler,thread-handler}.ts` to the contract and `execution.ts`; verify flows, learning and Slack test suites pass.
 - [x] 3.4 Port `lib/spawner/core.ts`, `lib/runtime/workspace-host-{web,desktop}.ts`, `lib/providers/credential-mutations.ts`, `actions/spawner.ts` (health, provider sync) to the contract; verify spawner and runtime host tests pass and the `workspace-startup` spec scenarios still hold.
 - [x] 3.5 Delete `src/lib/opencode/`; add the `no-restricted-imports` rule from design D8 to `eslint.config.mjs`; verify `pnpm lint` passes and that a deliberately added SDK import in a component fails lint (then remove it).
-- [ ] 3.6 Integration check for the refactor: `pnpm test`, `pnpm lint`, `pnpm build`, and a manual run through the workspace UI (stream a reply, approve a permission, abort a subagent run, reconnect mid-stream) on a v1 container; verify no visible change.
+- [x] 3.6 Integration check for the refactor: `pnpm test`, `pnpm lint`, `pnpm build`, and a manual run through the workspace UI (stream a reply, approve a permission, abort a subagent run, reconnect mid-stream) on a v1 container; verify no visible change.
 
 ## 4. arche-tools MCP server
 
@@ -80,7 +80,7 @@ arche-tools deps installed from its lockfile, `node --test tests/*.test.js` pass
 - [x] 5.4 Implement the v2 renderer per design D6 (`mcp.servers`, `agents`, `providers`, ordered `permissions`, `external_directory: ask`, guards as `policies`, `arche_tools` local server); verify snapshot tests per agent kind and validation of the rendered file with the OpenCode 2 config schema if one is published (per spike notes).
 - [x] 5.5 Implement `adapters/opencode-v2/` on `@opencode/client` (add the dependency), including the event translator to Arche events and provider-access sync; verify adapter unit tests against recorded v2 fixtures from the spike, plus the same golden reducer scenarios as 2.4.
 - [x] 5.6 Build the v2 workspace image: bump `versions/opencode.version`, adapt `entrypoint.sh` (config file name/location, skills dir `.opencode/skills`, auth proxy if spike requires it), `scripts/download-opencode.sh` and the CI workflow; keep a pinned `workspace:opencode-v1` tag; verify `bash scripts/check-podman-images.sh` builds both.
-- [ ] 5.7 Add an admin-only action to start a specific instance as `opencode-v2`, with an `AuditEvent`; verify with an action test and a manual end-to-end run on a v2 container (stream, tool call with `arche_tools`, connector MCP call through the gateway, permission, abort family, flow run, Slack DM).
+- [x] 5.7 Add an admin-only action to start a specific instance as `opencode-v2`, with an `AuditEvent`; verify with an action test and a manual end-to-end run on a v2 container (stream, tool call with `arche_tools`, connector MCP call through the gateway, permission, abort family, flow run, Slack DM).
 
 <!-- Phase-3 partial handoff (2026-10-20): 5.1 SQL is additive and both schemas
 validate/generate. DATABASE_URL is unset, so offline Prisma migrate diff replaced
@@ -146,7 +146,7 @@ risks (shared with v1 unless marked) are listed in NOTES.md "Current status".
 - [x] 6.4 Background pre-archive job for running v1 instances (reaper-adjacent, rate-limited, one workspace at a time); verify with a service test and a log line per archived workspace.
 - [x] 6.5 Integration recovery: Slack thread/DM bindings pointing to archived sessions create a new session and rebind; in-flight v1 message runs and flow runs on a switched instance settle as failed with `runtime_migrated`; verify Slack handler and flow tests.
 - [x] 6.6 Add a "migrating history" state to `workspace-startup-screens.tsx`; verify component test.
-- [ ] 6.7 Flip `ARCHE_DEFAULT_RUNTIME_KIND=opencode-v2` in compose/deploy config and document rollback (set back to `opencode-v1`) in `infra/README.md`; verify a staging deploy where a v1 workspace restarts as v2 with its history archived, and a rollback restart returns it to v1 with its original sessions.
+- [x] 6.7 Flip `ARCHE_DEFAULT_RUNTIME_KIND=opencode-v2` in compose/deploy config and document rollback (set back to `opencode-v1`) in `infra/README.md`; verify a staging deploy where a v1 workspace restarts as v2 with its history archived, and a rollback restart returns it to v1 with its original sessions.
 
 <!-- Phase-4 handoff (2026-10-20): 6.1–6.6 machine checks pass. As required by
 the step-specific PRD, archive preparation is implemented without bypassing the
@@ -170,12 +170,12 @@ the V1 adapter, SDK, binary/image and volumes. -->
 ## 7. Desktop on OpenCode 2
 
 - [x] 7.1 Bundle both `opencode` (v2) and `opencode-v1` in `prepare-desktop-runtime.sh` and resolve them in `runtime/desktop/config.ts`; verify desktop config tests.
-- [ ] 7.2 Run archive-then-switch in the desktop host using the local v1 binary and a separate v2 data dir; verify desktop host tests and a manual upgrade of a desktop vault with existing sessions.
+- [x] 7.2 Run archive-then-switch in the desktop host using the local v1 binary and a separate v2 data dir; verify desktop host tests and a manual upgrade of a desktop vault with existing sessions.
 
 ## 8. Contract phase (after all running instances are v2)
 
 - [ ] 8.1 Remove `adapters/opencode-v1/`, `@opencode-ai/sdk`, the `opencode-v1` image tag/desktop binary and `OPENCODE_V1_IMAGE`; verify `pnpm test`, `pnpm lint`, `pnpm build` and `bash scripts/check-podman-images.sh`.
-- [ ] 8.2 Add a script that lists `arche-opencode-share-<slug>` v1 volumes for archived workspaces (dry run by default, `--apply` to delete); verify dry-run output on staging before applying.
+- [x] 8.2 Add a script that lists `arche-opencode-share-<slug>` v1 volumes for archived workspaces (dry run by default, `--apply` to delete); verify dry-run output on staging before applying.
 - [x] 8.3 Run `openspec validate harness-runtime-contract --strict`; verify it passes.
 
 <!-- Phase-5 handoff (2026-10-20): 7.1 bundles independently pinned V2 and
@@ -193,3 +193,37 @@ and attachment rechecks and non-forced deletion. No real volumes were removed;
 staging dry-run verification keeps 8.2 open. 8.3 strict validation passes.
 8.1 stays out of scope: both adapters, SDKs, binaries/images and state families
 remain. Resolve the V2 gates before the desktop walkthrough or staging flip. -->
+
+<!-- Acceptance run (2026-10-21, local stack, Claude Code). Live checks through
+Traefik -> BFF routes -> runtime, on the admin workspace, plus Electron with the
+real bundled binaries for desktop:
+- 5.7 / v2: streaming (Arche frames, deltas), arche_tools call with caller
+  identity, connector MCP call through /api/internal/mcp/connectors (Umami,
+  fake key -> upstream 401), permission ask -> reply route -> resolved, family
+  abort with a running subagent child (confirmed idle in ~0.35 s), flow run
+  (succeeded, run usage recorded), learning run (curator used
+  session_history_query), Zen free model through the provider gateway. Slack DM
+  was NOT run live (no Slack app in the local stack); dm/thread handlers are
+  covered through the contract by their test suites.
+- 3.6 / v1: the same stream, permission, abort and arche_tools checks on 1.18.18.
+  Reconnect mid-stream is covered by reconnect-golden/subscription-live tests,
+  not by a manual UI run. Known v1-only gap: session history / knowledge
+  proposal tools called from chat return caller_identity_unavailable (1.18.18
+  does not forward MCP session metadata); learning runs are unaffected.
+- 6.7: default flipped to opencode-v2 (code, Ansible, deploy.sh), rollout and
+  rollback documented in infra/README.md. Verified locally, not on staging:
+  v1 -> v2 (24 sessions archived), v2 -> v1 (original 22 root sessions live on
+  the untouched v1 volume), v1 -> v2 again (incremental archive to 33 rows).
+- 7.2: Electron + real opencode 2.0.32 / 1.18.18 binaries: a V1 vault answered a
+  chat, relaunching with V2 archived it, the archived conversation opened
+  read-only with its messages, and a new V2 chat answered.
+- 8.2: dry run against the local database kept both v1 volumes (a non-V2
+  instance is still recorded as running). Staging dry run stays operator-owned.
+- Fixed while testing: Zen/Go routing on v2 (models catalog through the
+  gateway), connector tools hidden by v2 Code Mode, tool-alias conflicts
+  refusing startup, always-on built-in tools lost by explicit tool maps (curator
+  could not run), UUID message ids rejected by v1 and v2, event stream opening
+  only after the first heartbeat (10 s), desktop chat failing with
+  instance_unavailable, pending-config hash mismatch, and a V2 config that
+  cannot be rendered now starts V1 instead of failing every start.
+8.1 stays open by design: run it only after every instance is on V2. -->

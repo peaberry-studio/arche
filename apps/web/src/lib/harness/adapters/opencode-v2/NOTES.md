@@ -20,9 +20,12 @@ real keys).
 | 7. Events | Production `subscribeOpenCodeEvents` is wired. The same conversation was captured on 1.18.18 and 2.0.32 and replayed with reconnects at five cut points (`__tests__/captures`, `reconnect-golden.test.ts`): every variant converges to the continuously connected client, and v2's final snapshot equals the live state including accounting (v1 only after ignoring step parts). Snapshots include undelivered inbox input. Live BFF check (`subscription-live.test.ts`): heartbeat ≤10s, closing a subscriber does not interrupt the session, connect failures return 502. See `__tests__/CAPTURE.md` "Reconnect parity acceptance". | In-flight text/reasoning missing from snapshots until the part ends (v1 too). Stale-snapshot races can revive a resolved permission or regress a tool state (v1 too; v1 also loses text there, v2 does not). v2-only: a running subagent tool has `metadata: {}` in the snapshot, so the delegation card links to the child only after progress/completion. Connect pages every session in the location first, which could exceed the 8s connect deadline on very large workspaces. |
 | 9. Config guards | Production-rendered config round-trips through `config.get`. Agent `system` equals v1's prompt (same transforms, same order). Each agent ends with a native `subagent:<self>` deny; the execution guard's non-primary `subagent * deny` matches v1. KB, workspace and runtime-config paths (`opencode.json(c)` at any depth, `.opencode/**`, `AGENTS.md`) are `tool.use` deny policies; a permissive project `.opencode/opencode.json` cannot lift them ("Blocked by configuration policy"; negative control succeeds without them). Self-deny enforced live; primaries cannot run as subagents (`config-guards.probe.mjs`). | Per-agent permissions (self-deny, execution deny) can be re-allowed by a planted `.opencode/opencode.json`; tools cannot write it, but shell policies are string matches, as in v1. Policies are not a sandbox. |
 
-Startup is no longer refused for `opencode-v2`; the deployment default stays
-`opencode-v1`. Remaining human acceptance: task 5.7 (manual end-to-end), 6.7
-(staging flip and rollback), 7.2 (desktop vault upgrade).
+Startup is no longer refused for `opencode-v2`, and since 2026-10-21 it is the
+deployment default (rollback: `ARCHE_DEFAULT_RUNTIME_KIND=opencode-v1`, see
+`infra/README.md`). A workspace whose config v2 cannot render starts on v1
+instead of archiving and failing. Live acceptance of 5.7, 6.7 (local, not
+staging) and 7.2 is recorded at the end of `tasks.md`; MCP servers render with
+`codemode: false` so connector tools stay individually permissioned.
 
 ## Second goal-fix execution verification (2026-10-20; updates gates 4–5 below)
 

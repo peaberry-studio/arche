@@ -78,6 +78,8 @@ services:
       CONTAINER_PROXY_HOST: docker-socket-proxy
       CONTAINER_PROXY_PORT: "2375"
       OPENCODE_IMAGE: ${OPENCODE_IMAGE:-ghcr.io/peaberry-studio/arche/workspace:latest}
+      OPENCODE_V1_IMAGE: ${OPENCODE_V1_IMAGE:-ghcr.io/peaberry-studio/arche/workspace:opencode-v1-1.18.18}
+      ARCHE_DEFAULT_RUNTIME_KIND: ${ARCHE_DEFAULT_RUNTIME_KIND:-opencode-v2}
       OPENCODE_NETWORK: arche_internal
 
       # Connector OAuth/MCP overrides (optional)

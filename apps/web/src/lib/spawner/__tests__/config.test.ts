@@ -124,13 +124,13 @@ describe('config', () => {
   })
 
   describe('getDefaultRuntimeKind', () => {
-    it('keeps v1 as the default', async () => {
+    it('defaults new starts to v2', async () => {
       delete process.env.ARCHE_DEFAULT_RUNTIME_KIND
       const { getDefaultRuntimeKind } = await import('../config')
-      expect(getDefaultRuntimeKind()).toBe('opencode-v1')
+      expect(getDefaultRuntimeKind()).toBe('opencode-v2')
     })
 
-    it.each(['opencode-v2', 'unknown'])('preserves configured kind %s for fail-closed registry validation', async (kind) => {
+    it.each(['opencode-v1', 'unknown'])('preserves configured kind %s for fail-closed registry validation', async (kind) => {
       process.env.ARCHE_DEFAULT_RUNTIME_KIND = kind
       const { getDefaultRuntimeKind } = await import('../config')
       expect(getDefaultRuntimeKind()).toBe(kind)

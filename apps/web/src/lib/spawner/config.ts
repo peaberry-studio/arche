@@ -27,7 +27,7 @@ export function getOpencodeV1Image(): string {
 }
 
 export function getDefaultRuntimeKind(): string {
-  return process.env.ARCHE_DEFAULT_RUNTIME_KIND || 'opencode-v1'
+  return process.env.ARCHE_DEFAULT_RUNTIME_KIND || 'opencode-v2'
 }
 
 export function getOpencodeNetwork(): string {
