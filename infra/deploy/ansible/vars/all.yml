@@ -22,6 +22,8 @@ image_prefix: "{{ lookup('env', 'IMAGE_PREFIX') | default('ghcr.io/peaberry-stud
 web_version: "{{ lookup('env', 'WEB_VERSION') | default('latest', true) }}"
 web_image: "{{ lookup('env', 'WEB_IMAGE') | default(image_prefix ~ 'web:' ~ web_version, true) }}"
 opencode_image: "{{ lookup('env', 'OPENCODE_IMAGE') | default('arche-workspace:latest', true) }}"
+opencode_v1_image: "{{ lookup('env', 'OPENCODE_V1_IMAGE') | default(image_prefix ~ 'workspace:opencode-v1-1.18.18', true) }}"
+arche_default_runtime_kind: "{{ lookup('env', 'ARCHE_DEFAULT_RUNTIME_KIND') | default('opencode-v1', true) }}"
 cloudflared_image: "{{ lookup('env', 'CLOUDFLARED_IMAGE') | default('docker.io/cloudflare/cloudflared:2026.5.0', true) }}"
 
 # GHCR auth

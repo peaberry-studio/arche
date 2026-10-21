@@ -732,6 +732,11 @@ deploy_local_dev() {
   log "Building workspace image: arche-workspace:latest"
   podman build --build-arg OPENCODE_VERSION="$RESOLVED_OPENCODE_VERSION" -t arche-workspace:latest "$REPO_ROOT/infra/workspace-image"
 
+  # Build the pinned legacy image used by opencode-v1 instances and archive export
+  OPENCODE_V1_VERSION="$(tr -d '[:space:]' < "$REPO_ROOT/versions/opencode-v1.version")"
+  log "Building legacy workspace image: arche-workspace:opencode-v1-$OPENCODE_V1_VERSION"
+  podman build --build-arg OPENCODE_VERSION="$OPENCODE_V1_VERSION" -t "arche-workspace:opencode-v1-$OPENCODE_V1_VERSION" "$REPO_ROOT/infra/workspace-image"
+
   # Deploy Knowledge Base
   KB_CONTENT_DEST="${KB_CONTENT_HOST_PATH:-$HOME/.arche/kb-content}"
   KB_CONFIG_DEST="${KB_CONFIG_HOST_PATH:-$HOME/.arche/kb-config}"
@@ -757,7 +762,7 @@ deploy_local_dev() {
   EXTRA_VARS_FILE=$(mktemp)
   trap 'rm -f "$TEMP_PLAYBOOK" "$EXTRA_VARS_FILE"' EXIT
 
-  export LOCAL_DOMAIN PODMAN_SOCKET_PATH IMAGE_PREFIX WEB_VERSION REPO_ROOT KB_CONTENT_DEST KB_CONFIG_DEST USERS_DEST
+  export LOCAL_DOMAIN PODMAN_SOCKET_PATH IMAGE_PREFIX WEB_VERSION REPO_ROOT KB_CONTENT_DEST KB_CONFIG_DEST USERS_DEST OPENCODE_V1_VERSION
 
   python3 -c '
 import json, os, sys
@@ -771,6 +776,8 @@ vars = {
     "image_prefix": os.environ["IMAGE_PREFIX"],
     "web_version": os.environ["WEB_VERSION"],
     "opencode_image": "arche-workspace:latest",
+    "opencode_v1_image": "arche-workspace:opencode-v1-" + os.environ["OPENCODE_V1_VERSION"],
+    "arche_default_runtime_kind": os.environ.get("ARCHE_DEFAULT_RUNTIME_KIND") or "opencode-v1",
     "cloudflared_tunnel_token": "",
     "cloudflared_image": "docker.io/cloudflare/cloudflared:2026.5.0",
     "repo_root": os.environ["REPO_ROOT"],
