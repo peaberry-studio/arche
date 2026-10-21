@@ -82,7 +82,7 @@ export function buildCuratorPrompt(input: LearningRunExecutionInput, callerSessi
     '   - operation "update" (full updated file content) or "create" (full new file content)',
     '   - kbPath relative to the workspace root',
     '   - a short title, type, confidence, and evidence quoting the session when possible',
-    '4. If a proposal returns `pending_proposal_exists`, that path already has a pending proposal: re-read the current file, write content that keeps the changes of `pending.proposedContent` and adds yours, and call again with `supersedesId: pending.id`. Never drop a pending proposal\'s changes.',
+    '4. If a proposal returns `pending_proposal_exists`, that path already has a pending proposal: re-read the current file, write content that keeps the changes of `pending.proposedContent` and adds yours, and call again with `supersedesId: pending.id` and `supersedesRevision: pending.revision`. If it changed meanwhile, merge the new pending content and retry. Never drop a pending proposal\'s changes.',
     '5. Never write Knowledge Base files directly; proposals are reviewed and applied by the user.',
     '6. Skip transient, task-specific, or sensitive details. If there is nothing durable to learn, create no proposals.',
     ...regenerationInstructions,

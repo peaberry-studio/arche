@@ -12,6 +12,7 @@ import {
 } from '@/lib/harness/execution'
 
 const mocks = vi.hoisted(() => ({ auth: vi.fn(), createRun: vi.fn(), touch: vi.fn(), usage: vi.fn() }))
+vi.mock('@/lib/harness/session-submission-lock', () => ({ withSessionSubmissionLock: (_slug: string, _sessionId: string, options: unknown, submit: (options: unknown) => unknown) => submit(options) }))
 vi.mock('@/lib/harness/runtime-connection', () => ({
   getInstanceBasicAuth: mocks.auth,
   getInstanceUrl: (_slug: string, baseUrl?: string) => baseUrl ?? 'http://runtime',
@@ -30,6 +31,7 @@ type NativeState = {
   active: Set<string>
   children: Record<string, string[]>
   inbox: Record<string, string[]>
+  cancelFailures: number
   messages: NativeMessage[]
   // Sessions that keep running whatever interrupt says.
   unstoppable: Set<string>
@@ -45,6 +47,7 @@ function nativeTransport(overrides: Partial<NativeState> = {}) {
     active: new Set(),
     children: { [SESSION_ID]: ['child'], child: ['grandchild'], grandchild: [] },
     inbox: {},
+    cancelFailures: 0,
     messages: [],
     unstoppable: new Set(),
     ...overrides,
@@ -82,6 +85,10 @@ function nativeTransport(overrides: Partial<NativeState> = {}) {
     if (suffix === '/inbox') return Response.json({ data: (state.inbox[id] ?? []).map((item) => ({ id: item, sessionID: id, type: 'user', time: { created: 1 }, payload: { text: 'Pending input' }, delivery: 'queue' })) })
     const cancel = suffix.match(/^\/inbox\/(.+)$/)
     if (cancel && method === 'DELETE') {
+      if (state.cancelFailures > 0) {
+        state.cancelFailures -= 1
+        return Response.json({ error: 'temporary_backend_failure' }, { status: 503 })
+      }
       state.inbox[id] = (state.inbox[id] ?? []).filter((item) => item !== cancel[1])
       state.onCancel?.(id, cancel[1])
       return new Response(null, { status: 204 })
@@ -186,6 +193,19 @@ describe('V2 primitives in shared execution (real adapter and matched HTTP clien
     expect(state.active.size).toBe(0)
   })
 
+  it.each([1, Infinity])('does not confirm an uncleared inbox after %s cancellation failures', async (cancelFailures) => {
+    vi.useFakeTimers()
+    const { state, calls } = nativeTransport({
+      active: new Set([SESSION_ID]), children: { [SESSION_ID]: [] },
+      inbox: { [SESSION_ID]: ['msg_pending'] }, cancelFailures,
+    })
+    const pending = abortSessionFamilyAndConfirmIdle({ client: createOpenCodeV2Runtime('alice'), rootSessionId: SESSION_ID })
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(await pending).toBe(cancelFailures === 1)
+    expect(state.inbox[SESSION_ID]).toEqual(cancelFailures === 1 ? [] : ['msg_pending'])
+    expect(interrupts(calls).length).toBeGreaterThan(1)
+  })
+
   it('settles a completed run and books its per-message usage once the root drain ends', async () => {
     const { state } = nativeTransport({ active: new Set([SESSION_ID]), messages: [userSnapshot] })
     const runtime = createOpenCodeV2Runtime('alice')
@@ -217,6 +237,6 @@ describe('V2 primitives in shared execution (real adapter and matched HTTP clien
     const result = await createOpenCodeV2Runtime('alice').sendMessage({ sessionId: SESSION_ID, messageId: 'msg_note', noReply: true, parts: [{ type: 'text', text: 'Context' }] })
     expect(result).toMatchObject({ ok: true, data: { id: 'msg_note', role: 'user', content: 'Context' } })
     expect(calls.find((call) => call.path.endsWith('/prompt'))?.body).toEqual({ id: 'msg_note', text: 'Context', resume: false })
-    expect(calls.some((call) => call.path === '/api/session/active')).toBe(false)
+    expect(calls.filter((call) => call.path === '/api/session/active')).toHaveLength(1)
   })
 })

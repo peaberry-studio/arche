@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createOpenCodeV2Runtime } from '@/lib/harness/adapters/opencode-v2/runtime'
 
 const mocks = vi.hoisted(() => ({ client: vi.fn(), health: vi.fn(), sync: vi.fn(), events: vi.fn() }))
+vi.mock('@/lib/harness/session-submission-lock', () => ({ withSessionSubmissionLock: (_slug: string, _sessionId: string, options: unknown, submit: (options: unknown) => unknown) => submit(options) }))
 vi.mock('@/lib/harness/adapters/opencode-v2/client', async (importOriginal) => ({
   ...await importOriginal<typeof import('@/lib/harness/adapters/opencode-v2/client')>(),
   createInstanceClient: mocks.client,
@@ -156,14 +157,14 @@ describe('V2 runtime', () => {
 
   it('keeps no-reply input queued without resuming the session', async () => {
     const prompt = vi.fn().mockResolvedValue({ id: 'msg_note', type: 'user' })
-    mocks.client.mockResolvedValue({ session: { get: vi.fn().mockResolvedValue({ ...session('s1'), agent: 'reviewer' }), prompt } })
+    mocks.client.mockResolvedValue({ session: { active: vi.fn().mockResolvedValue({}), get: vi.fn().mockResolvedValue({ ...session('s1'), agent: 'reviewer' }), prompt } })
     expect(await createOpenCodeV2Runtime('alice').prompt({ sessionId: 's1', messageId: 'msg_note', agent: 'reviewer', noReply: true, parts: [{ type: 'text', text: 'hello' }] })).toEqual({ ok: true, data: undefined })
     expect(prompt).toHaveBeenCalledWith({ sessionID: 's1', id: 'msg_note', text: 'hello', resume: false }, undefined)
   })
 
   it('lets 2.0.32 assign the id when the caller sends a non-native message id', async () => {
     const prompt = vi.fn().mockResolvedValue({ id: 'msg_generated' })
-    mocks.client.mockResolvedValue({ session: { get: vi.fn().mockResolvedValue(session('s1')), prompt } })
+    mocks.client.mockResolvedValue({ session: { active: vi.fn().mockResolvedValue({}), get: vi.fn().mockResolvedValue(session('s1')), prompt } })
     expect(await createOpenCodeV2Runtime('alice').prompt({ sessionId: 's1', messageId: '5b0e3c1d-8f6a-4c2e-9d7b-1a2b3c4d5e6f', parts: [{ type: 'text', text: 'hello' }] })).toEqual({ ok: true, data: undefined })
     expect(prompt).toHaveBeenCalledWith({ sessionID: 's1', text: 'hello' }, undefined)
   })
@@ -172,7 +173,7 @@ describe('V2 runtime', () => {
     const prompt = vi.fn().mockResolvedValue({ id: 'msg_fixture_text' })
     const switchAgent = vi.fn().mockResolvedValue(undefined)
     const switchModel = vi.fn().mockResolvedValue(undefined)
-    mocks.client.mockResolvedValue({ session: { get: vi.fn().mockResolvedValue(session('s1')), prompt, switchAgent, switchModel } })
+    mocks.client.mockResolvedValue({ session: { active: vi.fn().mockResolvedValue({}), get: vi.fn().mockResolvedValue(session('s1')), prompt, switchAgent, switchModel } })
     const signal = new AbortController().signal
     expect(await createOpenCodeV2Runtime('alice').prompt({ sessionId: 's1', messageId: 'msg_fixture_text', agent: 'reviewer', model: { providerId: 'fixture', modelId: 'alternate' }, parts: [{ type: 'text', text: 'hello' }] }, { signal })).toEqual({ ok: true, data: undefined })
     expect(switchAgent).toHaveBeenCalledWith({ sessionID: 's1', agent: 'reviewer' }, { signal })

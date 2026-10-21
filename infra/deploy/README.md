@@ -242,8 +242,8 @@ No DNS provider token is required in direct mode. Traefik uses ACME HTTP challen
 | `ARCHE_CONNECTOR_META_ADS_GRAPH_API_VERSION` | `v25.0` |
 
 To build the web image directly on the VPS, set `WEB_IMAGE=arche-web:latest`.
-To build the workspace image directly on the VPS, set `OPENCODE_IMAGE=arche-workspace:latest`.
-Published GHCR tags stay amd64 by default. If you need arm64, use the matching `-arm64` tag explicitly, for example `WEB_IMAGE=ghcr.io/peaberry-studio/arche/web:latest-arm64` and `OPENCODE_IMAGE=ghcr.io/peaberry-studio/arche/workspace:latest-arm64`.
+To build the workspace image directly on the VPS, set `OPENCODE_IMAGE=arche-workspace:latest`. The deployer builds a separate tag containing the runtime version, commit and source hash, preserving the image used by old backends during the rollout.
+Published workspace images must use a release/commit tag or digest; mutable `latest` tags are rejected. Published GHCR tags stay amd64 by default. If you need arm64, use the matching `-arm64` tag explicitly, for example `WEB_IMAGE=ghcr.io/peaberry-studio/arche/web:v1.2.3-arm64` and `OPENCODE_IMAGE=ghcr.io/peaberry-studio/arche/workspace:v1.2.3-arm64`.
 
 Connector-specific OAuth and MCP overrides are optional and documented in `.env.example` and `apps/web/.env.example`.
 

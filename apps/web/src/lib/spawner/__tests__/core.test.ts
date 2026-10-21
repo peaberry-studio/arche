@@ -117,6 +117,8 @@ vi.mock('@/lib/skills/skill-store', () => ({
 
 // Mock docker
 vi.mock('../docker', () => ({
+  hasLegacyBackendWriters: vi.fn().mockResolvedValue(false),
+  removeOrphanedV2ContainerForSlug: vi.fn().mockResolvedValue(undefined),
   createContainer: vi.fn(),
   startContainer: vi.fn(),
   stopContainer: vi.fn(),

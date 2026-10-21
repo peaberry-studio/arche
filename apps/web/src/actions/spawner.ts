@@ -157,6 +157,7 @@ export async function ensureInstanceRunningAction(slug: string): Promise<{
     console.log('[ensureInstanceRunning] Start result:', result)
 
     if (!result.ok) {
+      if (result.error === 'runtime_upgrade_pending') return { status: 'starting' }
       return { status: 'error', error: result.detail ?? result.error }
     }
 

@@ -174,6 +174,32 @@ describe('harness execution', () => {
     await expect(ensureWorkspaceRunningForExecution('slack-bot', 'user-1')).rejects.toThrow('No resources')
   })
 
+  it('retries startup while legacy backend writers drain before refreshing providers', async () => {
+    vi.useFakeTimers()
+    vi.mocked(getWorkspaceStatus).mockResolvedValue({ status: 'stopped' } as never)
+    vi.mocked(startWorkspace).mockResolvedValueOnce({ ok: false, error: 'runtime_upgrade_pending' })
+      .mockResolvedValueOnce({ ok: false, error: 'runtime_upgrade_pending' })
+      .mockResolvedValueOnce({ ok: true, status: 'started' })
+    const pending = ensureWorkspaceRunningForExecution('slack-bot', 'user-1')
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(syncRuntimeProviderAccess).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(2_000)
+    await pending
+    expect(startWorkspace).toHaveBeenCalledTimes(3)
+    expect(syncRuntimeProviderAccess).toHaveBeenCalledOnce()
+  })
+
+  it('bounds waiting for legacy backend writers to drain', async () => {
+    vi.useFakeTimers()
+    vi.mocked(getWorkspaceStatus).mockResolvedValue({ status: 'stopped' } as never)
+    vi.mocked(startWorkspace).mockResolvedValue({ ok: false, error: 'runtime_upgrade_pending' })
+    const pending = ensureWorkspaceRunningForExecution('slack-bot', 'user-1')
+    const rejected = expect(pending).rejects.toThrow('instance_start_timeout')
+    await vi.advanceTimersByTimeAsync(30 * 60 * 1_000)
+    await rejected
+    expect(syncRuntimeProviderAccess).not.toHaveBeenCalled()
+  })
+
   it('returns a confirmed timeout failure', async () => {
     vi.useFakeTimers()
     const client = fakeRuntime()
@@ -211,10 +237,14 @@ describe('harness execution', () => {
     expect(client.abortSession.mock.calls.map(([id]) => id)).toEqual(['session-1', 'late-child'])
   })
 
-  it.each([true, false])('retries an abort the adapter could not confirm (eventually confirmed=%s)', async (eventually) => {
+  it.each([
+    ['execution_termination_unconfirmed', true], ['execution_termination_unconfirmed', false],
+    ['fetch_failed', true], ['fetch_failed', false],
+    ['http_status_503', true], ['http_status_503', false],
+  ] as const)('retries a failed abort %s (eventually confirmed=%s)', async (code, eventually) => {
     vi.useFakeTimers()
     const client = fakeRuntime()
-    const unconfirmed = { ok: false as const, error: { code: 'execution_termination_unconfirmed' as const } }
+    const unconfirmed = { ok: false as const, error: { code } }
     if (eventually) client.abortSession.mockResolvedValueOnce(unconfirmed)
     else client.abortSession.mockResolvedValue(unconfirmed)
     const promise = abortSessionFamilyAndConfirmIdle({ client, rootSessionId: 'session-1' })

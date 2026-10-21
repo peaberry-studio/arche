@@ -140,6 +140,34 @@ describe.each(['', 'arche_tools_'])('ToolGroup with %s tool names', (prefix) => 
     expect(screen.getByRole('link', { name: 'Review & create' })).toBeTruthy()
   })
 
+  it('opens and downloads published scratch files without an assistant link', () => {
+    const onOpenFile = vi.fn()
+    const parts: ToolPart[] = ['report.txt', 'summary.csv'].map((name) => ({
+      type: 'tool', id: name, name: `${prefix}scratch_publish`, state: {
+        status: 'completed', input: { path: name }, title: 'scratch_publish',
+        output: JSON.stringify({ ok: true, attachment: { path: `.arche/attachments/${name}`, name, size: 17 } }),
+      },
+    }))
+    render(<ToolGroup tool={`${prefix}scratch_publish`} parts={parts} sessionTabs={[]} slug="alice" onOpenFile={onOpenFile} />)
+
+    for (const name of ['report.txt', 'summary.csv']) {
+      fireEvent.click(screen.getByRole('button', { name: `Open ${name}` }))
+      expect(onOpenFile).toHaveBeenLastCalledWith(`.arche/attachments/${name}`)
+      const link = screen.getByRole('link', { name: `Download ${name}` })
+      expect(link.getAttribute('href')).toBe(`/api/w/alice/files/download?path=.arche%2Fattachments%2F${name}`)
+      expect(link.hasAttribute('download')).toBe(true)
+    }
+  })
+
+  it('does not render attachment actions for invalid published paths', () => {
+    renderTool(`${prefix}scratch_publish`, {}, JSON.stringify({
+      ok: true, attachment: { path: '../secret.txt', name: 'secret.txt', size: 17 },
+    }))
+    expect(screen.getByText('Publishing file')).toBeTruthy()
+    expect(screen.queryByRole('link')).toBeNull()
+    expect(screen.queryByRole('button', { name: /Open/ })).toBeNull()
+  })
+
   it.each([
     ['email_draft', 'Drafting email'],
     ['chart_create', 'Creating chart'],
@@ -150,5 +178,28 @@ describe.each(['', 'arche_tools_'])('ToolGroup with %s tool names', (prefix) => 
 
     expect(screen.getByText(label)).toBeTruthy()
     expect(screen.queryByLabelText(/Copy/)).toBeNull()
+  })
+})
+
+describe('native and legacy delegations', () => {
+  afterEach(cleanup)
+
+  it.each(['task', 'subagent'])('opens the exact child for %s', (tool) => {
+    const onSelectSessionTab = vi.fn()
+    const part: ToolPart = { type: 'tool', id: 'call-1', name: tool, state: {
+      status: 'completed', input: tool === 'subagent'
+        ? { agent: 'reviewer', description: 'Review the change' }
+        : { subagent_type: 'reviewer', description: 'Review the change' },
+      output: 'Done', title: 'Delegation', metadata: { sessionID: 'child-exact' },
+    } }
+    render(<ToolGroup tool={tool} parts={[part]} sessionTabs={[
+      { id: 'other-child', title: 'Another review', depth: 1 },
+      { id: 'child-exact', title: 'This review', depth: 1 },
+    ]} onSelectSessionTab={onSelectSessionTab} />)
+
+    expect(screen.getByText('Delegated to Reviewer')).toBeTruthy()
+    expect(screen.getByText('Review the change')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'View' }))
+    expect(onSelectSessionTab).toHaveBeenCalledWith('child-exact')
   })
 })

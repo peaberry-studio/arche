@@ -87,6 +87,47 @@ function isContainerNameConflict(error: unknown): boolean {
   );
 }
 
+function isNotFound(error: unknown): boolean {
+  return !!error && typeof error === 'object' && 'statusCode' in error && error.statusCode === 404
+}
+
+function databaseScope(connectionString: string): string {
+  const connection = new URL(connectionString)
+  if (!['postgres:', 'postgresql:'].includes(connection.protocol)) throw new Error('runtime_upgrade_database_unavailable')
+  return JSON.stringify([
+    connection.hostname.toLowerCase().replace(/\.$/, ''),
+    connection.port || '5432',
+    decodeURIComponent(connection.pathname),
+    connection.searchParams.get('schema') ?? 'public',
+  ])
+}
+
+export async function hasLegacyBackendWriters(): Promise<boolean> {
+  if (!process.env.DATABASE_URL) throw new Error('runtime_upgrade_database_unavailable')
+  const currentDatabase = databaseScope(process.env.DATABASE_URL)
+  const docker = await getContainerClient()
+  const containers = await docker.listContainers()
+  for (const container of containers) {
+    const labels = container.Labels
+    const service = labels['com.docker.compose.service']
+    if (labels['arche.role'] !== 'web' && !['web', 'flows', 'reaper'].includes(service)) continue
+    if (labels['arche.runtime.contract'] === 'opencode-v2') continue
+    if (!container.NetworkSettings.Networks[getOpencodeNetwork()]) continue
+    let info
+    try {
+      info = await docker.getContainer(container.Id).inspect()
+    } catch (error) {
+      if (isNotFound(error)) continue
+      throw error
+    }
+    if (!info.State.Running) continue
+    const databaseUrl = info.Config.Env?.find((value) => value.startsWith('DATABASE_URL='))?.slice('DATABASE_URL='.length)
+    if (databaseUrl && databaseScope(databaseUrl) === currentDatabase) return true
+    if (!databaseUrl && labels['arche.role'] === 'web') throw new Error('runtime_upgrade_database_unavailable')
+  }
+  return false
+}
+
 async function removeManagedContainerForSlugWithClient(docker: DockerClient, slug: string): Promise<boolean> {
   const container = docker.getContainer(`opencode-${slug}`);
 
@@ -257,9 +298,19 @@ export async function startContainer(containerId: string): Promise<void> {
 export async function createArchiveContainer(slug: string, password: string): Promise<{ id: string; name: string }> {
   const docker = await getContainerClient()
   if (await findLegacyArchiveSource(slug, null)) throw new Error('legacy_archive_source_not_removed')
+  const image = getOpencodeV1Image()
+  try {
+    await docker.getImage(image).inspect()
+  } catch (error) {
+    if (!isNotFound(error)) throw error
+    const stream = await docker.pull(image)
+    await new Promise<void>((resolve, reject) => {
+      docker.modem.followProgress(stream, (pullError: Error | null) => pullError ? reject(pullError) : resolve())
+    })
+  }
   const name = `opencode-archive-${slug}`
   const options = {
-    Image: getOpencodeV1Image(),
+    Image: image,
     name,
     WorkingDir: '/workspace',
     Entrypoint: ['opencode'],
@@ -295,6 +346,21 @@ export async function createArchiveContainer(slug: string, password: string): Pr
     return docker.createContainer(options)
   })
   return { id: container.id, name }
+}
+
+export async function removeOrphanedV2ContainerForSlug(slug: string): Promise<void> {
+  const docker = await getContainerClient()
+  let info
+  try {
+    info = await docker.getContainer(`opencode-${slug}`).inspect()
+  } catch (error) {
+    if (isNotFound(error)) return
+    throw error
+  }
+  const labels = info.Config.Labels
+  if (labels['arche.managed'] !== 'true' || labels['arche.user.slug'] !== slug ||
+    labels['arche.runtime.kind'] !== 'opencode-v2' || labels['arche.archive'] === 'true') return
+  await removeContainer(info.Id)
 }
 
 export async function findLegacyArchiveSource(slug: string, containerId: string | null): Promise<{ id: string; name: string; running: boolean } | null> {
@@ -352,7 +418,11 @@ export async function stopContainer(containerId: string): Promise<void> {
 export async function removeContainer(containerId: string): Promise<void> {
   const docker = await getContainerClient();
   const container = docker.getContainer(containerId);
-  await container.remove({ force: true });
+  try {
+    await container.remove({ force: true });
+  } catch (error) {
+    if (!isNotFound(error)) throw error
+  }
 }
 
 export async function removeManagedContainerForSlug(slug: string): Promise<boolean> {

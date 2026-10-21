@@ -64,6 +64,10 @@ describe('workspace-tool-display', () => {
     })
   })
 
+  it('uses the delegation display for native subagent calls', () => {
+    expect(getWorkspaceToolDisplay('subagent')).toEqual(getWorkspaceToolDisplay('task'))
+  })
+
   it.each([
     'chart_create',
     'diagram_create',

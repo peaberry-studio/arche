@@ -30,7 +30,7 @@ function sleep(ms: number): Promise<void> {
 
 export type StartResult =
   | { ok: true; status: 'running' }
-  | { ok: false; error: 'already_running' | 'runtime_unsupported' | 'start_failed' | 'timeout'; detail?: string }
+  | { ok: false; error: 'already_running' | 'runtime_unsupported' | 'runtime_upgrade_pending' | 'start_failed' | 'timeout'; detail?: string }
 
 export type StopResult =
   | { ok: true; status: 'stopped' }
@@ -121,6 +121,12 @@ export async function startInstance(
     return { ok: false, error: 'already_running' }
   }
 
+  try {
+    if (await docker.hasLegacyBackendWriters()) return { ok: false, error: 'runtime_upgrade_pending' }
+  } catch {
+    return { ok: false, error: 'runtime_upgrade_pending' }
+  }
+
   const password = generatePassword()
   const encryptedPassword = encryptPassword(password)
   let ownedStartedAt = new Date()
@@ -142,7 +148,7 @@ export async function startInstance(
         return { ok: false, error: 'start_failed', detail: 'legacy_archive_failed' }
       }
       const continuedAt = new Date()
-      const continued = await instanceService.continueStartingTransition(existing, ownedStartedAt, encryptedPassword, continuedAt)
+      const continued = await instanceService.continueStartingTransition(existing, ownedStartedAt, existing.serverPassword, continuedAt)
       if (continued.count === 0) return { ok: false, error: 'already_running' }
       ownedStartedAt = continuedAt
       legacySourceContainerId = archive.sourceContainerId
@@ -168,6 +174,10 @@ export async function startInstance(
     }
     await docker.removeManagedContainerForSlug(slug)
     if (!existing) await instanceService.upsertStarting(slug, encryptedPassword)
+    if (existing && !isCurrentRuntimeKind(existing.runtimeKind)) {
+      const rotated = await instanceService.setStartingPassword(slug, ownedStartedAt, encryptedPassword)
+      if (rotated.count === 0) return { ok: false, error: 'already_running' }
+    }
   } catch {
     if (existing) await instanceService.failStartingTransition(existing.id, ownedStartedAt)
     return { ok: false, error: 'start_failed', detail: 'legacy_archive_cleanup_failed' }
@@ -260,6 +270,7 @@ export async function startInstance(
 
 async function archiveBeforeRuntimeSwitch(slug: string, existing: InstanceRecord): Promise<{ archived: boolean; sourceContainerId: string | null }> {
   await docker.removeManagedArchiveContainerForSlug(slug)
+  await docker.removeOrphanedV2ContainerForSlug(slug)
   const sourceContainer = await docker.findLegacyArchiveSource(slug, existing.containerId)
   if (sourceContainer && !sourceContainer.running) await docker.removeContainer(sourceContainer.id)
   const runningSource = sourceContainer?.running ? sourceContainer : null

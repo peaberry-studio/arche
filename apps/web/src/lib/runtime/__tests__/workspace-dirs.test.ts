@@ -11,6 +11,7 @@ vi.mock('child_process', () => ({
 }))
 
 vi.mock('fs', () => ({
+  realpathSync: (path: string) => path.replace(/\/\.\//g, '/').replace(/\/$/, ''),
   existsSync: (...args: unknown[]) => mockExistsSync(...args),
   mkdirSync: (...args: unknown[]) => mockMkdirSync(...args),
   readFileSync: (...args: unknown[]) => mockReadFileSync(...args),
@@ -55,7 +56,7 @@ describe('desktop workspace dirs', () => {
   it('keeps session scratch folders in the OS temp dir, outside the vault workspace', async () => {
     const { tmpdir } = await import('os')
     const { getDesktopScratch } = await import('@/lib/runtime/desktop/workspace-dirs')
-    expect(getDesktopScratch('local')).toEqual({ root: `${tmpdir()}/arche-scratch`, workspaceRoot: '/tmp/arche/workspace' })
+    expect(getDesktopScratch('local')).toEqual({ root: expect.stringMatching(new RegExp(`^${tmpdir()}/arche-scratch/[a-f0-9]{64}$`)), workspaceRoot: '/tmp/arche/workspace' })
   })
 
   it('detects legacy OpenCode 1 data only when its share directory exists', async () => {
@@ -64,6 +65,16 @@ describe('desktop workspace dirs', () => {
     expect(hasLegacyOpencodeData()).toBe(true)
     mockExistsSync.mockImplementation(() => false)
     expect(hasLegacyOpencodeData()).toBe(false)
+  })
+
+  it('namespaces scratch by canonical vault path rather than user slug', async () => {
+    const { getDesktopScratch } = await import('@/lib/runtime/desktop/workspace-dirs')
+    const first = getDesktopScratch('local')
+    expect(getDesktopScratch('another-user').root).toBe(first.root)
+    process.env.ARCHE_DATA_DIR = '/tmp/./arche/'
+    expect(getDesktopScratch('local').root).toBe(first.root)
+    process.env.ARCHE_DATA_DIR = '/tmp/other-vault'
+    expect(getDesktopScratch('local').root).not.toBe(first.root)
   })
 
   it('bootstraps the workspace repo only once and stays idempotent on repeated calls', async () => {

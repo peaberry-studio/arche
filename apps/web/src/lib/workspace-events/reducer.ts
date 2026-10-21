@@ -1,6 +1,9 @@
 import type { ArcheEvent, ArchePermission, ArcheToolUpdate } from '@/lib/harness/events'
 import type { MessagePart, WorkspaceMessage, WorkspaceSession } from '@/types/workspace-runtime'
 
+const MAX_PENDING_MESSAGES = 100
+const MAX_PENDING_UPDATES_PER_MESSAGE = 1_000
+
 export type SessionRuntimeStatus = 'idle' | 'busy'
 export type ChatStore = {
   messages: Record<string, WorkspaceMessage[]>
@@ -104,7 +107,43 @@ function replaceParts(store: ChatStore, sessionId: string, messageId: string, pa
 }
 
 function queueUpdate(store: ChatStore, messageId: string, event: ArcheEvent): ChatStore {
-  return { ...store, pendingUpdates: { ...store.pendingUpdates, [messageId]: [...store.pendingUpdates?.[messageId] ?? [], event] } }
+  const queued = store.pendingUpdates?.[messageId] ?? []
+  const previous = queued.at(-1)
+  let updates: ArcheEvent[]
+  if (previous?.type === 'part.upserted' && previous.mode === 'tool-patch' && event.type === 'part.upserted' && event.mode === 'tool-patch' && previous.update.id === event.update.id) {
+    const update = { ...previous.update, ...event.update }
+    if (event.update.rawInput !== undefined) delete update.inputDelta
+    else if (event.update.inputDelta !== undefined) {
+      if (previous.update.rawInput !== undefined) {
+        update.rawInput = previous.update.rawInput + event.update.inputDelta
+        delete update.inputDelta
+      } else update.inputDelta = (previous.update.inputDelta ?? '') + event.update.inputDelta
+    }
+    updates = [...queued.slice(0, -1), { ...event, update, attachments: event.attachments ?? previous.attachments }]
+  } else updates = [...queued, event].slice(-MAX_PENDING_UPDATES_PER_MESSAGE)
+  const pendingUpdates = { ...store.pendingUpdates }
+  delete pendingUpdates[messageId]
+  pendingUpdates[messageId] = updates
+  const evictedIds = Object.keys(pendingUpdates).slice(0, -MAX_PENDING_MESSAGES)
+  const pendingParts = evictedIds.length ? { ...store.pendingParts } : store.pendingParts
+  for (const id of evictedIds) {
+    delete pendingUpdates[id]
+    delete pendingParts[id]
+  }
+  return { ...store, pendingUpdates, pendingParts }
+}
+
+export function prunePendingSessionUpdates(store: ChatStore, sessionId: string): ChatStore {
+  const ids = Object.entries(store.pendingUpdates ?? {}).filter(([, events]) =>
+    events.some((event) => 'sessionId' in event && event.sessionId === sessionId)).map(([id]) => id)
+  if (!ids.length) return store
+  const pendingUpdates = { ...store.pendingUpdates }
+  const pendingParts = { ...store.pendingParts }
+  for (const id of ids) {
+    delete pendingUpdates[id]
+    delete pendingParts[id]
+  }
+  return { ...store, pendingUpdates, pendingParts }
 }
 
 function applyPendingUpdates(store: ChatStore, messageId: string): ChatStore {
@@ -259,6 +298,7 @@ export function reduceArcheEvent(store: ChatStore, event: ArcheEvent): ReduceRes
         let parts = patchTool(current, event.update)
         for (const attachment of event.attachments ?? []) parts = upsertPart(parts, attachment, true)
         next = located ? replaceParts(store, located.sessionId, event.messageId, parts) : withPendingParts(store, event.messageId, parts)
+        if (event.update.name) next = applyPendingUpdates(next, event.messageId)
         break
       }
       if (!event.replace && (event.part.type === 'patch' || event.part.type === 'step-start' || event.part.type === 'step-finish')) break

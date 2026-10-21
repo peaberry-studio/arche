@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 import type { Prisma } from '@prisma/client'
 
 import { prisma } from '@/lib/prisma'
@@ -34,11 +36,13 @@ export type KnowledgeReviewChangeInput = {
   runId?: string | null
   sourceProposalId?: string | null
   supersedesId?: string | null
+  supersedesRevision?: string | null
   title: string
 }
 
 export type PendingKnowledgeReviewChange = {
   id: string
+  revision: string
   operation: KnowledgeReviewOperation
   proposedContent: string
   reason: string
@@ -55,6 +59,12 @@ export type CreateKnowledgeReviewChangeResult =
 // it right after. A claim older than this is an interrupted apply, which the
 // review UI already offers to regenerate, so a new proposal may replace it.
 const APPLY_IN_FLIGHT_MS = 2 * 60 * 1000
+
+function pendingRevision(change: { id: string; updatedAt: Date; operation: string; proposedContent: string }): string {
+  return createHash('sha256').update(JSON.stringify([
+    change.id, change.updatedAt.toISOString(), change.operation, change.proposedContent,
+  ])).digest('hex')
+}
 
 class CreateKnowledgeReviewChangeError extends Error {
   constructor(readonly result: Extract<CreateKnowledgeReviewChangeResult, { ok: false }>) {
@@ -379,13 +389,14 @@ export async function createKnowledgeReviewChange(
 ): Promise<CreateKnowledgeReviewChangeResult> {
   try {
     const change = await prisma.$transaction(async (transaction) => {
+      await transaction.$executeRaw`UPDATE "users" SET "id" = "id" WHERE "id" = ${userId}`
       const pendingWhere: Prisma.KnowledgeReviewChangeWhereInput = {
         userId,
         kbPath: input.kbPath,
         status: { in: ['open', 'needs_rebase', 'applying'] },
         ...(input.regeneratedFromId ? { id: { not: input.regeneratedFromId } } : {}),
       }
-      const pending = await transaction.knowledgeReviewChange.findMany({ where: pendingWhere, orderBy: { createdAt: 'desc' } })
+      const pending = await transaction.knowledgeReviewChange.findMany({ where: pendingWhere, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] })
       const inFlightSince = new Date(Date.now() - APPLY_IN_FLIGHT_MS)
       if (pending.some((change) => change.status === 'applying' && change.appliedAt && change.appliedAt > inFlightSince)) {
         throw new CreateKnowledgeReviewChangeError({ ok: false, error: 'pending_proposal_applying' })
@@ -393,12 +404,15 @@ export async function createKnowledgeReviewChange(
       // Replacing a pending change without building on it would drop its
       // learning before anyone reviewed it.
       const latest = pending[0]
-      if (latest && input.requirePendingAcknowledged && input.supersedesId !== latest.id) {
+      if (latest && input.requirePendingAcknowledged && (
+        input.supersedesId !== latest.id || input.supersedesRevision !== pendingRevision(latest)
+      )) {
         throw new CreateKnowledgeReviewChangeError({
           ok: false,
           error: 'pending_proposal_exists',
           pending: {
             id: latest.id,
+            revision: pendingRevision(latest),
             operation: latest.operation,
             proposedContent: latest.proposedContent,
             reason: latest.reason,
@@ -411,7 +425,7 @@ export async function createKnowledgeReviewChange(
         // Guarded like every other transition: an apply that claimed the row
         // after it was read must not be overwritten.
         const replaced = await transaction.knowledgeReviewChange.updateMany({
-          where: { id: superseded.id, status: superseded.status, updatedAt: superseded.updatedAt },
+          where: { id: superseded.id, status: superseded.status, updatedAt: superseded.updatedAt, proposedContent: superseded.proposedContent },
           data: {
             status: 'superseded',
             auditTrail: serializeAuditTrailForStorage(withAuditEntry(parseAuditTrail(superseded.auditTrail), {

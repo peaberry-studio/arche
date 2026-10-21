@@ -30,6 +30,14 @@ test('image checks build and smoke-test both runtimes without pruning shared res
   assert.match(script, /tests\/runtime-smoke\.mjs/)
 })
 
+test('new backend images and source-mounted development stacks declare the runtime contract', () => {
+  assert.match(read('apps/web/Containerfile'), /LABEL arche\.runtime\.contract=opencode-v2/)
+  for (const path of ['infra/compose/compose.yaml', 'infra/deploy/ansible/roles/app/templates/compose.yml.j2']) {
+    assert.match(read(path), /arche\.runtime\.contract=opencode-v2/)
+  }
+  assert.match(read('infra/deploy/ansible/roles/app/tasks/main.yml'), /podman pull \{\{ opencode_v1_image \}\}/)
+})
+
 for (const version of ['1.18.18', '2.0.32']) {
   for (const corrupt of version.startsWith('2.') ? [false, true] : [false]) {
     test(`download ${version}${corrupt ? ' rejects bad integrity' : ' uses exact version and replaces stale binary'}`, () => {

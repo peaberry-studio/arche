@@ -45,6 +45,7 @@ vi.mock('child_process', () => ({
 }))
 
 vi.mock('fs', () => ({
+  realpathSync: (path: string) => path.replace(/\/\.\//g, '/').replace(/\/$/, ''),
   existsSync: (...args: unknown[]) => mockExistsSync(...args),
   mkdirSync: (...args: unknown[]) => mockMkdirSync(...args),
   promises: {
@@ -614,7 +615,7 @@ describe('desktopWorkspaceHost', () => {
       expect.objectContaining({
         env: expect.objectContaining({
           WORKSPACE_DIR: '/tmp/arche/workspace',
-          ARCHE_SCRATCH_DIR: expect.stringMatching(/\/arche-scratch$/),
+          ARCHE_SCRATCH_DIR: expect.stringMatching(/\/arche-scratch\/[a-f0-9]{64}$/),
         }),
       }),
     )
@@ -624,7 +625,7 @@ describe('desktopWorkspaceHost', () => {
     )
     expect(JSON.parse(String(configCall?.[1])).permissions).toContainEqual({
       action: 'external_directory',
-      resource: expect.stringMatching(/\/arche-scratch\/\*$/),
+      resource: expect.stringMatching(/\/arche-scratch\/[a-f0-9]{64}\/\*$/),
       effect: 'allow',
     })
     expect(JSON.parse(String(configCall?.[1]))).toMatchObject({

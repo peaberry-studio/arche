@@ -23,6 +23,7 @@ vi.mock('@/lib/services', () => ({
 }))
 
 vi.mock('../docker', () => ({
+  hasLegacyBackendWriters: vi.fn().mockResolvedValue(false),
   stopContainer: vi.fn(),
   removeContainer: vi.fn(),
 }))
@@ -337,9 +338,19 @@ describe('startReaper / stopReaper', () => {
     vi.mocked(preArchiveRunningV1Instances).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
 
     startReaper()
-    expect(preArchiveRunningV1Instances).toHaveBeenCalledTimes(1)
+    await vi.waitFor(() => expect(preArchiveRunningV1Instances).toHaveBeenCalledTimes(1))
     await vi.waitFor(() => expect(getReaperStatus().lastRunFinishedAt).toBeInstanceOf(Date))
     finish!(0)
+  })
+
+  it.each(['legacy', 'inventory'] as const)('keeps pre-archive fenced during an unverified runtime upgrade (%s)', async (reason) => {
+    if (reason === 'legacy') mockDocker.hasLegacyBackendWriters.mockResolvedValueOnce(true)
+    else mockDocker.hasLegacyBackendWriters.mockRejectedValueOnce(new Error('inventory unavailable'))
+    mockInstance.findIdleInstances.mockResolvedValue([])
+    startReaper()
+    await vi.waitFor(() => expect(mockDocker.hasLegacyBackendWriters).toHaveBeenCalledOnce())
+    await vi.waitFor(() => expect(getReaperStatus().lastRunFinishedAt).toBeInstanceOf(Date))
+    expect(preArchiveRunningV1Instances).not.toHaveBeenCalled()
   })
 
   it('starts interval that calls reapIdleInstances', async () => {

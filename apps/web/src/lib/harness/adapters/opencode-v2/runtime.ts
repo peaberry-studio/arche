@@ -13,6 +13,7 @@ import type {
   HarnessSessionStatus,
 } from '@/lib/harness/contract'
 import { harnessFailure, type HarnessResult } from '@/lib/harness/errors'
+import { withSessionSubmissionLock } from '@/lib/harness/session-submission-lock'
 import { getCanonicalProviderId, getProviderLabel, resolveRuntimeProviderId } from '@/lib/providers/catalog'
 
 type PromptFile = NonNullable<SessionPromptInput['files']>[number]
@@ -86,29 +87,34 @@ export function createOpenCodeV2Runtime(slug: string): HarnessRuntime {
   // inbox, idle and undelivered, and the next prompt delivers it ahead of its
   // own text, so the model sees it exactly once, as with V1 `noReply`.
   async function submitPrompt(input: HarnessPrompt, options?: HarnessOperationOptions): Promise<HarnessResult<SessionInboxUser>> {
-    const session = await withClient((client) => client.session.get({ sessionID: input.sessionId }, options))
-    if (!session.ok) return session
-    const files: PromptFile[] = []
-    for (const part of input.parts) {
-      if (part.type !== 'file') continue
-      const file = toPromptFile(part)
-      if (!file) return harnessFailure('runtime_unsupported', 'v2_prompt_file_uri_unsupported')
-      files.push(file)
-    }
-    return withClient(async (client) => {
-      if (input.agent && input.agent !== session.data.agent) await client.session.switchAgent({ sessionID: input.sessionId, agent: input.agent }, options)
-      const model = input.model ? { providerID: resolveRuntimeProviderId(input.model.providerId), id: input.model.modelId } : undefined
-      if (model && (model.providerID !== session.data.model?.providerID || model.id !== session.data.model.id)) {
-        await client.session.switchModel({ sessionID: input.sessionId, model }, options)
-      }
-      // 2.0.32 only accepts native `msg_` ids; V1 accepted any id, so the UI sends UUIDs.
-      return client.session.prompt({
-        sessionID: input.sessionId, ...(input.messageId?.startsWith('msg_') && { id: input.messageId }),
-        text: input.parts.flatMap((part) => part.type === 'text' ? [part.text] : []).join('\n\n'),
-        ...(files.length > 0 && { files }),
-        ...(input.noReply && { resume: false }),
-      }, options)
-    })
+    try {
+      const client = await createInstanceClient(slug)
+      if (!client) return harnessFailure('instance_unavailable')
+      return await withSessionSubmissionLock(slug, input.sessionId, options, async (operationOptions) => {
+        const session = await client.session.get({ sessionID: input.sessionId }, operationOptions)
+        const files: PromptFile[] = []
+        for (const part of input.parts) {
+          if (part.type !== 'file') continue
+          const file = toPromptFile(part)
+          if (!file) return harnessFailure('runtime_unsupported', 'v2_prompt_file_uri_unsupported')
+          files.push(file)
+        }
+        if ((await client.session.active(operationOptions))[input.sessionId]) return harnessFailure('session_busy')
+        if (input.agent && input.agent !== session.agent) await client.session.switchAgent({ sessionID: input.sessionId, agent: input.agent }, operationOptions)
+        const model = input.model ? { providerID: resolveRuntimeProviderId(input.model.providerId), id: input.model.modelId } : undefined
+        if (model && (model.providerID !== session.model?.providerID || model.id !== session.model.id)) {
+          await client.session.switchModel({ sessionID: input.sessionId, model }, operationOptions)
+        }
+        // 2.0.32 only accepts native `msg_` ids; V1 accepted any id, so the UI sends UUIDs.
+        const submitted = await client.session.prompt({
+          sessionID: input.sessionId, ...(input.messageId?.startsWith('msg_') && { id: input.messageId }),
+          text: input.parts.flatMap((part) => part.type === 'text' ? [part.text] : []).join('\n\n'),
+          ...(files.length > 0 && { files }),
+          ...(input.noReply && { resume: false }),
+        }, operationOptions)
+        return { ok: true, data: submitted }
+      })
+    } catch (error) { return normalizeOpenCodeError(error) }
   }
 
   const runtime: HarnessRuntime = {
@@ -141,10 +147,11 @@ export function createOpenCodeV2Runtime(slug: string): HarnessRuntime {
     sessionStatus: (options) => withClient(async (client) => Object.fromEntries(
       Object.keys(await client.session.active(options)).map((id): [string, HarnessSessionStatus] => [id, { type: 'busy' }]),
     )),
-    listMessages: (sessionId) => withClient(async (client) => {
-      await client.session.get({ sessionID: sessionId })
-      const inbox = await client.session.inbox.list({ sessionID: sessionId })
-      const messages = await collectPages<SessionMessageInfo>((cursor) => client.message.list({ sessionID: sessionId, limit: 100, ...(cursor ? { cursor } : { order: 'asc' }) }))
+    listMessages: (sessionId, options) => withClient(async (client) => {
+      const requestOptions: [HarnessOperationOptions?] = options ? [options] : []
+      await client.session.get({ sessionID: sessionId }, ...requestOptions)
+      const inbox = await client.session.inbox.list({ sessionID: sessionId }, ...requestOptions)
+      const messages = await collectPages<SessionMessageInfo>((cursor) => client.message.list({ sessionID: sessionId, limit: 100, ...(cursor ? { cursor } : { order: 'asc' }) }, ...requestOptions))
       const delivered = new Set(messages.map((message) => message.id))
       return [
         ...messages.map((message) => toHarnessMessage({ ...message, sessionID: sessionId })),

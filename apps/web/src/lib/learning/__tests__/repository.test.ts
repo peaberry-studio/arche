@@ -1,9 +1,12 @@
+import { createHash } from 'node:crypto'
+
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   isDesktop: vi.fn(),
   prisma: {
     $transaction: vi.fn(),
+    $executeRaw: vi.fn(),
     knowledgeLearningProposal: {
       create: vi.fn(),
       findFirst: vi.fn(),
@@ -81,6 +84,7 @@ describe('learning repository', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.isDesktop.mockReturnValue(false)
+    mocks.prisma.$executeRaw.mockResolvedValue(1)
     mocks.prisma.$transaction.mockImplementation(async (callback: (transaction: typeof mocks.prisma) => unknown) => callback(mocks.prisma))
     mocks.prisma.knowledgeReviewChange.findMany.mockResolvedValue([])
   })
@@ -189,6 +193,7 @@ describe('learning repository', () => {
       title: 'New fact',
     }
     const pending = { ...reviewRecord, status: 'open' as const, auditTrail: [{ action: 'created', actor: 'curator', at: now.toISOString() }] }
+    const revision = createHash('sha256').update(JSON.stringify([pending.id, pending.updatedAt.toISOString(), pending.operation, pending.proposedContent])).digest('hex')
 
     beforeEach(() => {
       mocks.prisma.knowledgeReviewChange.create.mockResolvedValue({ ...reviewRecord, id: 'change-2', status: 'open' })
@@ -203,7 +208,7 @@ describe('learning repository', () => {
         expect(await createKnowledgeReviewChange('user-1', { ...proposal, requirePendingAcknowledged: true, supersedesId })).toEqual({
           ok: false,
           error: 'pending_proposal_exists',
-          pending: { id: 'change-1', operation: 'update', proposedContent: 'Use concise answers.', reason: 'Durable preference', status: 'open', title: 'Remember preference' },
+          pending: { id: 'change-1', revision, operation: 'update', proposedContent: 'Use concise answers.', reason: 'Durable preference', status: 'open', title: 'Remember preference' },
         })
       }
       expect(mocks.prisma.knowledgeReviewChange.updateMany).not.toHaveBeenCalled()
@@ -214,14 +219,29 @@ describe('learning repository', () => {
       const { createKnowledgeReviewChange } = await import('@/lib/learning/repository')
       mocks.prisma.knowledgeReviewChange.findMany.mockResolvedValue([pending])
 
-      const result = await createKnowledgeReviewChange('user-1', { ...proposal, requirePendingAcknowledged: true, supersedesId: 'change-1' })
+      const result = await createKnowledgeReviewChange('user-1', { ...proposal, requirePendingAcknowledged: true, supersedesId: 'change-1', supersedesRevision: revision })
 
       expect(result).toEqual(expect.objectContaining({ ok: true, change: expect.objectContaining({ id: 'change-2' }) }))
       const update = mocks.prisma.knowledgeReviewChange.updateMany.mock.calls[0][0]
-      expect(update.where).toEqual({ id: 'change-1', status: 'open', updatedAt: now })
+      expect(update.where).toEqual({ id: 'change-1', status: 'open', updatedAt: now, proposedContent: pending.proposedContent })
       expect(update.data.status).toBe('superseded')
       expect(JSON.stringify(update.data.auditTrail)).toContain('superseded')
       expect(mocks.prisma.knowledgeReviewChange.create).toHaveBeenCalled()
+    })
+
+    it('rejects an acknowledgement after the user edits the same pending proposal', async () => {
+      const { createKnowledgeReviewChange } = await import('@/lib/learning/repository')
+      // Even an edit in the same timestamp tick must invalidate the revision.
+      mocks.prisma.knowledgeReviewChange.findMany.mockResolvedValue([{ ...pending, proposedContent: 'User draft must survive.' }])
+      const result = await createKnowledgeReviewChange('user-1', {
+        ...proposal, requirePendingAcknowledged: true, supersedesId: pending.id, supersedesRevision: revision,
+      })
+      expect(result).toEqual(expect.objectContaining({
+        ok: false, error: 'pending_proposal_exists',
+        pending: expect.objectContaining({ proposedContent: 'User draft must survive.', revision: expect.not.stringMatching(revision) }),
+      }))
+      expect(mocks.prisma.knowledgeReviewChange.updateMany).not.toHaveBeenCalled()
+      expect(mocks.prisma.knowledgeReviewChange.create).not.toHaveBeenCalled()
     })
 
     it('still replaces pending proposals for explicit writes that do not merge', async () => {
@@ -236,7 +256,7 @@ describe('learning repository', () => {
       const { createKnowledgeReviewChange } = await import('@/lib/learning/repository')
       const applying = { ...pending, status: 'applying' as const, appliedAt: new Date() }
       mocks.prisma.knowledgeReviewChange.findMany.mockResolvedValue([applying])
-      expect(await createKnowledgeReviewChange('user-1', { ...proposal, requirePendingAcknowledged: true, supersedesId: 'change-1' })).toEqual({ ok: false, error: 'pending_proposal_applying' })
+      expect(await createKnowledgeReviewChange('user-1', { ...proposal, requirePendingAcknowledged: true, supersedesId: 'change-1', supersedesRevision: revision })).toEqual({ ok: false, error: 'pending_proposal_applying' })
       expect(mocks.prisma.knowledgeReviewChange.create).not.toHaveBeenCalled()
 
       mocks.prisma.knowledgeReviewChange.findMany.mockResolvedValue([{ ...applying, appliedAt: new Date(Date.now() - 10 * 60 * 1000) }])
@@ -244,7 +264,7 @@ describe('learning repository', () => {
         error: 'pending_proposal_exists',
         pending: expect.objectContaining({ status: 'needs_rebase' }),
       }))
-      expect(await createKnowledgeReviewChange('user-1', { ...proposal, requirePendingAcknowledged: true, supersedesId: 'change-1' })).toEqual(expect.objectContaining({ ok: true }))
+      expect(await createKnowledgeReviewChange('user-1', { ...proposal, requirePendingAcknowledged: true, supersedesId: 'change-1', supersedesRevision: revision })).toEqual(expect.objectContaining({ ok: true }))
     })
 
     it('does not create the replacement when an apply claims the pending proposal first', async () => {
@@ -252,7 +272,7 @@ describe('learning repository', () => {
       mocks.prisma.knowledgeReviewChange.findMany.mockResolvedValue([pending])
       mocks.prisma.knowledgeReviewChange.updateMany.mockResolvedValue({ count: 0 })
 
-      expect(await createKnowledgeReviewChange('user-1', { ...proposal, requirePendingAcknowledged: true, supersedesId: 'change-1' })).toEqual({ ok: false, error: 'pending_proposal_applying' })
+      expect(await createKnowledgeReviewChange('user-1', { ...proposal, requirePendingAcknowledged: true, supersedesId: 'change-1', supersedesRevision: revision })).toEqual({ ok: false, error: 'pending_proposal_applying' })
       expect(mocks.prisma.knowledgeReviewChange.create).not.toHaveBeenCalled()
     })
   })

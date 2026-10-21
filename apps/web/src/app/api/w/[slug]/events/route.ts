@@ -4,6 +4,7 @@ import type { ArcheEvent } from '@/lib/harness/events'
 import { getRuntimeForSlug } from '@/lib/harness/registry'
 import { withAuth } from '@/lib/runtime/with-auth'
 import { subscribeWorkspaceEvents } from '@/lib/runtime/workspace-broadcast'
+import { createLegacyEventSerializer } from '@/lib/workspace-events/legacy'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -11,6 +12,8 @@ export const dynamic = 'force-dynamic'
 const HEARTBEAT_INTERVAL_MS = 10_000
 const UPSTREAM_CONNECT_TIMEOUT_MS = 8_000
 const CONNECTED_FRAME = ': connected\n\n'
+const LEGACY_IDENTITY_TIMEOUT_MS = 2_000
+const MAX_LEGACY_IDENTITY_REQUESTS = 50
 
 export const GET = withAuth<unknown, { slug: string }>(
   { csrf: false },
@@ -32,6 +35,8 @@ export const GET = withAuth<unknown, { slug: string }>(
     }
 
     const encoder = new TextEncoder()
+    const legacy = new URL(request.url).searchParams.get('protocol') === 'arche-v1' ? null : createLegacyEventSerializer()
+    const identityRequests = new Set<string>()
     let close = () => {}
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
@@ -53,7 +58,11 @@ export const GET = withAuth<unknown, { slug: string }>(
         // Headers reach the client only with the first chunk; without this the
         // client sees the stream open at the first event or heartbeat.
         controller.enqueue(encoder.encode(CONNECTED_FRAME))
-        const send = (event: ArcheEvent) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
+        const send = (event: ArcheEvent) => {
+          for (const frame of legacy ? legacy.serialize(event) : [event]) {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(frame)}\n\n`))
+          }
+        }
         const unsubscribeBroadcast = subscribeWorkspaceEvents(user.id, (event) => {
           if (closed || event.type !== 'knowledge.proposals_changed') return
           try { send({ v: 1, type: 'knowledge.proposals_changed' }) } catch { close() }
@@ -63,6 +72,25 @@ export const GET = withAuth<unknown, { slug: string }>(
         try {
           for await (const event of upstream.data) {
             if (closed) break
+            const missing = legacy?.missingToolIdentity(event)
+            if (missing && !identityRequests.has(missing.messageId) && identityRequests.size < MAX_LEGACY_IDENTITY_REQUESTS) {
+              identityRequests.add(missing.messageId)
+              const identityController = new AbortController()
+              const identityTimer = setTimeout(() => identityController.abort(), LEGACY_IDENTITY_TIMEOUT_MS)
+              const signal = AbortSignal.any([upstreamController.signal, identityController.signal])
+              try {
+                const snapshot = await resolved.data.listMessages(missing.sessionId, { signal })
+                if (closed) break
+                const parts = snapshot.ok ? snapshot.data.find((message) => message.id === missing.messageId)?.parts : undefined
+                if (!signal.aborted) {
+                  for (const part of parts ?? []) {
+                    if (part.type === 'tool') legacy?.seedToolIdentity({ ...missing, toolId: part.id }, part)
+                  }
+                }
+              } finally {
+                clearTimeout(identityTimer)
+              }
+            }
             send(event)
           }
         } catch {

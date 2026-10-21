@@ -16,7 +16,7 @@ vi.mock('@/lib/services/runtime-migration', () => ({ settleRuntimeMigratedRuns: 
 vi.mock('@/lib/spawner/legacy-archive', () => ({ withHistoryMigrationProgress: (_slug: string, work: () => Promise<unknown>) => work() }))
 vi.mock('@/lib/services', () => ({
   instanceService: {
-    findBySlug: vi.fn(), findStatusBySlug: vi.fn(), claimStartingTransition: vi.fn(), continueStartingTransition: vi.fn(), failStartingTransition: vi.fn(), finishStoppingTransition: vi.fn(), upsertStarting: vi.fn(),
+    findBySlug: vi.fn(), findStatusBySlug: vi.fn(), claimStartingTransition: vi.fn(), continueStartingTransition: vi.fn(), setStartingPassword: vi.fn(), failStartingTransition: vi.fn(), finishStoppingTransition: vi.fn(), upsertStarting: vi.fn(),
     setContainerId: vi.fn(), setRunningIfCurrentContainer: vi.fn(), setError: vi.fn(), recoverStoppingTransition: vi.fn(),
   },
   auditService: { createEvent: vi.fn() }, userService: {},
@@ -28,6 +28,8 @@ vi.mock('@/lib/harness/registry', () => ({
   getRuntimeBaseUrl: () => 'http://opencode-alice:4096', DEFAULT_HEALTH_TIMEOUT_MS: 5000,
 }))
 vi.mock('@/lib/spawner/docker', () => ({
+  hasLegacyBackendWriters: vi.fn().mockResolvedValue(false),
+  removeOrphanedV2ContainerForSlug: vi.fn().mockResolvedValue(undefined),
   createArchiveContainer: vi.fn(), createContainer: vi.fn(), startContainer: vi.fn(), removeContainer: vi.fn(),
   removeManagedContainerForSlug: vi.fn(), isContainerRunning: vi.fn(), inspectContainer: vi.fn(),
   removeManagedArchiveContainerForSlug: vi.fn(),
@@ -59,6 +61,7 @@ describe('archive-on-start', () => {
     vi.mocked(instanceService.findBySlug).mockResolvedValue(legacyInstance())
     vi.mocked(instanceService.claimStartingTransition).mockResolvedValue({ count: 1 })
     vi.mocked(instanceService.continueStartingTransition).mockResolvedValue({ count: 1 })
+    vi.mocked(instanceService.setStartingPassword).mockResolvedValue({ count: 1 })
     vi.mocked(instanceService.setRunningIfCurrentContainer).mockResolvedValue({ count: 1 })
     vi.mocked(instanceService.recoverStoppingTransition).mockResolvedValue({ count: 1 })
     vi.mocked(docker.findLegacyArchiveSource).mockResolvedValue({ id: 'legacy', name: 'opencode-alice', running: true })
@@ -143,6 +146,47 @@ describe('archive-on-start', () => {
   it('does not start any runtime if a discovered source cannot be removed after export', async () => {
     vi.mocked(docker.removeContainer).mockRejectedValue(new Error('source still running'))
     expect(await startInstance('alice', 'owner')).toMatchObject({ ok: false, error: 'start_failed' })
+    expect(docker.createContainer).not.toHaveBeenCalled()
+    expect(instanceService.continueStartingTransition).toHaveBeenCalledWith(legacyInstance(), expect.any(Date), 'enc', expect.any(Date))
+    expect(instanceService.setStartingPassword).not.toHaveBeenCalled()
+  })
+
+  it('rotates legacy credentials only after the source was removed', async () => {
+    await startInstance('alice', 'owner')
+    expect(instanceService.setStartingPassword).toHaveBeenCalledWith('alice', expect.any(Date), 'encrypted')
+    expect(vi.mocked(docker.removeContainer).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(instanceService.setStartingPassword).mock.invocationCallOrder[0])
+    expect(vi.mocked(instanceService.setStartingPassword).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(docker.createContainer).mock.invocationCallOrder[0])
+  })
+
+  it('re-exports legacy history after reclaiming a V2 container orphaned before its DB write', async () => {
+    let orphanRemoved = false
+    vi.mocked(docker.removeOrphanedV2ContainerForSlug).mockImplementationOnce(async () => { orphanRemoved = true })
+    vi.mocked(docker.findLegacyArchiveSource).mockImplementationOnce(async () => {
+      if (!orphanRemoved) throw new Error('legacy_archive_source_not_owned_v1')
+      return null
+    })
+    expect(await startInstance('alice', 'owner')).toEqual({ ok: true, status: 'running' })
+    expect(exportLegacySessions).toHaveBeenCalledOnce()
+    expect(docker.createArchiveContainer).toHaveBeenCalledOnce()
+    expect(docker.createContainer).toHaveBeenCalledOnce()
+  })
+
+  it('preserves the source credentials if settling legacy runs fails before teardown', async () => {
+    vi.mocked(settleRuntimeMigratedRuns).mockRejectedValueOnce(new Error('database unavailable'))
+    expect(await startInstance('alice', 'owner')).toMatchObject({ ok: false, error: 'start_failed' })
+    expect(instanceService.continueStartingTransition).toHaveBeenCalledWith(legacyInstance(), expect.any(Date), 'enc', expect.any(Date))
+    expect(instanceService.setStartingPassword).not.toHaveBeenCalled()
+    expect(docker.removeContainer).not.toHaveBeenCalled()
+  })
+
+  it.each(['legacy', 'inventory'] as const)('does not mutate legacy state before old backend writers are drained (%s)', async (reason) => {
+    if (reason === 'legacy') vi.mocked(docker.hasLegacyBackendWriters).mockResolvedValueOnce(true)
+    else vi.mocked(docker.hasLegacyBackendWriters).mockRejectedValueOnce(new Error('inventory unavailable'))
+    expect(await startInstance('alice', 'owner')).toEqual({ ok: false, error: 'runtime_upgrade_pending' })
+    expect(instanceService.claimStartingTransition).not.toHaveBeenCalled()
+    expect(settleRuntimeMigratedRuns).not.toHaveBeenCalled()
+    expect(exportLegacySessions).not.toHaveBeenCalled()
+    expect(docker.removeContainer).not.toHaveBeenCalled()
     expect(docker.createContainer).not.toHaveBeenCalled()
   })
 

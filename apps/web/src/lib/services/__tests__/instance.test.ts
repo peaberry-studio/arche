@@ -115,6 +115,15 @@ describe('instanceService', () => {
       }
     })
 
+    it('rotates a server password only while the same attempt still owns a container-free start', async () => {
+      const startedAt = new Date(3)
+      await transitions.setStartingPassword('alice', startedAt, 'nxt-enc')
+      expect(mockPrisma.instance.updateMany).toHaveBeenCalledWith({
+        where: { slug: 'alice', status: 'starting', containerId: null, startedAt },
+        data: { serverPassword: 'nxt-enc' },
+      })
+    })
+
     it('recovers only its own failed shutdown without clearing the container pointer or runtime credentials', async () => {
       const startedAt = new Date(3)
       await transitions.recoverStoppingTransition(instance, startedAt)

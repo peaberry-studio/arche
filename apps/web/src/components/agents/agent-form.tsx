@@ -41,8 +41,8 @@ type SkillListItem = {
   name: string
 }
 
-// write/edit are stripped at spawn by denyAgentKnowledgeWrites and must not be
-// re-persisted from the form; keep this list in sync with that transform.
+// Runtime policies control writes by path; legacy write/edit switches must not
+// be re-persisted from the form.
 const HIDDEN_TOOL_IDS = new Set<OpenCodeAgentToolId>(['write', 'edit'])
 
 export function AgentForm({

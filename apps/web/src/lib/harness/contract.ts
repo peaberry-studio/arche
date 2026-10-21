@@ -89,7 +89,7 @@ export type HarnessRuntime = {
   updateSession(sessionId: string, title: string): Promise<HarnessResult<HarnessSession>>
   deleteSession(sessionId: string): Promise<HarnessResult<void>>
   sessionStatus(options?: HarnessOperationOptions): Promise<HarnessResult<Record<string, HarnessSessionStatus>>>
-  listMessages(sessionId: string): Promise<HarnessResult<HarnessMessage[]>>
+  listMessages(sessionId: string, options?: HarnessOperationOptions): Promise<HarnessResult<HarnessMessage[]>>
   prompt(input: HarnessPrompt, options?: HarnessOperationOptions): Promise<HarnessResult<void>>
   sendMessage(input: HarnessPrompt): Promise<HarnessResult<HarnessMessage>>
   abortSession(sessionId: string): Promise<HarnessResult<void>>

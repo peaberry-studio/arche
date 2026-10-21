@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   validateDesktopToken: vi.fn(() => true),
   getRuntimeForSlug: vi.fn(),
   subscribeEvents: vi.fn(),
+  listMessages: vi.fn(),
   abortSession: vi.fn(),
   subscribeWorkspaceEvents: vi.fn(),
 }))
@@ -28,8 +29,9 @@ vi.mock('@/lib/runtime/workspace-broadcast', () => ({ subscribeWorkspaceEvents: 
 
 import { GET } from '@/app/api/w/[slug]/events/route'
 
-function request(signal?: AbortSignal) {
-  return GET(new NextRequest('http://localhost/api/w/alice/events', { signal }), { params: Promise.resolve({ slug: 'alice' }) })
+function request(signal?: AbortSignal, protocol: 'arche-v1' | 'legacy' = 'arche-v1') {
+  const url = `http://localhost/api/w/alice/events${protocol === 'arche-v1' ? '?protocol=arche-v1' : ''}`
+  return GET(new NextRequest(url, { signal }), { params: Promise.resolve({ slug: 'alice' }) })
 }
 
 function pendingSubscription() {
@@ -59,7 +61,8 @@ describe('GET /api/w/[slug]/events', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.getSession.mockResolvedValue({ user: { id: 'u1', email: 'alice@test.com', slug: 'alice', role: 'USER' }, sessionId: 's1' })
-    mocks.getRuntimeForSlug.mockResolvedValue({ ok: true, data: { subscribeEvents: mocks.subscribeEvents, abortSession: mocks.abortSession } })
+    mocks.getRuntimeForSlug.mockResolvedValue({ ok: true, data: { subscribeEvents: mocks.subscribeEvents, listMessages: mocks.listMessages, abortSession: mocks.abortSession } })
+    mocks.listMessages.mockResolvedValue({ ok: true, data: [] })
     mocks.subscribeWorkspaceEvents.mockImplementation((_userId: string, listener: (event: { type: string }) => void) => {
       broadcast.listener = listener
       return broadcast.unsubscribe
@@ -139,6 +142,74 @@ describe('GET /api/w/[slug]/events', () => {
     expect(response.headers.get('content-type')).toBe('text/event-stream')
     expect(await response.text()).toBe(CONNECTED + events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(''))
     expect(mocks.getRuntimeForSlug).toHaveBeenCalledWith('alice')
+  })
+
+  it('keeps the previous browser protocol when no version is requested', async () => {
+    eventSubscription([
+      { v: 1, type: 'session.status', sessionId: 's1', status: 'busy' },
+      { v: 1, type: 'message.upserted', message: { id: 'm1', sessionId: 's1', role: 'assistant', content: 'Hello', timestamp: '', timestampRaw: 1, parts: [{ type: 'text', id: 'text', text: 'Hello' }] } },
+      { v: 1, type: 'workspace.touched' },
+    ])
+    const response = await request(undefined, 'legacy')
+    const frames = (await response.text()).split('\n').filter((line) => line.startsWith('data: ')).map((line) => JSON.parse(line.slice(6)))
+    expect(frames).toEqual([
+      { type: 'session.status', properties: { sessionID: 's1', status: { type: 'busy' } } },
+      { type: 'message.updated', properties: { info: { id: 'm1', sessionID: 's1', role: 'assistant', time: { created: 1 }, parts: [{ type: 'text', id: 'text', text: 'Hello', messageID: 'm1', sessionID: 's1' }] } } },
+      { type: 'file.edited', properties: {} },
+    ])
+  })
+
+  it('recovers only tool identity when an old browser reconnects after input.started', async () => {
+    mocks.listMessages.mockResolvedValue({ ok: true, data: [{ id: 'm1', sessionId: 's1', role: 'assistant', parts: [
+      { type: 'text', id: 'text', text: 'Snapshot ahead of stream' },
+      { type: 'tool', id: 'call', name: 'subagent', state: { status: 'completed', input: { agent: 'reviewer' }, output: 'Future output', title: 'Future title' } },
+    ] }] })
+    eventSubscription([{ v: 1, type: 'part.upserted', mode: 'tool-patch', sessionId: 's1', messageId: 'm1', update: { id: 'call', status: 'completed', output: 'Current output' } }])
+    const response = await request(undefined, 'legacy')
+    const text = await response.text()
+    expect(text).not.toContain('Snapshot ahead of stream')
+    expect(text).not.toContain('Future output')
+    expect(text).toContain('"tool":"task"')
+    expect(text).toContain('"subagent_type":"reviewer"')
+    expect(text).toContain('"output":"Current output"')
+    expect(mocks.listMessages).toHaveBeenCalledWith('s1', expect.objectContaining({ signal: expect.any(AbortSignal) }))
+  })
+
+  it('recovers every tool identity from the same message with one snapshot', async () => {
+    mocks.listMessages.mockResolvedValue({ ok: true, data: [{ id: 'm1', sessionId: 's1', role: 'assistant', parts: [
+      { type: 'tool', id: 'first', name: 'read', state: { status: 'completed', input: { filePath: '/kb/first.md' }, output: 'Future first' } },
+      { type: 'tool', id: 'second', name: 'read', state: { status: 'completed', input: { filePath: '/kb/second.md' }, output: 'Future second' } },
+    ] }] })
+    eventSubscription([
+      { v: 1, type: 'part.upserted', mode: 'tool-patch', sessionId: 's1', messageId: 'm1', update: { id: 'first', status: 'completed', output: 'Current first' } },
+      { v: 1, type: 'part.upserted', mode: 'tool-patch', sessionId: 's1', messageId: 'm1', update: { id: 'second', status: 'completed', output: 'Current second' } },
+    ])
+    const response = await request(undefined, 'legacy')
+    const frames = (await response.text()).split('\n').filter((line) => line.startsWith('data: ')).map((line) => JSON.parse(line.slice(6)))
+    expect(frames).toHaveLength(2)
+    expect(frames.map((frame) => frame.properties.part.state)).toEqual([
+      { status: 'completed', input: { filePath: '/kb/first.md' }, output: 'Current first', title: 'read' },
+      { status: 'completed', input: { filePath: '/kb/second.md' }, output: 'Current second', title: 'read' },
+    ])
+    expect(mocks.listMessages).toHaveBeenCalledOnce()
+  })
+
+  it.each(['timeout', 'disconnect'])('cancels legacy identity hydration on %s', async (kind) => {
+    vi.useFakeTimers()
+    let signal: AbortSignal | undefined
+    mocks.listMessages.mockImplementation((_sessionId: string, options: { signal: AbortSignal }) => new Promise((resolve) => {
+      signal = options.signal
+      options.signal.addEventListener('abort', () => resolve({ ok: false, error: { code: 'runtime_error' } }), { once: true })
+    }))
+    eventSubscription([{ v: 1, type: 'part.upserted', mode: 'tool-patch', sessionId: 's1', messageId: 'm1', update: { id: 'call', status: 'running', input: {} } }])
+    const response = await request(undefined, 'legacy')
+    const reader = response.body!.getReader()
+    expect(await readText(reader)).toBe(CONNECTED)
+    expect(signal?.aborted).toBe(false)
+    if (kind === 'timeout') await vi.advanceTimersByTimeAsync(2_000)
+    else await reader.cancel()
+    expect(signal?.aborted).toBe(true)
+    if (kind === 'timeout') expect((await reader.read()).done).toBe(true)
   })
 
   it('forwards a delta without waiting for the next upstream event', async () => {

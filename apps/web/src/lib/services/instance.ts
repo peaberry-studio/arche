@@ -217,6 +217,13 @@ export function failStartingTransition(id: string, startedAt: Date): Promise<{ c
   })
 }
 
+export function setStartingPassword(slug: string, startedAt: Date, serverPassword: string): Promise<{ count: number }> {
+  return prisma.instance.updateMany({
+    where: { slug, status: 'starting', containerId: null, startedAt },
+    data: { serverPassword },
+  })
+}
+
 export function finishStoppingTransition(id: string, startedAt: Date): Promise<{ count: number }> {
   return prisma.instance.updateMany({
     where: { id, status: 'starting', startedAt },

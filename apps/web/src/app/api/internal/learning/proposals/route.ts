@@ -68,6 +68,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     initialStatus: base.data.initialStatus,
     requirePendingAcknowledged: true,
     supersedesId: input.supersedesId ?? null,
+    supersedesRevision: input.supersedesRevision ?? null,
   })
 
   if (!result.ok) {

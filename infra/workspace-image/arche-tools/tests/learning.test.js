@@ -25,12 +25,12 @@ test('learning_propose returns a pending proposal to merge and forwards supersed
   process.env.ARCHE_INTERNAL_API_BASE_URL = 'http://web.test'
   process.env.ARCHE_WORKSPACE_SLUG = 'alice'
   process.env.OPENCODE_SERVER_PASSWORD = 'fixture'
-  const pending = { id: 'change-1', title: 'Old fact', operation: 'update', proposedContent: '# Notes\nold fact\n', reason: 'r', status: 'open' }
+  const pending = { id: 'change-1', revision: 'a'.repeat(64), title: 'Old fact', operation: 'update', proposedContent: '# Notes\nold fact\n', reason: 'r', status: 'open' }
   const bodies = []
   t.mock.method(globalThis, 'fetch', async (_url, init) => {
     const body = JSON.parse(init.body)
     bodies.push(body)
-    return body.supersedesId === 'change-1'
+    return body.supersedesId === 'change-1' && body.supersedesRevision === pending.revision
       ? Response.json({ proposal: { id: 'change-2' } })
       : Response.json({ error: 'pending_proposal_exists', pending }, { status: 409 })
   })
@@ -49,9 +49,10 @@ test('learning_propose returns a pending proposal to merge and forwards supersed
   assert.deepEqual(conflict.pending, pending)
   assert.match(conflict.next, /supersedesId/)
 
-  const merged = JSON.parse(await propose.execute({ ...input, proposedContent: '# Notes\nold fact\nnew fact\n', supersedesId: 'change-1' }, context))
+  const merged = JSON.parse(await propose.execute({ ...input, proposedContent: '# Notes\nold fact\nnew fact\n', supersedesId: 'change-1', supersedesRevision: pending.revision }, context))
   assert.deepEqual(merged, { ok: true, proposal: { id: 'change-2' } })
   assert.equal(bodies[1].supersedesId, 'change-1')
+  assert.equal(bodies[1].supersedesRevision, pending.revision)
 })
 
 test('learning_propose tells the agent how to handle a pending proposal', () => {

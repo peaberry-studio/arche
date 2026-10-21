@@ -272,6 +272,13 @@ describe('listActiveInstancesAction', () => {
 })
 
 describe('ensureInstanceRunningAction', () => {
+  it('keeps polling while old backend writers drain before migration', async () => {
+    mockGetSession.mockResolvedValue(fakeSession)
+    mockStatus.mockResolvedValue({ status: 'stopped' } as never)
+    mockStart.mockResolvedValue({ ok: false, error: 'runtime_upgrade_pending' } as never)
+    expect(await ensureInstanceRunningAction('alice')).toEqual({ status: 'starting' })
+  })
+
   it('returns unauthorized without session', async () => {
     mockGetSession.mockResolvedValue(null)
     const result = await ensureInstanceRunningAction('alice')

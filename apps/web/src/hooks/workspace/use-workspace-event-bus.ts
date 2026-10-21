@@ -22,6 +22,7 @@ import {
   createEmptyChatStore,
   hydratePermissionsIntoStore,
   hydrateSessionIntoStore,
+  prunePendingSessionUpdates,
   reduceArcheEvent,
   type ChatStore,
   type SessionRuntimeStatus,
@@ -204,6 +205,9 @@ export function useWorkspaceEventBus({
         if (scope === hydrationScopeRef.current && scope.generations.get(sessionId) === generation) {
           scope.pending.delete(sessionId);
           setIsLoadingMessages(scope.pending.size > 0);
+          if (getStore().sessionStatus[sessionId] === "idle") {
+            commitStore((current) => prunePendingSessionUpdates(current, sessionId));
+          }
         }
       }
     },
@@ -278,7 +282,9 @@ export function useWorkspaceEventBus({
         delete sessionStatus[sessionId];
         delete permissions[sessionId];
       }
-      return { ...prev, messages, sessionStatus, permissions, pendingParts };
+      let next = { ...prev, messages, sessionStatus, permissions, pendingParts };
+      for (const sessionId of sessionIds) next = prunePendingSessionUpdates(next, sessionId);
+      return next;
     });
     setIsLoadingMessages(hydrationScopeRef.current.pending.size > 0);
   }, [commitStore]);
@@ -295,6 +301,9 @@ export function useWorkspaceEventBus({
       if ("messageId" in event && [...archivedIds].some((id) => getStore().messages[id]?.some((message) => message.id === event.messageId))) return;
       const previousStatuses = getStore().sessionStatus;
       const result = reduceArcheEvent(getStore(), event);
+      if (event.type === "session.status" && event.status === "idle" && !hydrationScopeRef.current.pending.has(event.sessionId)) {
+        result.store = prunePendingSessionUpdates(result.store, event.sessionId);
+      }
       commitStore(result.store);
       if (result.workspaceTouched) {
         scheduleWorkspaceRefresh();
@@ -317,7 +326,7 @@ export function useWorkspaceEventBus({
     let delay = BUS_RECONNECT_BASE_DELAY_MS;
     while (!signal.aborted) {
       try {
-        const response = await fetch(`/api/w/${slug}/events`, { signal });
+        const response = await fetch(`/api/w/${slug}/events?protocol=arche-v1`, { signal });
         if (signal.aborted) return;
         if (!response.ok || !response.body) {
           throw new Error("event_stream_unavailable");

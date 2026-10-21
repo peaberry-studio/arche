@@ -10,6 +10,7 @@ import {
   CheckCircle,
   Circle,
   Copy,
+  DownloadSimple,
   EnvelopeSimple,
   File,
   GitDiff,
@@ -51,6 +52,8 @@ import {
 import { copyTextToClipboard } from '@/lib/clipboard'
 import { isRecord } from '@/lib/records'
 import { cn } from '@/lib/utils'
+import { formatAttachmentSize, isWorkspaceAttachmentPath } from '@/lib/workspace-attachments'
+import { getWorkspaceFileDownloadUrl } from '@/lib/workspace-file-download'
 import { getWorkspaceToolDisplay } from '@/lib/workspace-tool-display'
 import type { MessagePart, PermissionResponse } from '@/types/workspace-runtime'
 
@@ -110,6 +113,19 @@ const getString = (value: unknown) => (typeof value === 'string' && value.trim()
 const getNumber = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) ? value : undefined)
 const getStringArray = (value: unknown) =>
   Array.isArray(value) ? value.map((item) => String(item)) : undefined
+
+function parsePublishedAttachment(output: string): { path: string; name: string; size: number } | null {
+  try {
+    const value: unknown = JSON.parse(output)
+    if (!isRecord(value) || value.ok !== true || !isRecord(value.attachment)) return null
+    const { path, name, size } = value.attachment
+    if (typeof path !== 'string' || !isWorkspaceAttachmentPath(path) || typeof name !== 'string' || !name.trim() ||
+      typeof size !== 'number' || !Number.isFinite(size) || size < 0) return null
+    return { path, name, size }
+  } catch {
+    return null
+  }
+}
 
 function formatToolName(tool: string): string {
   const formatted = tool.replace(/[_-]+/g, ' ').trim()
@@ -423,6 +439,7 @@ function getDelegationSessionId(part: ToolPart): string | undefined {
     getString(metadata?.sessionId) ??
     getString(metadata?.sessionID) ??
     getString(part.state.input.task_id) ??
+    getString(part.state.input.sessionID) ??
     outputSessionId
   )
 }
@@ -443,7 +460,7 @@ function DelegationCard({
   return (
     <div className="my-2 space-y-2">
       {parts.map((part) => {
-        const subagentType = getString(part.state.input?.subagent_type)
+        const subagentType = getString(part.state.input?.subagent_type) ?? getString(part.state.input?.agent)
         const taskDescription = getString(part.state.input?.description)
         const agentLabel = subagentType
           ? subagentType.charAt(0).toUpperCase() + subagentType.slice(1)
@@ -627,6 +644,38 @@ export function ToolGroup({
 
   if (displayToolName === 'task') {
     return <DelegationCard parts={parts} sessionTabs={sessionTabs} onSelectSessionTab={onSelectSessionTab} />
+  }
+
+  if (displayToolName === 'scratch_publish') {
+    const attachments = parts.flatMap((part) => {
+      if (part.state.status !== 'completed') return []
+      const attachment = parsePublishedAttachment(part.state.output)
+      return attachment ? [{ id: part.id, ...attachment }] : []
+    })
+    if (attachments.length) {
+      return (
+        <div className="my-2 space-y-2">
+          {attachments.map((attachment) => (
+            <div key={attachment.id} className="flex items-center gap-2 rounded-lg border border-border/40 bg-muted/20 px-3 py-2 text-xs">
+              <File size={14} className="shrink-0 text-primary" />
+              <span className="min-w-0 flex-1 truncate font-medium">{attachment.name}</span>
+              <span className="text-muted-foreground">{formatAttachmentSize(attachment.size)}</span>
+              {onOpenFile ? (
+                <button type="button" onClick={() => onOpenFile(attachment.path)} className="rounded-md px-2 py-1 text-primary hover:bg-primary/10" aria-label={`Open ${attachment.name}`}>
+                  Open
+                </button>
+              ) : null}
+              {slug ? (
+                <a href={getWorkspaceFileDownloadUrl(slug, attachment.path) ?? undefined} download className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-primary hover:bg-primary/10" aria-label={`Download ${attachment.name}`}>
+                  <DownloadSimple size={12} />
+                  Download
+                </a>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      )
+    }
   }
 
   if (displayToolName === 'email_draft') {

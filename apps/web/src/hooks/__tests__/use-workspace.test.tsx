@@ -201,7 +201,7 @@ vi.stubGlobal(
 
         // Persistent event bus: keep the stream open; tests drive the store via
         // assumption of the pure reducer's behavior.
-        if (String(input) === "/api/w/alice/events") {
+        if (String(input) === "/api/w/alice/events?protocol=arche-v1") {
           return {
             ok: true,
             body: {
@@ -608,7 +608,7 @@ vi.stubGlobal(
         }
 
         // Hanging event pipe: connected, but no runtime events ever arrive.
-        if (String(input) === "/api/w/alice/events") {
+        if (String(input) === "/api/w/alice/events?protocol=arche-v1") {
           return {
             ok: true,
             body: {
@@ -726,7 +726,7 @@ vi.stubGlobal(
           };
         }
 
-        if (String(input) === "/api/w/alice/events") {
+        if (String(input) === "/api/w/alice/events?protocol=arche-v1") {
           return {
             ok: true,
             body: {
@@ -1005,7 +1005,7 @@ vi.stubGlobal(
           };
         }
 
-        if (String(input) === "/api/w/alice/events") {
+        if (String(input) === "/api/w/alice/events?protocol=arche-v1") {
           return {
             ok: true,
             body: {
@@ -1713,7 +1713,7 @@ vi.stubGlobal(
           };
         }
 
-        if (String(input) === "/api/w/alice/events") {
+        if (String(input) === "/api/w/alice/events?protocol=arche-v1") {
           return {
             ok: true,
             body: {
@@ -1856,7 +1856,7 @@ vi.stubGlobal(
         };
       }
 
-      if (String(input) === "/api/w/alice/events") {
+      if (String(input) === "/api/w/alice/events?protocol=arche-v1") {
         return {
           ok: true,
           body: {
@@ -2077,7 +2077,7 @@ vi.stubGlobal(
           };
         }
 
-        if (String(input) === "/api/w/alice/events") {
+        if (String(input) === "/api/w/alice/events?protocol=arche-v1") {
           return {
             ok: true,
             body: {
@@ -2149,7 +2149,7 @@ vi.stubGlobal(
           };
         }
 
-        if (String(input) === "/api/w/alice/events") {
+        if (String(input) === "/api/w/alice/events?protocol=arche-v1") {
           return {
             ok: true,
             body: {
@@ -2276,7 +2276,7 @@ vi.stubGlobal(
           };
         }
 
-        if (String(input) === "/api/w/alice/events") {
+        if (String(input) === "/api/w/alice/events?protocol=arche-v1") {
           return {
             ok: true,
             body: {
@@ -2358,7 +2358,7 @@ vi.stubGlobal(
           };
         }
 
-        if (String(input) === "/api/w/alice/events") {
+        if (String(input) === "/api/w/alice/events?protocol=arche-v1") {
           return {
             ok: true,
             body: {

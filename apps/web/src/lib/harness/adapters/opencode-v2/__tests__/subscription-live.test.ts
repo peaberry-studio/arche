@@ -22,7 +22,7 @@ type Serve = Awaited<ReturnType<typeof startReconnectServe>>
 
 function open(): { controller: AbortController; response: Promise<Response> } {
   const controller = new AbortController()
-  return { controller, response: GET(new NextRequest('http://localhost/api/w/alice/events', { signal: controller.signal }), { params: Promise.resolve({ slug: 'alice' }) }) }
+  return { controller, response: GET(new NextRequest('http://localhost/api/w/alice/events?protocol=arche-v1', { signal: controller.signal }), { params: Promise.resolve({ slug: 'alice' }) }) }
 }
 
 function read(response: Response) {

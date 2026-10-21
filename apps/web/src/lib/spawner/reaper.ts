@@ -131,7 +131,11 @@ export function getReaperStatus(): ReaperStatus {
 
 async function runReaperCycle(): Promise<void> {
   lastRunStartedAt = new Date()
-  void preArchiveRunningV1Instances()
+  void import('@/lib/spawner/docker').then(async (docker) => {
+    if (!await docker.hasLegacyBackendWriters()) await preArchiveRunningV1Instances()
+  }).catch(() => {
+    console.warn('[reaper] Legacy pre-archive is waiting for runtime upgrade verification')
+  })
 
   try {
     const [instanceCount, messageRunCount] = await Promise.all([

@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fakeRuntime } from '@/lib/harness/__tests__/fake-runtime'
 import { instanceService } from '@/lib/services'
 import { startInstance } from '@/lib/spawner/core'
-import { createContainer } from '@/lib/spawner/docker'
+import { createContainer, hasLegacyBackendWriters } from '@/lib/spawner/docker'
 
 const mocks = vi.hoisted(() => ({ runtime: vi.fn(), sync: vi.fn() }))
 vi.mock('@/lib/services', () => ({
@@ -21,6 +21,8 @@ vi.mock('@/lib/harness/registry', () => ({
 }))
 vi.mock('@/lib/spawner/crypto', () => ({ generatePassword: () => 'test', encryptPassword: () => 'encrypted' }))
 vi.mock('@/lib/spawner/docker', () => ({
+  hasLegacyBackendWriters: vi.fn().mockResolvedValue(false),
+  removeOrphanedV2ContainerForSlug: vi.fn().mockResolvedValue(undefined),
   createContainer: vi.fn().mockResolvedValue({ id: 'v2-container' }), startContainer: vi.fn(),
   removeManagedContainerForSlug: vi.fn().mockResolvedValue(false), removeContainer: vi.fn().mockResolvedValue(undefined), stopContainer: vi.fn().mockResolvedValue(undefined),
   removeManagedArchiveContainerForSlug: vi.fn().mockResolvedValue(undefined),
@@ -45,6 +47,13 @@ describe('V2 startup attempt', () => {
     expect(createContainer).toHaveBeenCalledWith('alice', 'test', '{}', '', [], { name: 'alice', email: undefined })
     expect(instanceService.setContainerId).toHaveBeenCalledWith('alice', 'v2-container', 'opencode-v2')
     expect(instanceService.setRunningIfCurrentContainer).toHaveBeenCalledWith('alice', 'v2-container', 'hash', 'opencode-v2')
+  })
+
+  it('does not create a fresh V2 workspace while old backend writers remain', async () => {
+    vi.mocked(hasLegacyBackendWriters).mockResolvedValueOnce(true)
+    expect(await startInstance('alice', 'admin')).toEqual({ ok: false, error: 'runtime_upgrade_pending' })
+    expect(instanceService.upsertStarting).not.toHaveBeenCalled()
+    expect(createContainer).not.toHaveBeenCalled()
   })
 
   it('never publishes V2 running when provider access could not be verified', async () => {

@@ -55,7 +55,7 @@ export function getWorkspaceToolDisplay(
   if (!parsed) {
     return {
       isConnectorTool: false,
-      groupLabel: toolName.replace(/^arche_tools_/, ''),
+      groupLabel: toolName === 'subagent' ? 'task' : toolName.replace(/^arche_tools_/, ''),
     }
   }
 

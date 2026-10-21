@@ -130,6 +130,76 @@ describe("useWorkspaceEventBus", () => {
     });
   }
 
+  it("requests the versioned Arche protocol on the event stream", async () => {
+    const stream = createEventStream();
+    const fetch = vi.fn(async () => sseResponse(stream));
+    vi.stubGlobal("fetch", fetch);
+    renderBus();
+    await flush();
+    expect(fetch).toHaveBeenCalledWith("/api/w/alice/events?protocol=arche-v1", expect.objectContaining({ signal: expect.anything() }));
+  });
+
+  it.each(["commit", "patch"] as const)("prunes orphan %s events when an unhydrated background session becomes idle", async (mode) => {
+    const stream = createEventStream();
+    vi.stubGlobal("fetch", vi.fn(async () => sseResponse(stream)));
+    const { hook } = renderBus();
+    await flush();
+    await act(async () => {
+      for (let i = 0; i < 25; i++) {
+        const sessionId = `background-${i}`;
+        const messageId = `orphan-${i}`;
+        hook.result.current.dispatchReducerEvent({ v: 1, type: "part.upserted", sessionId, messageId, part: { type: "text", id: "text", text: "Partial response" } });
+        hook.result.current.dispatchReducerEvent(mode === "commit"
+          ? { v: 1, type: "message.upserted", mode, sessionId, messageId, timestamp: "", timestampRaw: 1 }
+          : { v: 1, type: "message.upserted", mode, sessionId, messageId, patch: { completedAt: 1 } });
+        hook.result.current.dispatchReducerEvent({ v: 1, type: "session.status", sessionId, status: "idle" });
+      }
+    });
+    expect(hook.result.current.store.pendingUpdates).toEqual({});
+    expect(hook.result.current.store.pendingParts).toEqual({});
+  });
+
+  it("retains updates through idle until the in-flight snapshot supplies tool identity", async () => {
+    const stream = createEventStream();
+    vi.stubGlobal("fetch", vi.fn(async () => sseResponse(stream)));
+    const snapshot = deferred<MessageSnapshot>();
+    opencodeMocks.listMessagesAction.mockReturnValue(snapshot.promise);
+    const { hook } = renderBus();
+    await flush();
+    await act(async () => {
+      hook.result.current.dispatchReducerEvent({ v: 1, type: "part.upserted", mode: "tool-patch", sessionId: "s1", messageId: "m1", update: { id: "call", status: "completed", output: "Final file contents" } });
+      hook.result.current.dispatchReducerEvent({ v: 1, type: "session.status", sessionId: "s1", status: "idle" });
+    });
+    expect(hook.result.current.store.pendingUpdates?.m1).toHaveLength(1);
+    await act(async () => {
+      snapshot.resolve({ ok: true, sessionRuntimeStatus: "busy", messages: [{
+        id: "m1", sessionId: "s1", role: "assistant", content: "", timestamp: "", parts: [
+          { type: "tool", id: "call", name: "read", state: { status: "running", input: { path: "note.md" } } },
+        ],
+      }] });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(hook.result.current.store.messages.s1[0].parts).toMatchObject([{ state: { status: "completed", output: "Final file contents" } }]);
+    expect(hook.result.current.store.pendingUpdates).toEqual({});
+    expect(hook.result.current.store.sessionStatus.s1).toBe("idle");
+  });
+
+  it("clears compaction deliveries absent from the completed snapshot", async () => {
+    const stream = createEventStream();
+    vi.stubGlobal("fetch", vi.fn(async () => sseResponse(stream)));
+    const snapshot = deferred<MessageSnapshot>();
+    opencodeMocks.listMessagesAction.mockReturnValue(snapshot.promise);
+    const { hook } = renderBus();
+    await flush();
+    await act(async () => {
+      hook.result.current.dispatchReducerEvent({ v: 1, type: "message.upserted", mode: "commit", sessionId: "s1", messageId: "compaction", timestamp: "", timestampRaw: 1 });
+      hook.result.current.dispatchReducerEvent({ v: 1, type: "session.status", sessionId: "s1", status: "idle" });
+      snapshot.resolve({ ok: true, messages: [], sessionRuntimeStatus: "idle" });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(hook.result.current.store.pendingUpdates).toEqual({});
+  });
+
   it("applies bus events to the store and ignores heartbeat comments", async () => {
     const stream = createEventStream();
     vi.stubGlobal(

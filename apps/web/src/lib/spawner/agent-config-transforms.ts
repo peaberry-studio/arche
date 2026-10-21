@@ -36,42 +36,6 @@ function isToolMap(value: unknown): value is Record<string, boolean> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
-export function applyDefaultAgentModel(
-  config: Record<string, unknown>,
-): Record<string, unknown> {
-  const defaultModel = typeof config.default_model === 'string' && config.default_model.trim()
-    ? config.default_model.trim()
-    : undefined
-  if (!defaultModel) return config
-
-  const configWithoutDefaultModel = { ...config }
-  delete configWithoutDefaultModel.default_model
-
-  const agents = isRecord(config.agent) ? config.agent : null
-  if (!agents) return configWithoutDefaultModel
-
-  const nextAgents: Record<string, unknown> = {}
-  let changed = false
-
-  for (const [agentId, agent] of Object.entries(agents)) {
-    if (!isRecord(agent)) {
-      nextAgents[agentId] = agent
-      continue
-    }
-
-    if (typeof agent.model === 'string' && agent.model.trim()) {
-      nextAgents[agentId] = agent
-      continue
-    }
-
-    nextAgents[agentId] = { ...agent, model: defaultModel }
-    changed = true
-  }
-
-  if (!changed) return configWithoutDefaultModel
-  return { ...configWithoutDefaultModel, agent: nextAgents }
-}
-
 function buildExactConnectorToolName(serverKey: string, toolName: string): string {
   return `${serverKey}_${toolName}`
 }
@@ -250,35 +214,6 @@ export function materializeAgentToolMaps(
   }
 
   if (!changed) return config
-  return { ...config, agent: nextAgents }
-}
-
-export function denyAgentKnowledgeWrites(
-  config: Record<string, unknown>,
-): Record<string, unknown> {
-  const agents = isRecord(config.agent) ? config.agent : null
-  if (!agents) return config
-
-  const nextAgents: Record<string, unknown> = {}
-
-  for (const [agentId, agent] of Object.entries(agents)) {
-    if (!isRecord(agent)) {
-      nextAgents[agentId] = agent
-      continue
-    }
-
-    // Fallback for any non-map tools that reach the deny step (materialize
-    // is meant to run earlier in the pipeline, so this normally never fires):
-    // seed the full legacy toolset before flipping write/edit off.
-    const tools: Record<string, boolean> = isToolMap(agent.tools)
-      ? { ...agent.tools }
-      : materializeLegacyToolsMap()
-    tools.write = false
-    tools.edit = false
-
-    nextAgents[agentId] = { ...agent, tools }
-  }
-
   return { ...config, agent: nextAgents }
 }
 

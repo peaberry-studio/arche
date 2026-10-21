@@ -8,11 +8,16 @@ const mockContainer = {
   inspect: vi.fn(),
 }
 
+const mockImage = { inspect: vi.fn() }
+
 const mockDockerInstance = {
   createContainer: vi.fn().mockResolvedValue(mockContainer),
   getContainer: vi.fn().mockReturnValue(mockContainer),
   createVolume: vi.fn().mockResolvedValue({}),
   listContainers: vi.fn(),
+  getImage: vi.fn().mockReturnValue(mockImage),
+  pull: vi.fn(),
+  modem: { followProgress: vi.fn() },
 }
 
 const mockDockerConstructor = vi.fn(function Docker() {
@@ -50,6 +55,8 @@ import {
   createContainer,
   createArchiveContainer,
   findLegacyArchiveSource,
+  hasLegacyBackendWriters,
+  removeOrphanedV2ContainerForSlug,
   removeManagedArchiveContainerForSlug,
   startContainer,
   stopContainer,
@@ -74,6 +81,65 @@ describe('docker', () => {
     mockDockerInstance.listContainers.mockResolvedValue([])
     mockDockerInstance.getContainer.mockReturnValue(mockContainer)
     mockContainer.inspect.mockRejectedValue({ statusCode: 404 })
+    mockContainer.remove.mockResolvedValue(undefined)
+    mockImage.inspect.mockResolvedValue({})
+    process.env.DATABASE_URL = 'postgresql://current:fixture@postgres:5432/arche?schema=public'
+  })
+
+  describe('runtime upgrade writers', () => {
+    function backend(labels: Record<string, string>, databaseUrl: string, running = true) {
+      mockDockerInstance.listContainers.mockResolvedValue([{
+        Id: 'backend', Labels: labels, NetworkSettings: { Networks: { 'test-network': {} } },
+      }])
+      mockContainer.inspect.mockResolvedValue({ State: { Running: running }, Config: { Env: [`DATABASE_URL=${databaseUrl}`] } })
+    }
+
+    it.each(['web', 'flows', 'reaper'])('waits for an old %s backend using the same database regardless of credentials', async (service) => {
+      backend({ 'com.docker.compose.service': service }, 'postgres://previous:old-fixture@POSTGRES/arche')
+      await expect(hasLegacyBackendWriters()).resolves.toBe(true)
+    })
+
+    it('waits for old blue-green web containers outside compose', async () => {
+      backend({ 'arche.role': 'web' }, process.env.DATABASE_URL!)
+      await expect(hasLegacyBackendWriters()).resolves.toBe(true)
+    })
+
+    it.each([
+      'postgresql://fixture@postgres/another-db',
+      'postgresql://fixture@other-postgres/arche',
+      'postgresql://fixture@postgres:5433/arche',
+      'postgresql://fixture@postgres/arche?schema=other',
+    ])('ignores an old backend scoped to a different database: %s', async (databaseUrl) => {
+      backend({ 'arche.role': 'web' }, databaseUrl)
+      await expect(hasLegacyBackendWriters()).resolves.toBe(false)
+    })
+
+    it('allows only the current contract once all old backends are stopped', async () => {
+      backend({ 'arche.role': 'web', 'arche.runtime.contract': 'opencode-v2' }, process.env.DATABASE_URL!)
+      await expect(hasLegacyBackendWriters()).resolves.toBe(false)
+      expect(mockContainer.inspect).not.toHaveBeenCalled()
+      backend({ 'arche.role': 'web' }, process.env.DATABASE_URL!, false)
+      await expect(hasLegacyBackendWriters()).resolves.toBe(false)
+    })
+
+    it('does not confuse service DNS in an unrelated stack with the workspace database', async () => {
+      backend({ 'arche.role': 'web' }, process.env.DATABASE_URL!)
+      mockDockerInstance.listContainers.mockResolvedValue([{
+        Id: 'unrelated', Labels: { 'arche.role': 'web' }, NetworkSettings: { Networks: { other: {} } },
+      }])
+      await expect(hasLegacyBackendWriters()).resolves.toBe(false)
+      expect(mockContainer.inspect).not.toHaveBeenCalled()
+    })
+
+    it('fails closed on unavailable inventory or an uncertain old backend', async () => {
+      mockDockerInstance.listContainers.mockRejectedValueOnce(new Error('proxy unavailable'))
+      await expect(hasLegacyBackendWriters()).rejects.toThrow('proxy unavailable')
+      backend({ 'arche.role': 'web' }, process.env.DATABASE_URL!)
+      mockContainer.inspect.mockRejectedValueOnce(new Error('inspection unavailable'))
+      await expect(hasLegacyBackendWriters()).rejects.toThrow('inspection unavailable')
+      mockContainer.inspect.mockResolvedValueOnce({ State: { Running: true }, Config: { Env: [] } })
+      await expect(hasLegacyBackendWriters()).rejects.toThrow('runtime_upgrade_database_unavailable')
+    })
   })
 
   afterEach(() => {
@@ -157,6 +223,57 @@ describe('docker', () => {
       }))
       expect(mockWriteFile).not.toHaveBeenCalled()
       expect(mockDockerInstance.createVolume).not.toHaveBeenCalled()
+    })
+
+    it('pulls a missing legacy image to completion before creating the archive helper', async () => {
+      mockImage.inspect.mockRejectedValueOnce({ statusCode: 404 })
+      const stream = { fixture: true }
+      mockDockerInstance.pull.mockResolvedValueOnce(stream)
+      mockDockerInstance.modem.followProgress.mockImplementationOnce((_stream, done) => done(null))
+      await createArchiveContainer('user-slug', 'fixture')
+      expect(mockDockerInstance.pull).toHaveBeenCalledExactlyOnceWith('test-image:opencode-v1')
+      expect(mockDockerInstance.modem.followProgress).toHaveBeenCalledWith(stream, expect.any(Function))
+      expect(mockDockerInstance.pull.mock.invocationCallOrder[0]).toBeLessThan(mockDockerInstance.createContainer.mock.invocationCallOrder[0])
+    })
+
+    it('does not create the archive helper when image inspection or pulling fails', async () => {
+      mockImage.inspect.mockRejectedValueOnce(new Error('image inspection unavailable'))
+      await expect(createArchiveContainer('user-slug', 'fixture')).rejects.toThrow('image inspection unavailable')
+      expect(mockDockerInstance.pull).not.toHaveBeenCalled()
+      mockImage.inspect.mockRejectedValueOnce({ statusCode: 404 })
+      mockDockerInstance.pull.mockResolvedValueOnce({})
+      mockDockerInstance.modem.followProgress.mockImplementationOnce((_stream, done) => done(new Error('registry unavailable')))
+      await expect(createArchiveContainer('user-slug', 'fixture')).rejects.toThrow('registry unavailable')
+      expect(mockDockerInstance.createContainer).not.toHaveBeenCalled()
+    })
+
+    it('removes only an owned V2 orphan before legacy source discovery', async () => {
+      mockContainer.inspect.mockResolvedValue({ Id: 'orphan', Config: { Labels: {
+        'arche.managed': 'true', 'arche.user.slug': 'user-slug', 'arche.runtime.kind': 'opencode-v2',
+      } } })
+      await removeOrphanedV2ContainerForSlug('user-slug')
+      expect(mockDockerInstance.getContainer).toHaveBeenLastCalledWith('orphan')
+      expect(mockContainer.remove).toHaveBeenCalledWith({ force: true })
+    })
+
+    it.each([
+      { 'arche.managed': 'true', 'arche.user.slug': 'user-slug' },
+      { 'arche.managed': 'true', 'arche.user.slug': 'other', 'arche.runtime.kind': 'opencode-v2' },
+      { 'arche.managed': 'false', 'arche.user.slug': 'user-slug', 'arche.runtime.kind': 'opencode-v2' },
+    ])('never removes a V1 source or another container while recovering an orphan (%j)', async (labels) => {
+      mockContainer.inspect.mockResolvedValue({ Id: 'source', Config: { Labels: labels } })
+      await removeOrphanedV2ContainerForSlug('user-slug')
+      expect(mockContainer.remove).not.toHaveBeenCalled()
+    })
+
+    it('fails orphan recovery when the container cannot be inspected or removed', async () => {
+      mockContainer.inspect.mockRejectedValueOnce(new Error('inspection unavailable'))
+      await expect(removeOrphanedV2ContainerForSlug('user-slug')).rejects.toThrow('inspection unavailable')
+      mockContainer.inspect.mockResolvedValueOnce({ Id: 'orphan', Config: { Labels: {
+        'arche.managed': 'true', 'arche.user.slug': 'user-slug', 'arche.runtime.kind': 'opencode-v2',
+      } } })
+      mockContainer.remove.mockRejectedValueOnce(new Error('removal unconfirmed'))
+      await expect(removeOrphanedV2ContainerForSlug('user-slug')).rejects.toThrow('removal unconfirmed')
     })
 
     it('reclaims only an owned archive container left by an interrupted migration', async () => {
@@ -471,6 +588,12 @@ describe('docker', () => {
   })
 
   describe('removeContainer', () => {
+    it('confirms absence on 404 while preserving actual teardown errors', async () => {
+      mockContainer.remove.mockRejectedValueOnce({ statusCode: 404 })
+      await expect(removeContainer('missing')).resolves.toBeUndefined()
+      mockContainer.remove.mockRejectedValueOnce({ statusCode: 500 })
+      await expect(removeContainer('uncertain')).rejects.toEqual({ statusCode: 500 })
+    })
     it('removes a container with force option', async () => {
       await removeContainer('container-123')
       expect(mockContainer.remove).toHaveBeenCalledWith({ force: true })

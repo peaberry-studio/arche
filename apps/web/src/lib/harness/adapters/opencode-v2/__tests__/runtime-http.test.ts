@@ -4,6 +4,7 @@ import { assistantSnapshot, permission, SESSION_ID, userSnapshot } from '@/lib/h
 import { createOpenCodeV2Runtime } from '@/lib/harness/adapters/opencode-v2/runtime'
 
 const auth = vi.hoisted(() => vi.fn())
+vi.mock('@/lib/harness/session-submission-lock', () => ({ withSessionSubmissionLock: (_slug: string, _sessionId: string, options: unknown, submit: (options: unknown) => unknown) => submit(options) }))
 vi.mock('@/lib/harness/runtime-connection', () => ({
   getInstanceBasicAuth: auth,
   getInstanceUrl: (_slug: string, baseUrl?: string) => baseUrl ?? 'http://runtime',
@@ -15,10 +16,11 @@ function nativeSession(id = SESSION_ID) {
 
 type Request = { method?: string; path: string; query: URLSearchParams; body: unknown; signal?: AbortSignal | null }
 
-function transport(responses: Response[]) {
+function transport(responses: Response[], prompt = false) {
   const requests: Request[] = []
   const fetch = vi.fn(async (input: string | URL, options: RequestInit = {}) => {
     const url = new URL(input)
+    if (prompt && url.pathname === '/api/session/active') return Response.json({ data: {} })
     expect(new Headers(options.headers).get('Authorization')).toBe('Basic fixture-only')
     requests.push({ method: options.method, path: url.pathname, query: url.searchParams, body: typeof options.body === 'string' ? JSON.parse(options.body) : undefined, signal: options.signal })
     const response = responses.shift()
@@ -91,7 +93,7 @@ describe('V2 adapter with the real matched HTTP client', () => {
     const { requests } = transport([
       Response.json({ data: nativeSession() }), empty(), empty(),
       Response.json({ data: { id: 'msg_fixture_caller', type: 'user', text: 'one\n\ntwo' } }),
-    ])
+    ], true)
     const signal = new AbortController().signal
     expect(await createOpenCodeV2Runtime('alice').prompt({ sessionId: SESSION_ID, messageId: 'msg_fixture_caller', agent: 'alternate', model: { providerId: 'fixture', modelId: 'alternate' }, parts: [{ type: 'text', text: 'one' }, { type: 'text', text: 'two' }] }, { signal })).toEqual({ ok: true, data: undefined })
     expect(requests.map(({ method, path, body }) => ({ method, path, body }))).toEqual([
@@ -103,8 +105,20 @@ describe('V2 adapter with the real matched HTTP client', () => {
     expect(requests.every((request) => request.signal === signal)).toBe(true)
   })
 
+  it('forwards snapshot cancellation through session lookup, inbox and every message page', async () => {
+    const { requests } = transport([
+      Response.json({ data: nativeSession() }), Response.json({ data: [] }),
+      Response.json({ data: [userSnapshot], cursor: { next: 'last', previous: null } }),
+      Response.json({ data: [assistantSnapshot], cursor: { next: null, previous: null } }),
+    ])
+    const signal = new AbortController().signal
+    expect(await createOpenCodeV2Runtime('alice').listMessages(SESSION_ID, { signal })).toMatchObject({ ok: true })
+    expect(requests).toHaveLength(4)
+    expect(requests.every((request) => request.signal === signal)).toBe(true)
+  })
+
   it('does not switch an already selected agent/model', async () => {
-    const { requests } = transport([Response.json({ data: nativeSession() }), Response.json({ data: { id: 'msg_fixture_caller' } })])
+    const { requests } = transport([Response.json({ data: nativeSession() }), Response.json({ data: { id: 'msg_fixture_caller' } })], true)
     expect(await createOpenCodeV2Runtime('alice').prompt({ sessionId: SESSION_ID, agent: 'probe', model: { providerId: 'fixture', modelId: 'fixture' }, parts: [{ type: 'text', text: 'hello' }] })).toEqual({ ok: true, data: undefined })
     expect(requests.map(({ path }) => path)).toEqual([`/api/session/${SESSION_ID}`, `/api/session/${SESSION_ID}/prompt`])
   })
@@ -113,19 +127,19 @@ describe('V2 adapter with the real matched HTTP client', () => {
     const { requests } = transport([
       Response.json({ data: nativeSession() }),
       Response.json({ _tag: 'AgentNotFoundError', message: 'Unknown agent' }, { status: 404 }),
-    ])
+    ], true)
     expect(await createOpenCodeV2Runtime('alice').prompt({ sessionId: SESSION_ID, agent: 'missing', parts: [{ type: 'text', text: 'hello' }] })).toMatchObject({ ok: false, error: { code: 'runtime_error', detail: 'Unknown agent' } })
     expect(requests.map(({ path }) => path)).toEqual([`/api/session/${SESSION_ID}`, `/api/session/${SESSION_ID}/agent`])
   })
 
   it('maps the canonical Fireworks selection back to the verified native provider ID', async () => {
-    const { requests } = transport([Response.json({ data: nativeSession() }), empty(), Response.json({ data: { id: 'msg_fixture_caller' } })])
+    const { requests } = transport([Response.json({ data: nativeSession() }), empty(), Response.json({ data: { id: 'msg_fixture_caller' } })], true)
     expect(await createOpenCodeV2Runtime('alice').prompt({ sessionId: SESSION_ID, model: { providerId: 'fireworks', modelId: 'fixture' }, parts: [{ type: 'text', text: 'hello' }] })).toEqual({ ok: true, data: undefined })
     expect(requests[1]).toMatchObject({ path: `/api/session/${SESSION_ID}/model`, body: { model: { providerID: 'fireworks-ai', id: 'fixture' } } })
   })
 
   it('does not switch an already selected native Fireworks model when the UI sends its canonical ID', async () => {
-    const { requests } = transport([Response.json({ data: { ...nativeSession(), model: { providerID: 'fireworks-ai', id: 'fixture' } } }), Response.json({ data: { id: 'msg_fixture_caller' } })])
+    const { requests } = transport([Response.json({ data: { ...nativeSession(), model: { providerID: 'fireworks-ai', id: 'fixture' } } }), Response.json({ data: { id: 'msg_fixture_caller' } })], true)
     expect(await createOpenCodeV2Runtime('alice').prompt({ sessionId: SESSION_ID, model: { providerId: 'fireworks', modelId: 'fixture' }, parts: [{ type: 'text', text: 'hello' }] })).toEqual({ ok: true, data: undefined })
     expect(requests.map(({ path }) => path)).toEqual([`/api/session/${SESSION_ID}`, `/api/session/${SESSION_ID}/prompt`])
   })
@@ -145,7 +159,7 @@ describe('V2 adapter with the real matched HTTP client', () => {
   })
 
   it('submits no-reply input with resume disabled so it stays queued and undelivered', async () => {
-    const { requests } = transport([Response.json({ data: nativeSession() }), Response.json({ data: { id: 'msg_note', type: 'user' } })])
+    const { requests } = transport([Response.json({ data: nativeSession() }), Response.json({ data: { id: 'msg_note', type: 'user' } })], true)
     expect(await createOpenCodeV2Runtime('alice').prompt({ sessionId: SESSION_ID, messageId: 'msg_note', noReply: true, parts: [{ type: 'text', text: 'context only' }] })).toEqual({ ok: true, data: undefined })
     expect(requests[1]).toMatchObject({ method: 'POST', path: `/api/session/${SESSION_ID}/prompt`, body: { id: 'msg_note', text: 'context only', resume: false } })
   })
@@ -174,7 +188,7 @@ describe('V2 adapter with the real matched HTTP client', () => {
   })
 
   it('submits verified workspace and inline attachments without dropping names, URIs, text or caller identity', async () => {
-    const { requests } = transport([Response.json({ data: nativeSession() }), Response.json({ data: { id: 'msg_files' } })])
+    const { requests } = transport([Response.json({ data: nativeSession() }), Response.json({ data: { id: 'msg_files' } })], true)
     const files = [
       { mime: 'text/plain', filename: 'note ü.txt', url: 'file:///workspace/context/note%20%C3%BC.txt' },
       { mime: 'application/x-directory', filename: 'context', url: 'file:///workspace/context' },
@@ -201,13 +215,13 @@ describe('V2 adapter with the real matched HTTP client', () => {
     ['data:image/svg+xml;base64,aW1hZ2U=', 'image/svg+xml'],
     ['data:text/plain,inline', 'text/plain'],
   ])('rejects out-of-workspace or non-V1 file input %s (%s) before selection or prompt mutation', async (url, mime) => {
-    const { requests } = transport([Response.json({ data: nativeSession() })])
+    const { requests } = transport([Response.json({ data: nativeSession() })], true)
     expect(await createOpenCodeV2Runtime('alice').prompt({ sessionId: SESSION_ID, agent: 'alternate', parts: [{ type: 'file', mime, url }] })).toMatchObject({ ok: false, error: { code: 'runtime_unsupported' } })
     expect(requests).toHaveLength(1)
   })
 
   it('accepts every file part the V1 prompt builder emits', async () => {
-    const { requests } = transport([Response.json({ data: nativeSession() }), Response.json({ data: { id: 'msg_files' } })])
+    const { requests } = transport([Response.json({ data: nativeSession() }), Response.json({ data: { id: 'msg_files' } })], true)
     const files = [
       ...['image/jpeg', 'image/png', 'image/gif', 'image/webp'].map((mime) => ({ mime, filename: `inline.${mime.slice(6)}`, url: `data:${mime};base64,aW1hZ2U=` })),
       ...[

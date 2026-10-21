@@ -5,7 +5,6 @@ import { join } from 'path'
 import { getRuntimeResourceCandidate, type RuntimeBinaryName } from '@arche/desktop-runtime/binaries'
 
 import { buildProviderGatewayConfig } from '@/lib/providers/catalog'
-import { buildWorkspaceRuntimeConfig } from '@/lib/spawner/runtime-artifacts'
 
 const DEFAULT_NEXT_PORT = 3000
 const DEFAULT_USERNAME = 'opencode'
@@ -55,12 +54,6 @@ function getDesktopArcheToolsDir(): string {
 export function getDesktopArcheToolsCommand(): string[] {
   const nodeBinary = process.env.ARCHE_NODE_BIN ?? resolveBundledBinary('node') ?? 'node'
   return [nodeBinary, join(getDesktopArcheToolsDir(), 'server.js')]
-}
-
-export async function buildDesktopOpencodeConfig(slug: string): Promise<Record<string, unknown>> {
-  return buildWorkspaceRuntimeConfig(slug, getDesktopProviderGatewayConfig(), undefined, undefined, {
-    archeToolsCommand: getDesktopArcheToolsCommand(),
-  })
 }
 
 export function makeAuthHeader(username: string, password: string): string {

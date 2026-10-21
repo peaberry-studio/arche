@@ -256,7 +256,13 @@ export async function ensureWorkspaceRunningForExecution(
     throw new Error('instance_start_timeout')
   }
 
-  const startResult = await startWorkspace(slug, userId)
+  let startResult = await startWorkspace(slug, userId)
+  const deadline = Date.now() + RUN_TIMEOUT_MS
+  while (!startResult.ok && startResult.error === 'runtime_upgrade_pending') {
+    await sleep(INSTANCE_START_POLL_INTERVAL_MS)
+    if (Date.now() >= deadline) throw new Error('instance_start_timeout')
+    startResult = await startWorkspace(slug, userId)
+  }
   if (!startResult.ok && startResult.error !== 'already_running') {
     throw new Error(startResult.detail ?? startResult.error)
   }
@@ -390,7 +396,7 @@ export async function abortSessionFamilyAndConfirmIdle(params: {
         params.client.abortSession(sessionId),
         deadline,
       )
-      if (result && !result.ok && result.error.code === EXECUTION_TERMINATION_UNCONFIRMED_ERROR) unconfirmedAborts.add(sessionId)
+      if (!result || (!result.ok && result.error.code !== 'session_not_found')) unconfirmedAborts.add(sessionId)
       else unconfirmedAborts.delete(sessionId)
     }
   }

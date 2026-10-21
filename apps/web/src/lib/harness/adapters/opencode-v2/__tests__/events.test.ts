@@ -162,7 +162,7 @@ describe('v2 synchronous event translation', () => {
 
   it('retains partial step/tool updates until a reconnect snapshot supplies missing identity', () => {
     const store = apply(toolEvents.slice(2))
-    expect(store.pendingUpdates?.[TOOL_MESSAGE_ID]).toHaveLength(2)
+    expect(store.pendingUpdates?.[TOOL_MESSAGE_ID]).toHaveLength(1)
     const snapshot = toHarnessMessage({ ...toolSnapshot, sessionID: TOOL_SESSION_ID, finish: undefined, cost: undefined, tokens: undefined,
       time: { created: toolSnapshot.time.created }, content: [{ ...toolSnapshot.content[0], state: { status: 'running', input: { path: '/workspace/sample.txt' }, metadata: {} } }] })
     if (!snapshot) throw new Error('Invalid fixture')

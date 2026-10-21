@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
+import { renderRuntimeConfig } from '@/lib/harness/registry'
+import { createRuntimeConfigModel } from '@/lib/harness/runtime-config'
 import { KNOWLEDGE_CURATOR_SYSTEM_INSTRUCTIONS } from '@/lib/learning/curator-prompt'
 import {
   applyAgentExecutionGuards,
-  applyDefaultAgentModel,
-  denyAgentKnowledgeWrites,
   injectAgentKnowledgePolicy,
   injectAgentToolCallerIdentity,
   injectCustomConnectorHints,
@@ -123,65 +123,6 @@ describe('applyAgentExecutionGuards', () => {
     const agents = result.agent as Record<string, Record<string, unknown>>
 
     expect(agents.worker.prompt).toBe('Handle work.')
-  })
-})
-
-describe('applyDefaultAgentModel', () => {
-  it('injects default_model into agents without model', () => {
-    const config = {
-      default_model: 'openai/gpt-5.5',
-      agent: {
-        assistant: { mode: 'primary' },
-      },
-    }
-
-    const result = applyDefaultAgentModel(config)
-    const agents = result.agent as Record<string, Record<string, unknown>>
-
-    expect(agents.assistant.model).toBe('openai/gpt-5.5')
-    expect(result.default_model).toBeUndefined()
-  })
-
-  it('preserves explicit agent model overrides', () => {
-    const config = {
-      default_model: 'openai/gpt-5.5',
-      agent: {
-        assistant: { mode: 'primary', model: 'anthropic/claude-sonnet-4' },
-      },
-    }
-
-    const result = applyDefaultAgentModel(config)
-    const agents = result.agent as Record<string, Record<string, unknown>>
-    expect(agents.assistant.model).toBe('anthropic/claude-sonnet-4')
-    expect(result.default_model).toBeUndefined()
-  })
-
-  it('returns config unchanged without default_model', () => {
-    const config = {
-      agent: {
-        assistant: { mode: 'primary' },
-      },
-    }
-
-    const result = applyDefaultAgentModel(config)
-    expect(result).toBe(config)
-  })
-
-  it('preserves non-record agent entries', () => {
-    const config = {
-      default_model: 'openai/gpt-5.5',
-      agent: {
-        assistant: null,
-        helper: { mode: 'subagent' },
-      },
-    }
-
-    const result = applyDefaultAgentModel(config)
-    const agents = result.agent as Record<string, Record<string, unknown> | null>
-
-    expect(agents.assistant).toBeNull()
-    expect(agents.helper?.model).toBe('openai/gpt-5.5')
-    expect(result.default_model).toBeUndefined()
   })
 })
 
@@ -482,72 +423,6 @@ describe('materializeAgentToolMaps', () => {
     }
     const result = materializeAgentToolMaps(config)
     expect(result).toBe(config)
-  })
-})
-
-describe('denyAgentKnowledgeWrites', () => {
-  it('disables write and edit while preserving explicit tool maps', () => {
-    const result = denyAgentKnowledgeWrites({
-      agent: {
-        assistant: {
-          tools: {
-            bash: true,
-            edit: true,
-            learning_propose: true,
-            read: true,
-            write: true,
-          },
-        },
-      },
-    })
-    const tools = (result.agent as Record<string, Record<string, Record<string, boolean>>>).assistant.tools
-
-    expect(tools).toEqual({
-      bash: true,
-      edit: false,
-      learning_propose: true,
-      read: true,
-      write: false,
-    })
-  })
-
-  it('materializes the full tool set for all-mode and missing tool configs', () => {
-    const result = denyAgentKnowledgeWrites({
-      agent: {
-        allMode: { tools: 'all' },
-        implicit: {},
-      },
-    })
-    const agents = result.agent as Record<string, Record<string, Record<string, boolean>>>
-
-    expect(agents.allMode.tools).toEqual(agents.implicit.tools)
-    // Legacy 'all'/missing-tool configs keep the sanctioned proposal path
-    // (learning_propose), skills, always-on tools, and MCP connector access;
-    // only write/edit are flipped off.
-    expect(agents.allMode.tools).toMatchObject({
-      'arche_*': true,
-      bash: true,
-      arche_tools_chart_create: true,
-      arche_tools_diagram_create: true,
-      edit: false,
-      arche_tools_email_draft: true,
-      arche_tools_flow_propose: true,
-      arche_tools_learning_propose: true,
-      read: true,
-      arche_tools_session_history_query: true,
-      skill: true,
-      write: false,
-    })
-  })
-
-  it('leaves non-record agents alone', () => {
-    const result = denyAgentKnowledgeWrites({
-      agent: {
-        unavailable: null,
-      },
-    })
-
-    expect(result.agent).toEqual({ unavailable: null })
   })
 })
 
@@ -1232,15 +1107,6 @@ describe('injectSystemKnowledgeCuratorAgent', () => {
     expect(tools.read).toBe(true)
   })
 
-  it('leaves write/edit off when the transform runs before denyAgentKnowledgeWrites', () => {
-    const result = denyAgentKnowledgeWrites(injectSystemKnowledgeCuratorAgent({ agent: {} }))
-    const curator = (result.agent as Record<string, Record<string, unknown>>)['knowledge-curator']
-    const tools = curator.tools as Record<string, boolean>
-
-    expect(tools.write).toBe(false)
-    expect(tools.edit).toBe(false)
-  })
-
   it('replaces a stale stored curator prompt with the canonical persona', () => {
     const config = {
       agent: {
@@ -1387,12 +1253,13 @@ function runFullTransformPipeline(
   next = injectSystemSkillAccess(next, ['arche-flow-authoring'])
   next = injectSystemKnowledgeCuratorAgent(next)
   next = remapAgentBuiltInTools(next)
-  next = applyDefaultAgentModel(next)
   next = applyAgentExecutionGuards(next)
   next = injectSelfDelegationGuards(next)
   next = injectAgentToolCallerIdentity(next)
   next = injectAgentKnowledgePolicy(next)
-  return denyAgentKnowledgeWrites(next)
+  const rendered = renderRuntimeConfig(createRuntimeConfigModel(next))
+  if (!rendered.ok) throw new Error(rendered.error.message)
+  return rendered.data.config
 }
 
 describe('full transform pipeline (runtime-only guarantees)', () => {
@@ -1425,27 +1292,13 @@ describe('full transform pipeline (runtime-only guarantees)', () => {
 
     expect(serializeRuntimeConfig(firstRun)).toBe(serializeRuntimeConfig(secondRun))
 
-    const agents = firstRun.agent as Record<string, Record<string, unknown>>
+    const agents = firstRun.agents as Record<string, Record<string, unknown>>
     for (const [agentId, agent] of Object.entries(agents)) {
-      const prompt = typeof agent.prompt === 'string' ? agent.prompt : ''
+      const prompt = typeof agent.system === 'string' ? agent.system : ''
       expect(prompt.split(AGENT_KB_POLICY_PROMPT_BLOCK), agentId).toHaveLength(2)
       expect(prompt.endsWith(AGENT_KB_POLICY_PROMPT_BLOCK), agentId).toBe(true)
     }
-    expect((agents.assistant.prompt as string).startsWith('Primary prompt.')).toBe(true)
+    expect((agents.assistant.system as string).startsWith('Primary prompt.')).toBe(true)
   })
 
-  it('keeps write/edit denied and leaves the policy block intact after denyAgentKnowledgeWrites', () => {
-    const result = runFullTransformPipeline({
-      default_agent: 'assistant',
-      agent: {
-        assistant: { mode: 'primary', tools: 'all' },
-      },
-    })
-    const agents = result.agent as Record<string, Record<string, unknown>>
-    const tools = agents.assistant.tools as Record<string, boolean>
-
-    expect(tools.write).toBe(false)
-    expect(tools.edit).toBe(false)
-    expect((agents.assistant.prompt as string).endsWith(AGENT_KB_POLICY_PROMPT_BLOCK)).toBe(true)
-  })
 })

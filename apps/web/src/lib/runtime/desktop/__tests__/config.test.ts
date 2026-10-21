@@ -36,7 +36,6 @@ describe('desktop runtime config', () => {
     process.env = originalEnv
     setResourcesPath(originalResourcesPath)
     vi.doUnmock('fs')
-    vi.doUnmock('@/lib/spawner/runtime-artifacts')
     vi.resetModules()
   })
 
@@ -117,29 +116,6 @@ describe('desktop runtime config', () => {
       '/custom runtime/node',
       '/custom runtime/arche-tools/server.js',
     ])
-  })
-
-  it('builds desktop opencode config with the desktop provider gateway', async () => {
-    const buildWorkspaceRuntimeConfig = vi.fn((slug: string, providerConfig: Record<string, unknown>) => ({
-      providerConfig,
-      slug,
-    }))
-    vi.doMock('@/lib/spawner/runtime-artifacts', () => ({ buildWorkspaceRuntimeConfig }))
-    process.env.ARCHE_DESKTOP_WEB_PORT = '4123'
-    process.env.ARCHE_TOOLS_DIR = '/bundle/arche-tools'
-    process.env.ARCHE_NODE_BIN = '/bundle/node'
-
-    const { buildDesktopOpencodeConfig } = await import('@/lib/runtime/desktop/config')
-
-    await expect(buildDesktopOpencodeConfig('alice')).resolves.toMatchObject({ slug: 'alice' })
-    expect(buildWorkspaceRuntimeConfig).toHaveBeenCalledWith(
-      'alice',
-      expect.objectContaining({ provider: expect.any(Object) }),
-      undefined,
-      undefined,
-      { archeToolsCommand: ['/bundle/node', '/bundle/arche-tools/server.js'] },
-    )
-    expect(JSON.stringify(buildWorkspaceRuntimeConfig.mock.calls[0]?.[1])).toContain('127.0.0.1:4123')
   })
 
   it('detects workspace-agent on PATH when no bundled binary exists', async () => {
