@@ -153,6 +153,8 @@ const mockSync = vi.mocked(syncRuntimeProviderAccess)
 
 beforeEach(async () => {
   vi.clearAllMocks()
+  // Lifecycle tests run on V1 so archive-on-switch stays out of them; V2 tests stub their own kind.
+  vi.stubEnv('ARCHE_DEFAULT_RUNTIME_KIND', 'opencode-v1')
   if (snapshotRepoDir) {
     await fs.rm(snapshotRepoDir, { recursive: true, force: true })
   }
@@ -260,6 +262,34 @@ describe('startInstance', () => {
       expect(mockInstance.setContainerId.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(checkRuntimeHealth).mock.invocationCallOrder[0])
       expect(mockInstance.setRunningIfCurrentContainer).toHaveBeenCalledWith('alice', 'container-v1', expect.any(String), 'opencode-v1')
     } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it.each([
+    { name: 'a new workspace', existing: null },
+    { name: 'a stopped V1 workspace', existing: { id: '1', slug: 'alice', status: 'stopped', containerId: null, serverPassword: 'enc', runtimeKind: null } },
+  ])('starts $name on V1 without archiving when V2 cannot express its config', async ({ existing }) => {
+    vi.stubEnv('ARCHE_DEFAULT_RUNTIME_KIND', 'opencode-v2')
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      await writeSnapshotRepoFile('CommonWorkspaceConfig.json', JSON.stringify({ default_agent: 'assistant', agent: { assistant: { mode: 'primary', color: 'red' } } }))
+      mockInstance.findBySlug.mockResolvedValue(existing as never)
+      mockInstance.claimStartingTransition.mockResolvedValue({ count: 1 })
+      mockInstance.continueStartingTransition.mockResolvedValue({ count: 1 })
+      mockInstance.upsertStarting.mockResolvedValue({} as never)
+      mockInstance.setContainerId.mockResolvedValue({} as never)
+      mockUser.findIdentityBySlug.mockResolvedValue(null)
+      mockDocker.createContainer.mockResolvedValue({ id: 'container-v1' } as never)
+      mockDocker.startContainer.mockResolvedValue(undefined)
+      mockDocker.isContainerRunning.mockResolvedValue(true)
+
+      // The docker mock has no archive helpers: reaching the archive step would fail the start.
+      await expect(startInstance('alice', 'user-1')).resolves.toEqual({ ok: true, status: 'running' })
+      expect(mockInstance.setContainerId).toHaveBeenCalledWith('alice', 'container-v1', 'opencode-v1')
+      expect(warn).toHaveBeenCalledWith('[spawner] Runtime config unsupported; starting V1', expect.objectContaining({ slug: 'alice', runtimeKind: 'opencode-v2' }))
+    } finally {
+      warn.mockRestore()
       vi.unstubAllEnvs()
     }
   })

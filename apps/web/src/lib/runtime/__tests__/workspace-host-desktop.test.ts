@@ -72,6 +72,9 @@ vi.mock('@/lib/runtime/paths', () => ({
   getKbContentRoot: vi.fn(() => '/tmp/arche/kb-content'),
 }))
 
+const mockCreateWorkspaceAgentClient = vi.hoisted(() => vi.fn())
+vi.mock('@/lib/workspace-agent/client', () => ({ createWorkspaceAgentClient: mockCreateWorkspaceAgentClient }))
+
 vi.mock('@/lib/services', () => ({
   instanceService: {
     upsertStarting: vi.fn().mockResolvedValue(undefined),
@@ -406,6 +409,24 @@ describe('desktopWorkspaceHost', () => {
     })
     return { build }
   }
+
+  it('starts V1 without archiving when V2 cannot express the vault config', async () => {
+    const { build } = await prepareFutureV2()
+    const { RuntimeConfigRenderError } = await import('@/lib/harness/runtime-config')
+    build.mockImplementation(async (_slug, _gateway, options) => {
+      if (options?.runtimeKind === 'opencode-v2') throw new RuntimeConfigRenderError({ code: 'runtime_config_unsupported', path: 'agents.assistant.color', message: 'Unsupported configuration' })
+      return { owner: null, skills: [], opencodeConfigContent: '{"agent":{}}' }
+    })
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    mockSpawn.mockReturnValueOnce(makeChildProcess()).mockReturnValueOnce(makeChildProcess())
+    const { desktopWorkspaceHost } = await import('@/lib/runtime/workspace-host-desktop')
+    const { instanceService } = await import('@/lib/services')
+
+    await expect(desktopWorkspaceHost.start('local', 'user-1')).resolves.toEqual({ ok: true, status: 'started' })
+    expect(mockArchiveDesktopLegacySessions).not.toHaveBeenCalled()
+    expect(mockSpawn.mock.calls[0][0]).toBe('opencode-v1')
+    expect(instanceService.setRuntimeKindIfCurrentDesktopStart).toHaveBeenCalledWith('local', expect.any(Date), 'opencode-v1')
+  })
 
   it('archives before selecting V2, keeps legacy data intact and records the kind before health', async () => {
     const { build } = await prepareFutureV2()
@@ -1023,6 +1044,17 @@ describe('desktopWorkspaceHost', () => {
     const conn = await desktopWorkspaceHost.getAgentConnection('local')
     expect(conn).not.toBeNull()
     expect(conn!.baseUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/)
+  })
+
+  it('resolves the agent from the stored instance when this module copy did not start the runtime', async () => {
+    const connection = { baseUrl: 'http://127.0.0.1:4097', authHeader: 'Basic stored' }
+    mockCreateWorkspaceAgentClient.mockResolvedValue(connection)
+    process.env.ARCHE_DESKTOP_WORKSPACE_AGENT_PORT = '4097'
+
+    const { desktopWorkspaceHost } = await import('../workspace-host-desktop')
+
+    expect(await desktopWorkspaceHost.getAgentConnection('local')).toEqual(connection)
+    expect(mockCreateWorkspaceAgentClient).toHaveBeenCalledWith('local')
   })
 
   it('returns null connections for stopped workspace', async () => {

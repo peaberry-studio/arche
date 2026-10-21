@@ -1,6 +1,7 @@
 import type { HarnessHealthOptions, HarnessRuntime } from '@/lib/harness/contract'
 import { abortSessionFamilyAndConfirmIdle } from '@/lib/harness/execution'
 import { exportLegacySessions } from '@/lib/harness/legacy-session-archive'
+import { RuntimeConfigRenderError } from '@/lib/harness/runtime-config'
 import {
   checkRuntimeHealth,
   checkRuntimeStartupSupport,
@@ -129,6 +130,23 @@ export async function startInstance(
   if (!startupSupport.ok) {
     return { ok: false, error: 'runtime_unsupported', detail: startupSupport.error.detail }
   }
+  // A config the newer runtime cannot express must not strand a workspace that
+  // is not on it yet (archiving its history, then failing every start): stay on V1.
+  let prepared: { kind: string; artifacts: Awaited<ReturnType<typeof buildWorkspaceRuntimeArtifacts>> } | null = null
+  const recordedKind = existing ? existing.runtimeKind ?? 'opencode-v1' : null
+  if (selectedKind !== 'opencode-v1' && recordedKind !== selectedKind) {
+    try {
+      prepared = { kind: selectedKind, artifacts: await buildWorkspaceRuntimeArtifacts(slug, getWebProviderGatewayConfig(), { runtimeKind: selectedKind }) }
+    } catch (error) {
+      if (error instanceof RuntimeConfigRenderError) {
+        console.warn('[spawner] Runtime config unsupported; starting V1', { slug, runtimeKind: selectedKind, detail: error.message })
+        selectedKind = 'opencode-v1'
+        selectedRuntime = getRuntimeForKind(slug, selectedKind)
+        if (!selectedRuntime.ok) return { ok: false, error: 'runtime_unsupported', detail: selectedRuntime.error.detail }
+      }
+      // Other failures surface from the regular render below, with attempt cleanup.
+    }
+  }
   const password = generatePassword()
   const encryptedPassword = encryptPassword(password)
   let ownedStartedAt = new Date()
@@ -183,7 +201,9 @@ export async function startInstance(
   let containerId: string | null = null
 
   try {
-    const artifacts = await buildWorkspaceRuntimeArtifacts(slug, getWebProviderGatewayConfig(), { runtimeKind: selectedKind })
+    const artifacts = prepared?.kind === selectedKind
+      ? prepared.artifacts
+      : await buildWorkspaceRuntimeArtifacts(slug, getWebProviderGatewayConfig(), { runtimeKind: selectedKind })
     const appliedConfigSha = hashWorkspaceRuntimeArtifacts(artifacts)
     const { owner, opencodeConfigContent, agentsMd, skills } = artifacts
 

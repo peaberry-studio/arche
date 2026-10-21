@@ -6,6 +6,7 @@ import { findAvailablePort } from '@arche/desktop-runtime/network'
 
 import { isE2eFakeRuntimeEnabled } from '@/lib/e2e/runtime'
 import { checkRuntimeStartupSupport, syncRuntimeProviderAccess } from '@/lib/harness/registry'
+import { RuntimeConfigRenderError } from '@/lib/harness/runtime-config'
 import {
   DEFAULT_USERNAME,
   LOOPBACK_HOST,
@@ -40,6 +41,7 @@ import {
   buildWorkspaceRuntimeArtifacts,
   hashWorkspaceRuntimeArtifacts,
 } from '@/lib/spawner/runtime-artifacts'
+import { createWorkspaceAgentClient } from '@/lib/workspace-agent/client'
 
 // Re-export for consumers that import from this module
 export { getOpencodeBinary, getWorkspaceAgentBinary }
@@ -384,6 +386,18 @@ async function startDesktopWorkspace(
   const startedAt = new Date()
   await instanceService.upsertStarting(slug, encryptedPassword, startedAt)
   try {
+    // A config the newer runtime cannot express must not strand a vault that is
+    // not on it yet (archiving its history, then failing every start): stay on V1.
+    let prepared: { kind: string; artifacts: DesktopRuntimeArtifacts } | null = null
+    if (runtimeKind !== 'opencode-v1' && previous?.runtimeKind !== runtimeKind) {
+      try {
+        prepared = { kind: runtimeKind, artifacts: await buildDesktopRuntimeArtifacts(slug, runtimeKind) }
+      } catch (error) {
+        if (!(error instanceof RuntimeConfigRenderError)) throw error
+        console.warn('[desktop-runtime] Runtime config unsupported; starting V1', { slug, runtimeKind, detail: error.message })
+        runtimeKind = 'opencode-v1'
+      }
+    }
     if (runtimeKind !== 'opencode-v1' && (previous?.runtimeKind ?? 'opencode-v1') === 'opencode-v1') {
       const archived = await withHistoryMigrationProgress(slug, () => archiveDesktopLegacySessions({
         slug,
@@ -403,7 +417,7 @@ async function startDesktopWorkspace(
       }
     }
     const archeDataDir = getArcheOpencodeDataDir(runtimeKind)
-    const artifacts = await buildDesktopRuntimeArtifacts(slug, runtimeKind)
+    const artifacts = prepared?.kind === runtimeKind ? prepared.artifacts : await buildDesktopRuntimeArtifacts(slug, runtimeKind)
     const appliedConfigSha = hashWorkspaceRuntimeArtifacts(artifacts)
     const opencodeConfigContent = artifacts.opencodeConfigContent
     const runtimeSkillDir = runtimeKind === 'opencode-v2'
@@ -680,7 +694,13 @@ const desktopWorkspaceHostReal: WorkspaceHost = {
 
   async getAgentConnection(slug: string): Promise<WorkspaceHostConnection | null> {
     const runtime = runtimes.get(slug)
-    if (!runtime || runtime.state !== 'running') {
+    // Route handlers can load their own copy of this module without the runtime
+    // map; the agent port env and the stored password are process-wide.
+    if (!runtime) {
+      return process.env[DESKTOP_WORKSPACE_AGENT_PORT_ENV] ? createWorkspaceAgentClient(slug) : null
+    }
+
+    if (runtime.state !== 'running') {
       return null
     }
 
