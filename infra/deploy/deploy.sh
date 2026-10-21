@@ -207,6 +207,9 @@ ENVIRONMENT VARIABLES (via .env or exported):
   ARCHE_GATEWAY_BASE_URL    Gateway base URL (optional)
   ARCHE_PUBLIC_BASE_URL     Public callback base URL (optional)
   ARCHE_SESSION_TTL_DAYS    Session TTL in days (optional)
+  ARCHE_IDLE_TIMEOUT_MINUTES Minimum idle minutes before the reaper may stop a workspace (optional)
+  ARCHE_REAPER_MIN_AVAILABLE_MEMORY_PERCENT Stop idle workspaces below this % of free host memory (optional)
+  ARCHE_REAPER_MIN_AVAILABLE_MEMORY_MB Also stop them below this many MB of free memory (optional)
   ARCHE_CONNECTOR_GATEWAY_BASE_URL Connector gateway base URL (optional)
   ARCHE_CONNECTOR_GATEWAY_TOKEN_SECRET Connector gateway token secret (optional)
   ARCHE_CONNECTOR_*         Connector-specific OAuth/MCP overrides (optional)
@@ -602,6 +605,9 @@ vars = {
     "arche_gateway_base_url": os.environ.get("ARCHE_GATEWAY_BASE_URL", ""),
     "arche_public_base_url": os.environ.get("ARCHE_PUBLIC_BASE_URL", ""),
     "arche_session_ttl_days": os.environ.get("ARCHE_SESSION_TTL_DAYS", ""),
+    "arche_idle_timeout_minutes": os.environ.get("ARCHE_IDLE_TIMEOUT_MINUTES", ""),
+    "arche_reaper_min_available_memory_percent": os.environ.get("ARCHE_REAPER_MIN_AVAILABLE_MEMORY_PERCENT", ""),
+    "arche_reaper_min_available_memory_mb": os.environ.get("ARCHE_REAPER_MIN_AVAILABLE_MEMORY_MB", ""),
     "arche_connector_gateway_base_url": os.environ.get("ARCHE_CONNECTOR_GATEWAY_BASE_URL", ""),
     "arche_connector_gateway_token_secret": os.environ.get("ARCHE_CONNECTOR_GATEWAY_TOKEN_SECRET", ""),
     "arche_connector_oauth_state_ttl_seconds": os.environ.get("ARCHE_CONNECTOR_OAUTH_STATE_TTL_SECONDS", ""),
@@ -792,6 +798,9 @@ vars = {
     "arche_gateway_base_url": os.environ.get("ARCHE_GATEWAY_BASE_URL", ""),
     "arche_public_base_url": os.environ.get("ARCHE_PUBLIC_BASE_URL", ""),
     "arche_session_ttl_days": os.environ.get("ARCHE_SESSION_TTL_DAYS", ""),
+    "arche_idle_timeout_minutes": os.environ.get("ARCHE_IDLE_TIMEOUT_MINUTES", ""),
+    "arche_reaper_min_available_memory_percent": os.environ.get("ARCHE_REAPER_MIN_AVAILABLE_MEMORY_PERCENT", ""),
+    "arche_reaper_min_available_memory_mb": os.environ.get("ARCHE_REAPER_MIN_AVAILABLE_MEMORY_MB", ""),
     "arche_connector_gateway_base_url": os.environ.get("ARCHE_CONNECTOR_GATEWAY_BASE_URL", ""),
     "arche_connector_gateway_token_secret": os.environ.get("ARCHE_CONNECTOR_GATEWAY_TOKEN_SECRET", ""),
     "arche_connector_oauth_state_ttl_seconds": os.environ.get("ARCHE_CONNECTOR_OAUTH_STATE_TTL_SECONDS", ""),

@@ -229,6 +229,9 @@ No DNS provider token is required in direct mode. Traefik uses ACME HTTP challen
 | `PODMAN_SOCKET_PATH` | Auto-detected (see below) |
 | `ARCHE_PUBLIC_BASE_URL` | Derived from request origin unless set; in tunnel mode defaults to `https://<domain>` |
 | `ARCHE_SESSION_TTL_DAYS` | `7` |
+| `ARCHE_IDLE_TIMEOUT_MINUTES` | `120`: minimum idle time before the reaper may stop a workspace |
+| `ARCHE_REAPER_MIN_AVAILABLE_MEMORY_PERCENT` | `15`: the reaper only stops workspaces while available host memory is below this percentage |
+| `ARCHE_REAPER_MIN_AVAILABLE_MEMORY_MB` | Unset: optional absolute floor in MB, checked in addition to the percentage |
 | `ARCHE_USERS_PATH` | `/opt/arche/users` remote, `~/.arche/users` local-dev |
 | `KB_CONTENT_HOST_PATH` | `/opt/arche/kb-content` remote, `~/.arche/kb-content` local-dev |
 | `KB_CONFIG_HOST_PATH` | `/opt/arche/kb-config` remote, `~/.arche/kb-config` local-dev |

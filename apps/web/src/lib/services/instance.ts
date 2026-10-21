@@ -140,12 +140,14 @@ export function findActiveInstances(): Promise<InstanceActiveEntry[]> {
   })
 }
 
+// Longest idle first, so the reaper stops the least recently used instance.
 export function findIdleInstances(threshold: Date): Promise<InstanceRecord[]> {
   return prisma.instance.findMany({
     where: {
       status: 'running',
       lastActivityAt: { lt: threshold },
     },
+    orderBy: { lastActivityAt: 'asc' },
   })
 }
 

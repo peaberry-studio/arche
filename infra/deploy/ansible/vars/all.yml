@@ -43,6 +43,9 @@ arche_gateway_token_ttl_seconds: "{{ lookup('env', 'ARCHE_GATEWAY_TOKEN_TTL_SECO
 arche_gateway_base_url: "{{ lookup('env', 'ARCHE_GATEWAY_BASE_URL') | default('', true) }}"
 arche_public_base_url: "{{ lookup('env', 'ARCHE_PUBLIC_BASE_URL') | default('', true) }}"
 arche_session_ttl_days: "{{ lookup('env', 'ARCHE_SESSION_TTL_DAYS') | default('', true) }}"
+arche_idle_timeout_minutes: "{{ lookup('env', 'ARCHE_IDLE_TIMEOUT_MINUTES') | default('', true) }}"
+arche_reaper_min_available_memory_percent: "{{ lookup('env', 'ARCHE_REAPER_MIN_AVAILABLE_MEMORY_PERCENT') | default('', true) }}"
+arche_reaper_min_available_memory_mb: "{{ lookup('env', 'ARCHE_REAPER_MIN_AVAILABLE_MEMORY_MB') | default('', true) }}"
 
 # Connector overrides
 arche_connector_gateway_base_url: "{{ lookup('env', 'ARCHE_CONNECTOR_GATEWAY_BASE_URL') | default('', true) }}"

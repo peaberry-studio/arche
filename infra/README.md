@@ -142,6 +142,28 @@ folder where they read, write, edit files and run commands without asking:
   the workspace attachments, which the user can open and download) or as a
   Knowledge Base proposal with `arche_tools_learning_propose`.
 
+## Workspace lifecycle
+
+Workspaces stay running after users leave, so opening one is instant. The
+reaper (`src/reaper-daemon.ts`, a separate service in the Ansible and one-click
+deployments) only stops workspaces while the host is short on memory:
+
+1. Every 5 minutes it reads `MemAvailable` and `MemTotal` from `/proc/meminfo`,
+   which inside the reaper container reports the host shared by every workspace.
+2. Memory is low when available memory is below
+   `ARCHE_REAPER_MIN_AVAILABLE_MEMORY_PERCENT` (default `15`) of the total, or
+   below `ARCHE_REAPER_MIN_AVAILABLE_MEMORY_MB` when that optional floor is set.
+3. While memory is low, it stops the workspace idle the longest among those idle
+   for at least `ARCHE_IDLE_TIMEOUT_MINUTES` (default `120`), measures again,
+   and repeats, stopping at most 3 workspaces per run. A stopped workspace
+   starts again the next time it is opened.
+
+If memory is low but no workspace has been idle long enough, nothing is stopped
+and the reaper logs a warning. Each stop is recorded as an
+`instance.reaped_idle` audit event with `reason: memory_pressure`, the idle time
+and the measured memory. Coolify deployments run no reaper, so workspaces are
+never stopped there. Desktop runs no reaper either.
+
 ## Knowledge Base (KB)
 
 The system includes a shared Knowledge Base injected into each user workspace.

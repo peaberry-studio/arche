@@ -246,12 +246,13 @@ describe('instanceService', () => {
   })
 
   describe('findIdleInstances', () => {
-    it('queries running instances with old lastActivityAt', async () => {
+    it('queries running instances with old lastActivityAt, longest idle first', async () => {
       const threshold = new Date('2026-04-20T00:00:00Z')
       mockPrisma.instance.findMany.mockResolvedValue([])
       await findIdleInstances(threshold)
       expect(mockPrisma.instance.findMany).toHaveBeenCalledWith({
         where: { status: 'running', lastActivityAt: { lt: threshold } },
+        orderBy: { lastActivityAt: 'asc' },
       })
     })
   })
