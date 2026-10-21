@@ -48,10 +48,25 @@ export function getStartTimeoutMs(): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 120_000
 }
 
+// Minimum time an instance must be idle before the reaper may stop it. The
+// reaper only stops instances while the host is under memory pressure.
 export function getIdleTimeoutMinutes(): number {
   const raw = process.env.ARCHE_IDLE_TIMEOUT_MINUTES
   const parsed = raw ? Number(raw) : NaN
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 120
+}
+
+export function getReaperMinAvailableMemoryPercent(): number {
+  const raw = process.env.ARCHE_REAPER_MIN_AVAILABLE_MEMORY_PERCENT
+  const parsed = raw ? Number(raw) : NaN
+  return Number.isFinite(parsed) && parsed > 0 && parsed < 100 ? parsed : 15
+}
+
+// Optional absolute floor; unset means only the percentage applies.
+export function getReaperMinAvailableMemoryMb(): number | null {
+  const raw = process.env.ARCHE_REAPER_MIN_AVAILABLE_MEMORY_MB
+  const parsed = raw ? Number(raw) : NaN
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : null
 }
 
 export function getKbContentHostPath(): string {

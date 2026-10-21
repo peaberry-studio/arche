@@ -27,11 +27,22 @@ vi.mock('../docker', () => ({
   removeContainer: vi.fn(),
 }))
 
+const readHostMemory = vi.hoisted(() => vi.fn())
+vi.mock('@/lib/spawner/host-resources', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/spawner/host-resources')>()),
+  readHostMemory,
+}))
+
 import { preArchiveRunningV1Instances } from '@/lib/harness/legacy-session-archive'
 import { auditService, instanceService, messageRunService, rateLimitService } from '@/lib/services'
 import type { InstanceRecord } from '@/lib/services/instance'
 import * as docker from '../docker'
-import { getReaperStatus, reapExpiredRateLimitBuckets, reapIdleInstances, reapStaleMessageRuns, REAPER_INTERVAL_MS, startReaper, stopReaper } from '../reaper'
+import { getReaperStatus, MAX_REAPED_INSTANCES_PER_CYCLE, reapExpiredRateLimitBuckets, reapIdleInstances, reapStaleMessageRuns, REAPER_INTERVAL_MS, startReaper, stopReaper } from '../reaper'
+
+const GIB = 1024 * 1024 * 1024
+// 1 GiB of 16 GiB available (6%): below the default 15% floor.
+const LOW_MEMORY = { availableBytes: GIB, totalBytes: 16 * GIB, source: 'meminfo' as const }
+const HEALTHY_MEMORY = { availableBytes: 8 * GIB, totalBytes: 16 * GIB, source: 'meminfo' as const }
 
 const mockInstance = vi.mocked(instanceService)
 const mockMessageRun = vi.mocked(messageRunService)
@@ -53,6 +64,7 @@ beforeEach(() => {
   mockRateLimit.deleteExpiredRateLimitBuckets.mockResolvedValue({ count: 0 })
   mockInstance.claimStartingTransition.mockResolvedValue({ count: 1 })
   mockInstance.finishStoppingTransition.mockResolvedValue({ count: 1 })
+  readHostMemory.mockResolvedValue(LOW_MEMORY)
   vi.useFakeTimers()
   vi.setSystemTime(new Date('2026-10-20T12:00:00.000Z'))
 })
@@ -224,6 +236,84 @@ describe('reapIdleInstances', () => {
   })
 })
 
+describe('reapIdleInstances under the memory pressure policy', () => {
+  const candidate = (slug: string, idleHours: number): InstanceRecord => ({
+    ...idleCandidate,
+    id: `inst-${slug}`,
+    slug,
+    containerId: `${slug}-container`,
+    lastActivityAt: new Date(Date.now() - idleHours * 60 * 60 * 1000),
+  })
+
+  beforeEach(() => {
+    mockDocker.stopContainer.mockResolvedValue(undefined)
+    mockDocker.removeContainer.mockResolvedValue(undefined)
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('keeps every instance running while the host has memory to spare', async () => {
+    readHostMemory.mockResolvedValue(HEALTHY_MEMORY)
+
+    expect(await reapIdleInstances()).toBe(0)
+    expect(mockInstance.findIdleInstances).not.toHaveBeenCalled()
+    expect(mockDocker.stopContainer).not.toHaveBeenCalled()
+  })
+
+  it('only considers instances idle for at least the configured minimum', async () => {
+    vi.stubEnv('ARCHE_IDLE_TIMEOUT_MINUTES', '120')
+    mockInstance.findIdleInstances.mockResolvedValue([])
+
+    expect(await reapIdleInstances()).toBe(0)
+    expect(mockInstance.findIdleInstances).toHaveBeenCalledWith(new Date('2026-10-20T10:00:00.000Z'))
+    expect(console.warn).toHaveBeenCalledWith(
+      '[reaper] Host memory is low but no instance has been idle long enough to stop',
+      { availableMb: 1024, totalMb: 16384, minIdleMinutes: 120 },
+    )
+  })
+
+  it('stops the longest idle instance first and stops once memory recovers', async () => {
+    mockInstance.findIdleInstances.mockResolvedValue([candidate('oldest', 9), candidate('older', 5), candidate('recent', 3)])
+    readHostMemory.mockResolvedValueOnce(LOW_MEMORY).mockResolvedValueOnce(HEALTHY_MEMORY)
+
+    expect(await reapIdleInstances()).toBe(1)
+    expect(mockDocker.stopContainer).toHaveBeenCalledExactlyOnceWith('oldest-container')
+    expect(auditService.createEvent).toHaveBeenCalledExactlyOnceWith({
+      actorUserId: null,
+      action: 'instance.reaped_idle',
+      metadata: expect.objectContaining({ slug: 'oldest', reason: 'memory_pressure', idleMinutes: 540, availableMb: 1024, totalMb: 16384 }),
+    })
+  })
+
+  it('keeps stopping while the pressure lasts, up to the per-cycle cap', async () => {
+    const candidates = ['a', 'b', 'c', 'd', 'e'].map((slug, index) => candidate(slug, 10 - index))
+    mockInstance.findIdleInstances.mockResolvedValue(candidates)
+
+    expect(await reapIdleInstances()).toBe(MAX_REAPED_INSTANCES_PER_CYCLE)
+    expect(mockDocker.stopContainer.mock.calls.map(([id]) => id)).toEqual(['a-container', 'b-container', 'c-container'])
+    expect(readHostMemory).toHaveBeenCalledTimes(1 + MAX_REAPED_INSTANCES_PER_CYCLE)
+  })
+
+  it('applies the optional absolute floor even when the percentage looks healthy', async () => {
+    vi.stubEnv('ARCHE_REAPER_MIN_AVAILABLE_MEMORY_MB', '10240')
+    readHostMemory.mockResolvedValue(HEALTHY_MEMORY)
+    mockInstance.findIdleInstances.mockResolvedValue([candidate('oldest', 9)])
+
+    expect(await reapIdleInstances()).toBe(1)
+  })
+
+  it('does not re-measure or count an instance it could not stop', async () => {
+    mockInstance.findIdleInstances.mockResolvedValue([candidate('busy', 9), candidate('next', 4)])
+    mockInstance.claimStartingTransition.mockResolvedValueOnce({ count: 0 })
+    readHostMemory.mockResolvedValueOnce(LOW_MEMORY).mockResolvedValueOnce(HEALTHY_MEMORY)
+
+    expect(await reapIdleInstances()).toBe(1)
+    expect(mockDocker.stopContainer).toHaveBeenCalledExactlyOnceWith('next-container')
+  })
+})
+
 describe('reapStaleMessageRuns', () => {
   it('delegates to the message run service', async () => {
     mockMessageRun.reapStaleRuns.mockResolvedValue(2)
@@ -258,7 +348,7 @@ describe('startReaper / stopReaper', () => {
     startReaper()
 
     // Initial call on start
-    expect(mockInstance.findIdleInstances).toHaveBeenCalledTimes(1)
+    expect(readHostMemory).toHaveBeenCalledTimes(1)
 
     stopReaper()
   })
@@ -270,7 +360,7 @@ describe('startReaper / stopReaper', () => {
     startReaper()
 
     // Only one initial call
-    expect(mockInstance.findIdleInstances).toHaveBeenCalledTimes(1)
+    expect(readHostMemory).toHaveBeenCalledTimes(1)
 
     stopReaper()
   })
@@ -293,9 +383,11 @@ describe('startReaper / stopReaper', () => {
     mockInstance.findIdleInstances.mockResolvedValue([])
 
     startReaper()
+    await vi.waitFor(() => expect(getReaperStatus().lastRunFinishedAt).toBeInstanceOf(Date))
     vi.clearAllMocks()
     await vi.advanceTimersByTimeAsync(REAPER_INTERVAL_MS)
 
+    expect(readHostMemory).toHaveBeenCalledTimes(1)
     expect(mockInstance.findIdleInstances).toHaveBeenCalledTimes(1)
   })
 
@@ -313,7 +405,7 @@ describe('startReaper / stopReaper', () => {
 
     startReaper()
 
-    await vi.waitFor(() => expect(console.error).toHaveBeenCalledWith('[reaper] Stopped 1 idle instance(s)'))
+    await vi.waitFor(() => expect(console.error).toHaveBeenCalledWith('[reaper] Stopped 1 idle instance(s) to relieve memory pressure'))
   })
 
   it('logs when a cycle fails stale message runs', async () => {

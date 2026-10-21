@@ -219,6 +219,39 @@ describe('config', () => {
     })
   })
 
+  describe('memory pressure thresholds', () => {
+    it.each([
+      [undefined, 15],
+      ['10', 10],
+      ['12.5', 12.5],
+      ['0', 15],
+      ['100', 15],
+      ['abc', 15],
+    ])('reads ARCHE_REAPER_MIN_AVAILABLE_MEMORY_PERCENT=%s as %s', async (raw, expected) => {
+      if (raw === undefined) delete process.env.ARCHE_REAPER_MIN_AVAILABLE_MEMORY_PERCENT
+      else process.env.ARCHE_REAPER_MIN_AVAILABLE_MEMORY_PERCENT = raw
+
+      const { getReaperMinAvailableMemoryPercent } = await import('../config')
+
+      expect(getReaperMinAvailableMemoryPercent()).toBe(expected)
+    })
+
+    it.each([
+      [undefined, null],
+      ['2048', 2048],
+      ['1536.9', 1536],
+      ['0', null],
+      ['-5', null],
+    ])('reads ARCHE_REAPER_MIN_AVAILABLE_MEMORY_MB=%s as %s', async (raw, expected) => {
+      if (raw === undefined) delete process.env.ARCHE_REAPER_MIN_AVAILABLE_MEMORY_MB
+      else process.env.ARCHE_REAPER_MIN_AVAILABLE_MEMORY_MB = raw
+
+      const { getReaperMinAvailableMemoryMb } = await import('../config')
+
+      expect(getReaperMinAvailableMemoryMb()).toBe(expected)
+    })
+  })
+
   describe('getKbContentHostPath', () => {
     it('throws when KB_CONTENT_HOST_PATH is missing', async () => {
       delete process.env.KB_CONTENT_HOST_PATH
