@@ -28,9 +28,13 @@ export function normalizeOpenCodeError(error: unknown): ReturnType<typeof harnes
   return harnessFailure('runtime_error', detail)
 }
 
+export function createConnectionClient(connection: { baseUrl: string; authHeader: string }): OpenCodeV2Client {
+  return OpenCode.make({ baseUrl: connection.baseUrl, headers: { Authorization: connection.authHeader } })
+}
+
 export async function createInstanceClient(slug: string): Promise<OpenCodeV2Client | null> {
   const connection = await getInstanceBasicAuth(slug)
-  return connection ? OpenCode.make({ baseUrl: connection.baseUrl, headers: { Authorization: connection.authHeader } }) : null
+  return connection ? createConnectionClient(connection) : null
 }
 
 export async function checkHealth(slug: string, options?: HarnessHealthOptions): Promise<HarnessResult<{ version?: string }>> {
@@ -45,7 +49,7 @@ export async function checkHealth(slug: string, options?: HarnessHealthOptions):
       authHeader: `Basic ${Buffer.from(`opencode:${options.password}`).toString('base64')}`,
     } : await getInstanceBasicAuth(slug)
     if (!connection) return harnessFailure('instance_unavailable')
-    const client = OpenCode.make({ baseUrl: connection.baseUrl, headers: { Authorization: connection.authHeader } })
+    const client = createConnectionClient(connection)
     const info = await client.server.info({ signal: controller.signal })
     if (controller.signal.aborted) return harnessFailure('healthcheck_timeout')
     if (!info.version.startsWith('2.') || !Number.isFinite(info.pid) || !Array.isArray(info.urls)) return harnessFailure('unhealthy_response')

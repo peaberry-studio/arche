@@ -121,14 +121,24 @@ describe('V2 adapter with the real matched HTTP client', () => {
     expect(requests.map(({ path }) => path)).toEqual([`/api/session/${SESSION_ID}`, `/api/session/${SESSION_ID}/prompt`])
   })
 
-  it('acknowledges only the interrupt primitive, never family idle', async () => {
-    const { requests } = transport([Response.json({ data: nativeSession() }), Response.json({ interrupted: true }), Response.json({ data: [] }), Response.json({ data: [] })])
+  it('acknowledges the interrupt primitive and reports status only from native active drains', async () => {
+    const { requests } = transport([
+      Response.json({ data: nativeSession() }), Response.json({ interrupted: true }), Response.json({ data: [] }), Response.json({ data: [] }),
+      Response.json({ data: { [SESSION_ID]: { type: 'running' }, other: { type: 'running' } } }), Response.json({ data: {} }),
+    ])
     const runtime = createOpenCodeV2Runtime('alice')
     expect(await runtime.abortSession(SESSION_ID)).toEqual({ ok: true, data: undefined })
     expect(requests[1].path).toBe(`/api/session/${SESSION_ID}/interrupt`)
     expect(Object.fromEntries(requests[1].query)).toEqual({ resume: 'false' })
-    expect(await runtime.sessionStatus()).toMatchObject({ ok: false, error: { code: 'runtime_unsupported' } })
-    expect(requests).toHaveLength(4)
+    expect(await runtime.sessionStatus()).toEqual({ ok: true, data: { [SESSION_ID]: { type: 'busy' }, other: { type: 'busy' } } })
+    expect(await runtime.sessionStatus()).toEqual({ ok: true, data: {} })
+    expect(requests.slice(4).map(({ method, path }) => `${method} ${path}`)).toEqual(['GET /api/session/active', 'GET /api/session/active'])
+  })
+
+  it('submits no-reply input with resume disabled so it stays queued and undelivered', async () => {
+    const { requests } = transport([Response.json({ data: nativeSession() }), Response.json({ data: { id: 'msg_note', type: 'user' } })])
+    expect(await createOpenCodeV2Runtime('alice').prompt({ sessionId: SESSION_ID, messageId: 'msg_note', noReply: true, parts: [{ type: 'text', text: 'context only' }] })).toEqual({ ok: true, data: undefined })
+    expect(requests[1]).toMatchObject({ method: 'POST', path: `/api/session/${SESSION_ID}/prompt`, body: { id: 'msg_note', text: 'context only', resume: false } })
   })
 
   it('cancels the queued input that native interrupt leaves behind and verifies the inbox again', async () => {
@@ -177,13 +187,28 @@ describe('V2 adapter with the real matched HTTP client', () => {
     ['file:///workspace/note.txt?ignored', 'text/plain'],
     ['file:///workspace/note.txt#ignored', 'text/plain'],
     ['file://remote/workspace/note.txt', 'text/plain'],
-    ['file:///workspace/document.pdf', 'application/pdf'],
-    ['data:image/jpeg;base64,aW1hZ2U=', 'image/jpeg'],
     ['data:image/png;base64,aW1hZ2U=', 'image/jpeg'],
-  ])('rejects unverified or out-of-workspace file input %s (%s) before selection or prompt mutation', async (url, mime) => {
+    ['data:application/pdf;base64,aW1hZ2U=', 'application/pdf'],
+    ['data:image/svg+xml;base64,aW1hZ2U=', 'image/svg+xml'],
+    ['data:text/plain,inline', 'text/plain'],
+  ])('rejects out-of-workspace or non-V1 file input %s (%s) before selection or prompt mutation', async (url, mime) => {
     const { requests } = transport([Response.json({ data: nativeSession() })])
     expect(await createOpenCodeV2Runtime('alice').prompt({ sessionId: SESSION_ID, agent: 'alternate', parts: [{ type: 'file', mime, url }] })).toMatchObject({ ok: false, error: { code: 'runtime_unsupported' } })
     expect(requests).toHaveLength(1)
+  })
+
+  it('accepts every file part the V1 prompt builder emits', async () => {
+    const { requests } = transport([Response.json({ data: nativeSession() }), Response.json({ data: { id: 'msg_files' } })])
+    const files = [
+      ...['image/jpeg', 'image/png', 'image/gif', 'image/webp'].map((mime) => ({ mime, filename: `inline.${mime.slice(6)}`, url: `data:${mime};base64,aW1hZ2U=` })),
+      ...[
+        ['image/jpeg', 'photo.jpg'], ['image/svg+xml', 'logo.svg'], ['text/markdown', 'notes.md'], ['application/json', 'data.json'],
+        ['application/xml', 'data.xml'], ['application/zip', 'bundle.zip'], ['application/msword', 'legacy.doc'], ['audio/mpeg', 'clip.mp3'],
+        ['text/plain', 'run.log'],
+      ].map(([mime, filename]) => ({ mime, filename, url: `file:///workspace/.arche/attachments/${encodeURIComponent(filename)}` })),
+    ]
+    expect(await createOpenCodeV2Runtime('alice').prompt({ sessionId: SESSION_ID, messageId: 'msg_files', parts: [{ type: 'text', text: 'Attachments' }, ...files.map((file) => ({ type: 'file' as const, ...file }))] })).toEqual({ ok: true, data: undefined })
+    expect(requests[1]).toMatchObject({ path: `/api/session/${SESSION_ID}/prompt`, body: { id: 'msg_files', text: 'Attachments', files: files.map((file) => ({ uri: file.url, name: file.filename })) } })
   })
 
   it.each(['once', 'always', 'reject'] as const)('lists a recorded permission and sends native decision %s', async (response) => {
@@ -200,10 +225,9 @@ describe('V2 adapter with the real matched HTTP client', () => {
     expect(requests).toHaveLength(1)
   })
 
-  it('keeps startup and provider-sync gates closed without invoking the real client', async () => {
+  it('keeps the startup gate closed without invoking the real client', async () => {
     const { fetch } = transport([])
     expect(checkStartupSupport()).toMatchObject({ ok: false, error: { code: 'runtime_unsupported' } })
-    expect(await createOpenCodeV2Runtime('alice').syncProviderAccess({ userId: 'user-1', force: true })).toMatchObject({ ok: false, error: { code: 'sync_failed' } })
     expect(auth).not.toHaveBeenCalled()
     expect(fetch).not.toHaveBeenCalled()
   })

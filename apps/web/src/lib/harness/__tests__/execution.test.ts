@@ -204,6 +204,25 @@ describe('harness execution', () => {
     expect(client.abortSession.mock.calls.map(([id]) => id)).toEqual(['child-1', 'session-1'])
   })
 
+  it('aborts a descendant that appears while the family is stopping before confirming idle', async () => {
+    const client = fakeRuntime()
+    client.listChildren.mockResolvedValueOnce({ ok: true, data: [] }).mockResolvedValueOnce({ ok: true, data: [session('late-child')] })
+    expect(await abortSessionFamilyAndConfirmIdle({ client, rootSessionId: 'session-1' })).toBe(true)
+    expect(client.abortSession.mock.calls.map(([id]) => id)).toEqual(['session-1', 'late-child'])
+  })
+
+  it.each([true, false])('retries an abort the adapter could not confirm (eventually confirmed=%s)', async (eventually) => {
+    vi.useFakeTimers()
+    const client = fakeRuntime()
+    const unconfirmed = { ok: false as const, error: { code: 'execution_termination_unconfirmed' as const } }
+    if (eventually) client.abortSession.mockResolvedValueOnce(unconfirmed)
+    else client.abortSession.mockResolvedValue(unconfirmed)
+    const promise = abortSessionFamilyAndConfirmIdle({ client, rootSessionId: 'session-1' })
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(await promise).toBe(eventually)
+    expect(client.abortSession.mock.calls.length).toBeGreaterThan(1)
+  })
+
   it('does not confirm termination when descendant discovery fails', async () => {
     const client = fakeRuntime()
     client.listChildren.mockResolvedValue({ ok: false, error: { code: 'runtime_error', detail: 'children unavailable' } })

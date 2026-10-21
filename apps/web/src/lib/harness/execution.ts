@@ -377,12 +377,22 @@ export async function abortSessionFamilyAndConfirmIdle(params: {
     sessionIds: discovery.sessionIds,
   })
 
-  for (const sessionId of [...discovery.sessionIds].reverse()) {
-    await awaitBeforeDeadline(
-      params.client.abortSession(sessionId),
-      deadline,
-    )
+  // An adapter whose abort primitive cannot confirm a session stopped (for
+  // example, input still queued after an interrupt) is retried until the
+  // deadline instead of being treated as idle.
+  const unconfirmedAborts = new Set<string>()
+  const abortLeafFirst = async (sessionIds: string[]) => {
+    for (const sessionId of [...sessionIds].reverse()) {
+      const result = await awaitBeforeDeadline(
+        params.client.abortSession(sessionId),
+        deadline,
+      )
+      if (result && !result.ok && result.error.code === EXECUTION_TERMINATION_UNCONFIRMED_ERROR) unconfirmedAborts.add(sessionId)
+      else unconfirmedAborts.delete(sessionId)
+    }
   }
+
+  await abortLeafFirst(discovery.sessionIds)
 
   if (!discovery.complete) {
     console.warn('[harness/execution] Session descendants could not be fully discovered', {
@@ -391,17 +401,28 @@ export async function abortSessionFamilyAndConfirmIdle(params: {
     return false
   }
 
+  const knownSessionIds = new Set(discovery.sessionIds)
   while (Date.now() < deadline) {
+    if (unconfirmedAborts.size > 0) await abortLeafFirst([...knownSessionIds].filter((sessionId) => unconfirmedAborts.has(sessionId)))
     const response = await awaitBeforeDeadline(
       params.client.sessionStatus(),
       deadline,
     )
-    if (response?.ok) {
-      const allIdle = discovery.sessionIds.every((sessionId) => {
+    if (response?.ok && unconfirmedAborts.size === 0) {
+      const allIdle = [...knownSessionIds].every((sessionId) => {
         const status = response.data?.[sessionId]
         return !status || status.type === 'idle'
       })
-      if (allIdle) return true
+      if (allIdle) {
+        // Rediscover so a descendant spawned while the family was stopping is
+        // aborted too, rather than confirming a family that is still growing.
+        const rediscovery = await listDescendantSessionIds(params.client, params.rootSessionId, deadline)
+        const added = rediscovery.sessionIds.filter((sessionId) => !knownSessionIds.has(sessionId))
+        if ((rediscovery.complete && added.length === 0) || rediscovery.missingRoot) return true
+        for (const sessionId of added) knownSessionIds.add(sessionId)
+        await abortLeafFirst(added)
+        if (added.length > 0) continue
+      }
     }
 
     await sleep(Math.min(RUN_POLL_INTERVAL_MS, Math.max(0, deadline - Date.now())))

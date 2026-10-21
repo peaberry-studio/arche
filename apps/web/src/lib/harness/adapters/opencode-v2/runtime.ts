@@ -1,12 +1,50 @@
-import type { SessionInfo, SessionMessageInfo, SessionPromptInput } from '@opencode/client'
+import type { SessionInboxUser, SessionInfo, SessionMessageInfo, SessionPromptInput } from '@opencode/client'
 
 import { checkHealth, createInstanceClient, normalizeOpenCodeError, type OpenCodeV2Client } from '@/lib/harness/adapters/opencode-v2/client'
 import { subscribeOpenCodeEvents } from '@/lib/harness/adapters/opencode-v2/events'
 import { syncProviderAccess } from '@/lib/harness/adapters/opencode-v2/providers'
 import { toArchePermission, toHarnessMessage, toHarnessSession } from '@/lib/harness/adapters/opencode-v2/transform'
-import type { HarnessRuntime, HarnessSession } from '@/lib/harness/contract'
+import type {
+  HarnessOperationOptions,
+  HarnessPrompt,
+  HarnessPromptPart,
+  HarnessRuntime,
+  HarnessSession,
+  HarnessSessionStatus,
+} from '@/lib/harness/contract'
 import { harnessFailure, type HarnessResult } from '@/lib/harness/errors'
 import { getCanonicalProviderId, getProviderLabel, resolveRuntimeProviderId } from '@/lib/providers/catalog'
+
+type PromptFile = NonNullable<SessionPromptInput['files']>[number]
+
+// The image forms V1's prompt builder inlines; the runtime sniffs the bytes.
+const INLINE_IMAGE_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp'])
+const SYNC_FAMILY_IDLE_TIMEOUT_MS = 60_000
+const SYNC_FAMILY_IDLE_POLL_MS = 1_000
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+// Workspace file URIs resolve inside the container whatever their MIME type,
+// matching the V1 builder; anything outside `/workspace/` is refused.
+function toPromptFile(part: Extract<HarnessPromptPart, { type: 'file' }>): PromptFile | null {
+  if (part.url.startsWith('data:')) {
+    return INLINE_IMAGE_MIME_TYPES.has(part.mime) && part.url.startsWith(`data:${part.mime};base64,`)
+      ? { uri: part.url, name: part.filename } : null
+  }
+  let url: URL
+  let path: string
+  try {
+    url = new URL(part.url)
+    path = decodeURIComponent(url.pathname)
+  } catch {
+    return null
+  }
+  if (url.protocol !== 'file:' || url.host || url.search || url.hash || !path.startsWith('/workspace/') || path.includes('\\') ||
+    path.split('/').some((segment) => segment === '.' || segment === '..')) return null
+  return { uri: part.url, name: part.filename }
+}
 
 async function collectPages<T extends { id: string }>(fetchPage: (cursor?: string) => Promise<{ data: T[]; cursor: { next?: string | null } }>, limit?: number): Promise<T[]> {
   const items = new Map<string, T>()
@@ -48,7 +86,35 @@ export function createOpenCodeV2Runtime(slug: string): HarnessRuntime {
     return sessions.map(requireSession)
   }
 
-  return {
+  // No native no-reply exists on 2.0.32: `resume:false` keeps the input in the
+  // inbox, idle and undelivered, and the next prompt delivers it ahead of its
+  // own text, so the model sees it exactly once, as with V1 `noReply`.
+  async function submitPrompt(input: HarnessPrompt, options?: HarnessOperationOptions): Promise<HarnessResult<SessionInboxUser>> {
+    const session = await withClient((client) => client.session.get({ sessionID: input.sessionId }, options))
+    if (!session.ok) return session
+    const files: PromptFile[] = []
+    for (const part of input.parts) {
+      if (part.type !== 'file') continue
+      const file = toPromptFile(part)
+      if (!file) return harnessFailure('runtime_unsupported', 'v2_prompt_file_uri_unsupported')
+      files.push(file)
+    }
+    return withClient(async (client) => {
+      if (input.agent && input.agent !== session.data.agent) await client.session.switchAgent({ sessionID: input.sessionId, agent: input.agent }, options)
+      const model = input.model ? { providerID: resolveRuntimeProviderId(input.model.providerId), id: input.model.modelId } : undefined
+      if (model && (model.providerID !== session.data.model?.providerID || model.id !== session.data.model.id)) {
+        await client.session.switchModel({ sessionID: input.sessionId, model }, options)
+      }
+      return client.session.prompt({
+        sessionID: input.sessionId, id: input.messageId,
+        text: input.parts.flatMap((part) => part.type === 'text' ? [part.text] : []).join('\n\n'),
+        ...(files.length > 0 && { files }),
+        ...(input.noReply && { resume: false }),
+      }, options)
+    })
+  }
+
+  const runtime: HarnessRuntime = {
     kind: 'opencode-v2',
     slug,
     health: (options) => checkHealth(slug, options),
@@ -71,52 +137,52 @@ export function createOpenCodeV2Runtime(slug: string): HarnessRuntime {
       return requireSession(await client.session.get({ sessionID: sessionId }))
     }),
     deleteSession: (sessionId) => withClient((client) => client.session.remove({ sessionID: sessionId })),
-    sessionStatus: async () => harnessFailure('runtime_unsupported', 'v2_family_idle_confirmation_unverified'),
+    // `active()` lists every session with a running drain, including retry
+    // backoff, permission waits and backgrounded children; absence is idle,
+    // as with V1. Inbox items left by a no-reply prompt are deliberately not
+    // busy: they only run with the next prompt.
+    sessionStatus: (options) => withClient(async (client) => Object.fromEntries(
+      Object.keys(await client.session.active(options)).map((id): [string, HarnessSessionStatus] => [id, { type: 'busy' }]),
+    )),
     listMessages: (sessionId) => withClient(async (client) => {
       await client.session.get({ sessionID: sessionId })
-      const messages = await collectPages<SessionMessageInfo>((cursor) => client.message.list({ sessionID: sessionId, order: 'asc', limit: 100, cursor }))
+      // 2.0.32 rejects `order` alongside a cursor; the cursor keeps the first page's order.
+      const messages = await collectPages<SessionMessageInfo>((cursor) => client.message.list(cursor ? { sessionID: sessionId, limit: 100, cursor } : { sessionID: sessionId, order: 'asc', limit: 100 }))
       return messages.flatMap((message) => {
         const normalized = toHarnessMessage({ ...message, sessionID: sessionId })
         return normalized ? [normalized] : []
       })
     }),
     async prompt(input, options) {
-      const session = await withClient((client) => client.session.get({ sessionID: input.sessionId }, options))
-      if (!session.ok) return session
-      if (input.noReply) return harnessFailure('runtime_unsupported', 'v2_no_reply_unavailable:resume_false_queues_without_delivery')
-      const files: Array<NonNullable<SessionPromptInput['files']>[number]> = []
-      for (const part of input.parts) {
-        if (part.type !== 'file') continue
-        if (part.url.startsWith('data:image/png;base64,') && part.mime === 'image/png') {
-          files.push({ uri: part.url, name: part.filename })
-          continue
-        }
-        let url: URL
-        try { url = new URL(part.url) } catch { return harnessFailure('runtime_unsupported', 'v2_prompt_file_uri_unverified') }
-        let path: string
-        try { path = decodeURIComponent(url.pathname) } catch { return harnessFailure('runtime_unsupported', 'v2_prompt_file_uri_unverified') }
-        if (url.protocol !== 'file:' || url.host || url.search || url.hash || !path.startsWith('/workspace/') || path.includes('\\') || path.split('/').some((segment) => segment === '.' || segment === '..')) {
-          return harnessFailure('runtime_unsupported', 'v2_prompt_file_uri_unverified')
-        }
-        if (!((part.mime === 'text/plain' && path.endsWith('.txt')) || (part.mime === 'image/png' && path.endsWith('.png')) || part.mime === 'application/x-directory')) {
-          return harnessFailure('runtime_unsupported', 'v2_prompt_file_mime_unverified')
-        }
-        files.push({ uri: part.url, name: part.filename })
-      }
-      return withClient(async (client) => {
-        if (input.agent && input.agent !== session.data.agent) await client.session.switchAgent({ sessionID: input.sessionId, agent: input.agent }, options)
-        const model = input.model ? { providerID: resolveRuntimeProviderId(input.model.providerId), id: input.model.modelId } : undefined
-        if (model && (model.providerID !== session.data.model?.providerID || model.id !== session.data.model.id)) {
-          await client.session.switchModel({ sessionID: input.sessionId, model }, options)
-        }
-        await client.session.prompt({
-          sessionID: input.sessionId, id: input.messageId,
-          text: input.parts.flatMap((part) => part.type === 'text' ? [part.text] : []).join('\n\n'),
-          ...(files.length > 0 && { files }),
-        }, options)
-      })
+      const submitted = await submitPrompt(input, options)
+      return submitted.ok ? { ok: true, data: undefined } : submitted
     },
-    sendMessage: async () => harnessFailure('runtime_unsupported', 'v2_synchronous_prompt_unverified'),
+    async sendMessage(input) {
+      const execution = await import('@/lib/harness/execution')
+      try {
+        const cursor = await execution.captureSessionMessageCursor(runtime, input.sessionId)
+        const submitted = await submitPrompt(input)
+        if (!submitted.ok) return submitted
+        if (input.noReply) {
+          const message = toHarnessMessage({ ...submitted.data.payload, id: submitted.data.id, sessionID: input.sessionId, time: submitted.data.time, type: 'user' })
+          return message ? { ok: true, data: message } : harnessFailure('runtime_error', 'Invalid V2 inbox response')
+        }
+        const completion = await execution.waitForSessionToComplete({ client: runtime, cursor, sessionId: input.sessionId, slug })
+        if (completion.status === 'termination_unconfirmed') return harnessFailure('execution_termination_unconfirmed', completion.cause)
+        const familyDeadline = Date.now() + SYNC_FAMILY_IDLE_TIMEOUT_MS
+        while (await execution.readSessionFamilyRuntimeState(runtime, input.sessionId) !== 'idle') {
+          if (Date.now() >= familyDeadline) return harnessFailure('session_busy', 'v2_family_not_idle_after_reply')
+          await sleep(SYNC_FAMILY_IDLE_POLL_MS)
+        }
+        const messages = await runtime.listMessages(input.sessionId)
+        if (!messages.ok) return messages
+        const reply = messages.data.slice(cursor.messageCount).findLast((message) => message.role === 'assistant')
+        if (reply) return { ok: true, data: reply }
+        return harnessFailure('runtime_error', completion.status === 'failed' ? completion.error : 'flow_no_assistant_message')
+      } catch (error) {
+        return harnessFailure('runtime_error', error instanceof Error ? error.message : undefined)
+      }
+    },
     abortSession: async (sessionId) => {
       const result = await withClient(async (client) => {
         await client.session.get({ sessionID: sessionId })
@@ -162,4 +228,5 @@ export function createOpenCodeV2Runtime(slug: string): HarnessRuntime {
     syncProviderAccess: (input) => syncProviderAccess(slug, input),
     subscribeEvents: (signal) => subscribeOpenCodeEvents(slug, signal),
   }
+  return runtime
 }
