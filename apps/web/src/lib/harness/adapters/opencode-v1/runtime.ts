@@ -63,7 +63,8 @@ function normalizeHealthFailure(detail: string, message?: string): ReturnType<ty
 function promptParameters(input: HarnessPrompt) {
   return {
     sessionID: input.sessionId,
-    messageID: input.messageId,
+    // 1.18.18 validates `msg` ids; the UI sends UUIDs, which the pre-seam route sent as an ignored `id`.
+    messageID: input.messageId?.startsWith('msg_') ? input.messageId : undefined,
     parts: input.parts,
     agent: input.agent,
     noReply: input.noReply,

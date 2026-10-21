@@ -107,11 +107,18 @@ describe('OpenCode v1 runtime', () => {
     expect(promptAsync).toHaveBeenCalledWith({ sessionID: 's1', agent: 'reviewer', model: { providerID: 'fireworks-ai', modelID: 'model' }, parts: [{ type: 'text', text: 'Hello' }] }, { throwOnError: true })
   })
 
-  it('preserves an explicit prompt message id', async () => {
+  it('preserves an explicit native prompt message id', async () => {
     const promptAsync = vi.fn().mockResolvedValue({})
     mocks.client.mockResolvedValue({ session: { promptAsync } })
-    await createOpenCodeV1Runtime('alice').prompt({ sessionId: 's1', messageId: 'message-explicit', parts: [{ type: 'text', text: 'Hello' }] })
-    expect(promptAsync).toHaveBeenCalledWith(expect.objectContaining({ sessionID: 's1', messageID: 'message-explicit' }), { throwOnError: true })
+    await createOpenCodeV1Runtime('alice').prompt({ sessionId: 's1', messageId: 'msg_explicit', parts: [{ type: 'text', text: 'Hello' }] })
+    expect(promptAsync).toHaveBeenCalledWith(expect.objectContaining({ sessionID: 's1', messageID: 'msg_explicit' }), { throwOnError: true })
+  })
+
+  it('lets 1.18.18 assign the id when the caller sends a non-native message id', async () => {
+    const promptAsync = vi.fn().mockResolvedValue({})
+    mocks.client.mockResolvedValue({ session: { promptAsync } })
+    await createOpenCodeV1Runtime('alice').prompt({ sessionId: 's1', messageId: '0355ffc5-4bf6-49f7-8789-a473fb44195b', parts: [{ type: 'text', text: 'Hello' }] })
+    expect(promptAsync.mock.calls[0][0].messageID).toBeUndefined()
   })
 
   it.each(['once', 'always', 'reject'] as const)('translates permission response %s', async (response) => {
