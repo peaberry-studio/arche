@@ -5,22 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { EMPTY_COMPOSER_INTENTS } from '@/components/workspace/empty-composer-intents'
 import { WorkspaceChatEmptyComposer } from '@/components/workspace/workspace-chat-empty-composer'
-import { AgentCatalogItem } from '@/hooks/use-workspace'
-import { SkillListItem } from '@/hooks/use-skills-catalog'
 import type { AvailableModel } from '@/types/workspace-runtime'
 
 const sendMessageMock = vi.fn().mockResolvedValue(true)
 const selectModelMock = vi.fn()
-
-const agents: AgentCatalogItem[] = [
-  { id: 'assistant', displayName: 'Assistant', isPrimary: true },
-  { id: 'ads-scripts', displayName: 'Ads Scripts', isPrimary: false },
-]
-
-const skills: SkillListItem[] = [
-  { name: 'writer', description: 'Write copy', assignedAgentIds: [], hasResources: false, resourcePaths: [] },
-  { name: 'researcher', description: 'Find sources', assignedAgentIds: [], hasResources: false, resourcePaths: [] },
-]
 
 const models: AvailableModel[] = [
   {
@@ -53,8 +41,6 @@ describe('WorkspaceChatEmptyComposer', () => {
   it('renders the dashboard composer and submit send in place', () => {
     render(
       <WorkspaceChatEmptyComposer
-        agents={agents}
-        skills={skills}
         onSendMessage={sendMessageMock}
       />
     )
@@ -62,17 +48,15 @@ describe('WorkspaceChatEmptyComposer', () => {
     const heading = screen.getByTestId('empty-composer-heading')
     expect(EMPTY_COMPOSER_INTENTS).toContain(heading.textContent)
     expect(screen.getByTestId('empty-composer-glyph')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Knowledge' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Experts' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Skills' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Add knowledge files' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Experts' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Skills' })).toBeNull()
     expect(screen.getByPlaceholderText('Describe what you want to work on...')).toBeTruthy()
   })
 
   it('submits plain text via onSendMessage without sessionStorage', async () => {
     render(
       <WorkspaceChatEmptyComposer
-        agents={agents}
-        skills={skills}
         onSendMessage={sendMessageMock}
       />
     )
@@ -89,19 +73,19 @@ describe('WorkspaceChatEmptyComposer', () => {
     expect(window.sessionStorage.getItem('arche.workspace.alice.start-prompt')).toBeNull()
   })
 
-  it('composes a mention and slash command prompt', () => {
+  it('sends the knowledge files picked from + as context and wiki links', () => {
     render(
       <WorkspaceChatEmptyComposer
-        agents={agents}
-        skills={skills}
         onSendMessage={sendMessageMock}
+        recentUpdates={[{ fileName: 'plan.md', filePath: 'docs/plan.md' }]}
       />
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Experts' }))
-    fireEvent.click(screen.getByRole('menuitemradio', { name: /Ads Scripts/ }))
-    fireEvent.click(screen.getByRole('button', { name: 'Skills' }))
-    fireEvent.click(screen.getByRole('menuitemcheckbox', { name: /writer/ }))
+    const addButton = screen.getByRole('button', { name: 'Add knowledge files' })
+    fireEvent.click(addButton)
+    expect(addButton.getAttribute('aria-expanded')).toBe('true')
+    fireEvent.click(screen.getByRole('menuitemcheckbox', { name: /plan\.md/ }))
+    expect(addButton.textContent).toContain('1')
 
     fireEvent.change(screen.getByPlaceholderText('Describe what you want to work on...'), {
       target: { value: 'Draft' },
@@ -109,17 +93,15 @@ describe('WorkspaceChatEmptyComposer', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Start working' }))
 
     expect(sendMessageMock).toHaveBeenCalledWith(
-      '@ads-scripts /writer\n\nDraft',
+      '[[docs/plan.md]]\n\nDraft',
       undefined,
-      { forceNewSession: true, contextPaths: [] }
+      { forceNewSession: true, contextPaths: ['docs/plan.md'] }
     )
   })
 
   it('disables the submit button when empty', () => {
     render(
       <WorkspaceChatEmptyComposer
-        agents={agents}
-        skills={skills}
         onSendMessage={sendMessageMock}
       />
     )
@@ -130,10 +112,8 @@ describe('WorkspaceChatEmptyComposer', () => {
   it('renders the selected model and reports model picks', async () => {
     render(
       <WorkspaceChatEmptyComposer
-        agents={agents}
         models={models}
         selectedModel={models[0]}
-        skills={skills}
         onSendMessage={sendMessageMock}
         onSelectModel={selectModelMock}
       />
@@ -150,8 +130,6 @@ describe('WorkspaceChatEmptyComposer', () => {
   it('omits the model selector when no models are available', () => {
     render(
       <WorkspaceChatEmptyComposer
-        agents={agents}
-        skills={skills}
         onSendMessage={sendMessageMock}
       />
     )

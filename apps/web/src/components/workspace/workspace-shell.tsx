@@ -7,7 +7,6 @@ import { toast } from "sonner";
 import { useWorkspaceRuntime } from "@/contexts/workspace-runtime-context";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { useConfigStatus } from "@/hooks/use-config-status";
-import { useSkillsCatalog } from "@/hooks/use-skills-catalog";
 import { useViewportWidth } from "@/hooks/use-viewport-width";
 import {
   getWorkspaceFlowsHref,
@@ -214,7 +213,6 @@ export function WorkspaceShell({
     enabled: instanceStatus === 'running',
     workspaceAgentEnabled,
   });
-  const skillsCatalog = useSkillsCatalog(slug)
   const {
     readFile: readWorkspaceFile,
   } = workspace;
@@ -740,7 +738,6 @@ export function WorkspaceShell({
       attachmentsEnabled={workspaceAgentEnabled}
       contextFilePaths={markdownFilePaths}
       sessions={uiSessions}
-      skills={skillsCatalog.skills}
       messages={uiMessages}
       permissions={workspace.permissions}
       activeSessionId={workspace.activeSessionId}
