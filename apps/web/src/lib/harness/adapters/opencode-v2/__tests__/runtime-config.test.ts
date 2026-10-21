@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { renderRuntimeConfig as renderV1RuntimeConfig } from '@/lib/harness/adapters/opencode-v1/runtime-config'
 import { renderRuntimeConfig } from '@/lib/harness/adapters/opencode-v2/runtime-config'
 import { createRuntimeConfigModel, type RuntimeConfigModel } from '@/lib/harness/runtime-config'
 import { isRecord } from '@/lib/records'
@@ -38,38 +39,79 @@ function decision(value: unknown, action: string, resource: string): string | un
   return rules(value).filter((rule) => matches(rule.action, action) && matches(rule.resource, resource)).at(-1)?.effect
 }
 
+const PRODUCTION_SOURCE = {
+  default_agent: 'orchestrator',
+  agent: {
+    orchestrator: { tools: { task: true, read: true } },
+    reviewer: { mode: 'subagent', tools: { read: true } },
+    delegator: { mode: 'all', tools: { task: true, read: true } },
+  },
+}
+
+function protectedGuardViolations(rendered: Record<string, unknown>): string[] {
+  const violations: string[] = []
+  if (!isRecord(rendered.agents)) return ['agents']
+  for (const id of Object.keys(rendered.agents)) {
+    const delegation = rules(agentConfig(rendered, id).permissions).filter((rule) => rule.action === 'subagent' || rule.action === '*')
+    const last = delegation.at(-1)
+    if (last?.action !== 'subagent' || last.resource !== id || last.effect !== 'deny') violations.push(`agents.${id}.selfDelegation`)
+  }
+  if (decision(rendered.policies, 'tool.use', 'edit:notes.md') !== 'deny') violations.push('policies.knowledgeWrites')
+  const workspacePolicies = rules(rendered.policies).filter((rule) => rule.resource !== 'edit:*')
+  const workspaceResources = ['edit:opencode.json', 'edit:nested/opencode.jsonc', 'edit:.opencode/opencode.json', 'edit:AGENTS.md', 'shell:pnpm add left-pad']
+  if (workspaceResources.some((resource) => decision(workspacePolicies, 'tool.use', resource) !== 'deny')) violations.push('policies.workspace')
+  return violations
+}
+
 describe('V2 runtime config renderer', () => {
-  it('refuses the required self-delegation guard instead of substituting an overridable permission or global target ban', () => {
-    const result = renderRuntimeConfig(createRuntimeConfigModel({
-      agent: {
-        orchestrator: { mode: 'primary', tools: { task: true } },
-        reviewer: { mode: 'subagent', tools: { read: true } },
-      },
-    }))
-    expect(result).toMatchObject({ ok: false, error: { code: 'runtime_config_unsupported', path: 'guards.selfDelegation' } })
-    expect(result).not.toHaveProperty('data')
+  it('renders the production model with V1 prompts, a last-wins self-deny per agent, and guard policies', () => {
+    const model = createRuntimeConfigModel(PRODUCTION_SOURCE)
+    expect(model.guards).toEqual({ knowledgeWrites: true, execution: true, workspace: true, selfDelegation: true })
+    const rendered = config(model)
+
+    expect(protectedGuardViolations(rendered)).toEqual([])
+    const v1 = renderV1RuntimeConfig(createRuntimeConfigModel(PRODUCTION_SOURCE))
+    if (!v1.ok || !isRecord(v1.data.config.agent)) throw new Error('missing v1 agents')
+    for (const id of ['orchestrator', 'reviewer', 'delegator']) {
+      const v1Agent = v1.data.config.agent[id]
+      expect(agentConfig(rendered, id).system).toBe(isRecord(v1Agent) ? v1Agent.prompt : undefined)
+    }
+    expect(decision(agentConfig(rendered, 'orchestrator').permissions, 'subagent', 'reviewer')).toBe('allow')
+    expect(decision(agentConfig(rendered, 'delegator').permissions, 'subagent', 'reviewer')).toBe('deny')
+    expect(rules(rendered.policies).some((rule) => rule.resource.startsWith('subagent:'))).toBe(false)
+    for (const resource of ['edit:opencode.json', 'edit:opencode.jsonc', 'edit:nested/opencode.json', 'edit:nested/opencode.jsonc', 'edit:.opencode/opencode.json', 'edit:/workspace/.opencode/agents/x.md', 'shell:cat opencode.jsonc', 'shell:npm install left-pad']) {
+      expect(decision(rendered.policies, 'tool.use', resource)).toBe('deny')
+    }
+  })
+
+  it('adds the V1 delegation constraint text where V1 does and keeps the self-deny after authored allows', () => {
+    const source = { agent: {
+      orchestrator: { mode: 'primary', tools: { task: true } },
+      delegator: { mode: 'all', tools: { task: true }, permission: { task: { '*': 'allow', delegator: 'allow' } } },
+    } }
+    const model = { ...createRuntimeConfigModel(source), guards: { knowledgeWrites: true, execution: false, workspace: true, selfDelegation: true } }
+    const rendered = config(model)
+    const v1 = renderV1RuntimeConfig(model)
+    if (!v1.ok || !isRecord(v1.data.config.agent) || !isRecord(v1.data.config.agent.delegator)) throw new Error('missing v1 agents')
+    const delegator = agentConfig(rendered, 'delegator')
+
+    expect(delegator.system).toBe(v1.data.config.agent.delegator.prompt)
+    expect(delegator.system).toEqual(expect.stringContaining('## Delegation constraint\nCRITICAL: You MUST NEVER use the task tool to invoke yourself ("delegator"). Self-delegation creates an infinite loop. You may delegate to: orchestrator.'))
+    expect(agentConfig(rendered, 'orchestrator').system).not.toContain('## Delegation constraint')
+    expect(decision(delegator.permissions, 'subagent', 'delegator')).toBe('deny')
+    expect(decision(delegator.permissions, 'subagent', 'orchestrator')).toBe('allow')
+    expect(protectedGuardViolations(rendered)).toEqual([])
   })
 
   it.each([
-    { name: 'an overridable agent permission', source: { agent: { worker: {
-      mode: 'all', tools: { task: true }, permission: { task: { '*': 'allow', worker: 'deny' } },
-    } } } },
-    { name: 'a global delegation target ban', source: {
-      policies: [{ action: 'tool.use', resource: 'subagent:*', effect: 'deny' }],
-      agent: { worker: { mode: 'all', tools: { task: true } } },
-    } },
-    { name: 'a prompt-only delegation constraint', source: { agent: { worker: {
-      mode: 'all', tools: { task: true }, prompt: 'Never delegate to yourself.',
-    } } } },
-  ])('does not mistake $name for the protected caller-scoped guard', ({ source }) => {
-    const model = createRuntimeConfigModel(source)
-    const original = structuredClone(model)
-
-    const result = renderRuntimeConfig(model)
-
-    expect(result).toMatchObject({ ok: false, error: { code: 'runtime_config_unsupported', path: 'guards.selfDelegation' } })
-    expect(result).not.toHaveProperty('data')
-    expect(model).toEqual(original)
+    { name: 'the self-deny is removed', mutate: (rendered: Record<string, unknown>) => { agentConfig(rendered, 'delegator').permissions = rules(agentConfig(rendered, 'delegator').permissions).slice(0, -1) }, violation: 'agents.delegator.selfDelegation' },
+    { name: 'an allow follows the self-deny', mutate: (rendered: Record<string, unknown>) => { agentConfig(rendered, 'orchestrator').permissions = [...rules(agentConfig(rendered, 'orchestrator').permissions), { action: 'subagent', resource: '*', effect: 'allow' }] }, violation: 'agents.orchestrator.selfDelegation' },
+    { name: 'the edit policy is removed', mutate: (rendered: Record<string, unknown>) => { rendered.policies = rules(rendered.policies).filter((rule) => rule.resource !== 'edit:*') }, violation: 'policies.knowledgeWrites' },
+    { name: 'the workspace policies are removed', mutate: (rendered: Record<string, unknown>) => { rendered.policies = rules(rendered.policies).filter((rule) => rule.resource === 'edit:*') }, violation: 'policies.workspace' },
+  ])('negative control: the protected-guard check fails when $name', ({ mutate, violation }) => {
+    const rendered = config(createRuntimeConfigModel(PRODUCTION_SOURCE))
+    mutate(rendered)
+    expect(protectedGuardViolations(rendered)).toContain(violation)
   })
 
   it('does not accept caller predicates or agent policies absent from the 2.0.32 schema', () => {
