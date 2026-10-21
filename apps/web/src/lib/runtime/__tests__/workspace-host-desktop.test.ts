@@ -425,6 +425,7 @@ describe('desktopWorkspaceHost', () => {
       XDG_DATA_HOME: '/tmp/arche/.runtime/opencode-v2/.local/share',
       XDG_STATE_HOME: '/tmp/arche/.runtime/opencode-v2/.local/state',
       OPENCODE_PASSWORD: 'generated-password',
+      OPENCODE_MODELS_URL: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+\/api\/internal\/models$/),
     })
     expect(build).toHaveBeenCalledWith('local', expect.any(Object), expect.objectContaining({ runtimeKind: 'opencode-v2' }))
     expect(settleRuntimeMigratedRuns).toHaveBeenCalledWith('local')

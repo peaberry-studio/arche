@@ -31,8 +31,11 @@ export function serializeRuntimeConfig(config: Record<string, unknown>): string 
   return JSON.stringify(sortJsonValue(config))
 }
 
+// Address of this server's internal API as seen from workspace containers.
+export const WEB_INTERNAL_API_ROOT = 'http://web:3000/api/internal'
+
 export function getWebProviderGatewayConfig(): Record<string, unknown> {
-  return buildProviderGatewayConfig('http://web:3000/api/internal/providers')
+  return buildProviderGatewayConfig(`${WEB_INTERNAL_API_ROOT}/providers`)
 }
 
 export function getDefaultWebRuntimeConfigContent(): string {

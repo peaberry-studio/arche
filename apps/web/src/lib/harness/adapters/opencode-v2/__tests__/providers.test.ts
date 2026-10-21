@@ -20,7 +20,7 @@ vi.mock('@/lib/services', () => ({
   messageRunService: { hasActiveRunForSlug: vi.fn() },
 }))
 
-type Credential = { id: string; integrationID: string; label: string; active: boolean; value: { type: 'key'; key: string } }
+type Credential = { id: string; integrationID: string; label: string; active: boolean; value: { type: 'key'; key: string; metadata?: Record<string, unknown> } }
 
 // Emulates the 2.0.32 store semantics observed by the providers probe: one
 // active entry per integration, activation on create, and removal of the
@@ -92,6 +92,12 @@ describe('V2 provider access sync through the real adapter and client', () => {
       { integrationID: 'github', label: 'user added', active: true, key: 'foreign-secret-cred_github' },
       { integrationID: 'openai', label: 'arche-managed:openai', active: true, key: 'synthetic-token:openai:3' },
       { integrationID: 'opencode', label: 'arche-managed:opencode', active: true, key: 'synthetic-token:opencode:0' },
+    ])
+    // The Zen token is never sent to the OpenCode Console: its Console server is Arche.
+    expect(server.credentials().map(({ integrationID, value }) => [integrationID, value.metadata])).toEqual([
+      ['github', undefined],
+      ['openai', undefined],
+      ['opencode', { server: 'http://web:3000/api/internal/opencode-console' }],
     ])
     const firstRemoval = server.calls.findIndex((call) => call.startsWith('DELETE'))
     expect(server.calls.lastIndexOf('POST /api/credential')).toBeLessThan(firstRemoval)

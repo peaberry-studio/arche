@@ -17,7 +17,7 @@ type ProviderCredentialAuthResult =
 
 export type ProviderGatewayAdapter = {
   authScheme: ProviderAuthScheme
-  baseUrl: (secret?: ProviderSecret) => string
+  baseUrl: (secret?: ProviderSecret, pathSegments?: string[]) => string
   defaultHeaders?: Record<string, string>
   extractGatewayToken: (headers: Headers) => string | null
   maxFetchAttempts: (context: ProviderRequestContext) => number
@@ -39,6 +39,10 @@ const PROVIDER_BASE_URL: Record<ProviderId, string> = {
   'opencode-go': 'https://opencode.ai/zen/go/v1',
   ollama: 'http://127.0.0.1:11434/v1',
 }
+
+// OpenCode 2 addresses Zen per model family under /inference/<family>/ and Go
+// under /inference/go/<family>/; the paths above serve OpenCode 1.
+const OPENCODE_INFERENCE_ORIGIN = 'https://opencode.ai'
 
 function resolvePlainApiCredentialAuth(secret: ProviderSecret): ProviderCredentialAuthResult {
   if (!isPlainApiSecret(secret)) {
@@ -84,7 +88,7 @@ function extractApiKey(headers: Headers): string | null {
 function extractOpencodeGatewayToken(headers: Headers): string | null {
   const bearerToken = extractBearerToken(headers)
   if (bearerToken) return bearerToken
-  return extractApiKey(headers)
+  return extractApiKey(headers) ?? (headers.get('x-goog-api-key')?.trim() || null)
 }
 
 function openAiBaseUrl(): string {
@@ -93,6 +97,14 @@ function openAiBaseUrl(): string {
 
 function staticBaseUrl(providerId: ProviderId): () => string {
   return () => PROVIDER_BASE_URL[providerId]
+}
+
+function opencodeBaseUrl(providerId: 'opencode' | 'opencode-go'): ProviderGatewayAdapter['baseUrl'] {
+  return (_secret, pathSegments = []) => {
+    const isInference = pathSegments[0] === 'inference'
+    const isGo = pathSegments[1] === 'go'
+    return isInference && isGo === (providerId === 'opencode-go') ? OPENCODE_INFERENCE_ORIGIN : PROVIDER_BASE_URL[providerId]
+  }
 }
 
 function ollamaBaseUrl(secret?: ProviderSecret): string {
@@ -245,14 +257,14 @@ const PROVIDER_ADAPTERS: Record<ProviderId, ProviderGatewayAdapter> = {
   opencode: {
     ...DEFAULT_PROVIDER_ADAPTER,
     authScheme: 'bearer',
-    baseUrl: staticBaseUrl('opencode'),
+    baseUrl: opencodeBaseUrl('opencode'),
     extractGatewayToken: extractOpencodeGatewayToken,
   },
   'opencode-go': {
     ...DEFAULT_PROVIDER_ADAPTER,
     authScheme: 'bearer',
-    baseUrl: staticBaseUrl('opencode-go'),
-    extractGatewayToken: extractBearerToken,
+    baseUrl: opencodeBaseUrl('opencode-go'),
+    extractGatewayToken: extractOpencodeGatewayToken,
   },
   ollama: {
     ...DEFAULT_PROVIDER_ADAPTER,

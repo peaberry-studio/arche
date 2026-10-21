@@ -19,10 +19,12 @@ export function getDesktopWebPort(): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_NEXT_PORT
 }
 
+export function getDesktopInternalApiRoot(): string {
+  return `http://${LOOPBACK_HOST}:${getDesktopWebPort()}/api/internal`
+}
+
 export function getDesktopProviderGatewayConfig(): Record<string, unknown> {
-  return buildProviderGatewayConfig(
-    `http://${LOOPBACK_HOST}:${getDesktopWebPort()}/api/internal/providers`,
-  )
+  return buildProviderGatewayConfig(`${getDesktopInternalApiRoot()}/providers`)
 }
 
 function getDesktopArcheToolsDir(): string {

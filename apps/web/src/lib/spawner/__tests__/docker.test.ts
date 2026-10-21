@@ -286,6 +286,7 @@ describe('docker', () => {
           'arche.runtime.kind': 'opencode-v1',
         },
       })
+      expect(mockDockerInstance.createContainer.mock.calls[0][0].Env.some((entry: string) => entry.startsWith('OPENCODE_MODELS_URL='))).toBe(false)
     })
 
     it('isolates V2 state and selects the V2 image without changing the V1 volumes', async () => {
@@ -296,6 +297,7 @@ describe('docker', () => {
           'arche-opencode2-share-user-slug:/home/workspace/.local/share/opencode',
           'arche-opencode2-state-user-slug:/home/workspace/.local/state/opencode',
         ]) }),
+        Env: expect.arrayContaining(['OPENCODE_MODELS_URL=http://web:3000/api/internal/models']),
         Labels: expect.objectContaining({ 'arche.runtime.kind': 'opencode-v2' }),
       }))
       expect(mockDockerInstance.createVolume).not.toHaveBeenCalledWith({ Name: 'arche-opencode-share-user-slug' })

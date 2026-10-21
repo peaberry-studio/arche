@@ -12,6 +12,7 @@ import {
   getDefaultWebRuntimeConfigContent,
   parseRuntimeConfigContent,
   serializeRuntimeConfig,
+  WEB_INTERNAL_API_ROOT,
 } from '@/lib/spawner/runtime-config';
 import { ensureUserDirectory, getUserDataHostPath } from '@/lib/user-data';
 
@@ -205,6 +206,7 @@ export async function createContainer(
     `WORKSPACE_AGENT_PORT=${getWorkspaceAgentPort()}`,
     `WORKSPACE_GIT_AUTHOR_NAME=${gitAuthor?.name ?? slug}`,
     `WORKSPACE_GIT_AUTHOR_EMAIL=${gitAuthor?.email ?? `${slug}@arche.local`}`,
+    ...(runtimeKind === 'opencode-v2' ? [`OPENCODE_MODELS_URL=${WEB_INTERNAL_API_ROOT}/models`] : []),
   ];
 
   const options = {

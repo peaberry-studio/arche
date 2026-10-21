@@ -13,6 +13,7 @@ import { getGatewayTokenTtlSeconds } from '@/lib/providers/config'
 import { getEnabledProviderCredentialsForUser, type EnabledProviderCredentials } from '@/lib/providers/store'
 import { issueGatewayToken } from '@/lib/providers/tokens'
 import { PROVIDERS } from '@/lib/providers/types'
+import { getRuntimeOpencodeConsoleUrl } from '@/lib/runtime/internal-api'
 import { instanceService, messageRunService } from '@/lib/services'
 
 type Connection = { baseUrl: string; authHeader: string }
@@ -121,7 +122,9 @@ async function replaceManagedCredentials(client: OpenCodeV2Client, desired: Map<
     const entry = await client.credential.create({
       integrationID,
       label: `${ARCHE_CREDENTIAL_LABEL_PREFIX}${integrationID}`,
-      value: { type: 'key', key },
+      // OpenCode 2 treats an `opencode` key as an OpenCode Console account and
+      // polls the Console with it; point that at Arche so the gateway token stays here.
+      value: { type: 'key', key, ...(integrationID === 'opencode' && { metadata: { server: getRuntimeOpencodeConsoleUrl() } }) },
       activate: true,
     })
     installed.add(entry.id)
