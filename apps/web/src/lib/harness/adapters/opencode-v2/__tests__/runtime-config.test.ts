@@ -317,6 +317,18 @@ describe('V2 runtime config renderer', () => {
     expect(decision(agentConfig(rendered, 'worker').permissions, 'doom_loop', '*')).toBe('deny')
   })
 
+  it('ignores V1 tools that 2.0.32 does not ship instead of refusing the config', () => {
+    const rendered = config(unprotectedModel({
+      permission: { lsp: 'allow', todowrite: 'deny' },
+      agent: { worker: { tools: { read: true, codesearch: true, lsp: false, todoread: true, todowrite: true } } },
+    }))
+    const worker = rules(agentConfig(rendered, 'worker').permissions)
+
+    expect(worker.some((rule) => ['codesearch', 'lsp', 'todoread', 'todowrite'].includes(rule.action))).toBe(false)
+    expect(decision(worker, 'read', '*')).toBe('allow')
+    expect(decision(worker, 'shell', '*')).toBe('deny')
+  })
+
   it('hardens workspace writes with policies without globally denying delegation targets', () => {
     const rendered = config(unprotectedModel({
       policies: [{ action: 'tool.use', resource: 'edit:*', effect: 'allow' }],
@@ -334,14 +346,12 @@ describe('V2 runtime config renderer', () => {
   })
 
   it.each([
-    { source: { permission: { lsp: 'deny' } }, path: 'access.lsp' },
     { source: { permission: { typo: 'deny' } }, path: 'access.typo' },
     { source: { permission: { read: { '*': 'invalid' } } }, path: 'access.read.*' },
     { source: { permission: { read: 'deny', list: 'allow' } }, path: 'access.list' },
     { source: { permission: { bash: { '*': 'deny' }, shell: { '*': 'allow' } } }, path: 'access.shell' },
     { source: { agent: { worker: { permission: { edit: 'ask', write: 'allow' } } } }, path: 'agents.worker.access.write' },
     { source: { agent: { worker: { tools: { read: true, list: false } } } }, path: 'agents.worker.tools.list' },
-    { source: { agent: { worker: { tools: { lsp: true } } } }, path: 'agents.worker.tools.lsp' },
     { source: { agent: { worker: { tools: { edit: false, write: true } } } }, path: 'agents.worker.tools.write' },
     { source: { policies: [{ action: 'edit', resource: '*', effect: 'deny' }] }, path: 'policies.0.action' },
     { source: { experimental: { policies: [] } }, path: 'experimental' },
