@@ -54,6 +54,12 @@ export function getIdleTimeoutMinutes(): number {
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 120
 }
 
+export function getScratchSizeMb(): number {
+  const raw = process.env.ARCHE_SCRATCH_SIZE_MB
+  const parsed = raw ? Number(raw) : NaN
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 512
+}
+
 export function getKbContentHostPath(): string {
   const value = process.env.KB_CONTENT_HOST_PATH?.trim()
   if (!value) {

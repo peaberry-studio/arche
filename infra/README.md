@@ -124,6 +124,24 @@ stays unchecked until its staging verification is performed.
 Local regression checks use fake Podman/database responses only:
 `node --test scripts/__tests__/cleanup-legacy-volumes.test.mjs`.
 
+## Session scratch folders
+
+Agents cannot write to the Knowledge Base, so each session gets a private scratch
+folder where they read, write, edit files and run commands without asking:
+
+- `arche_tools_scratch_dir` creates and returns `/tmp/arche-scratch/<session id>`.
+  The runtime config allows edits only under that root (an agent without write
+  tools still cannot write there) and lets agents read it without the external
+  directory prompt.
+- In the workspace container the root is a tmpfs capped by `ARCHE_SCRATCH_SIZE_MB`
+  (web env, default `512`): it never fills the host disk and is wiped when the
+  container restarts. Desktop uses `<OS temp dir>/arche-scratch`.
+- Folders of other sessions untouched for 24 hours are removed whenever a session
+  opens its own.
+- Results leave the scratch folder through `arche_tools_scratch_publish` (a copy in
+  the workspace attachments, which the user can open and download) or as a
+  Knowledge Base proposal with `arche_tools_learning_propose`.
+
 ## Knowledge Base (KB)
 
 The system includes a shared Knowledge Base injected into each user workspace.

@@ -22,6 +22,9 @@ export type RuntimeConfigModel = {
   agentsMd?: string
   skills: SkillBundle[]
   guards: { knowledgeWrites: boolean; execution: boolean; workspace: boolean; selfDelegation: boolean }
+  // One scratch folder per session lives under this absolute directory, outside
+  // the Knowledge Base; agents may read, write and edit there without asking.
+  scratch?: { root: string; workspaceRoot: string }
 }
 
 export type RenderedRuntimeConfig = {

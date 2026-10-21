@@ -393,3 +393,57 @@ describe('V2 runtime config renderer', () => {
     expect(result).not.toHaveProperty('data')
   })
 })
+
+describe('V2 runtime config renderer: session scratch folders', () => {
+  const scratch = { root: '/tmp/arche-scratch', workspaceRoot: '/workspace' }
+  const source = {
+    default_agent: 'writer',
+    agent: {
+      writer: { tools: { read: true, write: true, edit: true } },
+      reader: { mode: 'subagent', tools: { read: true } },
+    },
+  }
+
+  it('lets agents that can edit work in the scratch folder while the vault and other paths stay guarded', () => {
+    const rendered = config({ ...createRuntimeConfigModel(source), scratch })
+    const writer = agentConfig(rendered, 'writer').permissions
+    const reader = agentConfig(rendered, 'reader').permissions
+
+    // OpenCode 2 matches edit on the workspace-relative path and external_directory on the absolute one.
+    expect(decision(writer, 'edit', '../tmp/arche-scratch/ses_1/draft.md')).toBe('allow')
+    expect(decision(writer, 'edit', 'notes.md')).toBe('deny')
+    expect(decision(writer, 'edit', '../etc/hosts')).toBe('deny')
+    expect(decision(writer, 'external_directory', '/tmp/arche-scratch/ses_1/draft.md')).toBe('allow')
+    expect(decision(writer, 'external_directory', '/etc/hosts')).toBe('ask')
+    expect(decision(reader, 'edit', '../tmp/arche-scratch/ses_1/draft.md')).toBe('deny')
+    expect(decision(reader, 'external_directory', '/tmp/arche-scratch/ses_1/draft.md')).toBe('allow')
+    expect(decision(rendered.permissions, 'external_directory', '/tmp/arche-scratch/ses_1')).toBe('allow')
+    expect(decision(rendered.policies, 'tool.use', 'edit:../tmp/arche-scratch/ses_1/draft.md')).toBe('allow')
+    expect(decision(rendered.policies, 'tool.use', 'edit:notes.md')).toBe('deny')
+    expect(decision(rendered.policies, 'tool.use', 'edit:.opencode/opencode.json')).toBe('deny')
+  })
+
+  it('derives the workspace-relative pattern from both roots', () => {
+    const rendered = config({ ...createRuntimeConfigModel(source), scratch: { root: '/var/tmp/scratch/', workspaceRoot: '/Users/me/vault/workspace' } })
+    expect(decision(agentConfig(rendered, 'writer').permissions, 'edit', '../../../../var/tmp/scratch/ses_1/a.md')).toBe('allow')
+  })
+
+  it('adds no scratch rules without a scratch folder', () => {
+    const rendered = config(createRuntimeConfigModel(source))
+    const scratchRules = [rendered.permissions, rendered.policies, ...['writer', 'reader'].map((id) => agentConfig(rendered, id).permissions)]
+      .flatMap((value) => rules(value)).filter((rule) => rule.resource.includes('scratch'))
+    expect(scratchRules).toEqual([])
+    expect(decision(rendered.policies, 'tool.use', 'edit:../tmp/arche-scratch/ses_1/draft.md')).toBe('deny')
+  })
+
+  it.each([
+    [{ root: 'tmp/arche-scratch', workspaceRoot: '/workspace' }, 'scratch.root'],
+    [{ root: '/tmp/*', workspaceRoot: '/workspace' }, 'scratch.root'],
+    [{ root: '/tmp/arche-scratch', workspaceRoot: 'workspace' }, 'scratch.workspaceRoot'],
+    [{ root: '/workspace/scratch', workspaceRoot: '/workspace' }, 'scratch.root'],
+    [{ root: '/workspace', workspaceRoot: '/workspace' }, 'scratch.root'],
+  ])('rejects scratch folder %j', (invalid, path) => {
+    const result = renderRuntimeConfig({ ...createRuntimeConfigModel(source), scratch: invalid })
+    expect(result).toMatchObject({ ok: false, error: { code: 'runtime_config_unsupported', path } })
+  })
+})

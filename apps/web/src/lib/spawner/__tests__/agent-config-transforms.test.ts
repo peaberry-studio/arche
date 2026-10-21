@@ -310,6 +310,8 @@ describe('remapAgentBuiltInTools', () => {
             email_draft: false,
             flow_propose: false,
             learning_propose: false,
+            scratch_dir: false,
+            scratch_publish: false,
             session_history_query: false,
           },
           permission: {
@@ -337,7 +339,7 @@ describe('remapAgentBuiltInTools', () => {
     expect(tools['*']).toBe(false)
     expect(tools['arche_*']).toBe(true)
     expect(permission.arche_tools_spreadsheet_query).toBe('ask')
-    for (const id of ['chart_create', 'diagram_create', 'document_inspect', 'email_draft', 'flow_propose', 'learning_propose', 'presentation_inspect', 'session_history_query']) {
+    for (const id of ['chart_create', 'diagram_create', 'document_inspect', 'email_draft', 'flow_propose', 'learning_propose', 'presentation_inspect', 'scratch_dir', 'scratch_publish', 'session_history_query']) {
       expect(tools[`arche_tools_${id}`], id).toBe(false)
       expect(permission[`arche_tools_${id}`], id).toBe('deny')
       expect(tools[id], id).toBeUndefined()
@@ -358,6 +360,8 @@ describe('remapAgentBuiltInTools', () => {
       'arche_tools_email_draft',
       'arche_tools_flow_propose',
       'arche_tools_learning_propose',
+      'arche_tools_scratch_dir',
+      'arche_tools_scratch_publish',
       'arche_tools_session_history_query',
     ])
     expect(tools['*']).toBe(false)
@@ -410,7 +414,7 @@ describe('remapAgentBuiltInTools', () => {
     const agents = result.agent as Record<string, Record<string, unknown>>
 
     expect(agents.allMode.tools).toEqual(agents.implicit.tools)
-    expect(Object.entries(agents.allMode.tools as Record<string, boolean>).filter(([id, enabled]) => id.startsWith('arche_tools_') && enabled)).toHaveLength(12)
+    expect(Object.entries(agents.allMode.tools as Record<string, boolean>).filter(([id, enabled]) => id.startsWith('arche_tools_') && enabled)).toHaveLength(14)
     expect(agents.allMode.permission).toMatchObject({ '*': 'ask', arche_tools_learning_propose: 'ask', 'arche_tools_*': 'deny' })
     expect(agents.invalid).toBeNull()
   })

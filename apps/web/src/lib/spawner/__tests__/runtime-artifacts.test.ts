@@ -256,7 +256,7 @@ describe('runtime artifacts', () => {
     expect(decision(assistant.permissions, 'skill', 'arche-flow-authoring')).toBe('allow')
     expect(decision(assistant.permissions, 'edit')).toBe('deny')
     expect(decision(assistant.permissions, 'write')).toBe('deny')
-    expect(enabledArcheTools(assistant)).toHaveLength(12)
+    expect(enabledArcheTools(assistant)).toHaveLength(14)
     expect(decision(assistant.permissions, 'arche_tools_unlisted')).toBe('deny')
   })
 
@@ -317,14 +317,21 @@ describe('runtime artifacts', () => {
     for (const [id, agent] of Object.entries(v2.agents ?? {})) {
       expect(agent.system, id).toContain(`Your current agent id is "${id}".`)
       expect(agent.system?.endsWith(AGENT_KB_POLICY_PROMPT_BLOCK), id).toBe(true)
-      expect(agent.permissions?.at(-1)).toEqual({ action: 'subagent', resource: id, effect: 'deny' })
+      expect(agent.permissions?.findLast((rule) => rule.action === 'subagent')).toEqual({ action: 'subagent', resource: id, effect: 'deny' })
+      expect(decision(agent.permissions, 'external_directory', '/tmp/arche-scratch/ses_1/draft.md'), id).toBe('allow')
+      expect(decision(agent.permissions, 'external_directory', '/etc/passwd'), id).toBe('ask')
     }
+    // No write tool, no scratch writes: the allowance never widens an agent's tools.
+    expect(decision(agentOf(v2, 'analyst').permissions, 'edit', '../tmp/arche-scratch/ses_1/draft.md')).toBe('deny')
     expect(v2.policies).toEqual(expect.arrayContaining([
       { action: 'tool.use', resource: 'edit:.opencode/**', effect: 'deny' },
       { action: 'tool.use', resource: 'edit:opencode.json', effect: 'deny' },
       { action: 'tool.use', resource: 'shell:*opencode.json*', effect: 'deny' },
     ]))
-    expect(v2.policies?.at(-1)).toEqual({ action: 'tool.use', resource: 'edit:*', effect: 'deny' })
+    expect(v2.policies?.slice(-2)).toEqual([
+      { action: 'tool.use', resource: 'edit:*', effect: 'deny' },
+      { action: 'tool.use', resource: 'edit:../tmp/arche-scratch/*', effect: 'allow' },
+    ])
   })
 
   it.each([
@@ -363,11 +370,13 @@ describe('runtime artifacts', () => {
             email_draft: false,
             flow_propose: false,
             learning_propose: false,
+            scratch_dir: false,
+            scratch_publish: false,
             session_history_query: false,
           },
           permission: { '*': 'allow', spreadsheet_query: 'ask' },
         },
-        restricted: { tools: { chart_create: false, diagram_create: false, email_draft: false, flow_propose: false, learning_propose: false, session_history_query: false }, permission: 'allow' },
+        restricted: { tools: { chart_create: false, diagram_create: false, email_draft: false, flow_propose: false, learning_propose: false, scratch_dir: false, scratch_publish: false, session_history_query: false }, permission: 'allow' },
       },
     }
     await createRuntimeRepo({ 'CommonWorkspaceConfig.json': JSON.stringify(storedConfig) })

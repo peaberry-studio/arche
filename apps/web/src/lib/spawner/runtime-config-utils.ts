@@ -121,7 +121,8 @@ export const AGENT_KB_POLICY_PROMPT_BLOCK =
   KB_POLICY_OVERRIDE_LINE +
   `- You ${KB_POLICY_WRITE_RULE_CORE}` +
   `- ${KB_POLICY_GIT_RULE_CORE}` +
-  '- Persist knowledge only by submitting a proposal with `arche_tools_learning_propose` when enabled. This is the only sanctioned way to store knowledge in the vault.\n'
+  '- Persist knowledge only by submitting a proposal with `arche_tools_learning_propose` when enabled. This is the only sanctioned way to store knowledge in the vault.\n' +
+  '- For temporary work, call `arche_tools_scratch_dir` to get your session scratch folder: read, write, edit files and run commands there freely, for example on copies of vault files or attachments. Hand results to the user with `arche_tools_scratch_publish` or propose them with `arche_tools_learning_propose`.\n'
 
 export function withWorkspaceKnowledgePolicy(agentsMd: string): string {
   const block =

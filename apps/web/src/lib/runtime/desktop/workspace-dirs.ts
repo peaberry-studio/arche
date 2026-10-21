@@ -1,5 +1,6 @@
 import { execFileSync } from 'child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
 import { dirname, join } from 'path'
 
 import {
@@ -94,6 +95,12 @@ export function getLegacyOpencodeDataDir(): string {
 
 export function hasLegacyOpencodeData(): boolean {
   return existsSync(join(getRequiredOpencodeRuntimeDir(), '.local', 'share', 'opencode'))
+}
+
+// Session scratch folders live in the OS temp dir, so they are always outside
+// the vault and the OS reclaims them; agents may work there without asking.
+export function getDesktopScratch(slug: string): { root: string; workspaceRoot: string } {
+  return { root: join(tmpdir(), 'arche-scratch'), workspaceRoot: getWorkspaceDir(slug) }
 }
 
 export function getWorkspaceDir(slug: string): string {

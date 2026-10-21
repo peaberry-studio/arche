@@ -386,7 +386,7 @@ describe('buildAgentToolsConfigFromCapabilities', () => {
 // extractAgentCapabilitiesFromTools
 // ---------------------------------------------------------------------------
 describe('extractAgentCapabilitiesFromTools', () => {
-  const DEFAULT_TOOLS = ['chart_create', 'diagram_create', 'email_draft', 'flow_propose', 'learning_propose', 'session_history_query']
+  const DEFAULT_TOOLS = ['chart_create', 'diagram_create', 'email_draft', 'flow_propose', 'learning_propose', 'scratch_dir', 'scratch_publish', 'session_history_query']
   const DEFAULTS_OFF = Object.fromEntries(DEFAULT_TOOLS.map((toolId) => [toolId, false]))
 
   it('returns empty capabilities when tools is undefined', () => {

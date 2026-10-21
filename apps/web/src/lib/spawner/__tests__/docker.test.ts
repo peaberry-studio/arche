@@ -271,6 +271,7 @@ describe('docker', () => {
           'WORKSPACE_GIT_AUTHOR_NAME=user-slug',
           'WORKSPACE_GIT_AUTHOR_EMAIL=user-slug@arche.local',
           'OPENCODE_MODELS_URL=http://web:3000/api/internal/models',
+          'ARCHE_SCRATCH_DIR=/tmp/arche-scratch',
         ]),
         HostConfig: {
           NetworkMode: 'test-network',
@@ -282,6 +283,7 @@ describe('docker', () => {
             '/opt/arche/kb-content:/kb-content',
             '/opt/arche/users/user-slug:/tmp/arche-user-data:ro',
           ],
+          Tmpfs: { '/tmp/arche-scratch': 'rw,nosuid,nodev,size=512m,mode=1777' },
         },
         Labels: {
           'arche.managed': 'true',
