@@ -32,10 +32,8 @@ export type ArcheEvent = { v: 1; at?: number } & (
   | { type: 'session.error'; sessionId: string; message?: string }
   | { type: 'message.upserted'; mode?: undefined; message: WorkspaceMessage }
   | { type: 'message.upserted'; mode: 'patch'; sessionId: string; messageId: string; patch: Partial<Pick<WorkspaceMessage, 'completedAt' | 'statusInfo'>> & { error?: HarnessError }; parts?: MessagePart[]; removeParts?: string[]; reset?: boolean }
-  | { type: 'message.upserted'; mode: 'stage'; message: WorkspaceMessage }
   | { type: 'message.upserted'; mode: 'commit'; sessionId: string; messageId: string; timestamp: string; timestampRaw: number }
-  | { type: 'message.removed'; mode: 'staged'; sessionId: string; messageId: string }
-  | { type: 'message.removed'; mode?: undefined; messageId: string }
+  | { type: 'message.removed'; messageId: string }
   | { type: 'part.upserted'; mode?: undefined; sessionId?: string; messageId: string; part: MessagePart; replace?: boolean }
   | { type: 'part.upserted'; mode: 'tool-patch'; sessionId: string; messageId: string; update: ArcheToolUpdate; attachments?: MessagePart[] }
   | { type: 'part.delta'; sessionId?: string; messageId: string; partId: string; field: 'text' | 'reasoning'; delta: string }

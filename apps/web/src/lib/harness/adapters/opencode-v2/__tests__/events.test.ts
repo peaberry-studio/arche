@@ -1,9 +1,10 @@
 import type { OpenCodeEvent, ToolContent } from '@opencode/client'
 import { describe, expect, it } from 'vitest'
 
+import { formatTimestamp } from '@/lib/format-timestamp'
 import { assistantSnapshot, ASSISTANT_ID, endedEvent, failedEvent, mixedContent, mixedEvents, MIXED_MESSAGE_ID, model, permission, permissionEvents, SESSION_ID, textEvents, toolEvents, toolSnapshot, TOOL_MESSAGE_ID, TOOL_SESSION_ID } from '@/lib/harness/adapters/opencode-v2/__tests__/fixtures'
 import { translateOpenCodeEvent } from '@/lib/harness/adapters/opencode-v2/events'
-import { toArchePermission, toHarnessMessage, transformParts } from '@/lib/harness/adapters/opencode-v2/transform'
+import { toArchePermission, toHarnessMessage, toInboxMessage, transformParts } from '@/lib/harness/adapters/opencode-v2/transform'
 import { parseArcheEvent } from '@/lib/workspace-events/parse-event'
 import { createEmptyChatStore, hydrateSessionIntoStore, reduceArcheEvent } from '@/lib/workspace-events/reducer'
 
@@ -85,16 +86,27 @@ describe('v2 synchronous event translation', () => {
     expect(store.messages[data.sessionID]).toEqual([snapshot])
   })
 
-  it('commits user attachments only at delivery and drops cancelled queued input', () => {
+  it('shows queued input with attachments at enqueue, moves it to its delivery time and drops cancelled input', () => {
     const enqueued: OpenCodeEvent = { id: 'evt_enqueue', created: 1, type: 'session.inbox.enqueued', durable: { aggregateID: SESSION_ID, seq: 1, version: 1 },
       data: { sessionID: SESSION_ID, inboxID: 'user', item: { type: 'user', delivery: 'queue', payload: { text: 'hello', files: [{ mime: 'text/plain', data: 'YQ==', name: 'a.txt', source: { type: 'inline' } }] } } } }
     const delivered: OpenCodeEvent = { id: 'evt_delivery', created: 2, type: 'session.inbox.delivered', durable: { aggregateID: SESSION_ID, seq: 2, version: 1 }, data: { sessionID: SESSION_ID, inboxID: 'user' } }
-    const queued = apply([enqueued])
-    expect(queued.messages).toEqual({})
-    const live = apply([enqueued, delivered])
-    expect(live.messages[SESSION_ID]).toEqual([toHarnessMessage({ id: 'user', sessionID: SESSION_ID, type: 'user', text: 'hello', files: [{ mime: 'text/plain', data: 'YQ==', name: 'a.txt', source: { type: 'inline' } }], time: { created: 2 } })])
-    expect(live.stagedMessages).toEqual({})
+    const native = { sessionID: SESSION_ID, type: 'user', text: 'hello', files: [{ mime: 'text/plain', data: 'YQ==', name: 'a.txt', source: { type: 'inline' } }] }
+    const pending = toInboxMessage(SESSION_ID, { id: 'user', type: 'user', delivery: 'queue', payload: { text: native.text, files: native.files }, time: { created: 1 } })
+    expect(apply([enqueued]).messages[SESSION_ID]).toEqual([pending])
+    expect(apply([enqueued, delivered]).messages[SESSION_ID]).toEqual([toHarnessMessage({ ...native, id: 'user', time: { created: 2 } })])
     expect(apply([enqueued, { ...delivered, type: 'session.inbox.cancelled' }]).messages).toEqual({})
+  })
+
+  it('applies a delivery whose enqueue was missed once a snapshot supplies the queued input', () => {
+    const delivered: OpenCodeEvent = { id: 'evt_delivery', created: 5, type: 'session.inbox.delivered', durable: { aggregateID: SESSION_ID, seq: 2, version: 1 }, data: { sessionID: SESSION_ID, inboxID: 'queued' } }
+    const missed = apply([delivered])
+    expect(missed.messages).toEqual({})
+    const pending = toInboxMessage(SESSION_ID, { id: 'queued', type: 'user', delivery: 'steer', payload: { text: 'later' }, time: { created: 3 } })
+    if (!pending) throw new Error('Invalid fixture')
+    const hydrated = hydrateSessionIntoStore(missed, SESSION_ID, [pending])
+    expect(hydrated.messages[SESSION_ID]).toEqual([{ ...pending, timestamp: formatTimestamp(5), timestampRaw: 5 }])
+    expect(hydrated.pendingUpdates).toEqual({})
+    expect(hydrateSessionIntoStore(hydrated, SESSION_ID, [pending]).messages[SESSION_ID][0].timestampRaw).toBe(5)
   })
 
   it('uses authoritative ended text even when shorter, then rejects stale deltas after completed hydration', () => {

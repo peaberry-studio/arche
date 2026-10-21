@@ -3,7 +3,7 @@ import type { SessionInfo, SessionMessageInfo, SessionPromptInput } from '@openc
 import { checkHealth, createInstanceClient, normalizeOpenCodeError, type OpenCodeV2Client } from '@/lib/harness/adapters/opencode-v2/client'
 import { subscribeOpenCodeEvents } from '@/lib/harness/adapters/opencode-v2/events'
 import { syncProviderAccess } from '@/lib/harness/adapters/opencode-v2/providers'
-import { toArchePermission, toHarnessMessage, toHarnessSession } from '@/lib/harness/adapters/opencode-v2/transform'
+import { toArchePermission, toHarnessMessage, toHarnessSession, toInboxMessage } from '@/lib/harness/adapters/opencode-v2/transform'
 import type { HarnessRuntime, HarnessSession } from '@/lib/harness/contract'
 import { harnessFailure, type HarnessResult } from '@/lib/harness/errors'
 import { getCanonicalProviderId, getProviderLabel, resolveRuntimeProviderId } from '@/lib/providers/catalog'
@@ -74,11 +74,13 @@ export function createOpenCodeV2Runtime(slug: string): HarnessRuntime {
     sessionStatus: async () => harnessFailure('runtime_unsupported', 'v2_family_idle_confirmation_unverified'),
     listMessages: (sessionId) => withClient(async (client) => {
       await client.session.get({ sessionID: sessionId })
-      const messages = await collectPages<SessionMessageInfo>((cursor) => client.message.list({ sessionID: sessionId, order: 'asc', limit: 100, cursor }))
-      return messages.flatMap((message) => {
-        const normalized = toHarnessMessage({ ...message, sessionID: sessionId })
-        return normalized ? [normalized] : []
-      })
+      const inbox = await client.session.inbox.list({ sessionID: sessionId })
+      const messages = await collectPages<SessionMessageInfo>((cursor) => client.message.list({ sessionID: sessionId, limit: 100, ...(cursor ? { cursor } : { order: 'asc' }) }))
+      const delivered = new Set(messages.map((message) => message.id))
+      return [
+        ...messages.map((message) => toHarnessMessage({ ...message, sessionID: sessionId })),
+        ...inbox.filter((item) => !delivered.has(item.id)).map((item) => toInboxMessage(sessionId, item)),
+      ].flatMap((message) => message ? [message] : [])
     }),
     async prompt(input, options) {
       const session = await withClient((client) => client.session.get({ sessionID: input.sessionId }, options))

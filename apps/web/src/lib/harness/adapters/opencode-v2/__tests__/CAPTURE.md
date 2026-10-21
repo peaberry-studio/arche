@@ -62,7 +62,71 @@ Synthetic metadata/attachment/error cases in unit tests are not live captures.
   and execution-interrupted. Step-failed has neither agent/model nor original
   creation timestamp; step-ended similarly cannot create a full message.
 
-## Current subscription and parity evidence (SC-2 / SC-9)
+## Reconnect parity acceptance (SC-2 / SC-9, 2026-10-21)
+
+Acceptance rule (lead decision): v2 must give at least the reconnect guarantees
+v1 provides today. `subscribeOpenCodeEvents` now opens the production
+transport; the guard and `connectOpenCodeEvents` alias are gone.
+
+Reproduce from `apps/web` (fake provider only, repository-local scratch,
+process/container and scratch removed in `finally`):
+
+```sh
+node src/lib/harness/adapters/opencode-v2/__tests__/reconnect-v2.probe.mjs   # installed opencode 2.0.32, loopback serve
+node src/lib/harness/adapters/opencode-v2/__tests__/reconnect-v1.probe.mjs   # podman, ghcr.io/anomalyco/opencode:1.18.18
+OPENCODE_V2_LIVE=1 pnpm exec vitest run src/lib/harness/adapters/opencode-v2/__tests__/subscription-live.test.ts
+```
+
+Both probes run the same scripted conversation (`probe-harness.mjs`):
+reasoning + text paused mid-text, a prompt queued while busy, a `read` behind
+a permission ask, a subagent child paused mid-text, a final reply. Snapshots
+(sessions, message list, inbox, pending permissions, active/status map) are
+taken at quiescent cut points `mid-text`, `queued`, `mid-tool`, `mid-child`,
+`end`, so each one matches an exact prefix of the continuous event log. The
+sanitized outputs are `captures/reconnect-v1.json` and
+`captures/reconnect-v2.json`; `reconnect-golden.test.ts` replays them offline
+(v2 snapshots go through the real `listMessages`/`listPermissions` over a
+fake transport).
+
+Verified:
+
+- Every reconnect variant converges to the continuously connected client for
+  both runtimes at all five cut points: fresh client (snapshot then live),
+  subscription opened before the snapshot read (live events applied before
+  hydration), and a tab that disconnected at any earlier event.
+- v2's final snapshot equals the live-reduced state including per-message
+  accounting. v1 only matches without `step-start`/`step-finish` parts (its
+  live path drops them), so v2 is stronger there.
+- Transient state at a cut (fresh client before more live events): in-flight
+  text/reasoning is absent from both runtimes' snapshots until the part ends
+  (v1 persists reasoning earlier than v2, which ends reasoning with the text).
+  Hydrated permissions carry `kind` instead of `permissionType` in both.
+  v2-only: a running subagent tool has `metadata: {}` in the 2.0.32 snapshot
+  (progress metadata is not persisted), so the delegation card links to the
+  child session only once the tool completes or a progress event arrives.
+- Missed enqueue: 2.0.32 exposes pending input through `session.inbox.list`.
+  `listMessages` reads the inbox first, then the history, and appends
+  undelivered user/synthetic items (deduplicated by ID). Live
+  `session.inbox.enqueued` now shows the input immediately like v1;
+  `session.inbox.delivered` moves it to its delivery timestamp (queued until a
+  snapshot supplies the message if the enqueue was missed);
+  `session.inbox.cancelled` removes it. Hydration never moves a user message
+  timestamp backwards.
+- `message.list` rejects a page cursor sent together with `order`
+  (`InvalidCursorError`; the cursor already encodes its order). Every
+  snapshot used to fail once the first page returned `cursor.next`, which
+  2.0.32 does even for short pages. Later pages now send only the cursor.
+- Stale-snapshot races (snapshot read before live events the client already
+  applied) produce only the classes v1 also has: a just-resolved permission
+  reappears, or a just-completed tool regresses to the snapshot's running
+  state, until the next hydration. v1 additionally loses text/reasoning in
+  that race.
+- Live BFF route against 2.0.32: heartbeat within 10 s on a quiet stream,
+  live deltas forwarded, closing one subscriber leaves the session running to
+  completion and a second subscriber receiving, 502 `event_stream_unavailable`
+  on rejected auth or refused connection.
+
+## Current subscription and parity evidence (SC-2 / SC-9) (historical, superseded above)
 
 **Production subscription is guarded.** `subscribeOpenCodeEvents` returns typed
 `runtime_unsupported` before credential lookup or transport because unfinished
@@ -115,7 +179,7 @@ HTTP transport. They do not prove every possible concurrent hydration race.
 the package also declaring a broader `V2Event`, it does not admit
 `session.message.content.updated`; that 2.1 spike mapping is not claimed here.
 
-## Native replay/cursor recheck (SC-2 / SC-9, 2026-10-20)
+## Native replay/cursor recheck (SC-2 / SC-9, 2026-10-20; historical, superseded above)
 
 The same capture command above now asserts a concrete unfinished-text reconnect
 counterexample against **2.0.32**, not only completed-conversation parity. Its
@@ -166,7 +230,7 @@ timestamps/outcomes or every agent/model/location, skill/shell, compaction and
 revert history/control record. This recheck does not broaden that implementation
 or relax any startup/provider/family-idle gate.
 
-## Remaining boundaries
+## Remaining boundaries (2026-10-20; event items superseded above)
 
 - Late/nested/tool-created child discovery; queued-input drain/cancellation;
   retry and background subagent termination beyond the explicitly created child.

@@ -2,7 +2,7 @@ import { OpenCode, type OpenCodeEvent } from '@opencode/client'
 
 import { formatTimestamp } from '@/lib/format-timestamp'
 import { getInstanceBasicAuth } from '@/lib/harness/adapters/opencode-v2/client'
-import { accountingPart, contentPartId, toArchePermission, toHarnessError, toHarnessMessage, toolResultParts } from '@/lib/harness/adapters/opencode-v2/transform'
+import { accountingPart, contentPartId, toArchePermission, toHarnessError, toHarnessMessage, toInboxMessage, toolResultParts } from '@/lib/harness/adapters/opencode-v2/transform'
 import { harnessFailure, type HarnessResult } from '@/lib/harness/errors'
 import type { ArcheEvent } from '@/lib/harness/events'
 
@@ -91,9 +91,9 @@ export function translateOpenCodeEvent(event: OpenCodeEvent): HarnessResult<Arch
     case 'session.inbox.enqueued': {
       const { item, sessionID, inboxID } = event.data
       if (item.type !== 'user' && item.type !== 'synthetic') break
-      const message = toHarnessMessage({ ...item.payload, id: inboxID, sessionID, type: item.type, time: { created: event.created } })
+      const message = toInboxMessage(sessionID, { ...item, id: inboxID, time: { created: event.created } })
       if (!message) return unsupported(event.type)
-      output.push({ v: 1, type: 'message.upserted', mode: 'stage', message })
+      output.push({ v: 1, type: 'message.upserted', message })
       break
     }
     case 'session.synthetic':
@@ -109,7 +109,7 @@ export function translateOpenCodeEvent(event: OpenCodeEvent): HarnessResult<Arch
       output.push({ v: 1, type: 'message.upserted', mode: 'commit', sessionId: event.data.sessionID, messageId: event.data.inboxID, timestamp: formatTimestamp(event.created), timestampRaw: event.created })
       break
     case 'session.inbox.cancelled':
-      output.push({ v: 1, type: 'message.removed', mode: 'staged', sessionId: event.data.sessionID, messageId: event.data.inboxID })
+      output.push({ v: 1, type: 'message.removed', messageId: event.data.inboxID })
       break
     case 'session.step.streamed':
       break
@@ -169,13 +169,7 @@ export function translateOpenCodeEvent(event: OpenCodeEvent): HarnessResult<Arch
   return { ok: true, data: output.map((translated) => 'messageId' in translated && 'created' in event ? { ...translated, at: event.created } : translated) }
 }
 
-export const V2_EVENT_STREAM_UNVERIFIED = 'UNVERIFIED: v2_event_snapshot_parity:unfinished_snapshot_delta_overlap,missed_inbox_enqueue_on_reconnect,full_session_control_parity'
-
-export async function subscribeOpenCodeEvents(_slug: string, _signal: AbortSignal): Promise<HarnessResult<AsyncIterable<ArcheEvent>>> {
-  return harnessFailure('runtime_unsupported', V2_EVENT_STREAM_UNVERIFIED)
-}
-
-export async function connectOpenCodeEvents(slug: string, signal: AbortSignal): Promise<HarnessResult<AsyncIterable<ArcheEvent>>> {
+export async function subscribeOpenCodeEvents(slug: string, signal: AbortSignal): Promise<HarnessResult<AsyncIterable<ArcheEvent>>> {
   let iterator: AsyncIterator<OpenCodeEvent> | undefined
   try {
     const connection = await getInstanceBasicAuth(slug)
