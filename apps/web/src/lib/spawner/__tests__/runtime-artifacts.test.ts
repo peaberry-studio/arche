@@ -324,7 +324,6 @@ describe('runtime artifacts', () => {
   })
 
   it.each([
-    { permission: { doom_loop: 'deny' } },
     { permission: { read: 'invalid' } },
     { permission: 123 },
     { tools: { unknown: false } },

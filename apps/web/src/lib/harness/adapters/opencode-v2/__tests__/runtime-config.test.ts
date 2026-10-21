@@ -303,6 +303,20 @@ describe('V2 runtime config renderer', () => {
     expect(decision(analyst.permissions, 'shell', '*')).toBe('deny')
   })
 
+  it('maps authored doom_loop permissions and denies doom loops for every agent like V1', () => {
+    const rendered = config(createRuntimeConfigModel({
+      default_agent: 'assistant',
+      permission: { '*': 'allow' },
+      agent: {
+        assistant: { permission: { doom_loop: 'deny' } },
+        worker: { mode: 'subagent', permission: { '*': 'allow', doom_loop: 'allow' } },
+      },
+    }))
+
+    expect(decision(agentConfig(rendered, 'assistant').permissions, 'doom_loop', '*')).toBe('deny')
+    expect(decision(agentConfig(rendered, 'worker').permissions, 'doom_loop', '*')).toBe('deny')
+  })
+
   it('hardens workspace writes with policies without globally denying delegation targets', () => {
     const rendered = config(unprotectedModel({
       policies: [{ action: 'tool.use', resource: 'edit:*', effect: 'allow' }],
@@ -320,7 +334,6 @@ describe('V2 runtime config renderer', () => {
   })
 
   it.each([
-    { source: { permission: { doom_loop: 'deny' } }, path: 'access.doom_loop' },
     { source: { permission: { lsp: 'deny' } }, path: 'access.lsp' },
     { source: { permission: { typo: 'deny' } }, path: 'access.typo' },
     { source: { permission: { read: { '*': 'invalid' } } }, path: 'access.read.*' },

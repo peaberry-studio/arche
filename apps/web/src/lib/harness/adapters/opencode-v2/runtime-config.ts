@@ -18,7 +18,7 @@ const ACTIONS: Record<string, string> = {
   '*': '*', bash: 'shell', shell: 'shell', task: 'subagent', subagent: 'subagent',
   write: 'edit', patch: 'edit', edit: 'edit', read: 'read', list: 'read', glob: 'glob', grep: 'grep',
   skill: 'skill', question: 'question', webfetch: 'webfetch', websearch: 'websearch',
-  external_directory: 'external_directory', execute: 'execute',
+  external_directory: 'external_directory', execute: 'execute', doom_loop: 'doom_loop',
   opencode_list_mcp_resources: 'opencode_list_mcp_resources',
   opencode_read_mcp_resource: 'opencode_read_mcp_resource',
   chart_create: 'arche_tools_chart_create',
@@ -144,6 +144,7 @@ function renderAgent(agent: RuntimeAgentModel, model: RuntimeConfigModel, global
   const ownRules = permissionRules(agent.access, `${path}.access`)
   const permissions = toolRules(agent.tools, [...globalRules, ...ownRules], `${path}.tools`, true)
   permissions.push({ action: 'external_directory', resource: '*', effect: 'ask' })
+  if (model.guards.execution) permissions.push({ action: 'doom_loop', resource: '*', effect: 'deny' })
   if (model.guards.execution && !primary) permissions.push({ action: 'subagent', resource: '*', effect: 'deny' })
   if (model.guards.knowledgeWrites) permissions.push({ action: 'edit', resource: '*', effect: 'deny' })
   if (model.guards.selfDelegation) permissions.push({ action: 'subagent', resource: agent.id, effect: 'deny' })

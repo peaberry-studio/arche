@@ -251,16 +251,7 @@ async function buildBaseWorkspaceConfig(
     },
   }
   baseConfig = injectSystemSkillAccess(baseConfig, [SYSTEM_FLOW_AUTHORING_SKILL_NAME])
-  const hadCurator = isRecord(baseConfig.agent) && isRecord(baseConfig.agent['knowledge-curator'])
   baseConfig = injectSystemKnowledgeCuratorAgent(baseConfig)
-  if (!hadCurator && isRecord(baseConfig.agent) && isRecord(baseConfig.agent['knowledge-curator'])) {
-    const curator = baseConfig.agent['knowledge-curator']
-    if (isRecord(curator.permission)) {
-      const permission = { ...curator.permission }
-      delete permission.doom_loop
-      curator.permission = permission
-    }
-  }
   baseConfig = remapAgentBuiltInTools(baseConfig)
   return baseConfig
 }

@@ -77,7 +77,6 @@ function renderPipeline() {
   config = { ...config, mcp: { arche_tools: { type: 'local', command: ['node', '/nonexistent/arche-tools/server.js'], enabled: false } } }
   config = transforms.injectSystemSkillAccess(config, ['arche-flow-authoring'])
   config = transforms.injectSystemKnowledgeCuratorAgent(config)
-  delete config.agent['knowledge-curator'].permission.doom_loop
   config = transforms.remapAgentBuiltInTools(config)
   const rendered = renderRuntimeConfig(createRuntimeConfigModel(config))
   assert.equal(rendered.ok, true, JSON.stringify(rendered.error))
