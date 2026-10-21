@@ -250,11 +250,13 @@ describe('docker', () => {
       )
 
       expect(mockDockerInstance.createVolume).toHaveBeenCalledWith({ Name: 'arche-workspace-user-slug' })
-      expect(mockDockerInstance.createVolume).toHaveBeenCalledWith({ Name: 'arche-opencode-share-user-slug' })
-      expect(mockDockerInstance.createVolume).toHaveBeenCalledWith({ Name: 'arche-opencode-state-user-slug' })
+      expect(mockDockerInstance.createVolume).toHaveBeenCalledWith({ Name: 'arche-opencode2-share-user-slug' })
+      expect(mockDockerInstance.createVolume).toHaveBeenCalledWith({ Name: 'arche-opencode2-state-user-slug' })
+      expect(mockDockerInstance.createVolume).not.toHaveBeenCalledWith({ Name: 'arche-opencode-share-user-slug' })
+      expect(mockDockerInstance.createVolume).not.toHaveBeenCalledWith({ Name: 'arche-opencode-state-user-slug' })
 
       expect(mockDockerInstance.createContainer).toHaveBeenCalledWith({
-        Image: 'test-image:opencode-v1',
+        Image: 'test-image:latest',
         name: 'opencode-user-slug',
         WorkingDir: '/workspace',
         Cmd: ['serve', '--hostname', '0.0.0.0', '--port', '4096'],
@@ -268,14 +270,15 @@ describe('docker', () => {
           'WORKSPACE_AGENT_PORT=4097',
           'WORKSPACE_GIT_AUTHOR_NAME=user-slug',
           'WORKSPACE_GIT_AUTHOR_EMAIL=user-slug@arche.local',
+          'OPENCODE_MODELS_URL=http://web:3000/api/internal/models',
         ]),
         HostConfig: {
           NetworkMode: 'test-network',
           RestartPolicy: { Name: 'on-failure', MaximumRetryCount: 5 },
           Binds: [
             'arche-workspace-user-slug:/workspace',
-            'arche-opencode-share-user-slug:/home/workspace/.local/share/opencode',
-            'arche-opencode-state-user-slug:/home/workspace/.local/state/opencode',
+            'arche-opencode2-share-user-slug:/home/workspace/.local/share/opencode',
+            'arche-opencode2-state-user-slug:/home/workspace/.local/state/opencode',
             '/opt/arche/kb-content:/kb-content',
             '/opt/arche/users/user-slug:/tmp/arche-user-data:ro',
           ],
@@ -283,30 +286,9 @@ describe('docker', () => {
         Labels: {
           'arche.managed': 'true',
           'arche.user.slug': 'user-slug',
-          'arche.runtime.kind': 'opencode-v1',
+          'arche.runtime.kind': 'opencode-v2',
         },
       })
-      expect(mockDockerInstance.createContainer.mock.calls[0][0].Env.some((entry: string) => entry.startsWith('OPENCODE_MODELS_URL='))).toBe(false)
-    })
-
-    it('isolates V2 state and selects the V2 image without changing the V1 volumes', async () => {
-      await createContainer('user-slug', 'test', '{}', undefined, undefined, undefined, 'opencode-v2')
-      expect(mockDockerInstance.createContainer).toHaveBeenCalledWith(expect.objectContaining({
-        Image: 'test-image:latest',
-        HostConfig: expect.objectContaining({ Binds: expect.arrayContaining([
-          'arche-opencode2-share-user-slug:/home/workspace/.local/share/opencode',
-          'arche-opencode2-state-user-slug:/home/workspace/.local/state/opencode',
-        ]) }),
-        Env: expect.arrayContaining(['OPENCODE_MODELS_URL=http://web:3000/api/internal/models']),
-        Labels: expect.objectContaining({ 'arche.runtime.kind': 'opencode-v2' }),
-      }))
-      expect(mockDockerInstance.createVolume).not.toHaveBeenCalledWith({ Name: 'arche-opencode-share-user-slug' })
-    })
-
-    it('rejects an unknown kind before creating resources', async () => {
-      await expect(createContainer('user-slug', 'test', '{}', undefined, undefined, undefined, 'unknown')).rejects.toThrow('runtime_unsupported')
-      expect(mockDockerInstance.createVolume).not.toHaveBeenCalled()
-      expect(mockDockerInstance.createContainer).not.toHaveBeenCalled()
     })
 
     it('writes the provided runtime config content without mutating it', async () => {

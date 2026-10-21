@@ -73,20 +73,20 @@ process/container and scratch removed in `finally`):
 
 ```sh
 node src/lib/harness/adapters/opencode-v2/__tests__/reconnect-v2.probe.mjs   # installed opencode 2.0.32, loopback serve
-node src/lib/harness/adapters/opencode-v2/__tests__/reconnect-v1.probe.mjs   # podman, ghcr.io/anomalyco/opencode:1.18.18
 OPENCODE_V2_LIVE=1 pnpm exec vitest run src/lib/harness/adapters/opencode-v2/__tests__/subscription-live.test.ts
 ```
 
-Both probes run the same scripted conversation (`probe-harness.mjs`):
+The probe runs a scripted conversation (`probe-harness.mjs`):
 reasoning + text paused mid-text, a prompt queued while busy, a `read` behind
 a permission ask, a subagent child paused mid-text, a final reply. Snapshots
 (sessions, message list, inbox, pending permissions, active/status map) are
 taken at quiescent cut points `mid-text`, `queued`, `mid-tool`, `mid-child`,
 `end`, so each one matches an exact prefix of the continuous event log. The
-sanitized outputs are `captures/reconnect-v1.json` and
-`captures/reconnect-v2.json`; `reconnect-golden.test.ts` replays them offline
-(v2 snapshots go through the real `listMessages`/`listPermissions` over a
-fake transport).
+sanitized output is `captures/reconnect-v2.json`; `reconnect-golden.test.ts`
+replays it offline (snapshots go through the real
+`listMessages`/`listPermissions` over a fake transport). The OpenCode 1.18.18
+baseline capture and its probe were removed with the v1 runtime; the
+comparison below is the result recorded at acceptance.
 
 Verified:
 

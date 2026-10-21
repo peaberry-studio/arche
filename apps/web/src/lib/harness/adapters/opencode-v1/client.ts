@@ -1,28 +1,12 @@
 /**
- * OpenCode client factory for communicating with OpenCode instances.
- * 
- * Each user has their own OpenCode container running on the internal container network.
- * The web app acts as a proxy/BFF, authenticating and forwarding requests.
+ * Health probe for an OpenCode 1 server, used only by the legacy history reader.
  */
 
-import type { OpencodeClient } from '@opencode-ai/sdk/v2/client'
-
-import { createConfiguredOpencodeClient } from '@/lib/harness/adapters/opencode-v1/client-factory'
-import {
-  getInstanceUrl as resolveInstanceUrl,
-  resolveInstanceConnection,
-} from '@/lib/harness/adapters/opencode-v1/connection-resolver'
-
-export { getInstanceBasicAuth, getInstanceUrl } from '@/lib/harness/adapters/opencode-v1/connection-resolver'
+import { DEFAULT_HEALTH_TIMEOUT_MS, getInstanceUrl as resolveInstanceUrl } from '@/lib/harness/runtime-connection'
 
 export type InstanceHealthResult =
   | { ok: true }
   | { ok: false; detail: string; message?: string }
-
-// Every /global/health request is bounded so no single probe can outlive its
-// deadline. Startup probes pass shorter remaining-budget deadlines; status
-// reads rely on this default to avoid a hanging transport-level wait.
-export const DEFAULT_HEALTH_TIMEOUT_MS = 5_000
 
 export type InstanceHealthOptions = {
   timeoutMs?: number
@@ -77,19 +61,6 @@ function describeFetchError(error: unknown): { detail: string; message?: string 
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
-}
-
-/**
- * Create an authenticated OpenCode client for a specific user's instance.
- * Returns null if the instance is not running or credentials are unavailable.
- */
-export async function createInstanceClient(slug: string): Promise<OpencodeClient | null> {
-  const connection = await resolveInstanceConnection(slug)
-  if (!connection) {
-    return null
-  }
-
-  return createConfiguredOpencodeClient(connection)
 }
 
 /**
@@ -157,20 +128,3 @@ export async function isInstanceHealthyWithPassword(
     options?.signal?.removeEventListener('abort', onExternalAbort)
   }
 }
-
-/**
- * Check if an OpenCode instance is healthy and responding.
- */
-export async function isInstanceHealthy(slug: string): Promise<boolean> {
-  const client = await createInstanceClient(slug)
-  if (!client) return false
-  
-  try {
-    const result = await client.global.health()
-    return result.data?.healthy === true
-  } catch {
-    return false
-  }
-}
-
-export type { OpencodeClient }

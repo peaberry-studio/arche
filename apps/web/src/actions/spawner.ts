@@ -1,11 +1,10 @@
 'use server'
 
 import { syncRuntimeProviderAccess } from '@/lib/harness/registry'
-import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 import { getSession } from '@/lib/runtime/session'
 import { getWorkspaceStatus, startWorkspace, stopWorkspace } from '@/lib/runtime/workspace-host'
-import { auditService, providerService, userService } from '@/lib/services'
-import { isSlowStart, listActiveInstances, startInstance } from '@/lib/spawner/core'
+import { providerService, userService } from '@/lib/services'
+import { isSlowStart, listActiveInstances } from '@/lib/spawner/core'
 import { isHistoryMigrationInProgress } from '@/lib/spawner/legacy-archive'
 import { getKickstartStatus } from '@/kickstart/status'
 
@@ -27,34 +26,6 @@ export async function startInstanceAction(slug: string): Promise<SpawnerActionRe
   }
 
   return startWorkspace(slug, session.user.id)
-}
-
-export async function startInstanceWithRuntimeAction(
-  slug: string,
-  runtimeKind: string,
-): Promise<SpawnerActionResult> {
-  const session = await getSession()
-  if (!session) return { ok: false, error: 'unauthorized' }
-  if (session.user.role !== 'ADMIN') return { ok: false, error: 'forbidden' }
-  if (!getRuntimeCapabilities().containers) return { ok: false, error: 'runtime_unsupported' }
-  if (runtimeKind !== 'opencode-v1' && runtimeKind !== 'opencode-v2') {
-    return { ok: false, error: 'runtime_unsupported' }
-  }
-
-  const kickstartStatus = await getKickstartStatus()
-  if (kickstartStatus !== 'ready') return { ok: false, error: 'setup_required' }
-
-  try {
-    await auditService.createEvent({
-      actorUserId: session.user.id,
-      action: 'instance.runtime_start_requested',
-      metadata: { slug, runtimeKind },
-    })
-    return await startInstance(slug, session.user.id, { runtimeKind })
-  } catch (error) {
-    console.error('[spawner] Explicit runtime start failed', { slug, runtimeKind, error })
-    return { ok: false, error: 'start_failed' }
-  }
 }
 
 export async function stopInstanceAction(slug: string): Promise<SpawnerActionResult> {

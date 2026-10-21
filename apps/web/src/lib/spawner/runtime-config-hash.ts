@@ -1,6 +1,6 @@
 import { getDesktopArcheToolsCommand, getDesktopProviderGatewayConfig } from '@/lib/runtime/desktop/config'
 import { isDesktop } from '@/lib/runtime/mode'
-import { instanceService, userService } from '@/lib/services'
+import { userService } from '@/lib/services'
 import {
   buildWorkspaceRuntimeArtifacts,
   getWebProviderGatewayConfig,
@@ -19,10 +19,9 @@ export async function getRuntimeConfigHashForSlug(slug: string): Promise<Runtime
     }
 
     // Match the options the instance was started with, or the hash never equals the applied one.
-    const runtimeKind = (await instanceService.findRuntimeKindBySlug(slug))?.runtimeKind ?? null
     const artifacts = isDesktop()
-      ? await buildWorkspaceRuntimeArtifacts(slug, getDesktopProviderGatewayConfig(), { archeToolsCommand: getDesktopArcheToolsCommand(), runtimeKind })
-      : await buildWorkspaceRuntimeArtifacts(slug, getWebProviderGatewayConfig(), { runtimeKind })
+      ? await buildWorkspaceRuntimeArtifacts(slug, getDesktopProviderGatewayConfig(), { archeToolsCommand: getDesktopArcheToolsCommand() })
+      : await buildWorkspaceRuntimeArtifacts(slug, getWebProviderGatewayConfig())
 
     return { ok: true, hash: hashWorkspaceRuntimeArtifacts(artifacts) }
   } catch {

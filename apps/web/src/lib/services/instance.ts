@@ -236,7 +236,7 @@ export function setStoppedIfCurrentSnapshot(slug: string, instance: Pick<Instanc
   })
 }
 
-export function setContainerId(slug: string, containerId: string, runtimeKind = 'opencode-v1') {
+export function setContainerId(slug: string, containerId: string, runtimeKind: string) {
   return prisma.instance.update({
     where: { slug, status: 'starting', containerId: null },
     data: { containerId, runtimeKind },
@@ -263,7 +263,7 @@ export function setRunningIfCurrentContainer(
   slug: string,
   containerId: string,
   appliedConfigSha: string | null,
-  runtimeKind = 'opencode-v1',
+  runtimeKind: string,
 ): Promise<{ count: number }> {
   return prisma.instance.updateMany({
     where: { slug, status: 'starting', containerId },

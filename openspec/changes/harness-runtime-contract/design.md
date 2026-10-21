@@ -104,11 +104,11 @@ Splitting the intermediate model from rendering is the step that makes a later C
 
 Table `LegacySessionArchive` (`id`, `slug`, `sessionId`, `parentId?`, `title`, `createdAt`, `updatedAt`, `messages Json` (Arche `WorkspaceMessage[]`), `archivedAt`, unique `(slug, sessionId)`, cascade on user delete). Mirrored in `schema.sqlite.prisma` for desktop.
 
-**When.** In `startInstance`, when the recorded kind is `opencode-v1` (or null) and the deployment default is not:
+**When.** In `startInstance`, when the recorded kind is `opencode-v1` (or null):
 1. If the v1 container is still running, export through it.
 2. Otherwise start `OPENCODE_V1_IMAGE` on the existing `arche-opencode-share-<slug>` volume in archive mode (no MCP, no providers), export, and stop it.
 3. On success, start v2 with a **new** state volume `arche-opencode2-share-<slug>`. The v1 volume is left untouched and removed in the contract phase (task 8.2), which makes rollback possible.
-4. On failure, start as v1 (spec: legacy-session-archive) and log.
+4. On failure, fail the start with `legacy_archive_failed` and log; the next start retries (spec: legacy-session-archive). *Revised 2026-10-21 (task 8.4): this originally started v1; v1 is no longer a runtime.*
 
 Export is idempotent (upsert on `(slug, sessionId)`) and resumable.
 
@@ -150,7 +150,7 @@ Phases are separate PRs and deploys. Each one is releasable and revertible on it
 2. **arche-tools MCP on v1.** Ship the MCP server in the current image, remap tool ids, remove the plugin tools. Rollback: revert the PR. Containers pick up the previous image on restart.
 3. **Expand schema.** `Instance.runtimeKind`, `LegacySessionArchive` (additive, safe for blue-green).
 4. **v2 adapter + v2 image + config renderer**, default still `opencode-v1`. Enabled per instance via an admin action for internal testing.
-5. **Archive + switch.** Archive-on-start, background pre-archive, sessions UI for archived sessions, Slack/flow recovery. Then flip `ARCHE_DEFAULT_RUNTIME_KIND=opencode-v2`. Rollback: set the default back to `opencode-v1`. Instances restart on their untouched v1 volume. Archived rows are harmless.
+5. **Archive + switch.** Archive-on-start, background pre-archive, sessions UI for archived sessions, Slack/flow recovery. Then flip `ARCHE_DEFAULT_RUNTIME_KIND=opencode-v2`. Rollback: set the default back to `opencode-v1`. Instances restart on their untouched v1 volume. Archived rows are harmless. *Revised 2026-10-21 (task 8.4): v1 was retired as a runtime in this change instead. `ARCHE_DEFAULT_RUNTIME_KIND` is gone, every start is v2, a running v1 instance reports stopped and migrates on its next start, and only the read-only history reader, the pinned image/binary and the SDK remain until step 7.*
 6. **Desktop** on the same sequence (both binaries bundled).
 7. **Contract.** After all running instances are v2: remove the v1 adapter, `@opencode-ai/sdk`, the legacy image/binary and the v1 volumes (with a dry-run listing first). `runtimeKind` stays (it is the multi-harness selector).
 

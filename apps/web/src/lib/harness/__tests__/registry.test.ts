@@ -1,73 +1,64 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { fakeRuntime } from '@/lib/harness/__tests__/fake-runtime'
-import { checkRuntimeHealth, checkRuntimeStartupSupport, getRuntimeForKind, getRuntimeForSlug, listWorkspaceFiles, readWorkspaceFile, searchWorkspaceFiles, syncRuntimeProviderAccess } from '@/lib/harness/registry'
+import { checkRuntimeHealth, getLegacySessionReader, getRuntimeForSlug, listWorkspaceFiles, readWorkspaceFile, searchWorkspaceFiles, syncRuntimeProviderAccess } from '@/lib/harness/registry'
 
-const factory = vi.hoisted(() => vi.fn())
+const readerFactory = vi.hoisted(() => vi.fn())
 const v2Factory = vi.hoisted(() => vi.fn())
 const findRuntimeKindBySlug = vi.hoisted(() => vi.fn())
-const files = vi.hoisted(() => ({ listWorkspaceFiles: vi.fn(), readWorkspaceFile: vi.fn(), searchWorkspaceFiles: vi.fn() }))
 const v2Files = vi.hoisted(() => ({ listWorkspaceFiles: vi.fn(), readWorkspaceFile: vi.fn(), searchWorkspaceFiles: vi.fn() }))
 vi.mock('@/lib/services', () => ({ instanceService: { findRuntimeKindBySlug } }))
-vi.mock('@/lib/harness/adapters/opencode-v1/runtime', () => ({ createOpenCodeV1Runtime: factory }))
+vi.mock('@/lib/harness/adapters/opencode-v1/reader', () => ({ createOpenCodeV1Reader: readerFactory }))
 vi.mock('@/lib/harness/adapters/opencode-v2/runtime', () => ({ createOpenCodeV2Runtime: v2Factory }))
-vi.mock('@/lib/harness/adapters/opencode-v1/workspace-files', () => files)
 vi.mock('@/lib/harness/adapters/opencode-v2/workspace-files', () => v2Files)
-vi.mock('@/lib/harness/adapters/opencode-v1/client', () => ({ DEFAULT_HEALTH_TIMEOUT_MS: 5000, getInstanceBasicAuth: vi.fn(), getInstanceUrl: vi.fn() }))
-vi.mock('@/lib/harness/adapters/opencode-v1/workspace-prompt', () => ({ buildWorkspacePromptParts: vi.fn(), normalizeContextPaths: vi.fn(), normalizeMessageAttachments: vi.fn() }))
+vi.mock('@/lib/harness/runtime-connection', () => ({ DEFAULT_HEALTH_TIMEOUT_MS: 5000, getInstanceBasicAuth: vi.fn(), getInstanceUrl: vi.fn() }))
+vi.mock('@/lib/harness/workspace-prompt', () => ({ buildWorkspacePromptParts: vi.fn(), normalizeContextPaths: vi.fn(), normalizeMessageAttachments: vi.fn() }))
 
 describe('runtime registry', () => {
+  let runtime: Omit<ReturnType<typeof fakeRuntime>, 'kind'> & { kind: string }
+
   beforeEach(() => {
     vi.clearAllMocks()
-    factory.mockReturnValue(fakeRuntime())
-    v2Factory.mockReturnValue({ ...fakeRuntime(), kind: 'opencode-v2' })
-    findRuntimeKindBySlug.mockResolvedValue({ runtimeKind: null })
+    runtime = { ...fakeRuntime(), kind: 'opencode-v2' }
+    v2Factory.mockReturnValue(runtime)
+    findRuntimeKindBySlug.mockResolvedValue({ runtimeKind: 'opencode-v2' })
   })
 
-  it('selects v1 for a legacy instance', async () => {
+  it.each([
+    ['a workspace recorded on OpenCode 2', { runtimeKind: 'opencode-v2' }],
+    ['a workspace that never started', null],
+  ])('serves %s with the v2 runtime', async (_label, recorded) => {
+    findRuntimeKindBySlug.mockResolvedValue(recorded)
     const result = await getRuntimeForSlug('alice')
-    expect(result.ok && result.data.kind).toBe('opencode-v1')
-    expect(factory).toHaveBeenCalledWith('alice')
-    expect(findRuntimeKindBySlug).toHaveBeenCalledWith('alice')
+    expect(result.ok && result.data.kind).toBe('opencode-v2')
+    expect(v2Factory).toHaveBeenCalledWith('alice')
   })
 
-  it('binds the legacy exporter to explicit archive credentials without changing the recorded kind', () => {
+  it.each([
+    [null, 'opencode-v1'],
+    ['opencode-v1', 'opencode-v1'],
+    ['codex', 'codex'],
+  ])('refuses a workspace recorded as %s until it restarts and migrates', async (runtimeKind, detail) => {
+    findRuntimeKindBySlug.mockResolvedValue({ runtimeKind })
+    expect(await getRuntimeForSlug('alice')).toEqual({ ok: false, error: { code: 'runtime_unsupported', detail } })
+    expect(v2Factory).not.toHaveBeenCalled()
+  })
+
+  it('reports the lookup failure instead of guessing a runtime', async () => {
+    findRuntimeKindBySlug.mockRejectedValue(new Error('database unavailable'))
+    expect(await getRuntimeForSlug('alice')).toEqual({ ok: false, error: { code: 'instance_unavailable', detail: 'runtime_kind_lookup_failed' } })
+    expect(v2Factory).not.toHaveBeenCalled()
+  })
+
+  it('binds the legacy history reader to explicit archive credentials without a kind lookup', () => {
     const connection = { baseUrl: 'http://archive:4096', authHeader: 'Basic fixture', signal: new AbortController().signal }
-    getRuntimeForKind('alice', 'opencode-v1', connection)
-    expect(factory).toHaveBeenCalledWith('alice', connection)
+    readerFactory.mockReturnValue({ slug: 'alice' })
+    expect(getLegacySessionReader('alice', connection)).toEqual({ slug: 'alice' })
+    expect(readerFactory).toHaveBeenCalledWith('alice', connection)
     expect(findRuntimeKindBySlug).not.toHaveBeenCalled()
   })
 
-  it('uses recorded kinds, not the deployment default, in the same process', async () => {
-    vi.stubEnv('ARCHE_DEFAULT_RUNTIME_KIND', 'opencode-v2')
-    findRuntimeKindBySlug.mockImplementation(async (slug: string) => ({ runtimeKind: slug === 'alice' ? 'opencode-v1' : 'opencode-v2' }))
-    try {
-      expect((await getRuntimeForSlug('alice')).ok).toBe(true)
-      const v2 = await getRuntimeForSlug('bob')
-      expect(v2.ok && v2.data.kind).toBe('opencode-v2')
-      expect(v2Factory).toHaveBeenCalledWith('bob')
-      expect(factory).toHaveBeenCalledTimes(1)
-      expect(factory).toHaveBeenCalledWith('alice')
-    } finally {
-      vi.unstubAllEnvs()
-    }
-  })
-
-  it('does not fall back to v1 when the kind lookup fails', async () => {
-    findRuntimeKindBySlug.mockRejectedValue(new Error('database unavailable'))
-    expect(await getRuntimeForSlug('alice')).toEqual({ ok: false, error: { code: 'instance_unavailable', detail: 'runtime_kind_lookup_failed' } })
-    expect(factory).not.toHaveBeenCalled()
-  })
-
-  it('accepts both known runtime kinds for startup and refuses unknown ones', () => {
-    expect(checkRuntimeStartupSupport('opencode-v2')).toEqual({ ok: true, data: undefined })
-    expect(checkRuntimeStartupSupport('opencode-v1')).toEqual({ ok: true, data: undefined })
-    expect(checkRuntimeStartupSupport(null)).toEqual({ ok: true, data: undefined })
-    expect(checkRuntimeStartupSupport('codex')).toEqual({ ok: false, error: { code: 'runtime_unsupported', detail: 'codex' } })
-  })
-
-  it('dispatches the file bridge by recorded kind without contacting v1', async () => {
-    findRuntimeKindBySlug.mockResolvedValue({ runtimeKind: 'opencode-v2' })
+  it('serves the file bridge from v2 and refuses it for a legacy workspace', async () => {
     v2Files.listWorkspaceFiles.mockResolvedValue({ ok: true, data: [] })
     v2Files.readWorkspaceFile.mockResolvedValue({ ok: true, data: { path: 'file.md', content: 'v2', type: 'raw' } })
     v2Files.searchWorkspaceFiles.mockResolvedValue({ ok: true, data: ['file.md'] })
@@ -75,43 +66,28 @@ describe('runtime registry', () => {
     expect(await readWorkspaceFile('alice', 'file.md')).toEqual({ ok: true, data: { path: 'file.md', content: 'v2', type: 'raw' } })
     expect(await searchWorkspaceFiles('alice', 'file')).toEqual({ ok: true, data: ['file.md'] })
     expect(v2Files.listWorkspaceFiles).toHaveBeenCalledWith('alice', '')
-    expect(v2Files.readWorkspaceFile).toHaveBeenCalledWith('alice', 'file.md')
-    expect(v2Files.searchWorkspaceFiles).toHaveBeenCalledWith('alice', 'file')
-    expect(files.listWorkspaceFiles).not.toHaveBeenCalled()
-    expect(files.readWorkspaceFile).not.toHaveBeenCalled()
-    expect(files.searchWorkspaceFiles).not.toHaveBeenCalled()
+
+    findRuntimeKindBySlug.mockResolvedValue({ runtimeKind: 'opencode-v1' })
+    expect(await listWorkspaceFiles('alice')).toEqual({ ok: false, error: { code: 'runtime_unsupported', detail: 'opencode-v1' } })
+    expect(v2Files.listWorkspaceFiles).toHaveBeenCalledTimes(1)
   })
 
-  it('does not probe or sync an unsupported recorded runtime', async () => {
-    findRuntimeKindBySlug.mockResolvedValue({ runtimeKind: 'unknown' })
-    const failure = { ok: false, error: { code: 'runtime_unsupported', detail: 'unknown' } }
+  it('does not probe or sync a workspace that has not migrated', async () => {
+    findRuntimeKindBySlug.mockResolvedValue({ runtimeKind: 'opencode-v1' })
+    const failure = { ok: false, error: { code: 'runtime_unsupported', detail: 'opencode-v1' } }
     expect(await checkRuntimeHealth('alice')).toEqual(failure)
     expect(await syncRuntimeProviderAccess('alice', { userId: 'u1' })).toEqual(failure)
-    expect(factory).not.toHaveBeenCalled()
-  })
-
-  it.each([null, 'opencode-v1'])('maps recorded kind %s to v1', (kind) => {
-    expect(getRuntimeForKind('alice', kind).ok).toBe(true)
-    expect(factory).toHaveBeenCalledWith('alice')
-  })
-
-  it.each(['unknown'])('rejects unsupported kind %s without contacting an adapter', (kind) => {
-    expect(getRuntimeForKind('alice', kind)).toEqual({ ok: false, error: { code: 'runtime_unsupported', detail: kind } })
-    expect(factory).not.toHaveBeenCalled()
-    expect(v2Factory).not.toHaveBeenCalled()
+    expect(runtime.health).not.toHaveBeenCalled()
+    expect(runtime.syncProviderAccess).not.toHaveBeenCalled()
   })
 
   it('delegates pre-start health credentials and cancellation', async () => {
-    const runtime = fakeRuntime()
-    factory.mockReturnValue(runtime)
     const options = { password: 'pw', baseUrl: 'http://container:4096', timeoutMs: 100, signal: new AbortController().signal }
     expect(await checkRuntimeHealth('alice', options)).toEqual({ ok: true, data: {} })
     expect(runtime.health).toHaveBeenCalledWith(options)
   })
 
   it('delegates explicit provider access synchronization', async () => {
-    const runtime = fakeRuntime()
-    factory.mockReturnValue(runtime)
     const input = { userId: 'u1', connection: { baseUrl: 'http://runtime', authHeader: 'Basic auth' }, disposeInstance: false }
     expect(await syncRuntimeProviderAccess('alice', input)).toEqual({ ok: true, data: undefined })
     expect(runtime.syncProviderAccess).toHaveBeenCalledWith(input)

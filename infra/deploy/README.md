@@ -225,7 +225,6 @@ No DNS provider token is required in direct mode. Traefik uses ACME HTTP challen
 | `WEB_IMAGE` | `<IMAGE_PREFIX>web:<WEB_VERSION>` |
 | `OPENCODE_IMAGE` | `arche-workspace:latest` |
 | `OPENCODE_V1_IMAGE` | `<IMAGE_PREFIX>workspace:opencode-v1-1.18.18` remote, locally built `arche-workspace:opencode-v1-1.18.18` local-dev |
-| `ARCHE_DEFAULT_RUNTIME_KIND` | `opencode-v2` (`opencode-v1` rolls back; see `infra/README.md`) |
 | `CLOUDFLARED_IMAGE` | `docker.io/cloudflare/cloudflared:2026.5.0` |
 | `PODMAN_SOCKET_PATH` | Auto-detected (see below) |
 | `ARCHE_PUBLIC_BASE_URL` | Derived from request origin unless set; in tunnel mode defaults to `https://<domain>` |

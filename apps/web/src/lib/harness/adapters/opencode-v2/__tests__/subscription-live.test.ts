@@ -7,7 +7,7 @@ import type { ArcheEvent } from '@/lib/harness/events'
 import { parseArcheEvent } from '@/lib/workspace-events/parse-event'
 
 const auth = vi.hoisted(() => vi.fn())
-vi.mock('@/lib/harness/adapters/opencode-v1/connection-resolver', () => ({ getInstanceBasicAuth: auth }))
+vi.mock('@/lib/harness/runtime-connection', () => ({ getInstanceBasicAuth: auth }))
 vi.mock('@/lib/runtime/capabilities', () => ({ getRuntimeCapabilities: () => ({ csrf: false }) }))
 vi.mock('@/lib/runtime/mode', () => ({ isDesktop: () => false }))
 vi.mock('@/lib/runtime/session', () => ({ getSession: async () => ({ user: { id: 'u1', email: 'alice@test.com', slug: 'alice', role: 'USER' }, sessionId: 's1' }) }))

@@ -1,19 +1,20 @@
 import type { HarnessHealthOptions, HarnessRuntime } from '@/lib/harness/contract'
 import { abortSessionFamilyAndConfirmIdle } from '@/lib/harness/execution'
 import { exportLegacySessions } from '@/lib/harness/legacy-session-archive'
-import { RuntimeConfigRenderError } from '@/lib/harness/runtime-config'
 import {
   checkRuntimeHealth,
-  checkRuntimeStartupSupport,
+  CURRENT_RUNTIME_KIND,
   DEFAULT_HEALTH_TIMEOUT_MS,
+  getLegacySessionReader,
+  getRuntime,
   getRuntimeBaseUrl,
-  getRuntimeForKind,
+  isCurrentRuntimeKind,
   syncRuntimeProviderAccess,
 } from '@/lib/harness/registry'
 import { auditService, instanceService, providerService, userService } from '@/lib/services'
 import type { InstanceRecord, InstanceStatusDetails } from '@/lib/services/instance'
 import { settleRuntimeMigratedRuns } from '@/lib/services/runtime-migration'
-import { getDefaultRuntimeKind, getStartExpectedMs, getStartTimeoutMs } from '@/lib/spawner/config'
+import { getStartExpectedMs, getStartTimeoutMs } from '@/lib/spawner/config'
 import { decryptPassword, encryptPassword, generatePassword } from '@/lib/spawner/crypto'
 import * as docker from '@/lib/spawner/docker'
 import { withHistoryMigrationProgress } from '@/lib/spawner/legacy-archive'
@@ -50,7 +51,7 @@ async function checkInstanceHealth(
   password: string,
   baseUrl?: string,
   options?: HarnessHealthOptions,
-  runtime?: HarnessRuntime,
+  runtime?: Pick<HarnessRuntime, 'health'>,
 ): Promise<InstanceHealthResult> {
   const healthOptions = { ...options, password, baseUrl }
   const result = await (runtime ? runtime.health(healthOptions) : checkRuntimeHealth(slug, healthOptions))
@@ -113,40 +114,13 @@ async function handleFailedAttempt(slug: string, containerId: string | null): Pr
 export async function startInstance(
   slug: string,
   userId: string,
-  options?: { runtimeKind: string },
 ): Promise<StartResult> {
   const existing = await instanceService.findBySlug(slug)
 
-  if (existing?.status === 'running' || (existing && isStartingStillFresh(existing))) {
+  if ((existing?.status === 'running' && isCurrentRuntimeKind(existing.runtimeKind)) || (existing && isStartingStillFresh(existing))) {
     return { ok: false, error: 'already_running' }
   }
 
-  let selectedKind = options?.runtimeKind ?? getDefaultRuntimeKind()
-  let selectedRuntime = getRuntimeForKind(slug, selectedKind)
-  if (!selectedRuntime.ok) {
-    return { ok: false, error: 'runtime_unsupported', detail: selectedRuntime.error.detail }
-  }
-  const startupSupport = checkRuntimeStartupSupport(selectedKind)
-  if (!startupSupport.ok) {
-    return { ok: false, error: 'runtime_unsupported', detail: startupSupport.error.detail }
-  }
-  // A config the newer runtime cannot express must not strand a workspace that
-  // is not on it yet (archiving its history, then failing every start): stay on V1.
-  let prepared: { kind: string; artifacts: Awaited<ReturnType<typeof buildWorkspaceRuntimeArtifacts>> } | null = null
-  const recordedKind = existing ? existing.runtimeKind ?? 'opencode-v1' : null
-  if (selectedKind !== 'opencode-v1' && recordedKind !== selectedKind) {
-    try {
-      prepared = { kind: selectedKind, artifacts: await buildWorkspaceRuntimeArtifacts(slug, getWebProviderGatewayConfig(), { runtimeKind: selectedKind }) }
-    } catch (error) {
-      if (error instanceof RuntimeConfigRenderError) {
-        console.warn('[spawner] Runtime config unsupported; starting V1', { slug, runtimeKind: selectedKind, detail: error.message })
-        selectedKind = 'opencode-v1'
-        selectedRuntime = getRuntimeForKind(slug, selectedKind)
-        if (!selectedRuntime.ok) return { ok: false, error: 'runtime_unsupported', detail: selectedRuntime.error.detail }
-      }
-      // Other failures surface from the regular render below, with attempt cleanup.
-    }
-  }
   const password = generatePassword()
   const encryptedPassword = encryptPassword(password)
   let ownedStartedAt = new Date()
@@ -156,24 +130,25 @@ export async function startInstance(
     if (claimed.count === 0) return { ok: false, error: 'already_running' }
   }
 
-  if (existing && (existing.runtimeKind ?? 'opencode-v1') === 'opencode-v1' && selectedKind !== 'opencode-v1') {
+  // A workspace last run on OpenCode 1 archives its conversations first. A
+  // failed export fails this start and is retried on the next one; the legacy
+  // volumes are never touched.
+  if (existing && !isCurrentRuntimeKind(existing.runtimeKind)) {
     try {
       const archive = await withHistoryMigrationProgress(slug, () => archiveBeforeRuntimeSwitch(slug, existing))
+      if (!archive.archived) {
+        console.warn('[spawner] Legacy archive failed; retrying on the next start', { slug })
+        await instanceService.failStartingTransition(existing.id, ownedStartedAt)
+        return { ok: false, error: 'start_failed', detail: 'legacy_archive_failed' }
+      }
       const continuedAt = new Date()
       const continued = await instanceService.continueStartingTransition(existing, ownedStartedAt, encryptedPassword, continuedAt)
       if (continued.count === 0) return { ok: false, error: 'already_running' }
       ownedStartedAt = continuedAt
       legacySourceContainerId = archive.sourceContainerId
-      if (!archive.archived) {
-        selectedKind = 'opencode-v1'
-        selectedRuntime = getRuntimeForKind(slug, selectedKind)
-        if (!selectedRuntime.ok) return { ok: false, error: 'runtime_unsupported' }
-        console.warn('[spawner] Legacy archive failed; starting V1 and retrying migration next start', { slug })
-      } else {
-        await settleRuntimeMigratedRuns(slug)
-      }
+      await settleRuntimeMigratedRuns(slug)
     } catch (error) {
-      console.error('[spawner] Legacy archive preparation failed; preserving V1 state', { slug, error })
+      console.error('[spawner] Legacy archive preparation failed; preserving legacy state', { slug, error })
       await instanceService.failStartingTransition(existing.id, ownedStartedAt)
       return { ok: false, error: 'start_failed', detail: 'legacy_archive_preparation_failed' }
     }
@@ -183,7 +158,7 @@ export async function startInstance(
     if (continued.count === 0) return { ok: false, error: 'already_running' }
     ownedStartedAt = continuedAt
   }
-  const runtime = selectedRuntime.data
+  const runtime = getRuntime(slug)
 
   try {
     await docker.removeManagedArchiveContainerForSlug(slug)
@@ -201,20 +176,18 @@ export async function startInstance(
   let containerId: string | null = null
 
   try {
-    const artifacts = prepared?.kind === selectedKind
-      ? prepared.artifacts
-      : await buildWorkspaceRuntimeArtifacts(slug, getWebProviderGatewayConfig(), { runtimeKind: selectedKind })
+    const artifacts = await buildWorkspaceRuntimeArtifacts(slug, getWebProviderGatewayConfig())
     const appliedConfigSha = hashWorkspaceRuntimeArtifacts(artifacts)
     const { owner, opencodeConfigContent, agentsMd, skills } = artifacts
 
     const container = await docker.createContainer(slug, password, opencodeConfigContent, agentsMd, skills, {
       name: owner?.slug ?? slug,
       email: owner?.email ?? undefined,
-    }, selectedKind)
+    })
     containerId = container.id
     await docker.startContainer(container.id)
 
-    await instanceService.setContainerId(slug, container.id, selectedKind)
+    await instanceService.setContainerId(slug, container.id, CURRENT_RUNTIME_KIND)
 
     const healthy = await waitForHealthy(container.id, slug, password, runtime)
 
@@ -246,10 +219,8 @@ export async function startInstance(
     if (!syncResult.ok) {
       await providerService.markWorkspaceRestartRequired(syncUserId)
       console.error('[spawner] Failed to sync OpenCode providers', syncResult.error)
-      if (selectedKind === 'opencode-v2') {
-        await handleFailedAttempt(slug, container.id)
-        return { ok: false, error: 'start_failed', detail: syncResult.error.code }
-      }
+      await handleFailedAttempt(slug, container.id)
+      return { ok: false, error: 'start_failed', detail: syncResult.error.code }
     } else {
       await providerService.clearWorkspaceRestartRequired(syncUserId)
     }
@@ -257,7 +228,7 @@ export async function startInstance(
     // Publish 'running' only if this attempt still owns the transition. If it
     // lost the race, re-read and return the current state without a duplicate
     // audit event.
-    const affected = await instanceService.setRunningIfCurrentContainer(slug, container.id, appliedConfigSha, selectedKind)
+    const affected = await instanceService.setRunningIfCurrentContainer(slug, container.id, appliedConfigSha, CURRENT_RUNTIME_KIND)
     if (affected.count === 0) {
       const current = await instanceService.findStatusBySlug(slug)
       if (current && current.status === 'running') {
@@ -269,7 +240,7 @@ export async function startInstance(
     await auditService.createEvent({
       actorUserId: userId,
       action: 'instance.started',
-      metadata: { slug, runtimeKind: selectedKind },
+      metadata: { slug, runtimeKind: CURRENT_RUNTIME_KIND },
     })
 
     return { ok: true, status: 'running' }
@@ -308,23 +279,20 @@ async function archiveBeforeRuntimeSwitch(slug: string, existing: InstanceRecord
       authHeader: `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}`,
       signal: AbortSignal.timeout(getStartTimeoutMs()),
     }
-    const selected = getRuntimeForKind(slug, 'opencode-v1', connection)
-    if (!selected.ok) return result(false)
     if (archiveContainerId) {
-      const health = await waitForHealthy(archiveContainerId, slug, password, selected.data)
+      const health = await waitForHealthy(archiveContainerId, slug, password, getLegacySessionReader(slug, connection))
       if (!health.ok) return result(false)
       if (health.baseUrl) connection.baseUrl = health.baseUrl
     }
-    const source = getRuntimeForKind(slug, 'opencode-v1', connection)
-    if (!source.ok) return result(false)
-    const statuses = await source.data.sessionStatus({ signal: connection.signal })
+    const source = getLegacySessionReader(slug, connection)
+    const statuses = await source.sessionStatus({ signal: connection.signal })
     if (!statuses.ok) return result(false)
     for (const [sessionId, status] of Object.entries(statuses.data)) {
-      if (status.type !== 'idle' && !await abortSessionFamilyAndConfirmIdle({ client: source.data, rootSessionId: sessionId })) {
+      if (status.type !== 'idle' && !await abortSessionFamilyAndConfirmIdle({ client: source, rootSessionId: sessionId })) {
         return result(false)
       }
     }
-    const exported = await exportLegacySessions(slug, source.data)
+    const exported = await exportLegacySessions(slug, source)
     if (!exported.ok) {
       console.error('[spawner] Legacy session export failed', { slug, error: exported.error.code })
       return result(false)
@@ -395,6 +363,10 @@ export async function getInstanceStatus(slug: string) {
   const instance = await instanceService.findStatusBySlug(slug)
 
   if (!instance) return null
+
+  // A workspace still running on OpenCode 1 is not served. Reporting it stopped
+  // makes the next start archive its history from the live container and migrate.
+  if (instance.status === 'running' && !isCurrentRuntimeKind(instance.runtimeKind)) return { ...instance, status: 'stopped' as const }
 
   if (isStartingStillFresh(instance)) return instance
 
@@ -551,7 +523,7 @@ async function getContainerHealthBaseUrl(containerId: string): Promise<string | 
   }
 }
 
-async function waitForHealthy(containerId: string, slug: string, password: string, runtime: HarnessRuntime): Promise<StartupHealthResult> {
+async function waitForHealthy(containerId: string, slug: string, password: string, runtime: Pick<HarnessRuntime, 'health'>): Promise<StartupHealthResult> {
   const timeout = getStartTimeoutMs()
   const start = Date.now()
   let directBaseUrl: string | null | undefined
@@ -625,7 +597,7 @@ async function probeDnsAndDirect(
   password: string,
   directBaseUrl: string | null,
   timeoutMs: number,
-  runtime: HarnessRuntime,
+  runtime: Pick<HarnessRuntime, 'health'>,
 ): Promise<ProbeOutcome> {
   const dnsController = new AbortController()
   const direct = directBaseUrl ? { controller: new AbortController() } : null

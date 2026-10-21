@@ -4,8 +4,8 @@ import { join } from 'path'
 
 import { harnessFailure, type HarnessResult } from '@/lib/harness/errors'
 import { exportLegacySessions } from '@/lib/harness/legacy-session-archive'
-import { getRuntimeForKind } from '@/lib/harness/registry'
-import { createSafeEnv, DEFAULT_USERNAME, getOpencodeBinary, LOOPBACK_HOST, makeAuthHeader } from '@/lib/runtime/desktop/config'
+import { getLegacySessionReader } from '@/lib/harness/registry'
+import { createSafeEnv, DEFAULT_USERNAME, getLegacyOpencodeBinary, LOOPBACK_HOST, makeAuthHeader } from '@/lib/runtime/desktop/config'
 import { waitForProcessExit } from '@/lib/runtime/desktop/process'
 
 const SHUTDOWN_TIMEOUT_MS = 5_000
@@ -42,7 +42,7 @@ export async function archiveDesktopLegacySessions(input: {
   let child: ChildProcess | undefined
   let spawnError = false
   try {
-    child = spawn(getOpencodeBinary('opencode-v1'), ['serve', '--hostname', LOOPBACK_HOST, '--port', String(input.port)], {
+    child = spawn(getLegacyOpencodeBinary(), ['serve', '--hostname', LOOPBACK_HOST, '--port', String(input.port)], {
       cwd: input.workspaceDir,
       env: {
         ...createSafeEnv(),
@@ -61,15 +61,14 @@ export async function archiveDesktopLegacySessions(input: {
     })
     child.on('error', () => { spawnError = true })
     const signal = AbortSignal.timeout(input.timeoutMs)
-    const runtime = getRuntimeForKind(input.slug, 'opencode-v1', {
+    const reader = getLegacySessionReader(input.slug, {
       baseUrl: `http://${LOOPBACK_HOST}:${input.port}`,
       authHeader: makeAuthHeader(DEFAULT_USERNAME, input.password),
       signal,
     })
-    if (!runtime.ok) return runtime
     while (!signal.aborted && !spawnError && child.exitCode === null && child.signalCode === null) {
-      const health = await runtime.data.health({ signal, timeoutMs: Math.min(3_000, input.timeoutMs) })
-      if (health.ok) return await exportLegacySessions(input.slug, runtime.data)
+      const health = await reader.health({ signal, timeoutMs: Math.min(3_000, input.timeoutMs) })
+      if (health.ok) return await exportLegacySessions(input.slug, reader)
       await new Promise((resolve) => setTimeout(resolve, input.intervalMs))
     }
     return harnessFailure('runtime_error', 'desktop_legacy_archive_unavailable')

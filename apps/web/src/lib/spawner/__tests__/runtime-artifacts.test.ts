@@ -20,6 +20,38 @@ const findEnabledGithubConnectorsForUserMock = vi.fn()
 
 let repoDir: string | null = null
 
+type Rule = { action: string; resource: string; effect: string }
+type RenderedAgent = { mode?: string; steps?: number; system?: string; request?: { body?: { temperature?: number } }; permissions?: Rule[] }
+type RenderedConfig = {
+  default_agent?: string
+  agents?: Record<string, RenderedAgent>
+  permissions?: Rule[]
+  policies?: Rule[]
+  mcp?: { servers?: Record<string, { command?: string[] } & Record<string, unknown>> }
+  providers?: Record<string, { settings?: { baseURL?: string }; models?: Record<string, { name?: string }> }>
+}
+
+function parseConfig(content: string): RenderedConfig {
+  return JSON.parse(content) as RenderedConfig
+}
+
+function agentOf(config: RenderedConfig, id: string): RenderedAgent {
+  const agent = config.agents?.[id]
+  if (!agent) throw new Error(`missing agent ${id}`)
+  return agent
+}
+
+// Last matching rule wins, as in OpenCode 2.
+function decision(rules: Rule[] | undefined, action: string, resource = '*'): string | undefined {
+  const matches = (pattern: string, input: string) => new RegExp(`^${pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`).test(input)
+  return (rules ?? []).filter((rule) => matches(rule.action, action) && matches(rule.resource, resource)).at(-1)?.effect
+}
+
+function enabledArcheTools(agent: RenderedAgent): string[] {
+  const ids = new Set((agent.permissions ?? []).map((rule) => rule.action).filter((action) => action.startsWith('arche_tools_') && !action.includes('*')))
+  return [...ids].filter((id) => decision(agent.permissions, id) !== 'deny').sort()
+}
+
 async function writeRepoFile(relativePath: string, content: string): Promise<void> {
   if (!repoDir) {
     throw new Error('repo_not_configured')
@@ -144,35 +176,17 @@ describe('runtime artifacts', () => {
     } = await loadRuntimeArtifactsModule()
 
     const artifacts = await buildWorkspaceRuntimeArtifacts('alice', getWebProviderGatewayConfig())
-    const config = JSON.parse(artifacts.opencodeConfigContent) as {
-      permission?: {
-        edit?: Record<string, string>
-      }
-      provider?: {
-        fireworks?: { options?: { baseURL?: string } }
-        'fireworks-ai'?: { options?: { baseURL?: string } }
-        huggingface?: { options?: { baseURL?: string } }
-        zai?: { options?: { baseURL?: string } }
-      }
-    }
+    const config = parseConfig(artifacts.opencodeConfigContent)
 
     expect(readConfigRepoSnapshotMock).toHaveBeenCalledTimes(1)
-    expect(config.permission?.edit?.['opencode.json']).toBe('deny')
-    expect(config.permission?.edit?.['**/.opencode/**']).toBe('deny')
-    expect(config.provider?.fireworks?.options?.baseURL).toBe(
-      'http://web:3000/api/internal/providers/fireworks'
-    )
-    expect(config.provider?.['fireworks-ai']?.options?.baseURL).toBe(
-      'http://web:3000/api/internal/providers/fireworks'
-    )
-    expect(config.provider?.huggingface?.options?.baseURL).toBe(
-      'http://web:3000/api/internal/providers/huggingface'
-    )
-    expect(config.provider?.zai?.options?.baseURL).toBe(
-      'http://web:3000/api/internal/providers/zai'
-    )
-    expect(config.provider?.ollama).toBeUndefined()
-    expect(config.provider?.['opencode-go']).toBeUndefined()
+    expect(decision(config.policies, 'tool.use', 'edit:opencode.json')).toBe('deny')
+    expect(decision(config.policies, 'tool.use', 'edit:nested/.opencode/agents/x.md')).toBe('deny')
+    expect(config.providers?.fireworks?.settings?.baseURL).toBe('http://web:3000/api/internal/providers/fireworks')
+    expect(config.providers?.['fireworks-ai']?.settings?.baseURL).toBe('http://web:3000/api/internal/providers/fireworks')
+    expect(config.providers?.huggingface?.settings?.baseURL).toBe('http://web:3000/api/internal/providers/huggingface')
+    expect(config.providers?.zai?.settings?.baseURL).toBe('http://web:3000/api/internal/providers/zai')
+    expect(config.providers?.ollama).toBeUndefined()
+    expect(config.providers?.['opencode-go']).toBeUndefined()
     expect(artifacts.agentsMd).toContain('Slug: alice')
     expect(artifacts.agentsMd).toContain('Email: alice@example.com')
     expect(artifacts.agentsMd).toContain('## Knowledge Base write policy')
@@ -200,20 +214,19 @@ describe('runtime artifacts', () => {
     })
     const { buildWorkspaceRuntimeArtifacts } = await loadRuntimeArtifactsModule()
     const artifacts = await buildWorkspaceRuntimeArtifacts('alice', {})
-    const config = JSON.parse(artifacts.opencodeConfigContent)
-    const assistant = config.agent.assistant
+    const config = parseConfig(artifacts.opencodeConfigContent)
+    const assistant = agentOf(config, 'assistant')
 
     expect(config.default_agent).toBe('assistant')
-    expect(assistant.prompt).toContain('call `arche_tools_learning_propose` directly')
+    expect(assistant.system).toContain('call `arche_tools_learning_propose` directly')
     expect(artifacts.agentsMd).toContain('`arche_tools_chart_create`')
     for (const toolId of ['chart_create', 'diagram_create', 'email_draft', 'flow_propose', 'learning_propose']) {
-      expect(assistant.tools[`arche_tools_${toolId}`], toolId).toBe(true)
-      expect(assistant.permission[`arche_tools_${toolId}`], toolId).toBe('allow')
-      expect(assistant.tools).not.toHaveProperty(toolId)
+      expect(decision(assistant.permissions, `arche_tools_${toolId}`), toolId).toBe('allow')
+      expect(assistant.permissions?.some((rule) => rule.action === toolId), toolId).toBe(false)
     }
-    expect(assistant.tools['arche_tools_*']).toBe(false)
-    expect(assistant.tools.write).toBe(false)
-    expect(assistant.tools.edit).toBe(false)
+    expect(decision(assistant.permissions, 'arche_tools_unlisted')).toBe('deny')
+    expect(decision(assistant.permissions, 'write')).toBe('deny')
+    expect(decision(assistant.permissions, 'edit')).toBe('deny')
   })
 
   it.each(['all', undefined])('keeps proposal path, skills, and connector access for legacy tools: %s', async (tools) => {
@@ -232,31 +245,19 @@ describe('runtime artifacts', () => {
     } = await loadRuntimeArtifactsModule()
 
     const artifacts = await buildWorkspaceRuntimeArtifacts('alice', getWebProviderGatewayConfig())
-    const config = JSON.parse(artifacts.opencodeConfigContent) as {
-      agent?: Record<string, {
-        mode?: string
-        steps?: number
-        tools?: Record<string, boolean>
-      }>
-    }
+    const assistant = agentOf(parseConfig(artifacts.opencodeConfigContent), 'assistant')
 
     // Legacy pre-#473 `tools: 'all'` configs are materialized up front, so the
     // surviving spawn config still has the sanctioned proposal path, skills,
     // always-on tools, and MCP connector access — with only write/edit denied.
-    expect(config.agent?.assistant).toMatchObject({
-      mode: 'primary',
-      steps: 120,
-      tools: {
-        'arche_*': true,
-        edit: false,
-        arche_tools_learning_propose: true,
-        skill: true,
-        write: false,
-      },
-    })
-    const runtimeTools = config.agent?.assistant.tools ?? {}
-    expect(Object.entries(runtimeTools).filter(([id, enabled]) => id.startsWith('arche_tools_') && enabled)).toHaveLength(12)
-    expect(runtimeTools['arche_tools_*']).toBe(false)
+    expect(assistant).toMatchObject({ mode: 'primary', steps: 120 })
+    expect(decision(assistant.permissions, 'arche_linear_user_list_issues')).toBe('allow')
+    expect(decision(assistant.permissions, 'arche_tools_learning_propose')).toBe('allow')
+    expect(decision(assistant.permissions, 'skill', 'arche-flow-authoring')).toBe('allow')
+    expect(decision(assistant.permissions, 'edit')).toBe('deny')
+    expect(decision(assistant.permissions, 'write')).toBe('deny')
+    expect(enabledArcheTools(assistant)).toHaveLength(12)
+    expect(decision(assistant.permissions, 'arche_tools_unlisted')).toBe('deny')
   })
 
   it.each(['none', 'failure', 'remote'])('registers the local built-in MCP independently of connector setup: %s', async (connectorSetup) => {
@@ -272,15 +273,18 @@ describe('runtime artifacts', () => {
     }
     const { buildWorkspaceRuntimeArtifacts } = await loadRuntimeArtifactsModule()
     const artifacts = await buildWorkspaceRuntimeArtifacts('alice', {})
-    const config = JSON.parse(artifacts.opencodeConfigContent)
+    const config = parseConfig(artifacts.opencodeConfigContent)
 
-    expect(config.mcp.arche_tools).toEqual({
+    expect(config.mcp?.servers?.arche_tools).toEqual({
       type: 'local',
-      enabled: true,
+      disabled: false,
+      codemode: false,
       command: ['node', '/opt/arche/arche-tools/server.js'],
     })
-    expect(config.tools['arche_tools_*']).toBe(false)
-    if (connectorSetup === 'remote') expect(config.mcp.arche_linear_user).toEqual(remote)
+    expect(decision(config.permissions, 'arche_tools_chart_create')).toBe('deny')
+    if (connectorSetup === 'remote') {
+      expect(config.mcp?.servers?.arche_linear_user).toEqual({ type: 'remote', disabled: false, codemode: false, url: remote.url })
+    }
   })
 
   it('supports a desktop command override through both runtime APIs', async () => {
@@ -291,11 +295,11 @@ describe('runtime artifacts', () => {
     const artifacts = await buildWorkspaceRuntimeArtifacts('alice', {}, options)
     const config = await buildWorkspaceRuntimeConfig('alice', {}, commonConfigContent, null, options)
 
-    expect(JSON.parse(artifacts.opencodeConfigContent).mcp.arche_tools.command).toEqual(options.archeToolsCommand)
-    expect(config.mcp).toMatchObject({ arche_tools: { command: options.archeToolsCommand } })
+    expect(parseConfig(artifacts.opencodeConfigContent).mcp?.servers?.arche_tools?.command).toEqual(options.archeToolsCommand)
+    expect(config.mcp).toMatchObject({ servers: { arche_tools: { command: options.archeToolsCommand } } })
   })
 
-  it('renders protected V2 artifacts with V1 prompts, self-delegation denies, and guard policies', async () => {
+  it('renders protected artifacts with agent prompts, self-delegation denies, and guard policies', async () => {
     await createRuntimeRepo({
       'AGENTS.md': '# Workspace',
       'CommonWorkspaceConfig.json': JSON.stringify({
@@ -307,39 +311,39 @@ describe('runtime artifacts', () => {
       }),
     })
     const { buildWorkspaceRuntimeArtifacts } = await loadRuntimeArtifactsModule()
-    const v1 = JSON.parse((await buildWorkspaceRuntimeArtifacts('alice', {})).opencodeConfigContent)
-    const v2 = JSON.parse((await buildWorkspaceRuntimeArtifacts('alice', {}, { runtimeKind: 'opencode-v2' })).opencodeConfigContent)
+    const v2 = parseConfig((await buildWorkspaceRuntimeArtifacts('alice', {})).opencodeConfigContent)
 
-    expect(Object.keys(v2.agents).sort()).toEqual(Object.keys(v1.agent).sort())
-    for (const [id, agent] of Object.entries<{ system: string; permissions: unknown[] }>(v2.agents)) {
-      expect(agent.system).toBe(v1.agent[id].prompt)
-      expect(agent.permissions.at(-1)).toEqual({ action: 'subagent', resource: id, effect: 'deny' })
+    expect(Object.keys(v2.agents ?? {}).sort()).toEqual(['analyst', 'knowledge-curator', 'reviewer'])
+    for (const [id, agent] of Object.entries(v2.agents ?? {})) {
+      expect(agent.system, id).toContain(`Your current agent id is "${id}".`)
+      expect(agent.system?.endsWith(AGENT_KB_POLICY_PROMPT_BLOCK), id).toBe(true)
+      expect(agent.permissions?.at(-1)).toEqual({ action: 'subagent', resource: id, effect: 'deny' })
     }
     expect(v2.policies).toEqual(expect.arrayContaining([
       { action: 'tool.use', resource: 'edit:.opencode/**', effect: 'deny' },
       { action: 'tool.use', resource: 'edit:opencode.json', effect: 'deny' },
       { action: 'tool.use', resource: 'shell:*opencode.json*', effect: 'deny' },
     ]))
-    expect(v2.policies.at(-1)).toEqual({ action: 'tool.use', resource: 'edit:*', effect: 'deny' })
+    expect(v2.policies?.at(-1)).toEqual({ action: 'tool.use', resource: 'edit:*', effect: 'deny' })
   })
 
   it.each([
     { permission: { read: 'invalid' } },
     { permission: 123 },
     { tools: { unknown: false } },
-  ])('rejects unsupported authored V2 security settings before transforms can overwrite them', async (agent) => {
+  ])('rejects unsupported authored security settings before transforms can overwrite them', async (agent) => {
     await createRuntimeRepo({
       'CommonWorkspaceConfig.json': JSON.stringify({ agent: { worker: agent } }),
     })
     const { buildWorkspaceRuntimeArtifacts } = await loadRuntimeArtifactsModule()
-    await expect(buildWorkspaceRuntimeArtifacts('alice', {}, { runtimeKind: 'opencode-v2' }))
+    await expect(buildWorkspaceRuntimeArtifacts('alice', {}))
       .rejects.toMatchObject({ code: 'runtime_config_unsupported' })
   })
 
-  it('rejects malformed V2 source JSON instead of producing an unrestricted fallback', async () => {
+  it('rejects malformed source JSON instead of producing an unrestricted fallback', async () => {
     await createRuntimeRepo({ 'CommonWorkspaceConfig.json': '{ invalid' })
     const { buildWorkspaceRuntimeArtifacts } = await loadRuntimeArtifactsModule()
-    await expect(buildWorkspaceRuntimeArtifacts('alice', {}, { runtimeKind: 'opencode-v2' }))
+    await expect(buildWorkspaceRuntimeArtifacts('alice', {}))
       .rejects.toMatchObject({ code: 'runtime_config_unsupported' })
   })
 
@@ -369,29 +373,28 @@ describe('runtime artifacts', () => {
     await createRuntimeRepo({ 'CommonWorkspaceConfig.json': JSON.stringify(storedConfig) })
     const { buildWorkspaceRuntimeArtifacts } = await loadRuntimeArtifactsModule()
     const artifacts = await buildWorkspaceRuntimeArtifacts('alice', {})
-    const config = JSON.parse(artifacts.opencodeConfigContent)
-    const analyst = config.agent.analyst
+    const config = parseConfig(artifacts.opencodeConfigContent)
+    const analyst = agentOf(config, 'analyst')
 
-    expect(Object.keys(analyst.tools).filter((id) => id.startsWith('arche_tools_') && analyst.tools[id])).toEqual([
+    expect(enabledArcheTools(analyst)).toEqual([
       'arche_tools_spreadsheet_inspect',
       'arche_tools_spreadsheet_query',
       'arche_tools_spreadsheet_sample',
       'arche_tools_spreadsheet_stats',
     ])
-    expect(analyst.permission.arche_tools_spreadsheet_query).toBe('ask')
-    expect(analyst.permission.spreadsheet_query).toBeUndefined()
+    expect(decision(analyst.permissions, 'arche_tools_spreadsheet_query')).toBe('ask')
+    expect(analyst.permissions?.some((rule) => rule.action === 'spreadsheet_query')).toBe(false)
     for (const id of ['chart_create', 'diagram_create', 'document_inspect', 'email_draft', 'flow_propose', 'learning_propose', 'presentation_inspect', 'session_history_query']) {
-      expect(analyst.tools[`arche_tools_${id}`], id).toBe(false)
-      expect(analyst.permission[`arche_tools_${id}`], id).toBe('deny')
+      expect(decision(analyst.permissions, `arche_tools_${id}`), id).toBe('deny')
     }
-    expect(analyst.tools['arche_tools_*']).toBe(false)
-    expect(Object.keys(config.agent.restricted.tools).filter((id) => id.startsWith('arche_tools_') && config.agent.restricted.tools[id])).toEqual([])
-    expect(analyst.prompt).toContain('Your current agent id is "analyst".')
-    expect(analyst.prompt).toContain('prefill caller_agent with this exact agent id')
-    expect(analyst.prompt).toContain('Never guess an agent or session id')
-    expect(analyst.prompt).toContain('Do not assume the harness forwards session metadata')
-    expect(analyst.prompt).toContain('caller_identity_unavailable')
-    expect(analyst.prompt.endsWith(AGENT_KB_POLICY_PROMPT_BLOCK)).toBe(true)
+    expect(decision(analyst.permissions, 'arche_tools_unlisted')).toBe('deny')
+    expect(enabledArcheTools(agentOf(config, 'restricted'))).toEqual([])
+    expect(analyst.system).toContain('Your current agent id is "analyst".')
+    expect(analyst.system).toContain('prefill caller_agent with this exact agent id')
+    expect(analyst.system).toContain('Never guess an agent or session id')
+    expect(analyst.system).toContain('Do not assume the harness forwards session metadata')
+    expect(analyst.system).toContain('caller_identity_unavailable')
+    expect(analyst.system?.endsWith(AGENT_KB_POLICY_PROMPT_BLOCK)).toBe(true)
   })
 
   it.each([
@@ -407,18 +410,16 @@ describe('runtime artifacts', () => {
     })
     const { buildWorkspaceRuntimeArtifacts } = await loadRuntimeArtifactsModule()
     const artifacts = await buildWorkspaceRuntimeArtifacts('alice', {})
-    const config = JSON.parse(artifacts.opencodeConfigContent)
+    const config = parseConfig(artifacts.opencodeConfigContent)
+    const analyst = agentOf(config, 'analyst')
 
-    expect(config.permission['*']).toBe('ask')
-    expect(config.agent.analyst.permission).toMatchObject({
-      arche_tools_document_inspect: document,
-      arche_tools_spreadsheet_query: 'ask',
-      arche_tools_presentation_inspect: 'deny',
-      'arche_tools_*': 'deny',
-    })
-    expect(config.agent.analyst.tools['*']).not.toBe(true)
-    expect(config.agent.analyst.tools.arche_tools_presentation_inspect).toBe(false)
-    expect(config.agent.analyst.tools.arche_tools_chart_create).toBe(true)
+    expect(decision(config.permissions, 'read')).toBe('ask')
+    expect(decision(analyst.permissions, 'arche_tools_document_inspect')).toBe(document)
+    expect(decision(analyst.permissions, 'arche_tools_spreadsheet_query')).toBe('ask')
+    expect(decision(analyst.permissions, 'arche_tools_presentation_inspect')).toBe('deny')
+    expect(decision(analyst.permissions, 'arche_tools_unlisted')).toBe('deny')
+    expect(decision(analyst.permissions, 'unlisted_tool')).toBe('deny')
+    expect(decision(analyst.permissions, 'arche_tools_chart_create')).not.toBe('deny')
   })
 
   it('normalizes the default all-mode agent before serializing runtime config', async () => {
@@ -438,26 +439,16 @@ describe('runtime artifacts', () => {
     } = await loadRuntimeArtifactsModule()
 
     const artifacts = await buildWorkspaceRuntimeArtifacts('alice', getWebProviderGatewayConfig())
-    const config = JSON.parse(artifacts.opencodeConfigContent) as {
-      agent?: Record<string, {
-        mode?: string
-        permission?: Record<string, string>
-        steps?: number
-        tools?: Record<string, boolean>
-      }>
-    }
+    const config = parseConfig(artifacts.opencodeConfigContent)
+    const assistant = agentOf(config, 'assistant')
+    const utility = agentOf(config, 'utility')
 
-    expect(config.agent?.assistant).toMatchObject({
-      mode: 'primary',
-      steps: 120,
-      tools: { edit: false, task: true, write: false },
-    })
-    expect(config.agent?.utility).toMatchObject({
-      mode: 'all',
-      steps: 40,
-      tools: { task: false },
-    })
-    expect(config.agent?.utility?.permission).toMatchObject({ task: 'deny' })
+    expect(assistant).toMatchObject({ mode: 'primary', steps: 120 })
+    expect(decision(assistant.permissions, 'edit')).toBe('deny')
+    expect(decision(assistant.permissions, 'write')).toBe('deny')
+    expect(decision(assistant.permissions, 'subagent', 'utility')).toBe('allow')
+    expect(utility).toMatchObject({ mode: 'all', steps: 40 })
+    expect(decision(utility.permissions, 'subagent', 'assistant')).toBe('deny')
   })
 
   it('injects the system knowledge-curator agent into a config without one', async () => {
@@ -480,25 +471,16 @@ describe('runtime artifacts', () => {
     } = await loadRuntimeArtifactsModule()
 
     const artifacts = await buildWorkspaceRuntimeArtifacts('alice', getWebProviderGatewayConfig())
-    const config = JSON.parse(artifacts.opencodeConfigContent) as {
-      agent?: Record<string, {
-        mode?: string
-        steps?: number
-        temperature?: number
-        tools?: Record<string, boolean>
-      }>
-    }
+    const curator = agentOf(parseConfig(artifacts.opencodeConfigContent), 'knowledge-curator')
 
-    const curator = config.agent?.['knowledge-curator']
-    expect(curator).toBeDefined()
-    expect(curator?.mode).toBe('subagent')
-    expect(curator?.steps).toBe(40)
-    expect(curator?.temperature).toBeCloseTo(0.1)
-    expect(curator?.tools?.read).toBe(true)
-    expect(curator?.tools?.arche_tools_learning_propose).toBe(true)
-    expect(curator?.tools?.arche_tools_session_history_query).toBe(true)
-    expect(curator?.tools?.write).toBe(false)
-    expect(curator?.tools?.edit).toBe(false)
+    expect(curator.mode).toBe('subagent')
+    expect(curator.steps).toBe(40)
+    expect(curator.request?.body?.temperature).toBeCloseTo(0.1)
+    expect(decision(curator.permissions, 'read')).toBe('allow')
+    expect(decision(curator.permissions, 'arche_tools_learning_propose')).toBe('allow')
+    expect(decision(curator.permissions, 'arche_tools_session_history_query')).toBe('allow')
+    expect(decision(curator.permissions, 'write')).toBe('deny')
+    expect(decision(curator.permissions, 'edit')).toBe('deny')
   })
 
   it('appends the KB policy block to every agent prompt and keeps write/edit denied', async () => {
@@ -532,28 +514,23 @@ describe('runtime artifacts', () => {
     } = await loadRuntimeArtifactsModule()
 
     const artifacts = await buildWorkspaceRuntimeArtifacts('alice', getWebProviderGatewayConfig())
-    const config = JSON.parse(artifacts.opencodeConfigContent) as {
-      agent?: Record<string, {
-        prompt?: string
-        tools?: Record<string, boolean>
-      }>
-    }
+    const agents = parseConfig(artifacts.opencodeConfigContent).agents ?? {}
 
-    const agents = config.agent ?? {}
+    expect(Object.keys(agents).sort()).toEqual(['assistant', 'helper', 'knowledge-curator', 'worker'])
     for (const [agentId, agent] of Object.entries(agents)) {
-      const prompt = agent.prompt ?? ''
+      const prompt = agent.system ?? ''
       expect(prompt.split('## Knowledge Base write policy'), agentId).toHaveLength(2)
       expect(prompt.endsWith(AGENT_KB_POLICY_PROMPT_BLOCK), agentId).toBe(true)
-      expect(agent.tools?.write, agentId).toBe(false)
-      expect(agent.tools?.edit, agentId).toBe(false)
+      expect(decision(agent.permissions, 'write'), agentId).toBe('deny')
+      expect(decision(agent.permissions, 'edit'), agentId).toBe('deny')
     }
-    expect(agents.assistant?.prompt?.startsWith('Delegate SIEMPRE en knowledge-curator.')).toBe(true)
+    expect(agents.assistant?.system?.startsWith('Delegate SIEMPRE en knowledge-curator.')).toBe(true)
 
     // The stale stored curator prompt was replaced by the canonical persona,
     // with the policy block still appended after it.
-    const curator = agents['knowledge-curator'] as { prompt?: string } | undefined
-    expect(curator?.prompt?.startsWith('Edit vault .md files directly.')).toBe(false)
-    expect(curator?.prompt?.startsWith(KNOWLEDGE_CURATOR_SYSTEM_INSTRUCTIONS)).toBe(true)
+    const curator = agents['knowledge-curator']
+    expect(curator?.system?.startsWith('Edit vault .md files directly.')).toBe(false)
+    expect(curator?.system?.startsWith(KNOWLEDGE_CURATOR_SYSTEM_INSTRUCTIONS)).toBe(true)
   })
 
   it('injects the built-in flow authoring skill and grants runtime agent access', async () => {
@@ -576,17 +553,11 @@ describe('runtime artifacts', () => {
     } = await loadRuntimeArtifactsModule()
 
     const artifacts = await buildWorkspaceRuntimeArtifacts('alice', getWebProviderGatewayConfig())
-    const config = JSON.parse(artifacts.opencodeConfigContent) as {
-      agent?: Record<string, {
-        permission?: { skill?: Record<string, string> }
-        tools?: Record<string, boolean>
-      }>
-    }
+    const assistant = agentOf(parseConfig(artifacts.opencodeConfigContent), 'assistant')
 
     expect(artifacts.skills.map((skill) => skill.skill.frontmatter.name)).toEqual(['arche-flow-authoring'])
     expect(artifacts.skills[0]?.skill.raw).toContain('FlowDefinition')
-    expect(config.agent?.assistant?.tools?.skill).toBe(true)
-    expect(config.agent?.assistant?.permission?.skill?.['arche-flow-authoring']).toBe('allow')
+    expect(decision(assistant.permissions, 'skill', 'arche-flow-authoring')).toBe('allow')
   })
 
   it('injects custom connector hints after remapping runtime connector tools', async () => {
@@ -633,16 +604,12 @@ describe('runtime artifacts', () => {
     } = await loadRuntimeArtifactsModule()
 
     const artifacts = await buildWorkspaceRuntimeArtifacts('alice', getWebProviderGatewayConfig())
-    const config = JSON.parse(artifacts.opencodeConfigContent) as {
-      agent?: Record<string, {
-        prompt?: string
-        tools?: Record<string, boolean>
-      }>
-    }
+    const growth = agentOf(parseConfig(artifacts.opencodeConfigContent), 'growth')
 
-    expect(config.agent?.growth?.tools?.['arche_custom_user-mixpanel_*']).toBe(true)
-    expect(config.agent?.growth?.prompt).toContain('## Available custom connectors')
-    expect(config.agent?.growth?.prompt).toContain(
+    expect(decision(growth.permissions, 'arche_custom_user-mixpanel_query')).toBe('allow')
+    expect(decision(growth.permissions, 'arche_custom_owner-mixpanel_query')).toBe('deny')
+    expect(growth.system).toContain('## Available custom connectors')
+    expect(growth.system).toContain(
       '- Mixpanel: available through MCP tools prefixed with `arche_custom_user-mixpanel_`.'
     )
   })
@@ -737,20 +704,13 @@ describe('runtime artifacts', () => {
     } = await loadRuntimeArtifactsModule()
 
     const artifacts = await buildWorkspaceRuntimeArtifacts('alice', getWebProviderGatewayConfig())
-    const config = JSON.parse(artifacts.opencodeConfigContent) as {
-      provider?: {
-        ollama?: { models?: Record<string, { name?: string }>; options?: { baseURL?: string } }
-        'opencode-go'?: { options?: { baseURL?: string } }
-      }
-    }
+    const config = parseConfig(artifacts.opencodeConfigContent)
 
-    expect(config.provider?.ollama?.options?.baseURL).toBe('http://web:3000/api/internal/providers/ollama')
-    expect(config.provider?.ollama?.models).toEqual({
+    expect(config.providers?.ollama?.settings?.baseURL).toBe('http://web:3000/api/internal/providers/ollama')
+    expect(config.providers?.ollama?.models).toEqual({
       'qwen3-coder': { name: 'Qwen 3 Coder' },
     })
-    expect(config.provider?.['opencode-go']?.options?.baseURL).toBe(
-      'http://web:3000/api/internal/providers/opencode-go'
-    )
+    expect(config.providers?.['opencode-go']?.settings?.baseURL).toBe('http://web:3000/api/internal/providers/opencode-go')
   })
 
   it('fails when the snapshot contains a malformed skill bundle', async () => {

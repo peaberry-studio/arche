@@ -175,6 +175,7 @@ the V1 adapter, SDK, binary/image and volumes. -->
 ## 8. Contract phase (after all running instances are v2)
 
 - [ ] 8.1 Remove `adapters/opencode-v1/`, `@opencode-ai/sdk`, the `opencode-v1` image tag/desktop binary and `OPENCODE_V1_IMAGE`; verify `pnpm test`, `pnpm lint`, `pnpm build` and `bash scripts/check-podman-images.sh`.
+- [x] 8.4 Retire OpenCode 1 as a runtime ahead of 8.1, keeping only a read-only history reader: v2 is the only start path (no `ARCHE_DEFAULT_RUNTIME_KIND`, no v1 start, fallback or rollback); a failed export or unsupported v2 config fails the start and retries next time; a running v1 instance reports stopped and migrates on its next start; remove the v1 renderer, events, providers, workspace files, legacy deletion and explicit-runtime start action, keeping `OPENCODE_V1_IMAGE`, the desktop `opencode-v1` binary and `@opencode-ai/sdk` for the archive; verify `pnpm test`, `pnpm lint` and `bash scripts/check-podman-images.sh`.
 - [x] 8.2 Add a script that lists `arche-opencode-share-<slug>` v1 volumes for archived workspaces (dry run by default, `--apply` to delete); verify dry-run output on staging before applying.
 - [x] 8.3 Run `openspec validate harness-runtime-contract --strict`; verify it passes.
 
@@ -227,3 +228,10 @@ real bundled binaries for desktop:
   instance_unavailable, pending-config hash mismatch, and a V2 config that
   cannot be rendered now starts V1 instead of failing every start.
 8.1 stays open by design: run it only after every instance is on V2. -->
+
+<!-- 8.4 (2026-10-21, lead decision): OpenCode 1 stops being a runtime in this
+change. Statements above about V1 starts, the V1 fallback, rollback through
+ARCHE_DEFAULT_RUNTIME_KIND and the V1 golden/benchmark are historical. What
+remains of v1 is adapters/opencode-v1/{reader,client,client-factory,transform}.ts,
+the pinned image/binary and the SDK, used only by the history export; 8.1
+removes them once every workspace has started on V2. -->

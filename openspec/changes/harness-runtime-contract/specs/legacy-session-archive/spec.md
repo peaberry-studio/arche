@@ -5,7 +5,7 @@ Preserves users' OpenCode 1.x conversation history when a workspace moves to Ope
 ## ADDED Requirements
 
 ### Requirement: v1 sessions are archived before a workspace switches runtime
-Before an instance first starts with a runtime kind other than `opencode-v1`, the system SHALL export every v1 session of that workspace (metadata, messages, and parts in the Arche schema) into the archive, while the v1 data is still readable. The switch SHALL NOT proceed until the export has succeeded or the workspace has no v1 sessions.
+Before an instance recorded as `opencode-v1`, or with no recorded kind, first starts as `opencode-v2`, the system SHALL export every v1 session of that workspace (metadata, messages, and parts in the Arche schema) into the archive, while the v1 data is still readable. The switch SHALL NOT proceed until the export has succeeded or the workspace has no v1 sessions.
 
 #### Scenario: Workspace with history switches to v2
 - **WHEN** an instance with 40 v1 sessions starts for the first time as `opencode-v2`
@@ -13,7 +13,7 @@ Before an instance first starts with a runtime kind other than `opencode-v1`, th
 
 #### Scenario: Export fails
 - **WHEN** archiving the v1 sessions fails
-- **THEN** the instance starts as `opencode-v1`, the failure is logged with the slug, and the switch is retried on the next start
+- **THEN** the start fails with `legacy_archive_failed`, the failure is logged with the slug, the v1 data is left untouched, and the export is retried on the next start; the instance never starts as `opencode-v1`
 
 ### Requirement: Archived sessions are readable but not runnable
 The sessions UI SHALL list archived sessions apart from live ones and SHALL render them read-only with the same message renderer. Prompting, aborting, renaming, or replying to permissions on an archived session SHALL be rejected with the typed error `session_archived`.

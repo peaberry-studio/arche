@@ -3,6 +3,10 @@ import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 import { instanceService } from '@/lib/services'
 import { decryptPassword } from '@/lib/spawner/crypto'
 
+// Every health request is bounded so no single probe can outlive its deadline.
+// Startup probes pass shorter remaining-budget deadlines.
+export const DEFAULT_HEALTH_TIMEOUT_MS = 5_000
+
 const DEFAULT_OPENCODE_PORT = 4096
 const DEFAULT_USERNAME = 'opencode'
 const DESKTOP_LOOPBACK_HOST = '127.0.0.1'

@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 
-import { renderRuntimeConfig as renderV1RuntimeConfig } from '@/lib/harness/adapters/opencode-v1/runtime-config'
 import { renderRuntimeConfig } from '@/lib/harness/adapters/opencode-v2/runtime-config'
 import { createRuntimeConfigModel, type RuntimeConfigModel } from '@/lib/harness/runtime-config'
 import { isRecord } from '@/lib/records'
@@ -64,17 +63,15 @@ function protectedGuardViolations(rendered: Record<string, unknown>): string[] {
 }
 
 describe('V2 runtime config renderer', () => {
-  it('renders the production model with V1 prompts, a last-wins self-deny per agent, and guard policies', () => {
+  it('renders the production model with the shared agent prompts, a last-wins self-deny per agent, and guard policies', () => {
     const model = createRuntimeConfigModel(PRODUCTION_SOURCE)
     expect(model.guards).toEqual({ knowledgeWrites: true, execution: true, workspace: true, selfDelegation: true })
     const rendered = config(model)
 
     expect(protectedGuardViolations(rendered)).toEqual([])
-    const v1 = renderV1RuntimeConfig(createRuntimeConfigModel(PRODUCTION_SOURCE))
-    if (!v1.ok || !isRecord(v1.data.config.agent)) throw new Error('missing v1 agents')
     for (const id of ['orchestrator', 'reviewer', 'delegator']) {
-      const v1Agent = v1.data.config.agent[id]
-      expect(agentConfig(rendered, id).system).toBe(isRecord(v1Agent) ? v1Agent.prompt : undefined)
+      expect(agentConfig(rendered, id).system).toEqual(expect.stringContaining(`Your current agent id is "${id}".`))
+      expect(String(agentConfig(rendered, id).system).endsWith(AGENT_KB_POLICY_PROMPT_BLOCK)).toBe(true)
     }
     expect(decision(agentConfig(rendered, 'orchestrator').permissions, 'subagent', 'reviewer')).toBe('allow')
     expect(decision(agentConfig(rendered, 'delegator').permissions, 'subagent', 'reviewer')).toBe('deny')
@@ -84,18 +81,15 @@ describe('V2 runtime config renderer', () => {
     }
   })
 
-  it('adds the V1 delegation constraint text where V1 does and keeps the self-deny after authored allows', () => {
+  it('adds the delegation constraint text to self-delegating agents and keeps the self-deny after authored allows', () => {
     const source = { agent: {
       orchestrator: { mode: 'primary', tools: { task: true } },
       delegator: { mode: 'all', tools: { task: true }, permission: { task: { '*': 'allow', delegator: 'allow' } } },
     } }
     const model = { ...createRuntimeConfigModel(source), guards: { knowledgeWrites: true, execution: false, workspace: true, selfDelegation: true } }
     const rendered = config(model)
-    const v1 = renderV1RuntimeConfig(model)
-    if (!v1.ok || !isRecord(v1.data.config.agent) || !isRecord(v1.data.config.agent.delegator)) throw new Error('missing v1 agents')
     const delegator = agentConfig(rendered, 'delegator')
 
-    expect(delegator.system).toBe(v1.data.config.agent.delegator.prompt)
     expect(delegator.system).toEqual(expect.stringContaining('## Delegation constraint\nCRITICAL: You MUST NEVER use the task tool to invoke yourself ("delegator"). Self-delegation creates an infinite loop. You may delegate to: orchestrator.'))
     expect(agentConfig(rendered, 'orchestrator').system).not.toContain('## Delegation constraint')
     expect(decision(delegator.permissions, 'subagent', 'delegator')).toBe('deny')

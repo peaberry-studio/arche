@@ -1,16 +1,4 @@
-import { DEFAULT_HEALTH_TIMEOUT_MS, getInstanceBasicAuth, getInstanceUrl } from '@/lib/harness/adapters/opencode-v1/client'
-import { createOpenCodeV1Runtime } from '@/lib/harness/adapters/opencode-v1/runtime'
-import { renderRuntimeConfig as renderV1RuntimeConfig } from '@/lib/harness/adapters/opencode-v1/runtime-config'
-import {
-  listWorkspaceFiles as listV1WorkspaceFiles,
-  readWorkspaceFile as readV1WorkspaceFile,
-  searchWorkspaceFiles as searchV1WorkspaceFiles,
-} from '@/lib/harness/adapters/opencode-v1/workspace-files'
-import {
-  buildWorkspacePromptParts as buildV1WorkspacePromptParts,
-  normalizeContextPaths as normalizeV1ContextPaths,
-  normalizeMessageAttachments as normalizeV1MessageAttachments,
-} from '@/lib/harness/adapters/opencode-v1/workspace-prompt'
+import { createOpenCodeV1Reader } from '@/lib/harness/adapters/opencode-v1/reader'
 import { renderRuntimeConfig as renderV2RuntimeConfig } from '@/lib/harness/adapters/opencode-v2/runtime-config'
 import { createOpenCodeV2Runtime } from '@/lib/harness/adapters/opencode-v2/runtime'
 import {
@@ -18,52 +6,60 @@ import {
   readWorkspaceFile as readV2WorkspaceFile,
   searchWorkspaceFiles as searchV2WorkspaceFiles,
 } from '@/lib/harness/adapters/opencode-v2/workspace-files'
-import type { HarnessHealthOptions, HarnessProviderAccessInput, HarnessRuntime } from '@/lib/harness/contract'
+import type { HarnessHealthOptions, HarnessProviderAccessInput, HarnessRuntime, LegacySessionReader } from '@/lib/harness/contract'
 import { harnessFailure, type HarnessResult } from '@/lib/harness/errors'
+import { DEFAULT_HEALTH_TIMEOUT_MS, getInstanceBasicAuth, getInstanceUrl } from '@/lib/harness/runtime-connection'
 import type { RuntimeConfigModel, RuntimeConfigRenderResult } from '@/lib/harness/runtime-config'
 import { instanceService } from '@/lib/services'
 import type { WorkspaceFileContent, WorkspaceFileNode } from '@/types/workspace'
 
 export { DEFAULT_HEALTH_TIMEOUT_MS }
+export { buildWorkspacePromptParts, normalizeContextPaths, normalizeMessageAttachments } from '@/lib/harness/workspace-prompt'
 
-export function renderRuntimeConfig(kind: string | null, model: RuntimeConfigModel): RuntimeConfigRenderResult {
-  if (kind === null || kind === 'opencode-v1') return renderV1RuntimeConfig(model)
-  if (kind === 'opencode-v2') return renderV2RuntimeConfig(model)
-  return { ok: false, error: { code: 'runtime_config_unsupported', path: 'runtimeKind', message: kind } }
+// The only runtime workspaces start on. `Instance.runtimeKind` records it; a
+// null or other value means the workspace has not migrated to it yet.
+export const CURRENT_RUNTIME_KIND = 'opencode-v2'
+// Instances recorded before the runtime kind existed, or explicitly on OpenCode 1.
+export const LEGACY_RUNTIME_KIND = 'opencode-v1'
+
+export function isCurrentRuntimeKind(kind: string | null | undefined): boolean {
+  return kind === CURRENT_RUNTIME_KIND
+}
+
+export function renderRuntimeConfig(model: RuntimeConfigModel): RuntimeConfigRenderResult {
+  return renderV2RuntimeConfig(model)
 }
 
 export async function listWorkspaceFiles(slug: string, path = ''): Promise<HarnessResult<WorkspaceFileNode[]>> {
   const runtime = await getRuntimeForSlug(slug)
-  if (!runtime.ok) return runtime
-  return runtime.data.kind === 'opencode-v2' ? listV2WorkspaceFiles(slug, path) : listV1WorkspaceFiles(slug, path)
+  return runtime.ok ? listV2WorkspaceFiles(slug, path) : runtime
 }
 
 export async function readWorkspaceFile(slug: string, path: string): Promise<HarnessResult<WorkspaceFileContent>> {
   const runtime = await getRuntimeForSlug(slug)
-  if (!runtime.ok) return runtime
-  return runtime.data.kind === 'opencode-v2' ? readV2WorkspaceFile(slug, path) : readV1WorkspaceFile(slug, path)
+  return runtime.ok ? readV2WorkspaceFile(slug, path) : runtime
 }
 
 export async function searchWorkspaceFiles(slug: string, query: string): Promise<HarnessResult<string[]>> {
   const runtime = await getRuntimeForSlug(slug)
-  if (!runtime.ok) return runtime
-  return runtime.data.kind === 'opencode-v2' ? searchV2WorkspaceFiles(slug, query) : searchV1WorkspaceFiles(slug, query)
+  return runtime.ok ? searchV2WorkspaceFiles(slug, query) : runtime
 }
 
-export function getRuntimeForKind(slug: string, kind: string | null = null, connection?: { baseUrl: string; authHeader: string; signal?: AbortSignal }): HarnessResult<HarnessRuntime> {
-  if (kind === 'opencode-v2') return { ok: true, data: createOpenCodeV2Runtime(slug) }
-  if (kind !== null && kind !== 'opencode-v1') return harnessFailure('runtime_unsupported', kind)
-  return { ok: true, data: connection ? createOpenCodeV1Runtime(slug, connection) : createOpenCodeV1Runtime(slug) }
+export function getRuntime(slug: string): HarnessRuntime {
+  return createOpenCodeV2Runtime(slug)
 }
 
-export function checkRuntimeStartupSupport(kind: string | null): HarnessResult<void> {
-  return kind === null || kind === 'opencode-v1' || kind === 'opencode-v2' ? { ok: true, data: undefined } : harnessFailure('runtime_unsupported', kind)
+export function getLegacySessionReader(slug: string, connection: { baseUrl: string; authHeader: string; signal?: AbortSignal }): LegacySessionReader {
+  return createOpenCodeV1Reader(slug, connection)
 }
 
+// A workspace still recorded on OpenCode 1 is not served until it restarts and
+// migrates; callers see `runtime_unsupported`.
 export async function getRuntimeForSlug(slug: string): Promise<HarnessResult<HarnessRuntime>> {
   try {
     const instance = await instanceService.findRuntimeKindBySlug(slug)
-    return getRuntimeForKind(slug, instance?.runtimeKind ?? null)
+    if (instance && !isCurrentRuntimeKind(instance.runtimeKind)) return harnessFailure('runtime_unsupported', instance.runtimeKind ?? LEGACY_RUNTIME_KIND)
+    return { ok: true, data: getRuntime(slug) }
   } catch {
     return harnessFailure('instance_unavailable', 'runtime_kind_lookup_failed')
   }
@@ -78,10 +74,6 @@ export async function syncRuntimeProviderAccess(slug: string, input: HarnessProv
   const runtime = await getRuntimeForSlug(slug)
   return runtime.ok ? runtime.data.syncProviderAccess(input) : runtime
 }
-
-export const buildWorkspacePromptParts = buildV1WorkspacePromptParts
-export const normalizeContextPaths = normalizeV1ContextPaths
-export const normalizeMessageAttachments = normalizeV1MessageAttachments
 
 export async function getRuntimeConnection(slug: string): Promise<{ baseUrl: string; authHeader: string } | null> {
   return getInstanceBasicAuth(slug)

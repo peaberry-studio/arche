@@ -3,17 +3,17 @@ import { EventEmitter } from 'events'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
-  spawn: vi.fn(), mkdtemp: vi.fn(), rm: vi.fn(), health: vi.fn(), export: vi.fn(), runtime: vi.fn(),
+  spawn: vi.fn(), mkdtemp: vi.fn(), rm: vi.fn(), health: vi.fn(), export: vi.fn(), reader: vi.fn(),
 }))
 
 vi.mock('child_process', () => ({ spawn: mocks.spawn }))
 vi.mock('fs/promises', () => ({ mkdtemp: mocks.mkdtemp, rm: mocks.rm }))
 vi.mock('@/lib/runtime/desktop/config', () => ({
   createSafeEnv: () => ({ PATH: '/bin' }), DEFAULT_USERNAME: 'opencode', LOOPBACK_HOST: '127.0.0.1',
-  getOpencodeBinary: () => '/bundle/opencode-v1', makeAuthHeader: () => 'fixture-auth',
+  getLegacyOpencodeBinary: () => '/bundle/opencode-v1', makeAuthHeader: () => 'fixture-auth',
 }))
 vi.mock('@/lib/harness/legacy-session-archive', () => ({ exportLegacySessions: mocks.export }))
-vi.mock('@/lib/harness/registry', () => ({ getRuntimeForKind: mocks.runtime }))
+vi.mock('@/lib/harness/registry', () => ({ getLegacySessionReader: mocks.reader }))
 
 import { archiveDesktopLegacySessions, cleanupDesktopLegacyArchive } from '@/lib/runtime/desktop/legacy-archive'
 
@@ -41,12 +41,12 @@ describe('archiveDesktopLegacySessions', () => {
     mocks.rm.mockResolvedValue(undefined)
     mocks.health.mockResolvedValue({ ok: true, data: {} })
     mocks.export.mockResolvedValue({ ok: true, data: { archived: 2 } })
-    mocks.runtime.mockReturnValue({ ok: true, data: { kind: 'opencode-v1', slug: 'alice', health: mocks.health } })
+    mocks.reader.mockReturnValue({ slug: 'alice', health: mocks.health })
   })
 
   afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
 
-  it('exports through an explicit bounded V1 connection, isolates config and confirms helper exit', async () => {
+  it('exports through a bounded legacy reader connection, isolates config and confirms helper exit', async () => {
     const child = makeChild()
     mocks.spawn.mockReturnValue(child)
     await expect(archiveDesktopLegacySessions(input)).resolves.toEqual({ ok: true, data: { archived: 2 } })
@@ -61,16 +61,16 @@ describe('archiveDesktopLegacySessions', () => {
         OPENCODE_CONFIG_CONTENT: '{"mcp":{},"plugin":[],"enabled_providers":[]}',
       },
     }))
-    expect(mocks.runtime).toHaveBeenCalledWith('alice', 'opencode-v1', {
+    expect(mocks.reader).toHaveBeenCalledWith('alice', {
       baseUrl: 'http://127.0.0.1:4096', authHeader: 'fixture-auth', signal: expect.any(AbortSignal),
     })
-    expect(mocks.export).toHaveBeenCalledWith('alice', expect.objectContaining({ kind: 'opencode-v1' }))
+    expect(mocks.export).toHaveBeenCalledWith('alice', expect.objectContaining({ slug: 'alice', health: mocks.health }))
     expect(child.kill).toHaveBeenCalledWith('SIGTERM')
     expect(mocks.rm).toHaveBeenCalledWith(`${input.dataDir}/.archive-config-fixture`, { recursive: true, force: true })
     expect(child.exitCode).toBe(0)
   })
 
-  it('preserves an export failure for the caller to fall back after cleanup', async () => {
+  it('returns an export failure to the caller after cleanup', async () => {
     mocks.spawn.mockReturnValue(makeChild())
     mocks.export.mockResolvedValue({ ok: false, error: { code: 'runtime_error' } })
     await expect(archiveDesktopLegacySessions(input)).resolves.toEqual({ ok: false, error: { code: 'runtime_error' } })
@@ -99,7 +99,7 @@ describe('archiveDesktopLegacySessions', () => {
     expect(mocks.rm).toHaveBeenCalled()
   })
 
-  it('escalates to SIGKILL and refuses fallback until exit is confirmed', async () => {
+  it('escalates to SIGKILL and refuses a new helper until exit is confirmed', async () => {
     vi.useFakeTimers()
     const child = makeChild()
     child.kill.mockImplementation(() => true)

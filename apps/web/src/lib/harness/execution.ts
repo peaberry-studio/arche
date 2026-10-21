@@ -26,6 +26,7 @@ export type SessionCompletionResult =
   | { status: 'termination_unconfirmed'; cause: string }
 
 export type SessionExecutionClient = HarnessRuntime
+type SessionFamilyClient = Pick<HarnessRuntime, 'listChildren' | 'sessionStatus' | 'abortSession'>
 export type SessionMessageCursor = {
   messageCount: number
 }
@@ -326,7 +327,7 @@ async function awaitBeforeDeadline<T>(promise: Promise<T>, deadline: number): Pr
 }
 
 async function listDescendantSessionIds(
-  client: SessionExecutionClient,
+  client: SessionFamilyClient,
   rootSessionId: string,
   deadline: number,
 ): Promise<DescendantSessionDiscovery> {
@@ -366,7 +367,7 @@ export async function readSessionFamilyRuntimeState(
 }
 
 export async function abortSessionFamilyAndConfirmIdle(params: {
-  client: SessionExecutionClient
+  client: SessionFamilyClient
   rootSessionId: string
 }): Promise<boolean> {
   const deadline = Date.now() + ABORT_CONFIRMATION_TIMEOUT_MS

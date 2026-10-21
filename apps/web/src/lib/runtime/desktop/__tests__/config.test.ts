@@ -52,15 +52,14 @@ describe('desktop runtime config', () => {
     ])
   })
 
-  it('defaults to the legacy binary and selects bundled OpenCode by runtime kind', async () => {
+  it('selects the bundled current and legacy OpenCode binaries', async () => {
     setResourcesPath('/Applications/Arche.app/Contents/Resources')
     mockExistsSync(() => true)
 
-    const { getOpencodeBinary } = await import('@/lib/runtime/desktop/config')
+    const { getLegacyOpencodeBinary, getOpencodeBinary } = await import('@/lib/runtime/desktop/config')
 
-    expect(getOpencodeBinary()).toBe('/Applications/Arche.app/Contents/Resources/bin/opencode-v1')
-    expect(getOpencodeBinary('opencode-v1')).toBe('/Applications/Arche.app/Contents/Resources/bin/opencode-v1')
-    expect(getOpencodeBinary('opencode-v2')).toBe('/Applications/Arche.app/Contents/Resources/bin/opencode')
+    expect(getOpencodeBinary()).toBe('/Applications/Arche.app/Contents/Resources/bin/opencode')
+    expect(getLegacyOpencodeBinary()).toBe('/Applications/Arche.app/Contents/Resources/bin/opencode-v1')
   })
 
   it('uses separate explicit overrides for legacy and current OpenCode', async () => {
@@ -68,10 +67,10 @@ describe('desktop runtime config', () => {
     process.env.ARCHE_OPENCODE_V1_BIN = '/custom runtime/opencode-v1'
     mockExistsSync(() => true)
 
-    const { getOpencodeBinary } = await import('@/lib/runtime/desktop/config')
+    const { getLegacyOpencodeBinary, getOpencodeBinary } = await import('@/lib/runtime/desktop/config')
 
-    expect(getOpencodeBinary()).toBe('/custom runtime/opencode-v1')
-    expect(getOpencodeBinary('opencode-v2')).toBe('/custom runtime/opencode')
+    expect(getOpencodeBinary()).toBe('/custom runtime/opencode')
+    expect(getLegacyOpencodeBinary()).toBe('/custom runtime/opencode-v1')
   })
 
   it('never falls back to the other runtime binary or its override', async () => {
@@ -79,22 +78,22 @@ describe('desktop runtime config', () => {
     const existsSync = mockExistsSync((path) => path.endsWith('/bin/opencode'))
     process.env.ARCHE_OPENCODE_BIN = '/custom/opencode'
 
-    const { getOpencodeBinary } = await import('@/lib/runtime/desktop/config')
+    const { getLegacyOpencodeBinary, getOpencodeBinary } = await import('@/lib/runtime/desktop/config')
 
-    expect(getOpencodeBinary()).toBe('opencode-v1')
+    expect(getLegacyOpencodeBinary()).toBe('opencode-v1')
     delete process.env.ARCHE_OPENCODE_BIN
     process.env.ARCHE_OPENCODE_V1_BIN = '/custom/opencode-v1'
     existsSync.mockImplementation((path) => path.endsWith('/bin/opencode-v1'))
-    expect(getOpencodeBinary('opencode-v2')).toBe('opencode')
+    expect(getOpencodeBinary()).toBe('opencode')
   })
 
   it('uses distinct PATH binary names when no bundle or overrides exist', async () => {
     mockExistsSync(() => false)
 
-    const { getOpencodeBinary } = await import('@/lib/runtime/desktop/config')
+    const { getLegacyOpencodeBinary, getOpencodeBinary } = await import('@/lib/runtime/desktop/config')
 
-    expect(getOpencodeBinary()).toBe('opencode-v1')
-    expect(getOpencodeBinary('opencode-v2')).toBe('opencode')
+    expect(getOpencodeBinary()).toBe('opencode')
+    expect(getLegacyOpencodeBinary()).toBe('opencode-v1')
   })
 
   it('falls back to repository Arche tools candidates and Node on PATH', async () => {

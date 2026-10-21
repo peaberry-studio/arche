@@ -5,8 +5,7 @@ import { join } from 'path'
 import { findAvailablePort } from '@arche/desktop-runtime/network'
 
 import { isE2eFakeRuntimeEnabled } from '@/lib/e2e/runtime'
-import { checkRuntimeStartupSupport, syncRuntimeProviderAccess } from '@/lib/harness/registry'
-import { RuntimeConfigRenderError } from '@/lib/harness/runtime-config'
+import { CURRENT_RUNTIME_KIND, isCurrentRuntimeKind, syncRuntimeProviderAccess } from '@/lib/harness/registry'
 import {
   DEFAULT_USERNAME,
   LOOPBACK_HOST,
@@ -27,14 +26,14 @@ import {
 } from '@/lib/runtime/desktop/health'
 import { archiveDesktopLegacySessions, cleanupDesktopLegacyArchive } from '@/lib/runtime/desktop/legacy-archive'
 import { waitForProcessExit } from '@/lib/runtime/desktop/process'
-import { getArcheOpencodeDataDir, getWorkspaceDir } from '@/lib/runtime/desktop/workspace-dirs'
+import { getArcheOpencodeDataDir, getLegacyOpencodeDataDir, getWorkspaceDir, hasLegacyOpencodeData } from '@/lib/runtime/desktop/workspace-dirs'
 import { getKbContentRoot } from '@/lib/runtime/paths'
 import type { WorkspaceHost, WorkspaceHostConnection, WorkspaceHostStatus } from '@/lib/runtime/types'
 import { desktopWorkspaceHostE2e } from '@/lib/runtime/workspace-host-desktop-e2e'
 import { instanceService, providerService } from '@/lib/services'
 import { settleRuntimeMigratedRuns } from '@/lib/services/runtime-migration'
 import { writeRuntimeSkills } from '@/lib/skills/runtime-skills'
-import { getDefaultRuntimeKind, getWorkspaceAgentPort } from '@/lib/spawner/config'
+import { getWorkspaceAgentPort } from '@/lib/spawner/config'
 import { decryptPassword, encryptPassword } from '@/lib/spawner/crypto'
 import { withHistoryMigrationProgress } from '@/lib/spawner/legacy-archive'
 import {
@@ -191,10 +190,9 @@ type DesktopRuntimeArtifacts = {
   agentsMd?: string
 }
 
-async function buildDesktopRuntimeArtifacts(slug: string, runtimeKind: string): Promise<DesktopRuntimeArtifacts> {
+async function buildDesktopRuntimeArtifacts(slug: string): Promise<DesktopRuntimeArtifacts> {
   return buildWorkspaceRuntimeArtifacts(slug, getDesktopProviderGatewayConfig(), {
     archeToolsCommand: getDesktopArcheToolsCommand(),
-    runtimeKind,
   })
 }
 
@@ -359,14 +357,11 @@ async function startDesktopWorkspace(
     return { ok: true, status: 'already_running' }
   }
 
-  let runtimeKind = getDefaultRuntimeKind()
-  const support = checkRuntimeStartupSupport(runtimeKind)
-  if (!support.ok) return { ok: false, error: support.error.code, detail: support.error.detail }
   ensureCleanupHooks()
   await reconcileDesktopInstances()
   try {
     if (existing) await stopRuntime(slug, false)
-    await cleanupDesktopLegacyArchive(getArcheOpencodeDataDir('opencode-v1'))
+    await cleanupDesktopLegacyArchive(getLegacyOpencodeDataDir())
   } catch (error) {
     return { ok: false, error: 'start_failed', detail: error instanceof Error ? error.message : 'desktop_runtime_cleanup_unconfirmed' }
   }
@@ -386,43 +381,30 @@ async function startDesktopWorkspace(
   const startedAt = new Date()
   await instanceService.upsertStarting(slug, encryptedPassword, startedAt)
   try {
-    // A config the newer runtime cannot express must not strand a vault that is
-    // not on it yet (archiving its history, then failing every start): stay on V1.
-    let prepared: { kind: string; artifacts: DesktopRuntimeArtifacts } | null = null
-    if (runtimeKind !== 'opencode-v1' && previous?.runtimeKind !== runtimeKind) {
-      try {
-        prepared = { kind: runtimeKind, artifacts: await buildDesktopRuntimeArtifacts(slug, runtimeKind) }
-      } catch (error) {
-        if (!(error instanceof RuntimeConfigRenderError)) throw error
-        console.warn('[desktop-runtime] Runtime config unsupported; starting V1', { slug, runtimeKind, detail: error.message })
-        runtimeKind = 'opencode-v1'
-      }
-    }
-    if (runtimeKind !== 'opencode-v1' && (previous?.runtimeKind ?? 'opencode-v1') === 'opencode-v1') {
+    // A vault last run on OpenCode 1 archives its conversations first. A failed
+    // export fails this start and is retried on the next one; the data stays put.
+    if (!isCurrentRuntimeKind(previous?.runtimeKind) && hasLegacyOpencodeData()) {
       const archived = await withHistoryMigrationProgress(slug, () => archiveDesktopLegacySessions({
         slug,
         workspaceDir,
-        dataDir: getArcheOpencodeDataDir('opencode-v1'),
+        dataDir: getLegacyOpencodeDataDir(),
         port,
         password,
         timeoutMs: getStartTimeoutMs(),
         intervalMs: getStartIntervalMs(),
       }))
       if (!archived.ok) {
-        console.warn('[desktop-runtime] Legacy archive failed; starting V1 and retrying migration next start', { slug, error: archived.error.code })
-        runtimeKind = 'opencode-v1'
-      } else {
-        await settleRuntimeMigratedRuns(slug)
-        logDesktopRuntime(slug, 'archive', 'completed', `archived=${archived.data.archived}`)
+        console.warn('[desktop-runtime] Legacy archive failed; retrying on the next start', { slug, error: archived.error.code })
+        throw new Error(`legacy_archive_failed: ${archived.error.code}`)
       }
+      await settleRuntimeMigratedRuns(slug)
+      logDesktopRuntime(slug, 'archive', 'completed', `archived=${archived.data.archived}`)
     }
-    const archeDataDir = getArcheOpencodeDataDir(runtimeKind)
-    const artifacts = prepared?.kind === runtimeKind ? prepared.artifacts : await buildDesktopRuntimeArtifacts(slug, runtimeKind)
+    const archeDataDir = getArcheOpencodeDataDir()
+    const artifacts = await buildDesktopRuntimeArtifacts(slug)
     const appliedConfigSha = hashWorkspaceRuntimeArtifacts(artifacts)
     const opencodeConfigContent = artifacts.opencodeConfigContent
-    const runtimeSkillDir = runtimeKind === 'opencode-v2'
-      ? join(workspaceDir, '.opencode', 'skills')
-      : join(archeDataDir, '.config', 'opencode', 'skills')
+    const runtimeSkillDir = join(workspaceDir, '.opencode', 'skills')
 
     writeFileSync(
       join(workspaceDir, 'opencode.json'),
@@ -436,18 +418,19 @@ async function startDesktopWorkspace(
 
     await writeRuntimeSkills(runtimeSkillDir, artifacts.skills)
 
-    const recorded = await instanceService.setRuntimeKindIfCurrentDesktopStart(slug, startedAt, runtimeKind)
+    const recorded = await instanceService.setRuntimeKindIfCurrentDesktopStart(slug, startedAt, CURRENT_RUNTIME_KIND)
     if (recorded.count === 0) return { ok: false, error: 'start_failed', detail: 'startup superseded by another attempt' }
 
     const opencodeProcess = createManagedProcess(
       'opencode',
-      spawn(getOpencodeBinary(runtimeKind), ['serve', '--hostname', LOOPBACK_HOST, '--port', String(port)], {
+      spawn(getOpencodeBinary(), ['serve', '--hostname', LOOPBACK_HOST, '--port', String(port)], {
         cwd: workspaceDir,
         env: {
           ...safeEnv,
           OPENCODE_SERVER_PASSWORD: password,
           OPENCODE_SERVER_USERNAME: DEFAULT_USERNAME,
-          ...(runtimeKind === 'opencode-v2' ? { OPENCODE_PASSWORD: password, OPENCODE_MODELS_URL: `${getDesktopInternalApiRoot()}/models` } : {}),
+          OPENCODE_PASSWORD: password,
+          OPENCODE_MODELS_URL: `${getDesktopInternalApiRoot()}/models`,
           ARCHE_WORKSPACE_SLUG: slug,
           ARCHE_INTERNAL_API_BASE_URL: process.env.ARCHE_INTERNAL_API_BASE_URL ?? `http://${LOOPBACK_HOST}:3000`,
           WORKSPACE_DIR: workspaceDir,
@@ -553,11 +536,9 @@ async function startDesktopWorkspace(
       if (!syncResult.ok) {
         await providerService.markWorkspaceRestartRequired(syncUserId)
         console.error('[desktop] Failed to sync OpenCode providers', syncResult.error)
-        if (runtimeKind === 'opencode-v2') {
-          markRuntimeError(slug, syncResult.error.code)
-          await stopRuntime(slug, false)
-          return { ok: false, error: 'start_failed', detail: syncResult.error.code }
-        }
+        markRuntimeError(slug, syncResult.error.code)
+        await stopRuntime(slug, false)
+        return { ok: false, error: 'start_failed', detail: syncResult.error.code }
       } else {
         await providerService.clearWorkspaceRestartRequired(syncUserId)
       }
@@ -567,7 +548,7 @@ async function startDesktopWorkspace(
         return { ok: false, error: 'start_failed', detail: 'runtime_disposed_during_start' }
       }
 
-      const affected = await instanceService.setRunningIfCurrentDesktopStart(slug, startedAt, appliedConfigSha, runtimeKind)
+      const affected = await instanceService.setRunningIfCurrentDesktopStart(slug, startedAt, appliedConfigSha, CURRENT_RUNTIME_KIND)
       if (affected.count === 0) {
         if (runtimes.get(slug) === runtime) await stopRuntime(slug, false)
         return { ok: false, error: 'start_failed', detail: 'startup superseded by another attempt' }

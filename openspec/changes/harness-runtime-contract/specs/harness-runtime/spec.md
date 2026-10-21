@@ -26,15 +26,15 @@ Server actions, API routes, flows, Slack handlers, learning runs, the spawner, w
 - **WHEN** a module outside an adapter directory imports a harness SDK package or an adapter-internal module
 - **THEN** the lint step fails and names the offending import
 
-### Requirement: The adapter is selected from the instance's recorded runtime kind
-Each instance SHALL record the runtime kind it was started with. The system SHALL pick the adapter for every operation from that recorded kind, never from a global setting alone. An instance with no recorded kind SHALL be treated as `opencode-v1`. New instances SHALL start with the runtime kind configured for the deployment.
+### Requirement: Workspaces run the current runtime, recorded per instance
+Each instance SHALL record the runtime kind it was started with. `opencode-v2` SHALL be the only runtime a workspace starts on. An instance whose recorded kind is anything else, or none, SHALL NOT be served: operations SHALL return the typed error `runtime_unsupported` without contacting its container until the instance restarts on `opencode-v2`. OpenCode 1 SHALL only be read, to archive history (see legacy-session-archive).
 
-#### Scenario: Old and new runtimes coexist during a deploy
-- **WHEN** instance A was started as `opencode-v1` and instance B as `opencode-v2`
-- **THEN** operations on A use the `opencode-v1` adapter and operations on B use the `opencode-v2` adapter, in the same process
+#### Scenario: Instance still on OpenCode 1 after a deploy
+- **WHEN** an instance recorded as `opencode-v1`, or with no recorded kind, is still running after the deploy
+- **THEN** its status is reported as stopped and runtime operations return `runtime_unsupported`, so the next start migrates it
 
-#### Scenario: Instance restarts after the deployment default changes
-- **WHEN** an instance recorded as `opencode-v1` is stopped and started again after the deployment default became `opencode-v2`
+#### Scenario: Legacy instance restarts
+- **WHEN** an instance recorded as `opencode-v1` is started
 - **THEN** it starts as `opencode-v2` and its recorded runtime kind is updated
 
 #### Scenario: Unknown runtime kind

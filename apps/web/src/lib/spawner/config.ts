@@ -26,10 +26,6 @@ export function getOpencodeV1Image(): string {
   return process.env.OPENCODE_V1_IMAGE || 'ghcr.io/peaberry-studio/arche/workspace:opencode-v1-1.18.18'
 }
 
-export function getDefaultRuntimeKind(): string {
-  return process.env.ARCHE_DEFAULT_RUNTIME_KIND || 'opencode-v2'
-}
-
 export function getOpencodeNetwork(): string {
   return process.env.OPENCODE_NETWORK || 'arche-internal'
 }

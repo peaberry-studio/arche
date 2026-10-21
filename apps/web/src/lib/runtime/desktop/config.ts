@@ -101,16 +101,13 @@ function resolveBundledBinary(binaryName: RuntimeBinaryName): string | null {
   return existsSync(bundledPath) ? bundledPath : null
 }
 
-export function getOpencodeBinary(runtimeKind: string = 'opencode-v1'): string {
-  const binaryName = runtimeKind === 'opencode-v1' ? 'opencode-v1' : 'opencode'
-  const explicitPath = runtimeKind === 'opencode-v1'
-    ? process.env.ARCHE_OPENCODE_V1_BIN
-    : process.env.ARCHE_OPENCODE_BIN
-  if (explicitPath) {
-    return explicitPath
-  }
+export function getOpencodeBinary(): string {
+  return process.env.ARCHE_OPENCODE_BIN || (resolveBundledBinary('opencode') ?? 'opencode')
+}
 
-  return resolveBundledBinary(binaryName) ?? binaryName
+// OpenCode 1, bundled only to archive conversations from vaults created before OpenCode 2.
+export function getLegacyOpencodeBinary(): string {
+  return process.env.ARCHE_OPENCODE_V1_BIN || (resolveBundledBinary('opencode-v1') ?? 'opencode-v1')
 }
 
 export function getWorkspaceAgentBinary(): string {

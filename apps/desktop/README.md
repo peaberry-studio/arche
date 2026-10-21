@@ -89,31 +89,24 @@ cd apps/desktop
 FORCE_DOWNLOAD=1 pnpm prepare:runtime
 ```
 
-### Runtime upgrade and rollback
+### Runtime
 
-The committed default remains `opencode-v1`. V2 startup is intentionally refused
-until the adapter's protected-config, provider, event-stream, family-idle and
-attachment gates are resolved; bundling V2 does not enable it.
+Desktop workspaces run the bundled OpenCode 2 binary. The OpenCode 1 binary is
+bundled only to archive the history of vaults created before OpenCode 2: on the
+first start of such a vault, the host starts it on loopback with project config,
+MCP, plugins and providers disabled, exports history into the vault's SQLite
+archive, and confirms that the helper exited. An export failure fails the start
+and retries on the next one; unconfirmed helper cleanup also blocks startup.
 
-Once those gates pass, `ARCHE_DEFAULT_RUNTIME_KIND=opencode-v2` selects V2 on the
-next desktop workspace start. Before switching, the host starts the bundled V1
-binary on loopback with project config, MCP, plugins and providers disabled,
-exports history through the V1 adapter into the vault's SQLite archive, and
-confirms that the helper exited. An export failure falls back to V1 and retries
-on the next start; unconfirmed helper cleanup blocks startup instead.
+V1 state stays in `.runtime/opencode` and is never written; V2 uses
+`.runtime/opencode-v2`. An explicit `ARCHE_OPENCODE_DATA_DIR` remains the V1 root,
+with `-v2` appended for V2. Development binary overrides: `ARCHE_OPENCODE_BIN` for
+OpenCode 2 and `ARCHE_OPENCODE_V1_BIN` for the archive helper. Do not point either
+override at the other version.
 
-V1 state stays in `.runtime/opencode`; V2 uses `.runtime/opencode-v2`. An explicit
-`ARCHE_OPENCODE_DATA_DIR` remains the V1 root, with `-v2` appended for V2. Neither
-directory is deleted. Set `ARCHE_DEFAULT_RUNTIME_KIND=opencode-v1` and restart to
-roll back onto the original V1 history; archived rows are hidden on V1. Development
-binary overrides are separate: `ARCHE_OPENCODE_V1_BIN` for V1/export and
-`ARCHE_OPENCODE_BIN` for V2. Do not point either override at the other version.
-
-Manual acceptance (task 7.2, still pending): back up an existing vault, then use a
-copy to verify archive counts, parent/child conversations and attachments, the
-read-only archived view, a new V2 conversation, restart without re-export, and a
-V1 rollback with the original sessions intact. Do not remove either binary or
-runtime directory during this rollback window.
+Manual acceptance: back up an existing vault, then use a copy to verify archive
+counts, parent/child conversations and attachments, the read-only archived view,
+a new V2 conversation, and a restart without re-export.
 
 ## Tests
 

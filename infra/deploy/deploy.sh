@@ -777,7 +777,6 @@ vars = {
     "web_version": os.environ["WEB_VERSION"],
     "opencode_image": "arche-workspace:latest",
     "opencode_v1_image": "arche-workspace:opencode-v1-" + os.environ["OPENCODE_V1_VERSION"],
-    "arche_default_runtime_kind": os.environ.get("ARCHE_DEFAULT_RUNTIME_KIND") or "opencode-v2",
     "cloudflared_tunnel_token": "",
     "cloudflared_image": "docker.io/cloudflare/cloudflared:2026.5.0",
     "repo_root": os.environ["REPO_ROOT"],

@@ -38,7 +38,7 @@ import {
   buildWorkspacePromptParts,
   normalizeContextPaths,
   normalizeMessageAttachments,
-} from '@/lib/harness/adapters/opencode-v1/workspace-prompt'
+} from '@/lib/harness/workspace-prompt'
 
 describe('workspace prompt builder', () => {
   beforeEach(() => {

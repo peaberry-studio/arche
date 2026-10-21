@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { checkHealth, createInstanceClient, normalizeOpenCodeError } from '@/lib/harness/adapters/opencode-v2/client'
 
 const auth = vi.hoisted(() => vi.fn())
-vi.mock('@/lib/harness/adapters/opencode-v1/connection-resolver', () => ({
+vi.mock('@/lib/harness/runtime-connection', () => ({
   getInstanceBasicAuth: auth,
   getInstanceUrl: (_slug: string, baseUrl?: string) => baseUrl ?? 'http://runtime',
 }))

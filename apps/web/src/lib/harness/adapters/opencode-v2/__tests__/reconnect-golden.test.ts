@@ -3,10 +3,6 @@ import { readFileSync } from 'node:fs'
 import type { OpenCodeEvent } from '@opencode/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
-import { translateOpenCodeEvent as translateV1 } from '@/lib/harness/adapters/opencode-v1/events'
-import type { OpenCodeEvent as OpenCodeV1Event } from '@/lib/harness/adapters/opencode-v1/opencode-event'
-import { normalizePendingPermission } from '@/lib/harness/adapters/opencode-v1/permission'
-import { toHarnessMessage as toV1Message } from '@/lib/harness/adapters/opencode-v1/transform'
 import { translateOpenCodeEvent as translateV2 } from '@/lib/harness/adapters/opencode-v2/events'
 import { createOpenCodeV2Runtime } from '@/lib/harness/adapters/opencode-v2/runtime'
 import type { HarnessMessage } from '@/lib/harness/contract'
@@ -14,14 +10,9 @@ import type { ArcheEvent, ArchePermission } from '@/lib/harness/events'
 import { createEmptyChatStore, hydratePermissionsIntoStore, hydrateSessionIntoStore, reduceArcheEvent, type ChatStore } from '@/lib/workspace-events/reducer'
 
 const auth = vi.hoisted(() => vi.fn())
-vi.mock('@/lib/harness/adapters/opencode-v1/connection-resolver', () => ({ getInstanceBasicAuth: auth }))
+vi.mock('@/lib/harness/runtime-connection', () => ({ getInstanceBasicAuth: auth }))
 
 type Cut<Native> = Native & { label: string; eventIndex: number }
-type V1Capture = {
-  version: string
-  events: OpenCodeV1Event[]
-  cuts: Array<Cut<{ messages: Record<string, Array<{ info: Record<string, unknown>; parts: unknown[] }>>; permissions: Array<Record<string, unknown>>; status: Record<string, { type: string }> }>>
-}
 type V2Capture = {
   version: string
   events: OpenCodeEvent[]
@@ -125,23 +116,6 @@ function categories(replay: Replay, kind: 'live' | 'stale' | 'at-cut'): Record<s
   }))
 }
 
-function v1Replay(capture: V1Capture): Replay {
-  return {
-    events: capture.events.map((event) => translateV1(event)),
-    snapshots: capture.cuts.map((cut) => ({
-      label: cut.label, eventIndex: cut.eventIndex,
-      messages: Object.fromEntries(Object.entries(cut.messages).map(([sessionId, messages]) => [sessionId,
-        messages.flatMap((message) => toV1Message({ ...message.info, sessionID: sessionId, parts: message.parts }) ?? [])])),
-      permissions: group(cut.permissions.flatMap((permission) => {
-        const normalized = normalizePendingPermission(permission)
-        return normalized ? [{ ...normalized, kind: permission.permission }] : []
-      })),
-      busy: new Set(Object.entries(cut.status).flatMap(([id, status]) => status.type === 'busy' || status.type === 'retry' ? [id] : [])),
-    })),
-    view: (store) => view(store, true),
-  }
-}
-
 function serve(cut: V2Capture['cuts'][number]) {
   return vi.fn(async (input: string | URL) => {
     const url = new URL(input)
@@ -183,10 +157,8 @@ async function v2Replay(capture: V2Capture): Promise<Replay> {
   return { events, snapshots, view: (store) => view(store) }
 }
 
-describe('reconnect parity against captured OpenCode runs (v1 1.18.18 baseline, v2 2.0.32)', () => {
-  const v1Capture = load<V1Capture>('reconnect-v1.json')
+describe('reconnect convergence against a captured OpenCode 2.0.32 run', () => {
   const v2Capture = load<V2Capture>('reconnect-v2.json')
-  const v1 = v1Replay(v1Capture)
   let v2: Replay
 
   beforeAll(async () => {
@@ -196,49 +168,34 @@ describe('reconnect parity against captured OpenCode runs (v1 1.18.18 baseline, 
   })
   afterEach(() => { vi.unstubAllGlobals() })
 
-  it('replays captures of the pinned runtimes at the same cut points', () => {
-    expect([v1Capture.version, v2Capture.version]).toEqual(['1.18.18', '2.0.32'])
+  it('replays the capture of the pinned runtime at every cut point', () => {
+    expect(v2Capture.version).toBe('2.0.32')
     const labels = ['mid-text', 'queued', 'mid-tool', 'mid-child', 'end']
-    expect(v1.snapshots.map((snapshot) => snapshot.label)).toEqual(labels)
     expect(v2.snapshots.map((snapshot) => snapshot.label)).toEqual(labels)
     expect(v2Capture.cuts[1].inbox[v2Capture.cuts[1].sessions[0].id]).toHaveLength(1)
     expect(Object.keys(v2Capture.cuts[3].messages)).toHaveLength(2)
   })
 
-  it('v2: the final snapshot equals the continuously reduced live stream, accounting parts included', () => {
+  it('the final snapshot equals the continuously reduced live stream, accounting parts included', () => {
     const continuous = reduce(createEmptyChatStore(), v2.events)
     expect(v2.view(hydrate(createEmptyChatStore(), v2.snapshots[4]))).toEqual(v2.view(continuous))
     expect(Object.values(continuous.messages).flat().filter((message) => message.parts.some((part) => part.type === 'step-finish'))).toHaveLength(5)
   })
 
-  it('v1 baseline: the final snapshot equals the live stream only without step-start/step-finish parts', () => {
-    const continuous = reduce(createEmptyChatStore(), v1.events)
-    const hydrated = hydrate(createEmptyChatStore(), v1.snapshots[4])
-    expect(view(hydrated, true)).toEqual(view(continuous, true))
-    expect(view(hydrated)).not.toEqual(view(continuous))
+  it.each(['mid-text', 'queued', 'mid-tool', 'mid-child', 'end'])('a client reconnecting at %s converges to the continuous client', (label) => {
+    const index = v2.snapshots.findIndex((snapshot) => snapshot.label === label)
+    expect(failures(v2, index, 'live')).toEqual({})
   })
 
-  it.each(['mid-text', 'queued', 'mid-tool', 'mid-child', 'end'])('v2 and v1: a client reconnecting at %s converges to the continuous client', (label) => {
-    for (const replay of [v1, v2]) {
-      const index = replay.snapshots.findIndex((snapshot) => snapshot.label === label)
-      expect(failures(replay, index, 'live')).toEqual({})
-    }
-  })
-
-  it('v2 at the cut point differs from the continuous client only where v1 also does, plus unpersisted subagent progress', () => {
-    expect(categories(v1, 'at-cut')).toEqual({ 'mid-text': ['content'], queued: ['content'], 'mid-tool': ['permission'], 'mid-child': ['content'], end: [] })
+  it('at the cut point differs from the continuous client only in in-flight content, pending permissions and unpersisted subagent progress', () => {
     expect(categories(v2, 'at-cut')).toEqual({ 'mid-text': ['content'], queued: ['content'], 'mid-tool': ['permission'], 'mid-child': ['content', 'tool-state'], end: [] })
   })
 
-  it('v2 limits stale-snapshot races to the classes v1 already has', () => {
-    const v1Stale = categories(v1, 'stale')
-    const v2Stale = categories(v2, 'stale')
-    expect(v1Stale).toEqual({ 'mid-text': [], queued: ['content'], 'mid-tool': ['permission', 'tool-state'], 'mid-child': ['content', 'tool-state'], end: [] })
-    expect(v2Stale).toEqual({ 'mid-text': [], queued: [], 'mid-tool': ['permission', 'tool-state'], 'mid-child': ['tool-state'], end: [] })
-    for (const [label, found] of Object.entries(v2Stale)) expect(v1Stale[label]).toEqual(expect.arrayContaining(found))
+  it('limits stale-snapshot races to permission and tool state', () => {
+    expect(categories(v2, 'stale')).toEqual({ 'mid-text': [], queued: [], 'mid-tool': ['permission', 'tool-state'], 'mid-child': ['tool-state'], end: [] })
   })
 
-  it('v2: a reconnect that missed the enqueue still shows the queued input and its delivery time', () => {
+  it('a reconnect that missed the enqueue still shows the queued input and its delivery time', () => {
     const queued = v2.snapshots[1]
     const sessionId = v2Capture.cuts[1].sessions[0].id
     const pending = queued.messages[sessionId].at(-1)

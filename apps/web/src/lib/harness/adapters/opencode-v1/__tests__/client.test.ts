@@ -1,98 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const mockCreateConfiguredOpencodeClient = vi.fn()
-const mockResolveInstanceConnection = vi.fn()
 const mockGetInstanceUrl = vi.fn()
 
-vi.mock('@/lib/harness/adapters/opencode-v1/client-factory', () => ({
-  createConfiguredOpencodeClient: (...args: unknown[]) => mockCreateConfiguredOpencodeClient(...args),
-}))
-
-vi.mock('@/lib/harness/adapters/opencode-v1/connection-resolver', () => ({
+vi.mock('@/lib/harness/runtime-connection', () => ({
+  DEFAULT_HEALTH_TIMEOUT_MS: 5_000,
   getInstanceUrl: (slug: string, override?: string) => mockGetInstanceUrl(slug, override),
-  resolveInstanceConnection: (slug: string, override?: string) => mockResolveInstanceConnection(slug, override),
 }))
-
-describe('createInstanceClient', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-  })
-
-  it('returns null when resolveInstanceConnection returns null', async () => {
-    mockResolveInstanceConnection.mockResolvedValue(null)
-
-    const { createInstanceClient } = await import('../client')
-    const result = await createInstanceClient('alice')
-
-    expect(result).toBeNull()
-    expect(mockCreateConfiguredOpencodeClient).not.toHaveBeenCalled()
-  })
-
-  it('creates and returns a client when connection is resolved', async () => {
-    const connection = { baseUrl: 'http://opencode-alice:4096', authHeader: 'Basic abc', username: 'opencode', password: 'pw' }
-    mockResolveInstanceConnection.mockResolvedValue(connection)
-    const mockClient = { global: { health: vi.fn() } }
-    mockCreateConfiguredOpencodeClient.mockResolvedValue(mockClient)
-
-    const { createInstanceClient } = await import('../client')
-    const result = await createInstanceClient('alice')
-
-    expect(result).toBe(mockClient)
-    expect(mockCreateConfiguredOpencodeClient).toHaveBeenCalledWith(connection)
-  })
-})
-
-describe('isInstanceHealthy', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-  })
-
-  it('returns false when client creation fails', async () => {
-    mockResolveInstanceConnection.mockResolvedValue(null)
-
-    const { isInstanceHealthy } = await import('../client')
-    const result = await isInstanceHealthy('alice')
-
-    expect(result).toBe(false)
-  })
-
-  it('returns true when health check reports healthy', async () => {
-    const connection = { baseUrl: 'http://opencode-alice:4096', authHeader: 'Basic abc', username: 'opencode', password: 'pw' }
-    mockResolveInstanceConnection.mockResolvedValue(connection)
-    const mockClient = { global: { health: vi.fn().mockResolvedValue({ data: { healthy: true } }) } }
-    mockCreateConfiguredOpencodeClient.mockResolvedValue(mockClient)
-
-    const { isInstanceHealthy } = await import('../client')
-    const result = await isInstanceHealthy('alice')
-
-    expect(result).toBe(true)
-    expect(mockClient.global.health).toHaveBeenCalled()
-  })
-
-  it('returns false when health check response does not have healthy=true', async () => {
-    const connection = { baseUrl: 'http://opencode-alice:4096', authHeader: 'Basic abc', username: 'opencode', password: 'pw' }
-    mockResolveInstanceConnection.mockResolvedValue(connection)
-    const mockClient = { global: { health: vi.fn().mockResolvedValue({ data: { healthy: false } }) } }
-    mockCreateConfiguredOpencodeClient.mockResolvedValue(mockClient)
-
-    const { isInstanceHealthy } = await import('../client')
-    const result = await isInstanceHealthy('alice')
-
-    expect(result).toBe(false)
-  })
-
-  it('returns false when health check throws', async () => {
-    const connection = { baseUrl: 'http://opencode-alice:4096', authHeader: 'Basic abc', username: 'opencode', password: 'pw' }
-    mockResolveInstanceConnection.mockResolvedValue(connection)
-    const mockClient = { global: { health: vi.fn().mockRejectedValue(new Error('timeout')) } }
-    mockCreateConfiguredOpencodeClient.mockResolvedValue(mockClient)
-
-    const { isInstanceHealthy } = await import('../client')
-    const result = await isInstanceHealthy('alice')
-
-    expect(result).toBe(false)
-  })
-})
 
 describe('isInstanceHealthyWithPassword', () => {
   beforeEach(() => {

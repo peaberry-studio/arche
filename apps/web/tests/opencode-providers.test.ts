@@ -19,39 +19,25 @@ vi.mock('@/lib/providers/tokens', () => ({
 }))
 
 import { syncRuntimeProviderAccess } from '@/lib/harness/registry'
-import { getEnabledProviderCredentialsForUser, type EnabledProviderCredentials } from '@/lib/providers/store'
-import { issueGatewayToken } from '@/lib/providers/tokens'
-import type { ProviderId } from '@/lib/providers/types'
+import { getEnabledProviderCredentialsForUser } from '@/lib/providers/store'
 import { instanceService, messageRunService } from '@/lib/services'
 
 const mockGetEnabledProviderCredentialsForUser = vi.mocked(getEnabledProviderCredentialsForUser)
-const mockIssueGatewayToken = vi.mocked(issueGatewayToken)
-const mockHasActiveRunForSlug = vi.mocked(messageRunService.hasActiveRunForSlug)
-const mockSetProviderSyncState = vi.mocked(instanceService.setProviderSyncState)
-
-type TestEnabledProviderCredential = {
-  credentialId: string
-  source: 'user' | 'organization'
-  version: number
-}
-
-function enabledCredentials(
-  entries: Array<[ProviderId, TestEnabledProviderCredential]> = [],
-): EnabledProviderCredentials {
-  return new Map(entries)
-}
+const mockFindRuntimeKindBySlug = vi.mocked(instanceService.findRuntimeKindBySlug)
 
 const fakeInstance = {
   baseUrl: 'http://opencode-alice:4096',
   authHeader: 'Basic abc',
 }
 
+// Provider sync itself is covered against the real V2 adapter in
+// src/lib/harness/adapters/opencode-v2/__tests__/providers.test.ts.
 describe('syncRuntimeProviderAccess', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.mocked(instanceService.findRuntimeKindBySlug).mockResolvedValue({ runtimeKind: 'opencode-v1' })
-    mockHasActiveRunForSlug.mockResolvedValue(false)
-    mockSetProviderSyncState.mockResolvedValue(undefined)
+    mockFindRuntimeKindBySlug.mockResolvedValue({ runtimeKind: 'opencode-v2' })
+    vi.mocked(messageRunService.hasActiveRunForSlug).mockResolvedValue(false)
+    vi.mocked(instanceService.setProviderSyncState).mockResolvedValue(undefined)
   })
 
   it('returns sync_failed when credential lookup throws', async () => {
@@ -62,54 +48,18 @@ describe('syncRuntimeProviderAccess', () => {
       userId: 'user-1',
     })
 
-    expect(result).toEqual({ ok: false, error: { code: 'sync_failed' } })
+    expect(result).toEqual({ ok: false, error: { code: 'sync_failed', detail: 'runtime_error' } })
   })
 
-  it('sets auth for active credentials and keeps OpenCode gateway auth', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{"healthy":true}', { status: 200 })))
-
-    mockGetEnabledProviderCredentialsForUser.mockResolvedValue(enabledCredentials([
-      ['openai', { credentialId: 'cred-1', source: 'user', version: 2 }],
-    ]))
-
-    mockIssueGatewayToken.mockImplementation(
-      ({ providerId }) => `token-${providerId}`
-    )
+  it.each([null, 'opencode-v1'])('refuses a workspace recorded as %s without reading credentials', async (runtimeKind) => {
+    mockFindRuntimeKindBySlug.mockResolvedValue({ runtimeKind })
 
     const result = await syncRuntimeProviderAccess('alice', {
       connection: fakeInstance,
       userId: 'user-1',
     })
 
-    expect(mockIssueGatewayToken).toHaveBeenCalledWith({
-      userId: 'user-1',
-      workspaceSlug: 'alice',
-      providerId: 'openai',
-      version: 2,
-      credentialId: 'cred-1',
-      credentialSource: 'user',
-    })
-    expect(mockIssueGatewayToken).toHaveBeenCalledWith({
-      userId: 'user-1',
-      workspaceSlug: 'alice',
-      providerId: 'opencode',
-      version: 0,
-    })
-
-    const calls = (global.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls
-    const urls = calls.map((c) => c[0])
-
-    // PUT auth for enabled provider
-    expect(urls).toContain('http://opencode-alice:4096/auth/openai')
-    // DELETE auth for managed providers without credentials (best-effort)
-    expect(urls).toContain('http://opencode-alice:4096/auth/anthropic')
-    expect(urls).toContain('http://opencode-alice:4096/auth/fireworks-ai')
-    expect(urls).toContain('http://opencode-alice:4096/auth/huggingface')
-    expect(urls).toContain('http://opencode-alice:4096/auth/openrouter')
-    expect(urls).toContain('http://opencode-alice:4096/auth/opencode')
-    // Dispose refresh
-    expect(urls).toContain('http://opencode-alice:4096/instance/dispose')
-
-    expect(result).toEqual({ ok: true, data: undefined })
+    expect(result).toMatchObject({ ok: false, error: { code: 'runtime_unsupported' } })
+    expect(mockGetEnabledProviderCredentialsForUser).not.toHaveBeenCalled()
   })
 })

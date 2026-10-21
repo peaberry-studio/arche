@@ -1,11 +1,11 @@
 import { OpenCode } from '@opencode/client'
 
-import { getInstanceBasicAuth, getInstanceUrl } from '@/lib/harness/adapters/opencode-v1/connection-resolver'
+import { getInstanceBasicAuth, getInstanceUrl } from '@/lib/harness/runtime-connection'
 import type { HarnessHealthOptions } from '@/lib/harness/contract'
 import { harnessFailure, type HarnessResult } from '@/lib/harness/errors'
 import { getString, isRecord } from '@/lib/records'
 
-export { getInstanceBasicAuth } from '@/lib/harness/adapters/opencode-v1/connection-resolver'
+export { getInstanceBasicAuth } from '@/lib/harness/runtime-connection'
 
 export type OpenCodeV2Client = ReturnType<typeof OpenCode.make>
 

@@ -111,15 +111,14 @@ export async function createContainer(
   agentsMd?: string,
   skills?: SkillBundle[],
   gitAuthor?: { name: string; email?: string },
-  runtimeKind = 'opencode-v1',
 ) {
-  if (runtimeKind !== 'opencode-v1' && runtimeKind !== 'opencode-v2') throw new Error('runtime_unsupported')
   const docker = await getContainerClient();
   const containerName = `opencode-${slug}`;
   const volumeName = `arche-workspace-${slug}`;
-  const statePrefix = runtimeKind === 'opencode-v2' ? 'arche-opencode2' : 'arche-opencode'
-  const opencodeShareVolumeName = `${statePrefix}-share-${slug}`;
-  const opencodeStateVolumeName = `${statePrefix}-state-${slug}`;
+  // OpenCode 2 state lives apart from the OpenCode 1 volumes (`arche-opencode-*`),
+  // which only the legacy archive helper still mounts.
+  const opencodeShareVolumeName = `arche-opencode2-share-${slug}`;
+  const opencodeStateVolumeName = `arche-opencode2-state-${slug}`;
 
   const runtimeConfigContent = (() => {
     if (!opencodeConfigContent) {
@@ -206,11 +205,11 @@ export async function createContainer(
     `WORKSPACE_AGENT_PORT=${getWorkspaceAgentPort()}`,
     `WORKSPACE_GIT_AUTHOR_NAME=${gitAuthor?.name ?? slug}`,
     `WORKSPACE_GIT_AUTHOR_EMAIL=${gitAuthor?.email ?? `${slug}@arche.local`}`,
-    ...(runtimeKind === 'opencode-v2' ? [`OPENCODE_MODELS_URL=${WEB_INTERNAL_API_ROOT}/models`] : []),
+    `OPENCODE_MODELS_URL=${WEB_INTERNAL_API_ROOT}/models`,
   ];
 
   const options = {
-    Image: runtimeKind === 'opencode-v2' ? getOpencodeImage() : getOpencodeV1Image(),
+    Image: getOpencodeImage(),
     name: containerName,
     WorkingDir: "/workspace",
     // arche-workspace image has an entrypoint wrapper that initializes the workspace
@@ -224,7 +223,7 @@ export async function createContainer(
     Labels: {
       "arche.managed": "true",
       "arche.user.slug": slug,
-      "arche.runtime.kind": runtimeKind,
+      "arche.runtime.kind": "opencode-v2",
     },
   };
 

@@ -4,7 +4,7 @@ import {
   getInstanceBasicAuth,
   getInstanceUrl,
   resolveInstanceConnection,
-} from '@/lib/harness/adapters/opencode-v1/connection-resolver'
+} from '@/lib/harness/runtime-connection'
 
 const getE2eRuntimeConnectionMock = vi.hoisted(() => vi.fn())
 const isE2eFakeRuntimeEnabledMock = vi.hoisted(() => vi.fn())

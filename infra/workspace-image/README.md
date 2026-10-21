@@ -30,7 +30,7 @@ Internal service exposing scoped workspace operations:
 # From this directory
 podman build --build-arg OPENCODE_VERSION="$(cat ../../versions/opencode.version)" -t arche-workspace .
 
-# Pinned legacy runtime for rollback/export (not release v6.0.0, which has 1.17.9)
+# Pinned legacy image, used only to archive V1 history (not release v6.0.0, which has 1.17.9)
 podman build --build-arg OPENCODE_VERSION="$(cat ../../versions/opencode-v1.version)" -t arche-workspace:opencode-v1 -t arche-workspace:opencode-v1-1.18.18 .
 ```
 

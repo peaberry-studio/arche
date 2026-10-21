@@ -8,7 +8,7 @@ vi.mock('@/lib/harness/adapters/opencode-v2/client', async (importOriginal) => (
   createInstanceClient: mocks.client,
   checkHealth: mocks.health,
 }))
-vi.mock('@/lib/harness/adapters/opencode-v1/connection-resolver', () => ({ getInstanceBasicAuth: vi.fn(), getInstanceUrl: vi.fn() }))
+vi.mock('@/lib/harness/runtime-connection', () => ({ getInstanceBasicAuth: vi.fn(), getInstanceUrl: vi.fn() }))
 vi.mock('@/lib/harness/adapters/opencode-v2/providers', () => ({ syncProviderAccess: mocks.sync }))
 vi.mock('@/lib/harness/adapters/opencode-v2/events', () => ({ subscribeOpenCodeEvents: mocks.events }))
 

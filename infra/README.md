@@ -9,13 +9,11 @@ This directory contains everything needed to run Arche as a full stack (local an
 - Coolify deployment (VPS with Coolify): `infra/coolify/README.md`
 - Workspace image (OpenCode + git): `infra/workspace-image/README.md`
 
-## Workspace runtime selection
+## Workspace runtime
 
-New starts use `ARCHE_DEFAULT_RUNTIME_KIND`, which defaults to `opencode-v2`.
-Running instances keep their recorded kind (null means V1) until they restart;
-this is never an in-place switch. `OPENCODE_IMAGE` is the V2 workspace image and
-`OPENCODE_V1_IMAGE` the pinned legacy image used to archive V1 history and for
-rollback:
+Workspaces run OpenCode 2 (`OPENCODE_IMAGE`). OpenCode 1 is no longer a runtime:
+`OPENCODE_V1_IMAGE` is the pinned legacy image used only to read the V1 history of
+existing workspaces once, when they first start on OpenCode 2:
 
 ```text
 OPENCODE_V1_IMAGE=ghcr.io/peaberry-studio/arche/workspace:opencode-v1-1.18.18
@@ -30,54 +28,44 @@ validation, `infra/deploy/deploy.sh --local-dev` builds
 `arche-workspace:opencode-v1-1.18.18` next to `arche-workspace:latest`.
 
 V1 and V2 keep separate state: `arche-opencode-share-*` / `arche-opencode-state-*`
-for V1 and `arche-opencode2-share-*` / `arche-opencode2-state-*` for V2. Desktop
-bundles both binaries and keeps V2 data in `.runtime/opencode-v2`.
+for V1 (read only by the archive helper) and `arche-opencode2-share-*` /
+`arche-opencode2-state-*` for V2. Desktop bundles the OpenCode 1 binary for the
+same one-time archive and keeps V2 data in `.runtime/opencode-v2`.
 
-### First V2 start of an existing workspace
+### First start of an existing V1 workspace
 
-When a workspace recorded as V1 starts while the default is V2:
+A workspace recorded as V1 (or with no recorded kind) is not served until it
+restarts. A V1 workspace still running after the deploy reports as stopped, so the
+next open or flow starts it:
 
 1. The workspace shows "migrating history" while its V1 conversations (roots and
    subagent children) are exported to `legacy_session_archives`, through the
-   running V1 container or a temporary pinned V1 helper with project config,
+   still-running V1 container or a temporary pinned V1 helper with project config,
    plugins, MCP and providers disabled and a read-only workspace mount. The
-   helper is removed before either runtime serves.
+   helper and the old container are removed before V2 serves.
 2. V2 starts on the V2 volumes. Archived conversations are listed with an
    "Archived" marker and open read-only.
-3. If the export fails, the workspace starts on V1 and retries on its next start.
-   In-flight V1 message and flow runs are settled with `runtime_migrated` only
-   after a successful export; Slack bindings to archived sessions rebind to a new
-   session on the next message.
+3. If the export fails, the start fails with `legacy_archive_failed` and the next
+   start retries it. Nothing is lost: the V1 volumes are never written. In-flight
+   V1 message and flow runs are settled with `runtime_migrated` only after a
+   successful export; Slack bindings to archived sessions rebind to a new session
+   on the next message.
 
 The reaper pre-archives running V1 workspaces in the background, one at a time,
 so most first starts only export what changed since. Startup, stop and reaper
 transitions are attempt-scoped; stop requests are refused while startup owns the
 instance.
 
-### Rollback
-
-Set `ARCHE_DEFAULT_RUNTIME_KIND=opencode-v1` in the env consumed by **web, flows
-and reaper**, recreate those services with the normal deployment procedure, and
-stop/start the affected workspaces. They start on their untouched V1 volumes with
-the original V1 conversations live; archive rows are hidden on V1. Conversations
-created on V2 stay on the V2 volumes and reappear when the workspace runs V2
-again, and that switch only archives the V1 conversations created in between.
-
-The database is not rolled back. Do not revert to a pre-seam web build while V2
-instances still run: it cannot dispatch their recorded adapter. Keep both runtime
-images and both volume families until the contract phase below.
-
-Known V1-only gap: on V1, the session history and knowledge proposal tools called
-from chat fail with `caller_identity_unavailable`, because OpenCode 1 does not
-forward session metadata to MCP servers. Learning runs pass their session
-explicitly and are unaffected.
+There is no rollback to V1. A web build from before this release cannot serve V2
+workspaces, so do not roll the web image back past it once any workspace has
+started on V2. Validate the release on staging first.
 
 ### Retiring V1 share volumes (contract phase only)
 
 `scripts/cleanup-legacy-volumes.mjs` is preparation for task 8.2, **not a deploy
-step**. Do not apply it during this branch's rollout or while V1 rollback is still
-required. Deletion permanently removes the original runnable V1 history. Keep the
-V1 adapter, image/binary and volumes until separate contract-phase approval.
+step**. Run it only after every workspace has started on V2 at least once, so its
+history is archived. Deletion permanently removes the original V1 history. Keep the
+V1 reader, image/binary and volumes until separate contract-phase approval.
 
 Run on the workspace Podman host with Node.js and access to its PostgreSQL
 container (`psql` runs inside that container). Select the correct Podman
@@ -116,9 +104,9 @@ Do not commit it. Then review and retain the staging dry-run output:
 node scripts/cleanup-legacy-volumes.mjs --postgres-container arche-postgres --approvals /secure/verified-archives.json
 ```
 
-Only after V2 acceptance, rollback retirement approval and backup verification:
-pause **all** starts/restarts (including web, flows, reaper and external automation),
-confirm V2 defaults across deployments and that no old web build can start V1,
+Only after V2 acceptance and backup verification: pause **all** starts/restarts
+(including web, flows, reaper and external automation), confirm that no old web
+build can start V1,
 then repeat the reviewed command with explicit destructive-operation guards:
 
 ```bash

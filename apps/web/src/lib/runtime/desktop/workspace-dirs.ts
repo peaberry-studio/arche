@@ -76,13 +76,24 @@ function ensureWorkspaceExcludes(workspaceDir: string): void {
   writeFileSync(excludePath, `${Array.from(currentEntries).join('\n')}\n`, 'utf-8')
 }
 
-export function getArcheOpencodeDataDir(runtimeKind = 'opencode-v1'): string {
-  const legacyDir = getRequiredOpencodeRuntimeDir()
-  const runtimeDir = runtimeKind === 'opencode-v2' ? `${legacyDir}-v2` : legacyDir
-  if (!existsSync(runtimeDir)) {
-    mkdirSync(runtimeDir, { recursive: true })
+function ensureDir(dir: string): string {
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true })
   }
-  return runtimeDir
+  return dir
+}
+
+export function getArcheOpencodeDataDir(): string {
+  return ensureDir(`${getRequiredOpencodeRuntimeDir()}-v2`)
+}
+
+// OpenCode 1 data, read only to archive conversations from older vaults.
+export function getLegacyOpencodeDataDir(): string {
+  return ensureDir(getRequiredOpencodeRuntimeDir())
+}
+
+export function hasLegacyOpencodeData(): boolean {
+  return existsSync(join(getRequiredOpencodeRuntimeDir(), '.local', 'share', 'opencode'))
 }
 
 export function getWorkspaceDir(slug: string): string {

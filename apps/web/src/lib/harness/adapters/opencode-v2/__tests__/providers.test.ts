@@ -6,7 +6,7 @@ import type { ProviderId } from '@/lib/providers/types'
 import { instanceService, messageRunService } from '@/lib/services'
 
 const mocks = vi.hoisted(() => ({ auth: vi.fn() }))
-vi.mock('@/lib/harness/adapters/opencode-v1/connection-resolver', () => ({
+vi.mock('@/lib/harness/runtime-connection', () => ({
   getInstanceBasicAuth: mocks.auth,
   getInstanceUrl: (_slug: string, baseUrl?: string) => baseUrl ?? 'http://runtime',
 }))

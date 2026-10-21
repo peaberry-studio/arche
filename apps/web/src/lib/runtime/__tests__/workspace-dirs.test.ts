@@ -39,18 +39,25 @@ describe('desktop workspace dirs', () => {
 
   afterEach(() => { process.env = originalEnv })
 
-  it('keeps the legacy data directory and allocates independent V2 state', async () => {
-    const { getArcheOpencodeDataDir } = await import('@/lib/runtime/desktop/workspace-dirs')
-    expect(getArcheOpencodeDataDir()).toBe('/tmp/arche/.runtime/opencode')
-    expect(getArcheOpencodeDataDir('opencode-v2')).toBe('/tmp/arche/.runtime/opencode-v2')
-    expect(getArcheOpencodeDataDir('opencode-v1')).toBe('/tmp/arche/.runtime/opencode')
+  it('keeps OpenCode 2 state apart from the legacy OpenCode 1 data directory', async () => {
+    const { getArcheOpencodeDataDir, getLegacyOpencodeDataDir } = await import('@/lib/runtime/desktop/workspace-dirs')
+    expect(getArcheOpencodeDataDir()).toBe('/tmp/arche/.runtime/opencode-v2')
+    expect(getLegacyOpencodeDataDir()).toBe('/tmp/arche/.runtime/opencode')
   })
 
-  it('uses the configured data root for V1 and a distinct suffixed root for V2', async () => {
+  it('uses the configured data root for legacy data and a distinct suffixed root for OpenCode 2', async () => {
     process.env.ARCHE_OPENCODE_DATA_DIR = '/custom/runtime'
-    const { getArcheOpencodeDataDir } = await import('@/lib/runtime/desktop/workspace-dirs')
-    expect(getArcheOpencodeDataDir('opencode-v1')).toBe('/custom/runtime')
-    expect(getArcheOpencodeDataDir('opencode-v2')).toBe('/custom/runtime-v2')
+    const { getArcheOpencodeDataDir, getLegacyOpencodeDataDir } = await import('@/lib/runtime/desktop/workspace-dirs')
+    expect(getLegacyOpencodeDataDir()).toBe('/custom/runtime')
+    expect(getArcheOpencodeDataDir()).toBe('/custom/runtime-v2')
+  })
+
+  it('detects legacy OpenCode 1 data only when its share directory exists', async () => {
+    const { hasLegacyOpencodeData } = await import('@/lib/runtime/desktop/workspace-dirs')
+    mockExistsSync.mockImplementation((path: string) => path === '/tmp/arche/.runtime/opencode/.local/share/opencode')
+    expect(hasLegacyOpencodeData()).toBe(true)
+    mockExistsSync.mockImplementation(() => false)
+    expect(hasLegacyOpencodeData()).toBe(false)
   })
 
   it('bootstraps the workspace repo only once and stays idempotent on repeated calls', async () => {

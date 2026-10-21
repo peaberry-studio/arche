@@ -12,7 +12,7 @@ import {
 } from '@/lib/harness/execution'
 
 const mocks = vi.hoisted(() => ({ auth: vi.fn(), createRun: vi.fn(), touch: vi.fn(), usage: vi.fn() }))
-vi.mock('@/lib/harness/adapters/opencode-v1/connection-resolver', () => ({
+vi.mock('@/lib/harness/runtime-connection', () => ({
   getInstanceBasicAuth: mocks.auth,
   getInstanceUrl: (_slug: string, baseUrl?: string) => baseUrl ?? 'http://runtime',
 }))

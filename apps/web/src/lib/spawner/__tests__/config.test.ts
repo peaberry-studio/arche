@@ -123,20 +123,6 @@ describe('config', () => {
     })
   })
 
-  describe('getDefaultRuntimeKind', () => {
-    it('defaults new starts to v2', async () => {
-      delete process.env.ARCHE_DEFAULT_RUNTIME_KIND
-      const { getDefaultRuntimeKind } = await import('../config')
-      expect(getDefaultRuntimeKind()).toBe('opencode-v2')
-    })
-
-    it.each(['opencode-v1', 'unknown'])('preserves configured kind %s for fail-closed registry validation', async (kind) => {
-      process.env.ARCHE_DEFAULT_RUNTIME_KIND = kind
-      const { getDefaultRuntimeKind } = await import('../config')
-      expect(getDefaultRuntimeKind()).toBe(kind)
-    })
-  })
-
   describe('getOpencodeNetwork', () => {
     it('returns default network when OPENCODE_NETWORK not set', async () => {
       delete process.env.OPENCODE_NETWORK

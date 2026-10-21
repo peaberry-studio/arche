@@ -9,17 +9,17 @@ import type { WorkspaceMessage } from '@/types/workspace-runtime'
 
 vi.mock('@/lib/services/legacy-session-archive', () => ({
   findExportedSession: vi.fn(), upsertSession: vi.fn(), findNextRunningV1Instance: vi.fn(),
-  withArchiveWriteFence: vi.fn(), reconcileSessions: vi.fn(), deleteSessionTree: vi.fn(),
+  withArchiveWriteFence: vi.fn(), reconcileSessions: vi.fn(),
 }))
-vi.mock('@/lib/harness/registry', () => ({ getRuntimeForSlug: vi.fn() }))
-vi.mock('@/lib/services/audit', () => ({ createEventStrict: vi.fn() }))
+vi.mock('@/lib/harness/registry', () => ({ getLegacySessionReader: vi.fn(), getRuntimeConnection: vi.fn() }))
 
-import { deleteLegacySession, exportLegacySessions } from '@/lib/harness/legacy-session-archive'
-import { getRuntimeForSlug } from '@/lib/harness/registry'
+import { exportLegacySessions } from '@/lib/harness/legacy-session-archive'
+import { getLegacySessionReader, getRuntimeConnection } from '@/lib/harness/registry'
 import * as storage from '@/lib/services/legacy-session-archive'
 
 const mockStorage = vi.mocked(storage)
-const mockGetRuntime = vi.mocked(getRuntimeForSlug)
+const mockReader = vi.mocked(getLegacySessionReader)
+const mockConnection = vi.mocked(getRuntimeConnection)
 const transaction = {} as Prisma.TransactionClient
 
 function legacySession(id: string, parentId?: string): HarnessSession {
@@ -47,7 +47,8 @@ beforeEach(() => {
     exported.set(`${input.slug}/${input.sessionId}`, input)
     return true
   })
-  mockGetRuntime.mockResolvedValue({ ok: true, data: runtime })
+  mockConnection.mockResolvedValue({ baseUrl: 'http://opencode-alice:4096', authHeader: 'Basic fixture' })
+  mockReader.mockImplementation(() => runtime)
 })
 
 afterEach(() => {
@@ -222,12 +223,6 @@ describe('exportLegacySessions', () => {
     expect([...exported.keys()]).toEqual([`${runtime.slug}/same-id`, 'other-owner/same-id'])
   })
 
-  it.each(['opencode-v2', 'unknown'])('rejects runtime kind %s without contacting it', async (kind) => {
-    const result = await exportLegacySessions(runtime.slug, { ...runtime, kind })
-    expect(result).toMatchObject({ ok: false, error: { code: 'runtime_unsupported' } })
-    expect(runtime.listSessions).not.toHaveBeenCalled()
-  })
-
   it('rejects workspace and message identity mismatches', async () => {
     expect(await exportLegacySessions('someone-else', runtime)).toMatchObject({ ok: false, error: { code: 'runtime_error' } })
     expect(runtime.listSessions).not.toHaveBeenCalled()
@@ -257,96 +252,6 @@ describe('exportLegacySessions', () => {
   })
 })
 
-describe('live V1 deletion', () => {
-  it('purges the deleted runtime subtree under the same write fence', async () => {
-    runtime.listChildren.mockImplementation(async (id) => ({ ok: true, data: id === 'root' ? [legacySession('child', 'root')] : [] }))
-    runtime.deleteSession.mockResolvedValue({ ok: true, data: undefined })
-    expect(await deleteLegacySession(runtime.slug, runtime, 'root')).toEqual({ ok: true, data: undefined })
-    expect(mockStorage.deleteSessionTree).toHaveBeenCalledExactlyOnceWith(runtime.slug, ['root', 'child'], transaction)
-    expect(mockStorage.withArchiveWriteFence).toHaveBeenCalledWith(runtime.slug, expect.any(Function), { onlyWhileRunning: true })
-  })
-
-  it('repairs retained prearchives when retrying a runtime deletion that already succeeded', async () => {
-    runtime.listChildren.mockResolvedValue(harnessFailure('session_not_found'))
-    runtime.deleteSession.mockResolvedValue(harnessFailure('session_not_found'))
-    expect(await deleteLegacySession(runtime.slug, runtime, 'gone')).toEqual(harnessFailure('session_not_found'))
-    expect(mockStorage.deleteSessionTree).toHaveBeenCalledWith(runtime.slug, ['gone'], transaction)
-  })
-
-  it('does not delete or purge after losing the running V1 instance', async () => {
-    mockStorage.withArchiveWriteFence.mockResolvedValue(null)
-    expect(await deleteLegacySession(runtime.slug, runtime, 'root')).toMatchObject({ ok: false, error: { code: 'session_busy' } })
-    expect(runtime.deleteSession).not.toHaveBeenCalled()
-    expect(mockStorage.deleteSessionTree).not.toHaveBeenCalled()
-  })
-
-  it('keeps the prearchive when the runtime rejects deletion', async () => {
-    runtime.deleteSession.mockResolvedValue(harnessFailure('runtime_error'))
-    expect(await deleteLegacySession(runtime.slug, runtime, 'root')).toEqual(harnessFailure('runtime_error'))
-    expect(mockStorage.deleteSessionTree).not.toHaveBeenCalled()
-  })
-
-  it('returns a typed failure if archive deletion fails after runtime deletion', async () => {
-    runtime.deleteSession.mockResolvedValue({ ok: true, data: undefined })
-    mockStorage.deleteSessionTree.mockRejectedValue(new Error('database unavailable'))
-    expect(await deleteLegacySession(runtime.slug, runtime, 'root')).toMatchObject({ ok: false, error: { code: 'runtime_error' } })
-  })
-
-  it('cannot recreate a stale inventoried session when deletion wins the write fence', async () => {
-    runtime.listSessions.mockResolvedValue({ ok: true, data: [legacySession('root')] })
-    runtime.deleteSession.mockResolvedValue({ ok: true, data: undefined })
-    mockStorage.withArchiveWriteFence.mockImplementationOnce(async (_slug, work) => {
-      expect(await deleteLegacySession(runtime.slug, runtime, 'root')).toEqual({ ok: true, data: undefined })
-      runtime.getSession.mockResolvedValue(harnessFailure('session_not_found'))
-      return work(transaction)
-    })
-    expect(await exportLegacySessions(runtime.slug, runtime)).toEqual(harnessFailure('session_not_found'))
-    expect(mockStorage.deleteSessionTree).toHaveBeenCalledWith(runtime.slug, ['root'], transaction)
-    expect(mockStorage.upsertSession).not.toHaveBeenCalled()
-    expect(mockStorage.reconcileSessions).not.toHaveBeenCalled()
-  })
-
-  it.each([false, true])('serializes deletion racing a %s background export without resurrecting its snapshot', async (background) => {
-    let tail = Promise.resolve()
-    mockStorage.withArchiveWriteFence.mockImplementation(async (_slug, work) => {
-      const previous = tail
-      let release!: () => void
-      tail = new Promise<void>((resolve) => { release = resolve })
-      await previous
-      try { return await work(transaction) } finally { release() }
-    })
-    let sources = [legacySession('root')]
-    runtime.listSessions.mockImplementation(async () => ({ ok: true, data: [...sources] }))
-    runtime.deleteSession.mockImplementation(async () => { sources = []; return { ok: true, data: undefined } })
-    mockStorage.deleteSessionTree.mockImplementation(async (slug, ids) => {
-      for (const id of ids) exported.delete(`${slug}/${id}`)
-    })
-    let releaseRead!: () => void
-    let readStarted!: () => void
-    const reading = new Promise<void>((resolve) => { readStarted = resolve })
-    const pause = new Promise<void>((resolve) => { releaseRead = resolve })
-    runtime.listMessages.mockImplementationOnce(async (id) => {
-      readStarted()
-      await pause
-      return { ok: true, data: [message({ sessionId: id })] }
-    })
-    vi.resetModules()
-    const { preArchiveRunningV1Instances } = await import('@/lib/harness/legacy-session-archive')
-    mockStorage.findNextRunningV1Instance.mockResolvedValue({ slug: runtime.slug })
-    const exporting = background ? preArchiveRunningV1Instances() : exportLegacySessions(runtime.slug, runtime)
-    await reading
-    const deleting = deleteLegacySession(runtime.slug, runtime, 'root')
-    await Promise.resolve()
-    expect(runtime.deleteSession).not.toHaveBeenCalled()
-    releaseRead()
-    expect(await deleting).toEqual({ ok: true, data: undefined })
-    await exporting
-    expect(exported.size).toBe(0)
-    expect(await exportLegacySessions(runtime.slug, runtime)).toEqual({ ok: true, data: { archived: 0 } })
-    expect(exported.size).toBe(0)
-  })
-})
-
 describe('preArchiveRunningV1Instances', () => {
   async function loadJob() {
     vi.resetModules()
@@ -371,7 +276,7 @@ describe('preArchiveRunningV1Instances', () => {
 
     vi.advanceTimersByTime(PRE_ARCHIVE_INTERVAL_MS)
     mockStorage.findNextRunningV1Instance.mockResolvedValue({ slug: 'next-workspace' })
-    mockGetRuntime.mockResolvedValue({ ok: true, data: { ...runtime, slug: 'next-workspace' } })
+    mockReader.mockImplementation(() => ({ ...runtime, slug: 'next-workspace' }))
     expect(await preArchiveRunningV1Instances()).toBe(1)
     expect(mockStorage.findNextRunningV1Instance).toHaveBeenLastCalledWith(runtime.slug)
     expect(console.info).toHaveBeenLastCalledWith('[legacy-session-archive] Pre-archived workspace:', { slug: 'next-workspace', archived: 1 })
@@ -445,15 +350,22 @@ describe('preArchiveRunningV1Instances', () => {
     const { preArchiveRunningV1Instances } = await loadJob()
     mockStorage.findNextRunningV1Instance.mockResolvedValue(null)
     expect(await preArchiveRunningV1Instances()).toBe(0)
-    expect(mockGetRuntime).not.toHaveBeenCalled()
+    expect(mockConnection).not.toHaveBeenCalled()
   })
 
-  it('handles a workspace that switched to v2 after candidate selection without exporting it', async () => {
+  it('skips a workspace whose connection is no longer available', async () => {
     const { preArchiveRunningV1Instances } = await loadJob()
-    mockGetRuntime.mockResolvedValue({ ok: true, data: { ...runtime, kind: 'opencode-v2' } })
+    mockConnection.mockResolvedValue(null)
     expect(await preArchiveRunningV1Instances()).toBe(0)
     expect(runtime.listSessions).not.toHaveBeenCalled()
     expect(console.warn).toHaveBeenCalledWith('[legacy-session-archive] Pre-archive failed:', expect.objectContaining({ slug: runtime.slug }))
+  })
+
+  it('binds the background export to the running container connection', async () => {
+    const { preArchiveRunningV1Instances } = await loadJob()
+    runtime.listSessions.mockResolvedValue({ ok: true, data: [] })
+    await preArchiveRunningV1Instances()
+    expect(mockReader).toHaveBeenCalledWith(runtime.slug, { baseUrl: 'http://opencode-alice:4096', authHeader: 'Basic fixture' })
   })
 
   it('logs errors, remains rate-limited, and releases its lock for a later retry', async () => {
@@ -464,6 +376,6 @@ describe('preArchiveRunningV1Instances', () => {
     expect(console.warn).toHaveBeenCalledWith('[legacy-session-archive] Pre-archive failed:', expect.objectContaining({ error: expect.any(Error) }))
     vi.advanceTimersByTime(PRE_ARCHIVE_INTERVAL_MS)
     await preArchiveRunningV1Instances()
-    expect(mockGetRuntime).toHaveBeenCalledTimes(1)
+    expect(mockConnection).toHaveBeenCalledTimes(1)
   })
 })

@@ -61,7 +61,6 @@ export type WorkspaceRuntimeArtifacts = {
 
 type WorkspaceRuntimeOptions = {
   archeToolsCommand?: string[]
-  runtimeKind?: string | null
 }
 
 const COMMON_WORKSPACE_CONFIG_FILE = 'CommonWorkspaceConfig.json'
@@ -201,16 +200,8 @@ async function buildBaseWorkspaceConfig(
     try {
       baseConfig = parseRuntimeConfigContent(commonConfigResult.content)
     } catch {
-      if (options?.runtimeKind === 'opencode-v2') {
-        throw new RuntimeConfigRenderError({ code: 'runtime_config_unsupported', path: COMMON_WORKSPACE_CONFIG_FILE, message: 'Invalid configuration JSON' })
-      }
-      console.warn('[workspace-runtime] Failed to parse CommonWorkspaceConfig')
+      throw new RuntimeConfigRenderError({ code: 'runtime_config_unsupported', path: COMMON_WORKSPACE_CONFIG_FILE, message: 'Invalid configuration JSON' })
     }
-  }
-
-  if (options?.runtimeKind === 'opencode-v2') {
-    const validated = renderRuntimeConfig('opencode-v2', createRuntimeConfigModel(baseConfig))
-    if (!validated.ok) throw new RuntimeConfigRenderError(validated.error)
   }
 
   // Materialize legacy `'all'`/missing-tool agents before the connector remap:
@@ -218,6 +209,11 @@ async function buildBaseWorkspaceConfig(
   // legacy non-map agent would otherwise lose connector access, the proposal
   // path, and skills at materialization time.
   baseConfig = materializeAgentToolMaps(baseConfig)
+
+  // Reject what the runtime cannot express before the per-user transforms, so
+  // the error points at the authored configuration.
+  const validated = renderRuntimeConfig(createRuntimeConfigModel(baseConfig))
+  if (!validated.ok) throw new RuntimeConfigRenderError(validated.error)
 
   try {
     const mcpResult = await buildMcpConfigForSlug(slug)
@@ -350,7 +346,7 @@ export async function buildWorkspaceRuntimeConfig(
   options?: WorkspaceRuntimeOptions,
 ): Promise<Record<string, unknown>> {
   const model = await buildWorkspaceRuntimeConfigModel(slug, providerGatewayConfig, commonConfigContent, owner, options)
-  const rendered = renderRuntimeConfig(options?.runtimeKind ?? 'opencode-v1', model)
+  const rendered = renderRuntimeConfig(model)
   if (!rendered.ok) throw new RuntimeConfigRenderError(rendered.error)
   return rendered.data.config
 }
@@ -412,7 +408,7 @@ export async function buildWorkspaceRuntimeArtifacts(
   )
   const agentsMd = await buildWorkspaceAgentsMd(slug, owner, repoSnapshot.agentsMdContent)
   const skills = withSystemSkillBundles(repoSnapshot.skills)
-  const rendered = renderRuntimeConfig(options?.runtimeKind ?? 'opencode-v1', { ...model, agentsMd, skills })
+  const rendered = renderRuntimeConfig({ ...model, agentsMd, skills })
   if (!rendered.ok) throw new RuntimeConfigRenderError(rendered.error)
 
   return {

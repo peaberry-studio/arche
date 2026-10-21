@@ -5,7 +5,7 @@ import { subscribeOpenCodeEvents } from '@/lib/harness/adapters/opencode-v2/even
 import { createOpenCodeV2Runtime } from '@/lib/harness/adapters/opencode-v2/runtime'
 
 const auth = vi.hoisted(() => vi.fn())
-vi.mock('@/lib/harness/adapters/opencode-v1/connection-resolver', () => ({ getInstanceBasicAuth: auth }))
+vi.mock('@/lib/harness/runtime-connection', () => ({ getInstanceBasicAuth: auth }))
 
 const encoder = new TextEncoder()
 function snapshotResponse(url: string): Response {

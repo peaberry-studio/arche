@@ -126,19 +126,6 @@ export async function withArchiveWriteFence<T>(slug: string, work: (tx: Prisma.T
   }, { maxWait: 10_000, timeout: 60_000 })
 }
 
-export async function deleteSessionTree(slug: string, sessionIds: string[], client: Prisma.TransactionClient): Promise<void> {
-  const records = await client.legacySessionArchive.findMany({ where: { slug }, select: { sessionId: true, parentId: true } })
-  const deleted = new Set(sessionIds)
-  let previousSize = -1
-  while (previousSize !== deleted.size) {
-    previousSize = deleted.size
-    for (const record of records) {
-      if (record.parentId && deleted.has(record.parentId)) deleted.add(record.sessionId)
-    }
-  }
-  await client.legacySessionArchive.deleteMany({ where: { slug, sessionId: { in: [...deleted] } } })
-}
-
 export async function reconcileSessions(slug: string, sessionIds: string[], client: Prisma.TransactionClient): Promise<void> {
   await client.legacySessionArchive.deleteMany({ where: { slug, sessionId: { notIn: sessionIds } } })
 }

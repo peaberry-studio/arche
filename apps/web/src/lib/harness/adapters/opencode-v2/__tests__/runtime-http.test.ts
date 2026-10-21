@@ -4,7 +4,7 @@ import { assistantSnapshot, permission, SESSION_ID, userSnapshot } from '@/lib/h
 import { createOpenCodeV2Runtime } from '@/lib/harness/adapters/opencode-v2/runtime'
 
 const auth = vi.hoisted(() => vi.fn())
-vi.mock('@/lib/harness/adapters/opencode-v1/connection-resolver', () => ({
+vi.mock('@/lib/harness/runtime-connection', () => ({
   getInstanceBasicAuth: auth,
   getInstanceUrl: (_slug: string, baseUrl?: string) => baseUrl ?? 'http://runtime',
 }))

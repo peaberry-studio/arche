@@ -5,6 +5,14 @@ import path from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mockReadConfigRepoSnapshot = vi.fn()
+
+type Rule = { action: string; resource: string; effect: string }
+
+// Last matching rule wins, as in OpenCode 2.
+function decision(rules: Rule[], action: string, resource = '*'): string | undefined {
+  const matches = (pattern: string, input: string) => new RegExp(`^${pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`).test(input)
+  return rules.filter((rule) => matches(rule.action, action) && matches(rule.resource, resource)).at(-1)?.effect
+}
 let snapshotRepoDir: string | null = null
 
 async function writeSnapshotRepoFile(relativePath: string, content: string): Promise<void> {
@@ -65,14 +73,11 @@ vi.mock('@/lib/harness/registry', async (importOriginal) => {
     checkRuntimeHealth,
     DEFAULT_HEALTH_TIMEOUT_MS: 5_000,
     getRuntimeBaseUrl: vi.fn((slug: string) => `http://opencode-${slug}:4096`),
-    getRuntimeForKind: vi.fn((slug: string, kind: string) => ({
-      ok: true,
-      data: {
-        kind,
-        slug,
-        health: (options: unknown) => checkRuntimeHealth(slug, options),
-        syncProviderAccess: (input: unknown) => syncRuntimeProviderAccess(slug, input),
-      },
+    getRuntime: vi.fn((slug: string) => ({
+      kind: 'opencode-v2',
+      slug,
+      health: (options: unknown) => checkRuntimeHealth(slug, options),
+      syncProviderAccess: (input: unknown) => syncRuntimeProviderAccess(slug, input),
     })),
     syncRuntimeProviderAccess,
   }
@@ -134,7 +139,7 @@ vi.mock('../crypto', () => ({
   decryptPassword: vi.fn(() => 'test-password-123'),
 }))
 
-import { checkRuntimeHealth, getRuntimeForKind, syncRuntimeProviderAccess } from '@/lib/harness/registry'
+import { checkRuntimeHealth, syncRuntimeProviderAccess } from '@/lib/harness/registry'
 import { auditService, instanceService, providerService, userService } from '@/lib/services'
 import { startInstance, stopInstance, getInstanceStatus, isSlowStart, listActiveInstances } from '../core'
 import * as crypto from '../crypto'
@@ -153,8 +158,6 @@ const mockSync = vi.mocked(syncRuntimeProviderAccess)
 
 beforeEach(async () => {
   vi.clearAllMocks()
-  // Lifecycle tests run on V1 so archive-on-switch stays out of them; V2 tests stub their own kind.
-  vi.stubEnv('ARCHE_DEFAULT_RUNTIME_KIND', 'opencode-v1')
   if (snapshotRepoDir) {
     await fs.rm(snapshotRepoDir, { recursive: true, force: true })
   }
@@ -209,101 +212,21 @@ afterEach(async () => {
 })
 
 describe('startInstance', () => {
-  it.each(['opencode-v2', 'unknown'])('refuses unsupported kind %s before any destructive effect', async (runtimeKind) => {
-    mockInstance.findBySlug.mockResolvedValue({ status: 'error', containerId: 'keep-me' } as never)
-    vi.mocked(getRuntimeForKind).mockReturnValueOnce({ ok: false, error: { code: 'runtime_unsupported', detail: runtimeKind } })
-
-    await expect(startInstance('alice', 'admin-1', { runtimeKind })).resolves.toEqual({
-      ok: false, error: 'runtime_unsupported', detail: runtimeKind,
-    })
-    expect(getRuntimeForKind).toHaveBeenCalledWith('alice', runtimeKind)
-    expect(mockDocker.removeContainer).not.toHaveBeenCalled()
-    expect(mockDocker.removeManagedContainerForSlug).not.toHaveBeenCalled()
-    expect(mockDocker.createContainer).not.toHaveBeenCalled()
-    expect(mockInstance.upsertStarting).not.toHaveBeenCalled()
-    expect(mockCrypto.generatePassword).not.toHaveBeenCalled()
-  })
-
-  it('gates the deployment default before cleanup', async () => {
-    vi.stubEnv('ARCHE_DEFAULT_RUNTIME_KIND', 'opencode-v2')
+  it('fails the start without a fallback when the config cannot be rendered', async () => {
+    await writeSnapshotRepoFile('CommonWorkspaceConfig.json', JSON.stringify({ default_agent: 'assistant', agent: { assistant: { mode: 'primary', color: 'red' } } }))
+    mockInstance.findBySlug.mockResolvedValue(null)
+    mockInstance.upsertStarting.mockResolvedValue({} as never)
+    mockInstance.setError.mockResolvedValue({} as never)
+    mockUser.findIdentityBySlug.mockResolvedValue(null)
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     try {
-      mockInstance.findBySlug.mockResolvedValue(null)
-      vi.mocked(getRuntimeForKind).mockReturnValueOnce({ ok: false, error: { code: 'runtime_unsupported' } })
-      await expect(startInstance('alice', 'user-1')).resolves.toMatchObject({ ok: false, error: 'runtime_unsupported' })
-      expect(getRuntimeForKind).toHaveBeenCalledWith('alice', 'opencode-v2')
-      expect(mockDocker.removeManagedContainerForSlug).not.toHaveBeenCalled()
-      expect(mockInstance.upsertStarting).not.toHaveBeenCalled()
+      await expect(startInstance('alice', 'user-1')).resolves.toMatchObject({ ok: false, error: 'start_failed' })
+      expect(mockDocker.createContainer).not.toHaveBeenCalled()
+      expect(mockInstance.setContainerId).not.toHaveBeenCalled()
+      expect(mockInstance.setRunningIfCurrentContainer).not.toHaveBeenCalled()
+      expect(mockInstance.setError).toHaveBeenCalledWith('alice')
     } finally {
-      vi.unstubAllEnvs()
-    }
-  })
-
-  it('does not stop or relabel a running v1 instance when v2 is requested', async () => {
-    mockInstance.findBySlug.mockResolvedValue({ status: 'running', containerId: 'keep-me', runtimeKind: 'opencode-v1' } as never)
-    await expect(startInstance('alice', 'admin-1', { runtimeKind: 'opencode-v2' })).resolves.toEqual({ ok: false, error: 'already_running' })
-    expect(mockDocker.removeContainer).not.toHaveBeenCalled()
-    expect(mockDocker.removeManagedContainerForSlug).not.toHaveBeenCalled()
-    expect(mockInstance.setRunningIfCurrentContainer).not.toHaveBeenCalled()
-  })
-
-  it('uses an explicit v1 selection instead of a changed deployment default', async () => {
-    vi.stubEnv('ARCHE_DEFAULT_RUNTIME_KIND', 'opencode-v2')
-    try {
-      mockInstance.findBySlug.mockResolvedValue(null)
-      mockInstance.upsertStarting.mockResolvedValue({} as never)
-      mockInstance.setContainerId.mockResolvedValue({} as never)
-      mockUser.findIdentityBySlug.mockResolvedValue(null)
-      mockDocker.createContainer.mockResolvedValue({ id: 'container-v1' } as never)
-      mockDocker.startContainer.mockResolvedValue(undefined)
-      mockDocker.isContainerRunning.mockResolvedValue(true)
-      await expect(startInstance('alice', 'admin-1', { runtimeKind: 'opencode-v1' })).resolves.toEqual({ ok: true, status: 'running' })
-      expect(getRuntimeForKind).toHaveBeenCalledWith('alice', 'opencode-v1')
-      expect(mockInstance.setContainerId).toHaveBeenCalledWith('alice', 'container-v1', 'opencode-v1')
-      expect(mockInstance.setContainerId.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(checkRuntimeHealth).mock.invocationCallOrder[0])
-      expect(mockInstance.setRunningIfCurrentContainer).toHaveBeenCalledWith('alice', 'container-v1', expect.any(String), 'opencode-v1')
-    } finally {
-      vi.unstubAllEnvs()
-    }
-  })
-
-  it.each([
-    { name: 'a new workspace', existing: null },
-    { name: 'a stopped V1 workspace', existing: { id: '1', slug: 'alice', status: 'stopped', containerId: null, serverPassword: 'enc', runtimeKind: null } },
-  ])('starts $name on V1 without archiving when V2 cannot express its config', async ({ existing }) => {
-    vi.stubEnv('ARCHE_DEFAULT_RUNTIME_KIND', 'opencode-v2')
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    try {
-      await writeSnapshotRepoFile('CommonWorkspaceConfig.json', JSON.stringify({ default_agent: 'assistant', agent: { assistant: { mode: 'primary', color: 'red' } } }))
-      mockInstance.findBySlug.mockResolvedValue(existing as never)
-      mockInstance.claimStartingTransition.mockResolvedValue({ count: 1 })
-      mockInstance.continueStartingTransition.mockResolvedValue({ count: 1 })
-      mockInstance.upsertStarting.mockResolvedValue({} as never)
-      mockInstance.setContainerId.mockResolvedValue({} as never)
-      mockUser.findIdentityBySlug.mockResolvedValue(null)
-      mockDocker.createContainer.mockResolvedValue({ id: 'container-v1' } as never)
-      mockDocker.startContainer.mockResolvedValue(undefined)
-      mockDocker.isContainerRunning.mockResolvedValue(true)
-
-      // The docker mock has no archive helpers: reaching the archive step would fail the start.
-      await expect(startInstance('alice', 'user-1')).resolves.toEqual({ ok: true, status: 'running' })
-      expect(mockInstance.setContainerId).toHaveBeenCalledWith('alice', 'container-v1', 'opencode-v1')
-      expect(warn).toHaveBeenCalledWith('[spawner] Runtime config unsupported; starting V1', expect.objectContaining({ slug: 'alice', runtimeKind: 'opencode-v2' }))
-    } finally {
-      warn.mockRestore()
-      vi.unstubAllEnvs()
-    }
-  })
-
-  it('preserves a running recorded runtime when the deployment default changes', async () => {
-    vi.stubEnv('ARCHE_DEFAULT_RUNTIME_KIND', 'opencode-v2')
-    try {
-      mockInstance.findBySlug.mockResolvedValue({ status: 'running', containerId: 'keep-me', runtimeKind: 'opencode-v1' } as never)
-      await expect(startInstance('alice', 'user-1')).resolves.toEqual({ ok: false, error: 'already_running' })
-      expect(getRuntimeForKind).not.toHaveBeenCalled()
-      expect(mockDocker.removeContainer).not.toHaveBeenCalled()
-      expect(mockDocker.removeManagedContainerForSlug).not.toHaveBeenCalled()
-    } finally {
-      vi.unstubAllEnvs()
+      error.mockRestore()
     }
   })
 
@@ -314,6 +237,7 @@ describe('startInstance', () => {
       createdAt: new Date(), startedAt: new Date(),
       stoppedAt: null, lastActivityAt: new Date(),
       appliedConfigSha: null,
+      runtimeKind: 'opencode-v2',
     })
 
     const result = await startInstance('alice', 'user-1')
@@ -329,6 +253,7 @@ describe('startInstance', () => {
       createdAt: new Date(), startedAt: new Date(),
       stoppedAt: null, lastActivityAt: null,
       appliedConfigSha: null,
+      runtimeKind: 'opencode-v2',
     })
 
     const result = await startInstance('alice', 'user-1')
@@ -348,6 +273,7 @@ describe('startInstance', () => {
         createdAt: new Date(), startedAt: new Date(Date.now() - 2_001),
         stoppedAt: null, lastActivityAt: null,
         appliedConfigSha: null,
+        runtimeKind: 'opencode-v2',
       })
       mockInstance.upsertStarting.mockResolvedValue({} as never)
       mockInstance.setContainerId.mockResolvedValue({} as never)
@@ -387,8 +313,9 @@ describe('startInstance', () => {
 
     expect(result).toEqual({ ok: true, status: 'running' })
     const [slug, password, configContent, agentsMd, skills, gitAuthor] = mockDocker.createContainer.mock.calls[0] ?? []
-    expect(getRuntimeForKind).toHaveBeenCalledWith('alice', 'opencode-v1')
-    expect(mockInstance.setRunningIfCurrentContainer).toHaveBeenCalledWith('alice', 'container-123', expect.any(String), 'opencode-v1')
+    expect(mockInstance.setContainerId).toHaveBeenCalledWith('alice', 'container-123', 'opencode-v2')
+    expect(mockInstance.setContainerId.mock.invocationCallOrder[0]).toBeLessThan(mockHealth.mock.invocationCallOrder[0])
+    expect(mockInstance.setRunningIfCurrentContainer).toHaveBeenCalledWith('alice', 'container-123', expect.any(String), 'opencode-v2')
     expect(slug).toBe('alice')
     expect(password).toBe('test-password-123')
     expect(typeof configContent).toBe('string')
@@ -410,7 +337,7 @@ describe('startInstance', () => {
     expect(mockAudit.createEvent).toHaveBeenCalledWith({
       actorUserId: 'user-1',
       action: 'instance.started',
-      metadata: { slug: 'alice', runtimeKind: 'opencode-v1' },
+      metadata: { slug: 'alice', runtimeKind: 'opencode-v2' },
     })
   })
 
@@ -421,6 +348,7 @@ describe('startInstance', () => {
       createdAt: new Date(), startedAt: new Date(),
       stoppedAt: null, lastActivityAt: null,
       appliedConfigSha: null,
+      runtimeKind: 'opencode-v2',
     })
     mockInstance.upsertStarting.mockResolvedValue({} as never)
     mockInstance.setContainerId.mockResolvedValue({} as never)
@@ -461,6 +389,7 @@ describe('startInstance', () => {
       createdAt: new Date(), startedAt: new Date(),
       stoppedAt: null, lastActivityAt: null,
       appliedConfigSha: null,
+      runtimeKind: 'opencode-v2',
     })
     mockInstance.upsertStarting.mockResolvedValue({} as never)
     mockInstance.setContainerId.mockResolvedValue({} as never)
@@ -624,7 +553,7 @@ describe('startInstance', () => {
     }
   })
 
-  it('marks the workspace for restart when provider sync fails', async () => {
+  it('marks the workspace for restart and fails the start when provider sync fails', async () => {
     mockInstance.findBySlug.mockResolvedValue(null)
     mockInstance.upsertStarting.mockResolvedValue({} as never)
     mockInstance.setContainerId.mockResolvedValue({} as never)
@@ -636,10 +565,12 @@ describe('startInstance', () => {
     mockSync.mockResolvedValue({ ok: false, error: { code: 'sync_failed' } })
     vi.spyOn(console, 'error').mockImplementation(() => undefined)
 
-    await expect(startInstance('alice', 'user-1')).resolves.toEqual({ ok: true, status: 'running' })
+    await expect(startInstance('alice', 'user-1')).resolves.toEqual({ ok: false, error: 'start_failed', detail: 'sync_failed' })
 
     expect(mockProvider.markWorkspaceRestartRequired).toHaveBeenCalledWith('owner-1')
     expect(mockProvider.clearWorkspaceRestartRequired).not.toHaveBeenCalled()
+    expect(mockInstance.setErrorIfCurrentContainer).toHaveBeenCalledWith('alice', 'container-123')
+    expect(mockInstance.setRunningIfCurrentContainer).not.toHaveBeenCalled()
   })
 
   it('returns timeout when container never becomes healthy', async () => {
@@ -789,6 +720,7 @@ describe('stopInstance', () => {
       createdAt: new Date(), startedAt: null,
       stoppedAt: new Date(), lastActivityAt: null,
       appliedConfigSha: null,
+      runtimeKind: 'opencode-v2',
     })
 
     const result = await stopInstance('alice', 'user-1')
@@ -803,6 +735,7 @@ describe('stopInstance', () => {
       createdAt: new Date(), startedAt: new Date(),
       stoppedAt: null, lastActivityAt: new Date(),
       appliedConfigSha: null,
+      runtimeKind: 'opencode-v2',
     })
     mockDocker.stopContainer.mockResolvedValue(undefined)
     mockDocker.removeContainer.mockResolvedValue(undefined)
@@ -827,6 +760,7 @@ describe('stopInstance', () => {
       createdAt: new Date(), startedAt: new Date(),
       stoppedAt: null, lastActivityAt: new Date(),
       appliedConfigSha: null,
+      runtimeKind: 'opencode-v2',
     })
     mockInstance.finishStoppingTransition.mockRejectedValueOnce(new Error('db down'))
 
@@ -840,6 +774,7 @@ describe('getInstanceStatus', () => {
     mockInstance.findStatusBySlug.mockResolvedValue({
       status: 'running', startedAt: now, stoppedAt: null, lastActivityAt: now, containerId: 'abc',
       serverPassword: 'enc',
+      runtimeKind: 'opencode-v2',
     })
     mockDocker.isContainerRunning.mockResolvedValue(true)
     mockHealth.mockResolvedValue({ ok: true, data: {} })
@@ -849,7 +784,22 @@ describe('getInstanceStatus', () => {
     expect(result).toEqual({
       status: 'running', startedAt: now, stoppedAt: null, lastActivityAt: now, containerId: 'abc',
       serverPassword: 'enc',
+      runtimeKind: 'opencode-v2',
     })
+  })
+
+  it.each([null, 'opencode-v1'])('reports a %s instance still running OpenCode 1 as stopped without touching it', async (runtimeKind) => {
+    const now = new Date()
+    mockInstance.findStatusBySlug.mockResolvedValue({
+      status: 'running', startedAt: now, stoppedAt: null, lastActivityAt: now, containerId: 'legacy',
+      serverPassword: 'enc', runtimeKind,
+    } as never)
+
+    await expect(getInstanceStatus('alice')).resolves.toMatchObject({ status: 'stopped', containerId: 'legacy' })
+    expect(mockInstance.setStoppedIfCurrentSnapshot).not.toHaveBeenCalled()
+    expect(mockDocker.isContainerRunning).not.toHaveBeenCalled()
+    expect(mockDocker.removeContainer).not.toHaveBeenCalled()
+    expect(mockHealth).not.toHaveBeenCalled()
   })
 
   it('returns null for non-existent instance', async () => {
@@ -865,12 +815,14 @@ describe('getInstanceStatus', () => {
     mockInstance.findStatusBySlug.mockResolvedValue({
       status: 'running', startedAt: now, stoppedAt: null, lastActivityAt: now, containerId: null,
       serverPassword: 'enc',
+      runtimeKind: 'opencode-v2',
     })
     mockInstance.setStoppedNoContainer.mockResolvedValue({} as never)
 
     await expect(getInstanceStatus('alice')).resolves.toEqual({
       status: 'stopped', startedAt: now, stoppedAt: null, lastActivityAt: now, containerId: null,
       serverPassword: 'enc',
+      runtimeKind: 'opencode-v2',
     })
     expect(mockInstance.setStoppedIfCurrentSnapshot).toHaveBeenCalledWith('alice', expect.objectContaining({ status: 'running', containerId: null }))
   })
@@ -880,6 +832,7 @@ describe('getInstanceStatus', () => {
     mockInstance.findStatusBySlug.mockResolvedValue({
       status: 'running', startedAt: now, stoppedAt: null, lastActivityAt: now, containerId: 'missing',
       serverPassword: 'enc',
+      runtimeKind: 'opencode-v2',
     })
     mockDocker.isContainerRunning.mockResolvedValue(false)
     mockDocker.removeContainer.mockResolvedValue(undefined)
@@ -895,6 +848,7 @@ describe('getInstanceStatus', () => {
     mockInstance.findStatusBySlug.mockResolvedValue({
       status: 'starting', startedAt: now, stoppedAt: null, lastActivityAt: now, containerId: 'abc',
       serverPassword: 'enc',
+      runtimeKind: 'opencode-v2',
     })
     mockDocker.isContainerRunning.mockResolvedValue(true)
     mockHealth.mockResolvedValue({ ok: true, data: {} })
@@ -908,6 +862,7 @@ describe('getInstanceStatus', () => {
     mockInstance.findStatusBySlug.mockResolvedValue({
       status: 'starting', startedAt, stoppedAt: null, lastActivityAt: startedAt, containerId: 'abc',
       serverPassword: 'enc',
+      runtimeKind: 'opencode-v2',
     })
     mockDocker.isContainerRunning.mockResolvedValue(true)
     mockHealth.mockResolvedValue({ ok: true, data: {} })
@@ -928,6 +883,7 @@ describe('getInstanceStatus', () => {
     mockInstance.findStatusBySlug.mockResolvedValue({
       status: 'starting', startedAt, stoppedAt: null, lastActivityAt: startedAt, containerId: 'abc',
       serverPassword: 'enc',
+      runtimeKind: 'opencode-v2',
     })
     mockDocker.isContainerRunning.mockResolvedValue(true)
     mockHealth.mockResolvedValue({ ok: true, data: {} })
@@ -943,6 +899,7 @@ describe('getInstanceStatus', () => {
     mockInstance.findStatusBySlug.mockResolvedValue({
       status: 'running', startedAt: now, stoppedAt: null, lastActivityAt: now, containerId: 'abc',
       serverPassword: 'enc',
+      runtimeKind: 'opencode-v2',
     })
     mockDocker.isContainerRunning.mockResolvedValue(true)
     mockHealth.mockResolvedValue({ ok: false, error: { code: 'unhealthy_response', detail: 'connection_refused' } })
@@ -955,6 +912,7 @@ describe('getInstanceStatus', () => {
     const instance = {
       status: 'starting' as const, startedAt: now, stoppedAt: null, lastActivityAt: now, containerId: 'abc',
       serverPassword: 'bad',
+      runtimeKind: 'opencode-v2',
     }
     mockInstance.findStatusBySlug.mockResolvedValue(instance)
     mockDocker.isContainerRunning.mockResolvedValue(true)
@@ -1052,31 +1010,25 @@ describe('startInstance - agent config transforms', () => {
     const configContent = mockDocker.createContainer.mock.calls[0]?.[2] as string
     expect(configContent).toBeDefined()
 
-    const parsed = JSON.parse(configContent)
+    const parsed = JSON.parse(configContent) as { agents: Record<string, { steps?: number; system?: string; permissions: Rule[] }> }
+    const linear = parsed.agents.linear
+    const assistant = parsed.agents.assistant
 
-    const linearTools = parsed.agent.linear.tools
-    expect(linearTools['arche_linear_user999_*']).toBe(true)
-    expect(linearTools['arche_linear_admin111_*']).toBeUndefined()
-    expect(linearTools['arche_*']).toBe(false)
-    expect(linearTools.arche_tools_email_draft).toBe(true)
-    expect(linearTools.arche_tools_flow_propose).toBe(true)
-    expect(linearTools.skill).toBe(true)
-    expect(linearTools.task).toBe(false)
-    expect(parsed.agent.linear.steps).toBe(40)
-    expect(parsed.agent.linear.permission.doom_loop).toBe('deny')
-    expect(parsed.agent.linear.permission.task).toBe('deny')
-    expect(parsed.agent.linear.permission.skill['arche-flow-authoring']).toBe('allow')
+    expect(decision(linear.permissions, 'arche_linear_user999_list_issues')).toBe('allow')
+    expect(linear.permissions.some((rule) => rule.action.startsWith('arche_linear_admin111'))).toBe(false)
+    expect(decision(linear.permissions, 'arche_other_tool')).toBe('deny')
+    expect(decision(linear.permissions, 'arche_tools_email_draft')).toBe('allow')
+    expect(decision(linear.permissions, 'arche_tools_flow_propose')).toBe('allow')
+    expect(decision(linear.permissions, 'skill', 'arche-flow-authoring')).toBe('allow')
+    expect(decision(linear.permissions, 'subagent', 'assistant')).toBe('deny')
+    expect(decision(linear.permissions, 'doom_loop')).toBe('deny')
+    expect(linear.steps).toBe(40)
 
-    const assistantTools = parsed.agent.assistant.tools
-    expect(assistantTools.arche_tools_email_draft).toBe(true)
-    expect(assistantTools.arche_tools_flow_propose).toBe(true)
-    expect(assistantTools.skill).toBe(true)
-    expect(parsed.agent.assistant.permission.skill['arche-flow-authoring']).toBe('allow')
+    expect(decision(assistant.permissions, 'arche_tools_email_draft')).toBe('allow')
+    expect(decision(assistant.permissions, 'arche_tools_flow_propose')).toBe('allow')
+    expect(decision(assistant.permissions, 'skill', 'arche-flow-authoring')).toBe('allow')
 
-    const linearPrompt = parsed.agent.linear.prompt as string
-    expect(linearPrompt).not.toContain('## Delegation constraint')
-
-    const assistantPrompt = parsed.agent.assistant.prompt as string
-    expect(assistantPrompt).not.toContain('Delegation constraint')
+    expect(linear.system).not.toContain('## Delegation constraint')
+    expect(assistant.system).not.toContain('Delegation constraint')
   })
 })

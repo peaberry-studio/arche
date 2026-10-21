@@ -103,3 +103,8 @@ export type HarnessRuntime = {
   syncProviderAccess(input: HarnessProviderAccessInput): Promise<HarnessResult<void>>
   subscribeEvents(signal: AbortSignal): Promise<HarnessResult<AsyncIterable<ArcheEvent>>>
 }
+
+// Read-only access to an OpenCode 1 workspace, kept only to archive its
+// conversations before the workspace first starts on the current runtime.
+export type LegacySessionReader = Pick<HarnessRuntime,
+  'slug' | 'health' | 'getSession' | 'listSessions' | 'listChildren' | 'listMessages' | 'sessionStatus' | 'abortSession'>

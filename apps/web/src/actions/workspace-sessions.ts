@@ -5,7 +5,6 @@ import { formatTimestamp } from "@/lib/format-timestamp";
 import type { HarnessPermission, HarnessRuntime, HarnessSession, HarnessSessionStatus } from "@/lib/harness/contract";
 import { EXECUTION_TERMINATION_UNCONFIRMED_ERROR } from "@/lib/harness/errors";
 import { abortSessionFamilyAndConfirmIdle, readSessionFamilyRuntimeState } from "@/lib/harness/execution";
-import { deleteLegacySession } from "@/lib/harness/legacy-session-archive";
 import {
   getRuntimeForSlug,
   listWorkspaceFiles,
@@ -636,9 +635,7 @@ export async function deleteSessionAction(
   if (error) return { ok: false, error };
 
   try {
-    const result = client!.kind === "opencode-v1"
-      ? await deleteLegacySession(slug, client!, sessionId, (await getSession())?.user.id)
-      : await client!.deleteSession(sessionId);
+    const result = await client!.deleteSession(sessionId);
     if (!result.ok) return { ok: false, error: result.error.code };
     await slackService.deleteSessionBindingsByOpenCodeSessionId(sessionId);
     return { ok: true };

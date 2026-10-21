@@ -18,7 +18,6 @@ vi.mock('@/lib/prisma', () => ({ prisma: mockPrisma }))
 import { formatTimestamp } from '@/lib/format-timestamp'
 import {
   findExportedSession,
-  deleteSessionTree,
   findNextRunningV1Instance,
   findSession,
   isArchivedSession,
@@ -141,17 +140,6 @@ describe('export storage', () => {
     expect(committed).toHaveBeenCalledOnce()
     await expect(withArchiveWriteFence('alice', async () => { throw new Error('failed') })).rejects.toThrow('failed')
     expect(committed).toHaveBeenCalledOnce()
-  })
-
-  it('deletes recursively retained descendants even when missing from the live runtime', async () => {
-    mockTransaction.legacySessionArchive.findMany.mockResolvedValue([
-      { sessionId: 'grandchild', parentId: 'child' }, { sessionId: 'child', parentId: 'root' },
-      { sessionId: 'root', parentId: null }, { sessionId: 'keep', parentId: null },
-    ])
-    await withArchiveWriteFence('alice', (tx) => deleteSessionTree('alice', ['root'], tx))
-    expect(mockTransaction.legacySessionArchive.deleteMany).toHaveBeenCalledWith({
-      where: { slug: 'alice', sessionId: { in: ['root', 'child', 'grandchild'] } },
-    })
   })
 
   it.each([{ ids: [] }, { ids: ['root', 'child'] }])('reconciles only the owner rows absent from inventory %j', async ({ ids }) => {
