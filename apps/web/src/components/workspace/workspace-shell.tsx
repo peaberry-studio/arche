@@ -62,7 +62,6 @@ const DEFAULT_LEFT_RATIO = 0.15;
 const DEFAULT_RIGHT_RATIO = 0.3;
 const PANEL_GAP = 0; // Gap between floating panels in pixels
 const MOBILE_LAYOUT_BREAKPOINT = WORKSPACE_COMPACT_PANE_BREAKPOINT;
-const SESSION_URL_SYNC_RETRY_MS = 1_000;
 type MobileWorkspaceView = "chat" | "right";
 const EMPTY_OPEN_FILE_PATHS: string[] = [];
 
@@ -256,13 +255,11 @@ export function WorkspaceShell({
   // URL is restorable and shareable. Management overlays (catalog, flows) own
   // their navigation, so their params are left untouched.
   //
-  // Do not rewrite the URL until the session list is validated. Replacing
-  // `?session=` during startup aborts the in-flight ensureInstanceRunningAction
-  // and leaves the workspace on "Starting workspace".
-  //
-  // A replace that races with other in-flight navigations can be dropped
-  // without changing searchParams, so retry until the URL matches.
-  const [sessionUrlSyncAttempt, setSessionUrlSyncAttempt] = useState(0);
+  // Do not rewrite the URL until the session list is validated. The param is
+  // client state, so the history entry is updated directly (Next syncs
+  // useSearchParams): a router navigation would refetch the page and race with
+  // in-flight navigations and actions, either losing this update or undoing the
+  // user's (e.g. opening the Knowledge Base right after startup).
   useEffect(() => {
     if (catalogParam || flowsParam) return;
     if (!workspace.isInitialSessionsReady) return;
@@ -277,10 +274,8 @@ export function WorkspaceShell({
       params.delete("session");
     }
     const query = params.toString();
-    router.replace(query ? `/w/${slug}?${query}` : `/w/${slug}`);
-    const retry = setTimeout(() => setSessionUrlSyncAttempt((attempt) => attempt + 1), SESSION_URL_SYNC_RETRY_MS);
-    return () => clearTimeout(retry);
-  }, [catalogParam, flowsParam, router, searchParams, sessionUrlSyncAttempt, slug, workspace.activeSessionId, workspace.isInitialSessionsReady]);
+    window.history.replaceState(null, "", query ? `/w/${slug}?${query}` : `/w/${slug}`);
+  }, [catalogParam, flowsParam, searchParams, slug, workspace.activeSessionId, workspace.isInitialSessionsReady]);
 
   const activeRootSessionId = useMemo(
     () => resolveRootSessionId(workspace.activeSessionId, sessionsById),

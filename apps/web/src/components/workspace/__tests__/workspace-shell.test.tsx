@@ -44,6 +44,14 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(window.location.search),
 }));
 
+// The shell writes ?session= to the real URL, which the runtime provider reads
+// to load that session's family. It never settles here, so no provider work
+// continues after a test's environment is torn down.
+vi.mock("@/actions/workspace-sessions", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/actions/workspace-sessions")>()),
+  listSessionFamilyAction: vi.fn(() => new Promise(() => {})),
+}));
+
 vi.mock("@/actions/spawner", () => ({
   ensureInstanceRunningAction: ensureInstanceRunningActionMock,
 }));
@@ -269,6 +277,8 @@ function jsonResponse(body: unknown, status = 200) {
 
 describe("WorkspaceShell", () => {
   beforeEach(() => {
+    // The shell mirrors the active session into the real history entry.
+    window.history.replaceState(null, "", "/");
     stubBrowserStorage();
     setViewportWidth(1440);
     curatorDialogProps.current = undefined;
@@ -520,18 +530,9 @@ describe("WorkspaceShell", () => {
     await screen.findByTestId("chat-panel");
 
     await waitFor(() => {
-      expect(routerReplaceMock).toHaveBeenCalledWith("/w/alice?session=root-session");
+      expect(`${window.location.pathname}${window.location.search}`).toBe("/w/alice?session=root-session");
     });
-  });
-
-  it("retries the ?session= sync when the navigation does not land", async () => {
-    window.history.replaceState(null, "", "/w/alice?session=stale-session");
-    renderWorkspaceShell({ slug: "alice" });
-
-    // The mocked router never updates the URL, like a dropped navigation.
-    await waitFor(() => {
-      expect(routerReplaceMock.mock.calls.filter(([url]) => url === "/w/alice?session=root-session").length).toBeGreaterThanOrEqual(2);
-    }, { timeout: 3_000 });
+    expect(routerReplaceMock).not.toHaveBeenCalled();
   });
 
   it("removes the ?session= param when no conversation is active", async () => {
@@ -542,8 +543,9 @@ describe("WorkspaceShell", () => {
     await screen.findByTestId("chat-panel");
 
     await waitFor(() => {
-      expect(routerReplaceMock).toHaveBeenCalledWith("/w/alice");
+      expect(`${window.location.pathname}${window.location.search}`).toBe("/w/alice");
     });
+    expect(routerReplaceMock).not.toHaveBeenCalled();
   });
 
   it("does not rewrite the session param until sessions are ready", async () => {
@@ -553,7 +555,7 @@ describe("WorkspaceShell", () => {
 
     await screen.findByTestId("chat-panel");
 
-    expect(routerReplaceMock).not.toHaveBeenCalled();
+    expect(window.location.search).toBe("?session=pending-session");
   });
 
   it("marks busy flow sessions read-only", async () => {
