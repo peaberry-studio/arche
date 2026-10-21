@@ -1,8 +1,10 @@
 import type { RuntimeAgentModel, RuntimeConfigModel, RuntimeConfigRenderResult } from '@/lib/harness/runtime-config'
 import { isRecord } from '@/lib/records'
 import {
+  applyAgentExecutionGuards,
   injectAgentKnowledgePolicy,
   injectAgentToolCallerIdentity,
+  injectSelfDelegationGuards,
 } from '@/lib/spawner/agent-config-transforms'
 import { serializeRuntimeConfig } from '@/lib/spawner/runtime-config'
 import { withWorkspacePermissionGuards } from '@/lib/spawner/runtime-config-utils'
@@ -101,7 +103,23 @@ function toolRules(value: unknown, permissions: Rule[], path: string, allowlist:
   return rules
 }
 
-function renderAgent(agent: RuntimeAgentModel, model: RuntimeConfigModel, globalRules: Rule[]): Record<string, unknown> {
+function agentPrompts(model: RuntimeConfigModel): Record<string, unknown> {
+  let config: Record<string, unknown> = {
+    ...(model.modelDefaults.agent === undefined ? {} : { default_agent: model.modelDefaults.agent }),
+    agent: Object.fromEntries((model.agents ?? []).map((agent) => [agent.id, {
+      ...agent.settings,
+      ...(agent.instructions === undefined ? {} : { prompt: agent.instructions }),
+      ...(agent.tools === undefined ? {} : { tools: agent.tools }),
+    }])),
+  }
+  if (model.guards.execution) config = applyAgentExecutionGuards(config)
+  if (model.guards.selfDelegation) config = injectSelfDelegationGuards(config)
+  config = injectAgentToolCallerIdentity(config)
+  config = injectAgentKnowledgePolicy(config)
+  return record(config.agent, 'agents')
+}
+
+function renderAgent(agent: RuntimeAgentModel, model: RuntimeConfigModel, globalRules: Rule[], prompts: Record<string, unknown>): Record<string, unknown> {
   const path = `agents.${agent.id}`
   if (agent.invalidDefinition) unsupported(path, 'Expected an agent object')
   if (!agent.id || /[*?]/.test(agent.id)) unsupported(path, 'Agent id cannot express a safe exact delegation guard')
@@ -122,15 +140,13 @@ function renderAgent(agent: RuntimeAgentModel, model: RuntimeConfigModel, global
   if (reference !== undefined && (typeof reference !== 'string' || !/^[^/#]+\/[^#]+(?:#[^#]+)?$/.test(reference))) unsupported(`${path}.model`)
   if (settings.variant !== undefined && (typeof settings.variant !== 'string' || !settings.variant || settings.variant.includes('#') || !reference || String(reference).includes('#'))) unsupported(`${path}.variant`)
   if (agent.instructions !== undefined && typeof agent.instructions !== 'string') unsupported(`${path}.instructions`)
-  let promptConfig: Record<string, unknown> = { agent: { [agent.id]: { prompt: agent.instructions ?? '' } } }
-  promptConfig = injectAgentToolCallerIdentity(promptConfig)
-  promptConfig = injectAgentKnowledgePolicy(promptConfig)
-  const prompt = record(record(promptConfig.agent, path)[agent.id], path).prompt
+  const prompt = record(prompts[agent.id], path).prompt
   const ownRules = permissionRules(agent.access, `${path}.access`)
   const permissions = toolRules(agent.tools, [...globalRules, ...ownRules], `${path}.tools`, true)
   permissions.push({ action: 'external_directory', resource: '*', effect: 'ask' })
   if (model.guards.execution && !primary) permissions.push({ action: 'subagent', resource: '*', effect: 'deny' })
   if (model.guards.knowledgeWrites) permissions.push({ action: 'edit', resource: '*', effect: 'deny' })
+  if (model.guards.selfDelegation) permissions.push({ action: 'subagent', resource: agent.id, effect: 'deny' })
   const body = settings.options === undefined ? {} : { ...record(settings.options, `${path}.options`) }
   for (const key of ['temperature', 'top_p']) {
     if (settings[key] !== undefined && (typeof settings[key] !== 'number' || !Number.isFinite(settings[key]))) unsupported(`${path}.${key}`)
@@ -233,9 +249,6 @@ function renderPolicies(value: unknown): Policy[] {
 
 export function renderRuntimeConfig(model: RuntimeConfigModel): RuntimeConfigRenderResult {
   try {
-    if (model.guards.selfDelegation) {
-      unsupported('guards.selfDelegation', 'V2 policies cannot scope delegation restrictions to the caller; per-agent permissions are overridable')
-    }
     const { policies: authoredPolicies, snapshot, ...settings } = model.settings
     const allowed = new Set(['$schema', 'model', 'instructions', 'watcher', 'shell', 'tool_output'])
     for (const key of Object.keys(settings)) if (!allowed.has(key)) unsupported(key)
@@ -248,10 +261,14 @@ export function renderRuntimeConfig(model: RuntimeConfigModel): RuntimeConfigRen
     const globalRules = toolRules(model.tools, permissionRules(model.access, 'access'), 'tools', false)
     globalRules.push({ action: 'external_directory', resource: '*', effect: 'ask' })
     const policies = renderPolicies(authoredPolicies)
+    const prompts = agentPrompts(model)
     if (model.guards.workspace) {
       const guarded = withWorkspacePermissionGuards({})
       for (const rule of permissionRules(guarded.permission, 'guards.workspace')) {
         policies.push({ action: 'tool.use', resource: `${rule.action}:${rule.resource}`, effect: 'deny' })
+      }
+      for (const resource of ['opencode.jsonc', '*/opencode.json', '*/opencode.jsonc']) {
+        policies.push({ action: 'tool.use', resource: `edit:${resource}`, effect: 'deny' })
       }
     }
     if (model.guards.knowledgeWrites) policies.push({ action: 'tool.use', resource: 'edit:*', effect: 'deny' })
@@ -262,7 +279,7 @@ export function renderRuntimeConfig(model: RuntimeConfigModel): RuntimeConfigRen
       ...(model.modelDefaults.agent === undefined ? {} : { default_agent: model.modelDefaults.agent }),
       mcp: { servers: renderMcp(model.connectorTargets) },
       providers: renderProviders(model.providerTargets),
-      agents: Object.fromEntries((model.agents ?? []).map((agent) => [agent.id, renderAgent(agent, model, globalRules)])),
+      agents: Object.fromEntries((model.agents ?? []).map((agent) => [agent.id, renderAgent(agent, model, globalRules, prompts)])),
       permissions: globalRules,
       policies,
     }

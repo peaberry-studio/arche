@@ -295,17 +295,32 @@ describe('runtime artifacts', () => {
     expect(config.mcp).toMatchObject({ arche_tools: { command: options.archeToolsCommand } })
   })
 
-  it('refuses protected V2 artifacts when the required delegation guard cannot be represented', async () => {
+  it('renders protected V2 artifacts with V1 prompts, self-delegation denies, and guard policies', async () => {
     await createRuntimeRepo({
       'AGENTS.md': '# Workspace',
       'CommonWorkspaceConfig.json': JSON.stringify({
         default_agent: 'analyst',
-        agent: { analyst: { tools: { read: true, spreadsheet_query: true } } },
+        agent: {
+          analyst: { tools: { read: true, task: true, spreadsheet_query: true } },
+          reviewer: { mode: 'subagent', tools: { read: true, task: true } },
+        },
       }),
     })
     const { buildWorkspaceRuntimeArtifacts } = await loadRuntimeArtifactsModule()
-    await expect(buildWorkspaceRuntimeArtifacts('alice', {}, { runtimeKind: 'opencode-v2' }))
-      .rejects.toMatchObject({ code: 'runtime_config_unsupported', detail: { path: 'guards.selfDelegation' } })
+    const v1 = JSON.parse((await buildWorkspaceRuntimeArtifacts('alice', {})).opencodeConfigContent)
+    const v2 = JSON.parse((await buildWorkspaceRuntimeArtifacts('alice', {}, { runtimeKind: 'opencode-v2' })).opencodeConfigContent)
+
+    expect(Object.keys(v2.agents).sort()).toEqual(Object.keys(v1.agent).sort())
+    for (const [id, agent] of Object.entries<{ system: string; permissions: unknown[] }>(v2.agents)) {
+      expect(agent.system).toBe(v1.agent[id].prompt)
+      expect(agent.permissions.at(-1)).toEqual({ action: 'subagent', resource: id, effect: 'deny' })
+    }
+    expect(v2.policies).toEqual(expect.arrayContaining([
+      { action: 'tool.use', resource: 'edit:.opencode/**', effect: 'deny' },
+      { action: 'tool.use', resource: 'edit:opencode.json', effect: 'deny' },
+      { action: 'tool.use', resource: 'shell:*opencode.json*', effect: 'deny' },
+    ]))
+    expect(v2.policies.at(-1)).toEqual({ action: 'tool.use', resource: 'edit:*', effect: 'deny' })
   })
 
   it.each([
