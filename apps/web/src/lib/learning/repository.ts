@@ -27,9 +27,39 @@ export type KnowledgeReviewChangeInput = {
   proposedContent: string
   reason: string
   regeneratedFromId?: string | null
+  // When set, a pending change for the same path is replaced only if it is this
+  // one, so the caller must have merged its content first. When unset, any
+  // pending change for the path is replaced (explicit writes such as MCP).
+  requirePendingAcknowledged?: boolean
   runId?: string | null
   sourceProposalId?: string | null
+  supersedesId?: string | null
   title: string
+}
+
+export type PendingKnowledgeReviewChange = {
+  id: string
+  operation: KnowledgeReviewOperation
+  proposedContent: string
+  reason: string
+  status: KnowledgeReviewChangeStatus
+  title: string
+}
+
+export type CreateKnowledgeReviewChangeResult =
+  | { ok: true; change: KnowledgeReviewChange }
+  | { ok: false; error: 'pending_proposal_exists'; pending: PendingKnowledgeReviewChange }
+  | { ok: false; error: 'pending_proposal_applying' | 'regeneration_source_not_rebaseable' }
+
+// An apply claims the change (`applying`) before writing the file and finalizes
+// it right after. A claim older than this is an interrupted apply, which the
+// review UI already offers to regenerate, so a new proposal may replace it.
+const APPLY_IN_FLIGHT_MS = 2 * 60 * 1000
+
+class CreateKnowledgeReviewChangeError extends Error {
+  constructor(readonly result: Extract<CreateKnowledgeReviewChangeResult, { ok: false }>) {
+    super(result.error)
+  }
 }
 
 function toIso(date: Date): string {
@@ -346,19 +376,52 @@ function withAuditEntry(entries: KnowledgeReviewAuditEntry[], args: {
 export async function createKnowledgeReviewChange(
   userId: string,
   input: KnowledgeReviewChangeInput,
-): Promise<{ ok: true; change: KnowledgeReviewChange } | { ok: false; error: string }> {
+): Promise<CreateKnowledgeReviewChangeResult> {
   try {
     const change = await prisma.$transaction(async (transaction) => {
-      const supersededWhere: Prisma.KnowledgeReviewChangeWhereInput = {
+      const pendingWhere: Prisma.KnowledgeReviewChangeWhereInput = {
         userId,
         kbPath: input.kbPath,
         status: { in: ['open', 'needs_rebase', 'applying'] },
         ...(input.regeneratedFromId ? { id: { not: input.regeneratedFromId } } : {}),
       }
-      await transaction.knowledgeReviewChange.updateMany({
-        where: supersededWhere,
-        data: { status: 'superseded' },
-      })
+      const pending = await transaction.knowledgeReviewChange.findMany({ where: pendingWhere, orderBy: { createdAt: 'desc' } })
+      const inFlightSince = new Date(Date.now() - APPLY_IN_FLIGHT_MS)
+      if (pending.some((change) => change.status === 'applying' && change.appliedAt && change.appliedAt > inFlightSince)) {
+        throw new CreateKnowledgeReviewChangeError({ ok: false, error: 'pending_proposal_applying' })
+      }
+      // Replacing a pending change without building on it would drop its
+      // learning before anyone reviewed it.
+      const latest = pending[0]
+      if (latest && input.requirePendingAcknowledged && input.supersedesId !== latest.id) {
+        throw new CreateKnowledgeReviewChangeError({
+          ok: false,
+          error: 'pending_proposal_exists',
+          pending: {
+            id: latest.id,
+            operation: latest.operation,
+            proposedContent: latest.proposedContent,
+            reason: latest.reason,
+            status: latest.status === 'applying' ? 'needs_rebase' : latest.status,
+            title: latest.title,
+          },
+        })
+      }
+      for (const superseded of pending) {
+        // Guarded like every other transition: an apply that claimed the row
+        // after it was read must not be overwritten.
+        const replaced = await transaction.knowledgeReviewChange.updateMany({
+          where: { id: superseded.id, status: superseded.status, updatedAt: superseded.updatedAt },
+          data: {
+            status: 'superseded',
+            auditTrail: serializeAuditTrailForStorage(withAuditEntry(parseAuditTrail(superseded.auditTrail), {
+              action: 'superseded',
+              actor: input.author,
+            })),
+          },
+        })
+        if (replaced.count !== 1) throw new CreateKnowledgeReviewChangeError({ ok: false, error: 'pending_proposal_applying' })
+      }
 
       const created = await transaction.knowledgeReviewChange.create({
         data: {
@@ -410,6 +473,7 @@ export async function createKnowledgeReviewChange(
 
     return { ok: true, change: mapKnowledgeReviewChange(change) }
   } catch (error) {
+    if (error instanceof CreateKnowledgeReviewChangeError) return error.result
     if (error instanceof Error && error.message === 'regeneration_source_not_rebaseable') {
       return { ok: false, error: 'regeneration_source_not_rebaseable' }
     }

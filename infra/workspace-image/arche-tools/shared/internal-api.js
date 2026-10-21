@@ -23,7 +23,7 @@ export async function callInternalApi(path, body) {
   })
   const data = await response.json().catch(() => null)
   if (!response.ok || !data) {
-    return { ok: false, error: data?.error ?? `http_${response.status}` }
+    return { ok: false, error: data?.error ?? `http_${response.status}`, ...(data?.pending ? { pending: data.pending } : {}) }
   }
 
   return { ok: true, data }

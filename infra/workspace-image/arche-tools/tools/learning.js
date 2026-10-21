@@ -25,6 +25,7 @@ const argsSchema = z.object({
   currentFileHash: z.string().nullable().optional(),
   internalSessionId: z.string().nullable().optional(),
   trigger: z.enum(triggers).optional(),
+  supersedesId: z.string().nullable().optional(),
 }).strict().superRefine((value, ctx) => {
   if (value.operation !== 'delete' && !value.proposedContent) {
     ctx.addIssue({
@@ -35,7 +36,7 @@ const argsSchema = z.object({
 })
 
 export const propose = {
-  description: 'Create a pending Knowledge Base learning proposal in Arche for durable facts, preferences, processes, or corrections. Inspect the existing KB files first (use read/glob/grep or session_history) so you reuse the current structure and naming, and decide between updating an existing file and creating a new one. Check for duplicates and merge when the existing file already covers the fact. Skip transient, task-specific, or sensitive details. Do not propose when nothing durable is worth keeping. This never writes to KB files; a user must review and apply the proposal later.',
+  description: 'Create a pending Knowledge Base learning proposal in Arche for durable facts, preferences, processes, or corrections. Inspect the existing KB files first (use read/glob/grep or session_history) so you reuse the current structure and naming, and decide between updating an existing file and creating a new one. Check for duplicates and merge when the existing file already covers the fact. Skip transient, task-specific, or sensitive details. Do not propose when nothing durable is worth keeping. This never writes to KB files; a user must review and apply the proposal later. If the path already has a pending proposal, the call fails with pending_proposal_exists and returns it: re-read the current file, write content that keeps the changes of the pending proposal and adds yours, then call again with supersedesId set to its id. The merged proposal replaces it.',
   args: {
     runId: z.string().nullable().optional().describe('Learning run id, when known.'),
     title: z.string().min(1).max(200).describe('Short proposal title.'),
@@ -53,6 +54,7 @@ export const propose = {
     currentFileHash: z.string().nullable().optional().describe('Current file hash for update conflict detection.'),
     internalSessionId: z.string().nullable().optional().describe('Internal learning session id, when known.'),
     trigger: z.enum(triggers).optional().describe('Learning trigger source.'),
+    supersedesId: z.string().nullable().optional().describe('Id of the pending proposal for this path that your proposedContent already merges, from a pending_proposal_exists result.'),
   },
   async execute(args, context) {
     const parsed = argsSchema.safeParse(args)
@@ -69,6 +71,14 @@ export const propose = {
     }
 
     const result = await callInternalApi('/api/internal/learning/proposals', body)
+    if (!result.ok && result.pending) {
+      return toToolOutput({
+        ok: false,
+        error: result.error,
+        pending: result.pending,
+        next: 'Re-read the current file, write content that keeps the changes in pending.proposedContent and adds yours, then call again with supersedesId set to pending.id.',
+      })
+    }
     if (!result.ok) return toToolOutput({ ok: false, error: result.error })
 
     return toToolOutput({ ok: true, ...result.data })
