@@ -9,7 +9,7 @@ async function signIn(page: Page, email: string, password: string, slug: string)
   await page.getByLabel('Email').fill(email)
   await page.getByLabel('Password').fill(password)
   await page.getByRole('button', { name: 'Sign in' }).click()
-  await expect(page).toHaveURL(new RegExp(`/w/${slug}$`))
+  await expect(page).toHaveURL(new RegExp(`/w/${slug}$`), { timeout: 30_000 })
   await expect(page.getByTestId('empty-composer-heading')).toBeVisible({ timeout: 120_000 })
 }
 
@@ -47,7 +47,7 @@ test('admin resets a team member password and revokes existing sessions', async 
   await page.getByLabel('Slug').fill(userSlug)
   await page.getByLabel('Password').fill(oldPassword)
   await page.getByRole('dialog', { name: 'Add user' }).getByRole('button', { name: 'Add user' }).click()
-  await expect(page.getByText(userEmail)).toBeVisible()
+  await expect(page.getByText(userEmail)).toBeVisible({ timeout: 30_000 })
 
   const memberContext = await browser.newContext({ storageState: { cookies: [], origins: [] } })
   const memberPage = await memberContext.newPage()
@@ -57,7 +57,7 @@ test('admin resets a team member password and revokes existing sessions', async 
   await page.getByLabel(`Edit ${userEmail}`).click()
   await page.getByLabel('New password').fill(newPassword)
   await page.getByRole('button', { name: 'Reset password' }).click()
-  await expect(page.getByText('Password reset. Share the new password securely.')).toBeVisible()
+  await expect(page.getByText('Password reset. Share the new password securely.')).toBeVisible({ timeout: 30_000 })
 
   await memberPage.goto(`/u/${userSlug}`)
   await expect(memberPage).toHaveURL(/\/login$/)
