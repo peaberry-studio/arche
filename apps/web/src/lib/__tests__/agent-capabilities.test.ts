@@ -386,6 +386,9 @@ describe('buildAgentToolsConfigFromCapabilities', () => {
 // extractAgentCapabilitiesFromTools
 // ---------------------------------------------------------------------------
 describe('extractAgentCapabilitiesFromTools', () => {
+  const DEFAULT_TOOLS = ['chart_create', 'diagram_create', 'email_draft', 'flow_propose', 'learning_propose', 'session_history_query']
+  const DEFAULTS_OFF = Object.fromEntries(DEFAULT_TOOLS.map((toolId) => [toolId, false]))
+
   it('returns empty capabilities when tools is undefined', () => {
     expect(extractAgentCapabilitiesFromTools(undefined)).toEqual({
       skillIds: [],
@@ -396,6 +399,7 @@ describe('extractAgentCapabilitiesFromTools', () => {
 
   it('returns empty capabilities when all tools are false', () => {
     const result = extractAgentCapabilitiesFromTools({
+      ...DEFAULTS_OFF,
       read: false,
       write: false,
       'arche_*': false,
@@ -407,8 +411,16 @@ describe('extractAgentCapabilitiesFromTools', () => {
     })
   })
 
+  it('keeps built-in tools that predate configuration enabled unless explicitly disabled', () => {
+    expect(extractAgentCapabilitiesFromTools({ read: true }).tools).toEqual([...DEFAULT_TOOLS, 'read'].sort())
+    expect(extractAgentCapabilitiesFromTools({ read: true, email_draft: false }).tools).toEqual(
+      [...DEFAULT_TOOLS.filter((toolId) => toolId !== 'email_draft'), 'read'].sort(),
+    )
+  })
+
   it('extracts enabled agent tools', () => {
     const result = extractAgentCapabilitiesFromTools({
+      ...DEFAULTS_OFF,
       read: true,
       grep: true,
       write: false,
@@ -419,6 +431,7 @@ describe('extractAgentCapabilitiesFromTools', () => {
 
   it('sorts the extracted tools', () => {
     const result = extractAgentCapabilitiesFromTools({
+      ...DEFAULTS_OFF,
       write: true,
       bash: true,
       read: true,
@@ -522,6 +535,7 @@ describe('extractAgentCapabilitiesFromTools', () => {
   it('combines tools, connectors, and skills in a full extraction', () => {
     const capabilities = extractAgentCapabilitiesFromTools(
       {
+        ...DEFAULTS_OFF,
         read: true,
         grep: true,
         document_inspect: true,

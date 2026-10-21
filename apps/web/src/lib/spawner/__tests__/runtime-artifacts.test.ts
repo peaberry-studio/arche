@@ -354,10 +354,16 @@ describe('runtime artifacts', () => {
             spreadsheet_sample: true,
             spreadsheet_query: true,
             spreadsheet_stats: true,
+            chart_create: false,
+            diagram_create: false,
+            email_draft: false,
+            flow_propose: false,
+            learning_propose: false,
+            session_history_query: false,
           },
           permission: { '*': 'allow', spreadsheet_query: 'ask' },
         },
-        restricted: { tools: {}, permission: 'allow' },
+        restricted: { tools: { chart_create: false, diagram_create: false, email_draft: false, flow_propose: false, learning_propose: false, session_history_query: false }, permission: 'allow' },
       },
     }
     await createRuntimeRepo({ 'CommonWorkspaceConfig.json': JSON.stringify(storedConfig) })
@@ -407,11 +413,12 @@ describe('runtime artifacts', () => {
     expect(config.agent.analyst.permission).toMatchObject({
       arche_tools_document_inspect: document,
       arche_tools_spreadsheet_query: 'ask',
-      arche_tools_chart_create: 'deny',
+      arche_tools_presentation_inspect: 'deny',
       'arche_tools_*': 'deny',
     })
     expect(config.agent.analyst.tools['*']).not.toBe(true)
-    expect(config.agent.analyst.tools.arche_tools_chart_create).toBe(false)
+    expect(config.agent.analyst.tools.arche_tools_presentation_inspect).toBe(false)
+    expect(config.agent.analyst.tools.arche_tools_chart_create).toBe(true)
   })
 
   it('normalizes the default all-mode agent before serializing runtime config', async () => {

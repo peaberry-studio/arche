@@ -41,6 +41,17 @@ export type OpenCodeAgentToolId = (typeof OPENCODE_AGENT_TOOLS)[number]
 // configs (a rollback to v1 still renders them) but are not offered for new choices.
 export const LEGACY_ONLY_AGENT_TOOLS: ReadonlySet<string> = new Set<OpenCodeAgentToolId>(['codesearch', 'lsp', 'todoread', 'todowrite'])
 
+// Built-in tools every agent had before they became configurable: a stored
+// tool map without the key keeps them enabled; only an explicit false disables them.
+export const DEFAULT_ENABLED_AGENT_TOOLS: ReadonlySet<string> = new Set<OpenCodeAgentToolId>([
+  'chart_create',
+  'diagram_create',
+  'email_draft',
+  'flow_propose',
+  'learning_propose',
+  'session_history_query',
+])
+
 export const OPENCODE_AGENT_TOOL_OPTIONS: Array<{
   id: OpenCodeAgentToolId
   label: string
@@ -236,7 +247,7 @@ export function extractAgentCapabilitiesFromTools(
     }
   }
 
-  const enabledTools = OPENCODE_AGENT_TOOLS.filter((toolId) => tools[toolId] === true)
+  const enabledTools = OPENCODE_AGENT_TOOLS.filter((toolId) => (tools[toolId] ?? DEFAULT_ENABLED_AGENT_TOOLS.has(toolId)) === true)
   const connectorIds = Object.entries(tools)
     .filter(([, enabled]) => enabled)
     .flatMap(([toolId]) => {

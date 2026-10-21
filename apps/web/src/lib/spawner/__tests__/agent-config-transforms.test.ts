@@ -232,7 +232,7 @@ describe('remapAgentBuiltInTools', () => {
     expect(agent.permission).toMatchObject({
       arche_tools_document_inspect: document,
       arche_tools_spreadsheet_query: spreadsheet,
-      arche_tools_chart_create: 'deny',
+      arche_tools_presentation_inspect: 'deny',
       'arche_tools_*': 'deny',
     })
     expect(config).toEqual(snapshot)
@@ -245,7 +245,7 @@ describe('remapAgentBuiltInTools', () => {
       agent: {
         analyst: {
           tools: { document_inspect: true, spreadsheet_query: true },
-          permission: { document_inspect: 'allow', spreadsheet_query: 'deny', chart_create: 'allow' },
+          permission: { document_inspect: 'allow', spreadsheet_query: 'deny', presentation_inspect: 'allow' },
         },
       },
     })
@@ -253,7 +253,7 @@ describe('remapAgentBuiltInTools', () => {
     expect(agent.permission).toMatchObject({
       arche_tools_document_inspect: 'allow',
       arche_tools_spreadsheet_query: 'deny',
-      arche_tools_chart_create: 'deny',
+      arche_tools_presentation_inspect: 'deny',
     })
   })
 
@@ -275,7 +275,8 @@ describe('remapAgentBuiltInTools', () => {
 
     expect(effective('arche_tools_spreadsheet_query')).toBe('ask')
     expect(effective('arche_tools_email_draft')).toBe('deny')
-    expect(effective('arche_tools_learning_propose')).toBe('deny')
+    expect(effective('arche_tools_presentation_inspect')).toBe('deny')
+    expect(effective('arche_tools_learning_propose')).toBe('allow')
     expect(effective('arche_tools_future_tool')).toBe('deny')
     expect(effective('arche_linear_user_list_issues')).toBe('allow')
   })
@@ -304,7 +305,12 @@ describe('remapAgentBuiltInTools', () => {
             spreadsheet_sample: true,
             spreadsheet_query: true,
             spreadsheet_stats: true,
+            chart_create: false,
+            diagram_create: false,
             email_draft: false,
+            flow_propose: false,
+            learning_propose: false,
+            session_history_query: false,
           },
           permission: {
             '*': 'allow',
@@ -342,13 +348,34 @@ describe('remapAgentBuiltInTools', () => {
 
   })
 
-  it('denies all built-in tools for empty explicit maps instead of inheriting the MCP enabled default', () => {
+  it('keeps only the always-available built-ins for empty explicit maps instead of inheriting the MCP enabled default', () => {
     const result = remapAgentBuiltInTools({ agent: { restricted: { tools: {}, permission: 'allow' } } })
     const agent = (result.agent as Record<string, Record<string, unknown>>).restricted
     const tools = agent.tools as Record<string, boolean>
-    expect(Object.entries(tools).filter(([id]) => id.startsWith('arche_tools_')).map(([, enabled]) => enabled)).toEqual(Array(13).fill(false))
+    expect(Object.keys(tools).filter((id) => id.startsWith('arche_tools_') && tools[id]).sort()).toEqual([
+      'arche_tools_chart_create',
+      'arche_tools_diagram_create',
+      'arche_tools_email_draft',
+      'arche_tools_flow_propose',
+      'arche_tools_learning_propose',
+      'arche_tools_session_history_query',
+    ])
     expect(tools['*']).toBe(false)
-    expect(agent.permission).toMatchObject({ '*': 'allow', arche_tools_learning_propose: 'deny' })
+    expect(agent.permission).toMatchObject({ '*': 'allow', arche_tools_learning_propose: 'allow', arche_tools_document_inspect: 'deny' })
+  })
+
+  it('keeps the built-ins every agent had before they were configurable when a stored map predates them', () => {
+    const result = remapAgentBuiltInTools({ agent: {
+      legacy: { tools: { read: true, session_history_query: false } },
+    } })
+    const tools = (result.agent as Record<string, Record<string, unknown>>).legacy.tools as Record<string, boolean>
+    expect(tools).toMatchObject({
+      arche_tools_chart_create: true,
+      arche_tools_email_draft: true,
+      arche_tools_learning_propose: true,
+      arche_tools_session_history_query: false,
+      arche_tools_document_inspect: false,
+    })
   })
 
   it('remaps global maps and keeps non-Arche tools and connector rules unchanged', () => {
@@ -1188,6 +1215,17 @@ describe('injectSystemKnowledgeCuratorAgent', () => {
 
     expect(tools.arche_tools_learning_propose).toBe(true)
     expect(tools.arche_tools_session_history_query).toBe(true)
+  })
+
+  it('grants a stored curator its learning tools even when its stored map disables them', () => {
+    const config = { agent: { 'knowledge-curator': { mode: 'subagent', tools: { read: true, session_history_query: false } } } }
+
+    const remapped = remapAgentBuiltInTools(injectSystemKnowledgeCuratorAgent(config))
+    const tools = (remapped.agent as Record<string, Record<string, unknown>>)['knowledge-curator'].tools as Record<string, boolean>
+
+    expect(tools.arche_tools_session_history_query).toBe(true)
+    expect(tools.arche_tools_learning_propose).toBe(true)
+    expect(tools.read).toBe(true)
   })
 
   it('leaves write/edit off when the transform runs before denyAgentKnowledgeWrites', () => {

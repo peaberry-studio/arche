@@ -1,4 +1,4 @@
-import { MCP_TOOL_PATTERN, OPENCODE_AGENT_TOOLS } from '@/lib/agent-capabilities'
+import { DEFAULT_ENABLED_AGENT_TOOLS, MCP_TOOL_PATTERN, OPENCODE_AGENT_TOOLS } from '@/lib/agent-capabilities'
 import type { ConnectorToolPermissionMap } from '@/lib/connectors/tool-permissions'
 import { CONNECTOR_TYPES, isSingleInstanceConnectorType, type ConnectorType } from '@/lib/connectors/types'
 import { KNOWLEDGE_CURATOR_SYSTEM_INSTRUCTIONS } from '@/lib/learning/curator-prompt'
@@ -197,7 +197,7 @@ export function remapAgentBuiltInTools(
 
     for (const toolId of ARCHE_BUILT_IN_TOOL_IDS) {
       const runtimeId = remapBuiltInToolId(toolId)
-      tools[runtimeId] = tools[runtimeId] === true
+      tools[runtimeId] = (tools[runtimeId] ?? DEFAULT_ENABLED_AGENT_TOOLS.has(toolId)) === true
       if (!tools[runtimeId]) {
         permission[runtimeId] = 'deny'
         continue
@@ -301,6 +301,10 @@ export function injectSystemKnowledgeCuratorAgent(
     nextAgents[SYSTEM_KNOWLEDGE_CURATOR_AGENT_ID] = {
       ...storedCurator,
       prompt: KNOWLEDGE_CURATOR_SYSTEM_INSTRUCTIONS,
+      // A learning run cannot work without these, whatever the stored map says.
+      ...(isToolMap(storedCurator.tools) && {
+        tools: { ...storedCurator.tools, arche_tools_session_history_query: true, arche_tools_learning_propose: true },
+      }),
     }
     return { ...config, agent: nextAgents }
   }

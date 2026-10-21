@@ -43,3 +43,11 @@ The spawner SHALL remap each agent's built-in tool enablement and permissions fr
 #### Scenario: Agent had only the spreadsheet tools
 - **WHEN** an agent's configuration enables only the spreadsheet tools
 - **THEN** the generated runtime config allows only the `arche-tools` spreadsheet tools for that agent and denies the other built-in tools
+
+#### Scenario: Agent saved before built-in tools were configurable
+- **WHEN** an agent's stored tool map has no entry for chart, diagram, email draft, flow proposal, learning proposal, or session history (tools every agent had before they could be toggled)
+- **THEN** the generated runtime config keeps those tools enabled for that agent, and only an explicit `false` disables one
+
+#### Scenario: Knowledge curator
+- **WHEN** the runtime config includes the system knowledge curator
+- **THEN** it can use the learning proposal and session history tools regardless of its stored tool map
