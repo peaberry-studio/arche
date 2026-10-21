@@ -99,10 +99,10 @@ describe('instanceService', () => {
     it('continues migration only while its legacy container, kind and attempt still match', async () => {
       const startedAt = new Date(3)
       const nextStartedAt = new Date(4)
-      await transitions.continueStartingTransition(instance, startedAt, 'next-enc', nextStartedAt)
+      await transitions.continueStartingTransition(instance, startedAt, 'nxt-enc', nextStartedAt)
       expect(mockPrisma.instance.updateMany).toHaveBeenCalledWith({
         where: { id: 'i1', status: 'starting', containerId: 'legacy', runtimeKind: null, startedAt },
-        data: { containerId: null, providerSyncedAt: null, providerSyncHash: null, serverPassword: 'next-enc', startedAt: nextStartedAt, stoppedAt: null },
+        data: { containerId: null, providerSyncedAt: null, providerSyncHash: null, serverPassword: 'nxt-enc', startedAt: nextStartedAt, stoppedAt: null },
       })
     })
 
