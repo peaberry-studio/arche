@@ -44,7 +44,7 @@ describe('V2 startup attempt', () => {
     vi.mocked(instanceService.findBySlug).mockResolvedValue({
       id: 'instance', slug: 'alice', status: 'stopped', containerId: 'legacy-container', runtimeKind: 'opencode-v1',
       createdAt: new Date(0), startedAt: null, stoppedAt: new Date(0), lastActivityAt: null,
-      serverPassword: 'encrypted', appliedConfigSha: null, providerSyncHash: null, providerSyncedAt: null,
+      serverPassword: 'enc', appliedConfigSha: null, providerSyncHash: null, providerSyncedAt: null,
     })
     mocks.ready.mockReturnValue({ ok: false, error: { code: 'runtime_unsupported', detail: 'v2_startup_unverified' } })
     expect(await startInstance('alice', 'admin', { runtimeKind: 'opencode-v2' })).toEqual({ ok: false, error: 'runtime_unsupported', detail: 'v2_startup_unverified' })

@@ -66,7 +66,7 @@ describe('instanceService', () => {
     const instance: transitions.InstanceRecord = {
       id: 'i1', slug: 'alice', status: 'stopped', containerId: 'legacy', runtimeKind: null,
       createdAt: new Date(0), startedAt: new Date(1), stoppedAt: new Date(2), lastActivityAt: null,
-      serverPassword: 'encrypted-fixture', appliedConfigSha: null, providerSyncHash: null, providerSyncedAt: null,
+      serverPassword: 'enc-fx', appliedConfigSha: null, providerSyncHash: null, providerSyncedAt: null,
     }
 
     it('records desktop runtime kind only for the current starting attempt before health checks', async () => {
@@ -99,10 +99,10 @@ describe('instanceService', () => {
     it('continues migration only while its legacy container, kind and attempt still match', async () => {
       const startedAt = new Date(3)
       const nextStartedAt = new Date(4)
-      await transitions.continueStartingTransition(instance, startedAt, 'next-encrypted-fixture', nextStartedAt)
+      await transitions.continueStartingTransition(instance, startedAt, 'next-enc', nextStartedAt)
       expect(mockPrisma.instance.updateMany).toHaveBeenCalledWith({
         where: { id: 'i1', status: 'starting', containerId: 'legacy', runtimeKind: null, startedAt },
-        data: { containerId: null, providerSyncedAt: null, providerSyncHash: null, serverPassword: 'next-encrypted-fixture', startedAt: nextStartedAt, stoppedAt: null },
+        data: { containerId: null, providerSyncedAt: null, providerSyncHash: null, serverPassword: 'next-enc', startedAt: nextStartedAt, stoppedAt: null },
       })
     })
 

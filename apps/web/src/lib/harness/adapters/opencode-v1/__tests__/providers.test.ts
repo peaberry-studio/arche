@@ -73,7 +73,7 @@ beforeEach(() => {
   mockInstanceService.setProviderSyncState.mockResolvedValue({
     id: 'instance-1', slug: 'alice', runtimeKind: 'opencode-v1', status: 'running', createdAt: new Date(0),
     startedAt: null, stoppedAt: null, lastActivityAt: null, containerId: null,
-    serverPassword: 'encrypted', appliedConfigSha: null, providerSyncHash: null, providerSyncedAt: null,
+    serverPassword: 'enc', appliedConfigSha: null, providerSyncHash: null, providerSyncedAt: null,
   })
   mockMessageRunService.hasActiveRunForSlug.mockResolvedValue(false)
 })

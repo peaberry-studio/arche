@@ -69,7 +69,7 @@ describe('v1 event translation golden parity', () => {
   })
 
   it('drops unknown events and translates each file/todo event to exactly one workspace touch', () => {
-    expect(translateOpenCodeEvent({ type: 'future.event', properties: { secret: 'not forwarded' } })).toEqual([])
+    expect(translateOpenCodeEvent({ type: 'future.event', properties: { secret: 'hidden' } })).toEqual([])
     for (const event of eventStreams.touch.slice(0, 5)) expect(translateOpenCodeEvent(event)).toEqual([{ v: 1, type: 'workspace.touched' }])
   })
 

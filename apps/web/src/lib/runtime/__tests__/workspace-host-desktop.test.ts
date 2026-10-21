@@ -289,7 +289,7 @@ describe('desktopWorkspaceHost', () => {
       return Promise.reject(error)
     })
     mockReadFileSync.mockReturnValue('')
-    mockRandomBytes.mockReturnValue({ toString: () => 'generated-password' })
+    mockRandomBytes.mockReturnValue({ toString: () => 'gen-pw' })
     mockMkdir.mockResolvedValue(undefined)
     mockRm.mockResolvedValue(undefined)
     mockWriteFile.mockResolvedValue(undefined)
@@ -445,7 +445,7 @@ describe('desktopWorkspaceHost', () => {
       HOME: '/tmp/arche/.runtime/opencode-v2',
       XDG_DATA_HOME: '/tmp/arche/.runtime/opencode-v2/.local/share',
       XDG_STATE_HOME: '/tmp/arche/.runtime/opencode-v2/.local/state',
-      OPENCODE_PASSWORD: 'generated-password',
+      OPENCODE_PASSWORD: 'gen-pw',
       OPENCODE_MODELS_URL: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+\/api\/internal\/models$/),
     })
     expect(build).toHaveBeenCalledWith('local', expect.any(Object), expect.objectContaining({ runtimeKind: 'opencode-v2' }))
@@ -477,7 +477,7 @@ describe('desktopWorkspaceHost', () => {
     const { instanceService } = await import('@/lib/services')
     vi.mocked(instanceService.findStatusBySlug).mockResolvedValue({
       status: 'stopped', startedAt: new Date(1), stoppedAt: new Date(2), lastActivityAt: null,
-      containerId: null, serverPassword: 'enc:fixture-password', runtimeKind: 'opencode-v2',
+      containerId: null, serverPassword: 'enc:pw', runtimeKind: 'opencode-v2',
       providerSyncHash: null, providerSyncedAt: null,
     })
     mockSpawn.mockReturnValueOnce(makeChildProcess()).mockReturnValueOnce(makeChildProcess())
@@ -967,7 +967,7 @@ describe('desktopWorkspaceHost', () => {
     const { instanceService } = await import('@/lib/services')
     const snapshot = {
       status: 'starting' as const, startedAt: new Date(1), stoppedAt: null, lastActivityAt: null,
-      containerId: null, serverPassword: 'enc:fixture-password', runtimeKind: 'opencode-v1',
+      containerId: null, serverPassword: 'enc:pw', runtimeKind: 'opencode-v1',
       providerSyncHash: null, providerSyncedAt: null,
     }
     vi.mocked(instanceService.findStatusBySlug).mockResolvedValue(snapshot)
@@ -1073,7 +1073,7 @@ describe('desktopWorkspaceHost', () => {
 
     const conn = await desktopWorkspaceHost.getConnection('local')
     const decoded = Buffer.from(conn!.authHeader.replace('Basic ', ''), 'base64').toString()
-    expect(decoded).toBe('opencode:generated-password')
+    expect(decoded).toBe('opencode:gen-pw')
   })
 
   it('syncs providers after both readiness checks pass for the workspace owner', async () => {
@@ -1094,7 +1094,7 @@ describe('desktopWorkspaceHost', () => {
     })
     expect(checkRuntimeHealth).toHaveBeenCalledWith('local', {
       baseUrl: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+$/),
-      password: 'generated-password',
+      password: 'gen-pw',
       timeoutMs: 3_000,
     })
   })
@@ -1162,7 +1162,7 @@ describe('desktopWorkspaceHost', () => {
     expect(result).toEqual({ ok: true, status: 'started' })
 
     const { instanceService } = await import('@/lib/services')
-    expect(instanceService.upsertStarting).toHaveBeenCalledWith('local', 'enc:generated-password', expect.any(Date))
+    expect(instanceService.upsertStarting).toHaveBeenCalledWith('local', 'enc:gen-pw', expect.any(Date))
   })
 
   it('stopManagedProcess waits for actual exit, not just killed flag', async () => {
@@ -1343,7 +1343,7 @@ describe('desktop instance reconciliation', () => {
     // @ts-expect-error test isolation
     globalThis.archeDesktopCleanupRegistered = undefined
     mockExistsSync.mockImplementation((target: string) => target === '/mock/bin/workspace-agent')
-    mockRandomBytes.mockReturnValue({ toString: () => 'generated-password' })
+    mockRandomBytes.mockReturnValue({ toString: () => 'gen-pw' })
     mockHealthyFetch()
     const { checkRuntimeHealth } = await import('@/lib/harness/registry')
     vi.mocked(checkRuntimeHealth).mockResolvedValue({ ok: true, data: {} })

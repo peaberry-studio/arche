@@ -237,7 +237,7 @@ describe('V2 runtime config renderer', () => {
         arche_linear_1: { type: 'remote', url: 'https://gateway.example/mcp', headers: { Authorization: 'Bearer token' }, oauth: false, enabled: false, timeout: 1234 },
       },
       provider: {
-        ollama: { npm: '@ai-sdk/openai-compatible', name: 'Ollama', options: { baseURL: 'https://gateway.example/ollama', apiKey: '{env:TOKEN}' }, models: { coding: { id: 'upstream-coding', name: 'Coding' } } },
+        ollama: { npm: '@ai-sdk/openai-compatible', name: 'Ollama', options: { baseURL: 'https://gateway.example/ollama', apiKey: '{env:K}' }, models: { coding: { id: 'upstream-coding', name: 'Coding' } } },
         openai: { options: { baseURL: 'https://gateway.example/openai' } },
       },
       agent: { assistant: { mode: 'all', tools: { read: true } } },
@@ -250,7 +250,7 @@ describe('V2 runtime config renderer', () => {
         arche_linear_1: { type: 'remote', url: 'https://gateway.example/mcp', headers: { Authorization: 'Bearer token' }, oauth: false, disabled: true, timeout: { catalog: 1234, execution: 1234 }, codemode: false },
       } },
       providers: {
-        ollama: { package: 'aisdk:@ai-sdk/openai-compatible', settings: { baseURL: 'https://gateway.example/ollama', apiKey: '{env:TOKEN}' }, models: { coding: { modelID: 'upstream-coding', name: 'Coding' } } },
+        ollama: { package: 'aisdk:@ai-sdk/openai-compatible', settings: { baseURL: 'https://gateway.example/ollama', apiKey: '{env:K}' }, models: { coding: { modelID: 'upstream-coding', name: 'Coding' } } },
         openai: { settings: { baseURL: 'https://gateway.example/openai' } },
       },
       agents: { assistant: { mode: 'primary', steps: 120 } },

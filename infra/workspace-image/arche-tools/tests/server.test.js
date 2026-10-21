@@ -74,7 +74,7 @@ test('identity accepts explicit fallback or session metadata, preserving workspa
   const env = { ...process.env }
   process.env.ARCHE_INTERNAL_API_BASE_URL = 'http://internal.test'
   process.env.ARCHE_WORKSPACE_SLUG = 'workspace-test'
-  process.env.OPENCODE_SERVER_PASSWORD = 'test-only'
+  process.env.OPENCODE_SERVER_PASSWORD = 'test'
   const calls = []
   globalThis.fetch = async (url, init) => {
     calls.push({ url, init, body: JSON.parse(init.body) })

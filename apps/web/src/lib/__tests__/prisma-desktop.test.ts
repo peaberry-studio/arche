@@ -269,7 +269,7 @@ describe('desktop prisma context isolation', () => {
         `)
         database.pragma('foreign_keys = OFF')
         database.prepare('INSERT INTO instances (id, slug, status, container_id, server_password) VALUES (?, ?, ?, ?, ?)')
-          .run('instance-1', 'alice', 'running', 'container-1', 'encrypted-password')
+          .run('instance-1', 'alice', 'running', 'container-1', 'enc-pw')
         database.pragma('foreign_keys = ON')
       }
 
@@ -289,10 +289,10 @@ describe('desktop prisma context isolation', () => {
       insertUser.run('user-2', 'bob@example.invalid', 'bob', 'test-hash', '2026-10-20T00:00:00Z')
       if (mode === 'fresh') {
         database.prepare('INSERT INTO instances (id, slug, status, container_id, server_password) VALUES (?, ?, ?, ?, ?)')
-          .run('instance-1', 'alice', 'running', 'container-1', 'encrypted-password')
+          .run('instance-1', 'alice', 'running', 'container-1', 'enc-pw')
       }
       expect(database.prepare('SELECT id, slug, status, container_id, server_password, runtime_kind FROM instances').all()).toEqual([
-        { id: 'instance-1', slug: 'alice', status: 'running', container_id: 'container-1', server_password: 'encrypted-password', runtime_kind: null },
+        { id: 'instance-1', slug: 'alice', status: 'running', container_id: 'container-1', server_password: 'enc-pw', runtime_kind: null },
       ])
       expect(database.prepare("SELECT value FROM _arche_schema_meta WHERE key = 'schema_version'").get()).toEqual({ value: '13' })
 

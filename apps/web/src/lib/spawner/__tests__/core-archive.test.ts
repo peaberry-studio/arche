@@ -41,7 +41,7 @@ vi.mock('@/lib/spawner/runtime-artifacts', () => ({
 function legacyInstance(runtimeKind: string | null = 'opencode-v1'): InstanceRecord {
   return {
     id: 'instance', slug: 'alice', status: 'stopped', createdAt: new Date(0), startedAt: null, stoppedAt: new Date(0),
-    lastActivityAt: null, containerId: 'legacy', serverPassword: 'encrypted', runtimeKind, appliedConfigSha: null,
+    lastActivityAt: null, containerId: 'legacy', serverPassword: 'enc', runtimeKind, appliedConfigSha: null,
     providerSyncHash: null, providerSyncedAt: null,
   }
 }

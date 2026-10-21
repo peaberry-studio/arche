@@ -19,7 +19,7 @@ import { archiveDesktopLegacySessions, cleanupDesktopLegacyArchive } from '@/lib
 
 const input = {
   slug: 'alice', workspaceDir: '/vault/workspace', dataDir: '/vault/.runtime/opencode',
-  port: 4096, password: 'fixture-password', timeoutMs: 100, intervalMs: 1,
+  port: 4096, password: 'pw', timeoutMs: 100, intervalMs: 1,
 }
 
 function makeChild() {
@@ -56,7 +56,7 @@ describe('archiveDesktopLegacySessions', () => {
         PATH: '/bin', HOME: input.dataDir,
         XDG_DATA_HOME: `${input.dataDir}/.local/share`, XDG_STATE_HOME: `${input.dataDir}/.local/state`,
         XDG_CONFIG_HOME: `${input.dataDir}/.archive-config-fixture`,
-        OPENCODE_SERVER_USERNAME: 'opencode', OPENCODE_SERVER_PASSWORD: 'fixture-password',
+        OPENCODE_SERVER_USERNAME: 'opencode', OPENCODE_SERVER_PASSWORD: 'pw',
         OPENCODE_DISABLE_PROJECT_CONFIG: 'true', OPENCODE_DISABLE_MODELS_FETCH: 'true',
         OPENCODE_CONFIG_CONTENT: '{"mcp":{},"plugin":[],"enabled_providers":[]}',
       },

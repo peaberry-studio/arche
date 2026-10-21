@@ -140,7 +140,7 @@ describe('OpenCode v1 runtime', () => {
 
   it('maps explicit-password health timeouts to typed errors', async () => {
     mocks.health.mockResolvedValue({ ok: false, detail: 'healthcheck_timeout' })
-    expect(await createOpenCodeV1Runtime('alice').health({ password: 'password', baseUrl: 'http://direct', timeoutMs: 10 })).toEqual({ ok: false, error: { code: 'healthcheck_timeout' } })
+    expect(await createOpenCodeV1Runtime('alice').health({ password: 'pw', baseUrl: 'http://direct', timeoutMs: 10 })).toEqual({ ok: false, error: { code: 'healthcheck_timeout' } })
   })
 
   it('bounds SDK health probes with cancellation', async () => {
@@ -162,7 +162,7 @@ describe('OpenCode v1 runtime', () => {
 
   it.each(['dns_resolution_error', 'connection_refused', 'connect_timeout', 'fetch_failed', 'invalid_json', 'unhealthy_response', 'http_status_503'])('preserves startup health failure code %s', async (detail) => {
     mocks.health.mockResolvedValue({ ok: false, detail, message: 'failure detail' })
-    expect(await createOpenCodeV1Runtime('alice').health({ password: 'password' })).toEqual({ ok: false, error: { code: detail, detail: 'failure detail' } })
+    expect(await createOpenCodeV1Runtime('alice').health({ password: 'pw' })).toEqual({ ok: false, error: { code: detail, detail: 'failure detail' } })
   })
 
   it('syncs provider access with explicit pre-start credentials', async () => {

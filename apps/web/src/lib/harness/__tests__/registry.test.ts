@@ -104,7 +104,7 @@ describe('runtime registry', () => {
   it('delegates pre-start health credentials and cancellation', async () => {
     const runtime = fakeRuntime()
     factory.mockReturnValue(runtime)
-    const options = { password: 'password', baseUrl: 'http://container:4096', timeoutMs: 100, signal: new AbortController().signal }
+    const options = { password: 'pw', baseUrl: 'http://container:4096', timeoutMs: 100, signal: new AbortController().signal }
     expect(await checkRuntimeHealth('alice', options)).toEqual({ ok: true, data: {} })
     expect(runtime.health).toHaveBeenCalledWith(options)
   })

@@ -26,7 +26,7 @@ beforeEach(() => {
   current = {
     id: 'instance', slug: 'alice', status: 'running', containerId: 'source', runtimeKind: 'opencode-v1',
     createdAt: new Date(0), startedAt: new Date(1), stoppedAt: null, lastActivityAt: new Date(2),
-    serverPassword: 'encrypted-fixture', appliedConfigSha: 'hash', providerSyncHash: 'provider-hash', providerSyncedAt: new Date(3),
+    serverPassword: 'enc-fx', appliedConfigSha: 'hash', providerSyncHash: 'provider-hash', providerSyncedAt: new Date(3),
   }
   mocks.findUnique.mockImplementation(async () => ({ ...current }))
   mocks.findMany.mockImplementation(async () => current.status === 'running' ? [{ ...current }] : [])

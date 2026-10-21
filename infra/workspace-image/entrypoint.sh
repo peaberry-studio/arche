@@ -51,6 +51,8 @@ fi
 
 # Run OpenCode with original arguments
 if [ -n "${OPENCODE_SERVER_PASSWORD:-}" ]; then
-  export OPENCODE_PASSWORD="$OPENCODE_SERVER_PASSWORD"
+  # Assignments never word-split, so the value needs no quotes.
+  OPENCODE_PASSWORD=$OPENCODE_SERVER_PASSWORD
+  export OPENCODE_PASSWORD
 fi
 exec opencode "$@"
