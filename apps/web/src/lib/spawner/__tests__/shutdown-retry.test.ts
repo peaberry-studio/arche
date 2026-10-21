@@ -18,6 +18,12 @@ vi.mock('@/lib/harness/execution', () => ({}))
 vi.mock('@/lib/harness/legacy-session-archive', () => ({}))
 vi.mock('@/lib/spawner/runtime-artifacts', () => ({}))
 vi.mock('@/lib/spawner/docker', () => ({ stopContainer: vi.fn(), removeContainer: vi.fn() }))
+// The reaper only stops instances under host memory pressure; pin it so these
+// shutdown-ownership checks do not depend on the machine running the tests.
+vi.mock('@/lib/spawner/host-resources', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/lib/spawner/host-resources')>(),
+  readHostMemory: vi.fn(async () => ({ availableBytes: 1024 ** 3, totalBytes: 16 * 1024 ** 3, source: 'meminfo' as const })),
+}))
 
 let current: InstanceRecord
 
