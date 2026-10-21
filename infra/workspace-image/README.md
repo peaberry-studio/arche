@@ -9,7 +9,7 @@ Image derived from OpenCode with support for a shared Knowledge Base (KB).
 - Automatic workspace initialization script
 - Workspace agent HTTP service for diffs and file operations
 - Support for runtime config injected by the spawner (`opencode.json` and `AGENTS.md`)
-- In-container stdio MCP tools for charts, diagrams, documents, email drafts, flows, learning, presentations, session history and spreadsheets (`arche_tools_*`)
+- In-container stdio MCP tools for charts, diagrams, documents, email drafts, flows, learning, presentations, session scratch folders, session history and spreadsheets (`arche_tools_*`)
 
 ## Workspace Agent
 
@@ -114,3 +114,4 @@ If conflicts appear, Git marks them and the user can resolve them.
 | `KB_REMOTE_NAME` | `kb` | KB Git remote name |
 | `WORKSPACE_AGENT_PORT` | `4097` | Workspace agent port |
 | `WORKSPACE_AGENT_ADDR` | `0.0.0.0:4097` | Workspace agent bind address |
+| `ARCHE_SCRATCH_DIR` | `/tmp/arche-scratch` | Root of the per-session scratch folders used by `arche_tools_scratch_*` |

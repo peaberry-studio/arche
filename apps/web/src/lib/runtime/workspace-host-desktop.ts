@@ -26,7 +26,7 @@ import {
 } from '@/lib/runtime/desktop/health'
 import { archiveDesktopLegacySessions, cleanupDesktopLegacyArchive } from '@/lib/runtime/desktop/legacy-archive'
 import { waitForProcessExit } from '@/lib/runtime/desktop/process'
-import { getArcheOpencodeDataDir, getLegacyOpencodeDataDir, getWorkspaceDir, hasLegacyOpencodeData } from '@/lib/runtime/desktop/workspace-dirs'
+import { getArcheOpencodeDataDir, getDesktopScratch, getLegacyOpencodeDataDir, getWorkspaceDir, hasLegacyOpencodeData } from '@/lib/runtime/desktop/workspace-dirs'
 import { getKbContentRoot } from '@/lib/runtime/paths'
 import type { WorkspaceHost, WorkspaceHostConnection, WorkspaceHostStatus } from '@/lib/runtime/types'
 import { desktopWorkspaceHostE2e } from '@/lib/runtime/workspace-host-desktop-e2e'
@@ -193,6 +193,7 @@ type DesktopRuntimeArtifacts = {
 async function buildDesktopRuntimeArtifacts(slug: string): Promise<DesktopRuntimeArtifacts> {
   return buildWorkspaceRuntimeArtifacts(slug, getDesktopProviderGatewayConfig(), {
     archeToolsCommand: getDesktopArcheToolsCommand(),
+    scratch: getDesktopScratch(slug),
   })
 }
 
@@ -434,6 +435,7 @@ async function startDesktopWorkspace(
           ARCHE_WORKSPACE_SLUG: slug,
           ARCHE_INTERNAL_API_BASE_URL: process.env.ARCHE_INTERNAL_API_BASE_URL ?? `http://${LOOPBACK_HOST}:3000`,
           WORKSPACE_DIR: workspaceDir,
+          ARCHE_SCRATCH_DIR: getDesktopScratch(slug).root,
           HOME: archeDataDir,
           XDG_DATA_HOME: join(archeDataDir, '.local', 'share'),
           XDG_STATE_HOME: join(archeDataDir, '.local', 'state'),

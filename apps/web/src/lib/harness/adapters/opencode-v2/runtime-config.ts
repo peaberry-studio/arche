@@ -1,3 +1,5 @@
+import { posix } from 'node:path'
+
 import { LEGACY_ONLY_AGENT_TOOLS } from '@/lib/agent-capabilities'
 import type { RuntimeAgentModel, RuntimeConfigModel, RuntimeConfigRenderResult } from '@/lib/harness/runtime-config'
 import { isRecord } from '@/lib/records'
@@ -29,6 +31,8 @@ const ACTIONS: Record<string, string> = {
   flow_propose: 'arche_tools_flow_propose',
   learning_propose: 'arche_tools_learning_propose',
   presentation_inspect: 'arche_tools_presentation_inspect',
+  scratch_dir: 'arche_tools_scratch_dir',
+  scratch_publish: 'arche_tools_scratch_publish',
   session_history_query: 'arche_tools_session_history_query',
   spreadsheet_inspect: 'arche_tools_spreadsheet_inspect',
   spreadsheet_sample: 'arche_tools_spreadsheet_sample',
@@ -58,6 +62,13 @@ function action(name: string, path: string): string {
 
 function matches(pattern: string, value: string): boolean {
   return new RegExp(`^${pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`).test(value)
+}
+
+// OpenCode 2 matches `edit` against the path relative to the workspace and
+// `external_directory` against the absolute path.
+function scratchPatterns(scratch: NonNullable<RuntimeConfigModel['scratch']>): { absolute: string; relative: string } {
+  const root = posix.normalize(scratch.root).replace(/\/+$/, '')
+  return { absolute: `${root}/*`, relative: `${posix.relative(posix.normalize(scratch.workspaceRoot), root)}/*` }
 }
 
 function orderedEntries(value: Record<string, unknown>): [string, unknown][] {
@@ -151,11 +162,19 @@ function renderAgent(agent: RuntimeAgentModel, model: RuntimeConfigModel, global
   const prompt = record(prompts[agent.id], path).prompt
   const ownRules = permissionRules(agent.access, `${path}.access`)
   const permissions = toolRules(agent.tools, [...globalRules, ...ownRules], `${path}.tools`, true)
+  // The scratch allowance never widens an agent's tools: an agent that cannot
+  // edit anywhere cannot edit in its scratch folder either.
+  const canEdit = permissions.findLast((rule) => rule.resource === '*' && matches(rule.action, 'edit'))?.effect !== 'deny'
   permissions.push({ action: 'external_directory', resource: '*', effect: 'ask' })
   if (model.guards.execution) permissions.push({ action: 'doom_loop', resource: '*', effect: 'deny' })
   if (model.guards.execution && !primary) permissions.push({ action: 'subagent', resource: '*', effect: 'deny' })
   if (model.guards.knowledgeWrites) permissions.push({ action: 'edit', resource: '*', effect: 'deny' })
   if (model.guards.selfDelegation) permissions.push({ action: 'subagent', resource: agent.id, effect: 'deny' })
+  if (model.scratch) {
+    const patterns = scratchPatterns(model.scratch)
+    permissions.push({ action: 'external_directory', resource: patterns.absolute, effect: 'allow' })
+    if (canEdit) permissions.push({ action: 'edit', resource: patterns.relative, effect: 'allow' })
+  }
   const body = settings.options === undefined ? {} : { ...record(settings.options, `${path}.options`) }
   for (const key of ['temperature', 'top_p']) {
     if (settings[key] !== undefined && (typeof settings[key] !== 'number' || !Number.isFinite(settings[key]))) unsupported(`${path}.${key}`)
@@ -269,8 +288,17 @@ export function renderRuntimeConfig(model: RuntimeConfigModel): RuntimeConfigRen
     if (settings.model !== undefined && (typeof settings.model !== 'string' || !/^[^/#]+\/[^#]+$/.test(settings.model))) unsupported('model', 'Root models require a provider/model reference without a variant')
     if (settings.shell !== undefined && typeof settings.shell !== 'string') unsupported('shell')
     if (settings.instructions !== undefined && (!Array.isArray(settings.instructions) || !settings.instructions.every((entry) => typeof entry === 'string'))) unsupported('instructions')
+    if (model.scratch) {
+      for (const [key, value] of Object.entries(model.scratch)) {
+        if (!value.startsWith('/') || /[*?]/.test(value)) unsupported(`scratch.${key}`, 'Expected an absolute directory without wildcards')
+      }
+      if (!posix.relative(posix.normalize(model.scratch.workspaceRoot), posix.normalize(model.scratch.root)).startsWith('..')) {
+        unsupported('scratch.root', 'The scratch directory must be outside the workspace')
+      }
+    }
     const globalRules = toolRules(model.tools, permissionRules(model.access, 'access'), 'tools', false)
     globalRules.push({ action: 'external_directory', resource: '*', effect: 'ask' })
+    if (model.scratch) globalRules.push({ action: 'external_directory', resource: scratchPatterns(model.scratch).absolute, effect: 'allow' })
     const policies = renderPolicies(authoredPolicies)
     const prompts = agentPrompts(model)
     if (model.guards.workspace) {
@@ -283,6 +311,7 @@ export function renderRuntimeConfig(model: RuntimeConfigModel): RuntimeConfigRen
       }
     }
     if (model.guards.knowledgeWrites) policies.push({ action: 'tool.use', resource: 'edit:*', effect: 'deny' })
+    if (model.scratch) policies.push({ action: 'tool.use', resource: `edit:${scratchPatterns(model.scratch).relative}`, effect: 'allow' })
     const config: Record<string, unknown> = {
       ...settings,
       $schema: 'https://opencode.ai/config.json',

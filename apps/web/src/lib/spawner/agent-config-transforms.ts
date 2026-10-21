@@ -20,6 +20,8 @@ const ARCHE_BUILT_IN_TOOL_IDS = [
   'flow_propose',
   'learning_propose',
   'presentation_inspect',
+  'scratch_dir',
+  'scratch_publish',
   'session_history_query',
   'spreadsheet_inspect',
   'spreadsheet_sample',

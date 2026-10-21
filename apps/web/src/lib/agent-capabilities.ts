@@ -28,6 +28,8 @@ export const OPENCODE_AGENT_TOOLS = [
   'flow_propose',
   'learning_propose',
   'presentation_inspect',
+  'scratch_dir',
+  'scratch_publish',
   'spreadsheet_inspect',
   'spreadsheet_sample',
   'spreadsheet_query',
@@ -49,6 +51,8 @@ export const DEFAULT_ENABLED_AGENT_TOOLS: ReadonlySet<string> = new Set<OpenCode
   'email_draft',
   'flow_propose',
   'learning_propose',
+  'scratch_dir',
+  'scratch_publish',
   'session_history_query',
 ])
 
@@ -77,6 +81,8 @@ export const OPENCODE_AGENT_TOOL_OPTIONS: Array<{
   { id: 'flow_propose', label: 'Propose flows' },
   { id: 'learning_propose', label: 'Propose knowledge' },
   { id: 'presentation_inspect', label: 'Inspect presentations' },
+  { id: 'scratch_dir', label: 'Use a scratch folder' },
+  { id: 'scratch_publish', label: 'Publish scratch files' },
   { id: 'spreadsheet_inspect', label: 'Inspect spreadsheets' },
   { id: 'spreadsheet_sample', label: 'Sample spreadsheet rows' },
   { id: 'spreadsheet_query', label: 'Query spreadsheet data' },

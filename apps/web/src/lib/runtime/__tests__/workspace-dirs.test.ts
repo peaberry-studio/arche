@@ -52,6 +52,12 @@ describe('desktop workspace dirs', () => {
     expect(getArcheOpencodeDataDir()).toBe('/custom/runtime-v2')
   })
 
+  it('keeps session scratch folders in the OS temp dir, outside the vault workspace', async () => {
+    const { tmpdir } = await import('os')
+    const { getDesktopScratch } = await import('@/lib/runtime/desktop/workspace-dirs')
+    expect(getDesktopScratch('local')).toEqual({ root: `${tmpdir()}/arche-scratch`, workspaceRoot: '/tmp/arche/workspace' })
+  })
+
   it('detects legacy OpenCode 1 data only when its share directory exists', async () => {
     const { hasLegacyOpencodeData } = await import('@/lib/runtime/desktop/workspace-dirs')
     mockExistsSync.mockImplementation((path: string) => path === '/tmp/arche/.runtime/opencode/.local/share/opencode')

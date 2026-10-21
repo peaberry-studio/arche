@@ -37,6 +37,7 @@ import {
 import {
   parseRuntimeConfigContent,
   serializeRuntimeConfig,
+  WEB_SCRATCH,
 } from '@/lib/spawner/runtime-config'
 
 export {
@@ -61,6 +62,8 @@ export type WorkspaceRuntimeArtifacts = {
 
 type WorkspaceRuntimeOptions = {
   archeToolsCommand?: string[]
+  // Defaults to the workspace container layout (WEB_SCRATCH).
+  scratch?: { root: string; workspaceRoot: string }
 }
 
 const COMMON_WORKSPACE_CONFIG_FILE = 'CommonWorkspaceConfig.json'
@@ -361,10 +364,13 @@ export async function buildWorkspaceRuntimeConfigModel(
   const baseConfig = await buildBaseWorkspaceConfig(slug, commonConfigContent, options)
   const resolvedOwner = typeof owner === 'undefined' ? await getWorkspaceOwner(slug) : owner
   const scopedProviderGatewayConfig = await applyCredentialScopedProviderConfig(providerGatewayConfig, resolvedOwner)
-  return createRuntimeConfigModel({
-    ...baseConfig,
-    ...scopedProviderGatewayConfig,
-  })
+  return {
+    ...createRuntimeConfigModel({
+      ...baseConfig,
+      ...scopedProviderGatewayConfig,
+    }),
+    scratch: options?.scratch ?? WEB_SCRATCH,
+  }
 }
 
 export async function buildWorkspaceAgentsMd(

@@ -614,6 +614,7 @@ describe('desktopWorkspaceHost', () => {
       expect.objectContaining({
         env: expect.objectContaining({
           WORKSPACE_DIR: '/tmp/arche/workspace',
+          ARCHE_SCRATCH_DIR: expect.stringMatching(/\/arche-scratch$/),
         }),
       }),
     )
@@ -621,6 +622,11 @@ describe('desktopWorkspaceHost', () => {
     const configCall = mockWriteFileSync.mock.calls.find(
       (call: unknown[]) => typeof call[0] === 'string' && String(call[0]).endsWith('/opencode.json'),
     )
+    expect(JSON.parse(String(configCall?.[1])).permissions).toContainEqual({
+      action: 'external_directory',
+      resource: expect.stringMatching(/\/arche-scratch\/\*$/),
+      effect: 'allow',
+    })
     expect(JSON.parse(String(configCall?.[1]))).toMatchObject({
       mcp: {
         servers: {

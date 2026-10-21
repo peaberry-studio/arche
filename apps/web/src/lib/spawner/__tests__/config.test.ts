@@ -193,6 +193,24 @@ describe('config', () => {
     })
   })
 
+  describe('getScratchSizeMb', () => {
+    it.each([
+      [undefined, 512],
+      ['1024', 1024],
+      ['256.9', 256],
+      ['0', 512],
+      ['-5', 512],
+      ['lots', 512],
+    ])('reads ARCHE_SCRATCH_SIZE_MB=%s as %i', async (value, expected) => {
+      if (value === undefined) delete process.env.ARCHE_SCRATCH_SIZE_MB
+      else process.env.ARCHE_SCRATCH_SIZE_MB = value
+
+      const { getScratchSizeMb } = await import('../config')
+
+      expect(getScratchSizeMb()).toBe(expected)
+    })
+  })
+
   describe('getIdleTimeoutMinutes', () => {
     it('returns default 120 when not set', async () => {
       delete process.env.ARCHE_IDLE_TIMEOUT_MINUTES

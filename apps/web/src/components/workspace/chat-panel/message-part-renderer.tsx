@@ -99,6 +99,8 @@ const TOOL_LABELS: Record<string, string> = {
   diagram_create: 'Creating diagram',
   flow_propose: 'Proposing flow',
   learning_propose: 'Proposing KB learning',
+  scratch_dir: 'Opening scratch folder',
+  scratch_publish: 'Publishing file',
   session_history_query: 'Querying session history',
   todowrite: 'Planning',
   todoread: 'Reviewing plan',

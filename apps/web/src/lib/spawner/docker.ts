@@ -6,6 +6,7 @@ import {
   getOpencodeImage,
   getOpencodeNetwork,
   getOpencodeV1Image,
+  getScratchSizeMb,
   getWorkspaceAgentPort,
 } from '@/lib/spawner/config';
 import {
@@ -13,6 +14,7 @@ import {
   parseRuntimeConfigContent,
   serializeRuntimeConfig,
   WEB_INTERNAL_API_ROOT,
+  WEB_SCRATCH,
 } from '@/lib/spawner/runtime-config';
 import { ensureUserDirectory, getUserDataHostPath } from '@/lib/user-data';
 
@@ -206,6 +208,7 @@ export async function createContainer(
     `WORKSPACE_GIT_AUTHOR_NAME=${gitAuthor?.name ?? slug}`,
     `WORKSPACE_GIT_AUTHOR_EMAIL=${gitAuthor?.email ?? `${slug}@arche.local`}`,
     `OPENCODE_MODELS_URL=${WEB_INTERNAL_API_ROOT}/models`,
+    `ARCHE_SCRATCH_DIR=${WEB_SCRATCH.root}`,
   ];
 
   const options = {
@@ -219,6 +222,7 @@ export async function createContainer(
       NetworkMode: getOpencodeNetwork(),
       RestartPolicy: { Name: "on-failure", MaximumRetryCount: 5 },
       Binds: binds,
+      Tmpfs: { [WEB_SCRATCH.root]: `rw,nosuid,nodev,size=${getScratchSizeMb()}m,mode=1777` },
     },
     Labels: {
       "arche.managed": "true",

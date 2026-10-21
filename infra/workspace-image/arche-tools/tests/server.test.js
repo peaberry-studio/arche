@@ -8,12 +8,15 @@ test('MCP lists the complete inventory with JSON schemas and no harness plugin',
   const result = await client.listTools()
   assert.deepEqual(result.tools.map((tool) => tool.name).sort(), [
     'chart_create', 'diagram_create', 'document_inspect', 'email_draft', 'flow_propose',
-    'learning_propose', 'presentation_inspect', 'session_history_query',
+    'learning_propose', 'presentation_inspect', 'scratch_dir', 'scratch_publish', 'session_history_query',
     'spreadsheet_inspect', 'spreadsheet_query', 'spreadsheet_sample', 'spreadsheet_stats',
   ])
   for (const tool of result.tools) assert.equal(tool.inputSchema.type, 'object')
   const learning = result.tools.find((tool) => tool.name === 'learning_propose')
   assert.equal(learning.inputSchema.properties.caller_agent.type, 'string')
+  const scratch = result.tools.find((tool) => tool.name === 'scratch_publish')
+  assert.equal(scratch.inputSchema.properties.caller_session_id.type, 'string')
+  assert.equal(scratch.inputSchema.properties.caller_agent, undefined)
 })
 
 test('MCP preserves the JSON output and structured attachment payload', async () => {
