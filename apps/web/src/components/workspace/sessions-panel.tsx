@@ -49,14 +49,7 @@ export function SessionsPanel({
   }, [normalizedQuery, visibleSessions]);
 
   const buckets = useMemo(
-    () => {
-      const archives = filteredSessions.filter((session) => session.archived);
-      const live = groupByDateBucket(filteredSessions.filter((session) => !session.archived), (s) => s.updatedAtRaw);
-      return archives.length ? [
-        ...live.map((bucket, index) => ({ ...bucket, groupLabel: index === 0 ? "Live conversations" : undefined })),
-        { label: "Archived conversations", items: archives, groupLabel: undefined },
-      ] : live.map((bucket) => ({ ...bucket, groupLabel: undefined }));
-    },
+    () => groupByDateBucket(filteredSessions, (s) => s.updatedAtRaw),
     [filteredSessions]
   );
 
@@ -161,16 +154,10 @@ export function SessionsPanel({
   return (
     <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-2 pb-4 pt-1 scrollbar-none">
       {buckets.map((bucket) => (
-        <div key={bucket.label} className={cn("mb-3", bucket.items[0]?.archived && "mt-4 border-t border-border pt-2")}>
-          {bucket.groupLabel ? <h3 className="px-2 pt-2 text-xs font-medium text-muted-foreground">{bucket.groupLabel}</h3> : null}
-          <h3 className={cn(
-            "px-2 pb-1 pt-2 font-medium",
-            bucket.items[0]?.archived
-              ? "text-xs text-muted-foreground"
-              : "text-[11px] uppercase tracking-wide text-muted-foreground/70"
-          )}>
+        <div key={bucket.label} className="mb-3">
+          <div className="px-2 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">
             {bucket.label}
-          </h3>
+          </div>
           <div className="space-y-0.5">
             {bucket.items.map((session) => {
               const indicatorClassName = getIndicatorClassName(session);
@@ -210,7 +197,6 @@ export function SessionsPanel({
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center gap-1.5">
                       <span className="truncate font-medium">{primaryTitle}</span>
-                      {session.archived ? <span className="shrink-0 text-[11px] text-muted-foreground">Archived</span> : null}
                       {isFlow ? (
                         <span className="shrink-0 text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
                           Flow

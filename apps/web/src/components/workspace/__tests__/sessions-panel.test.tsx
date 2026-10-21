@@ -64,16 +64,16 @@ function renderPanel(sessions: WorkspaceSession[], overrides: Record<string, unk
 }
 
 describe("SessionsPanel", () => {
-  it("separates archived conversations from live date groups with a marker and selection", () => {
+  it("lists archived conversations among live ones by date, unmarked and selectable", () => {
     const onSelectSession = vi.fn();
     renderPanel([
-      { ...chatSessions[0], id: "old", title: "Old conversation", archived: true },
-      chatSessions[1],
+      chatSessions[0],
+      { ...chatSessions[1], id: "old", title: "Old conversation", archived: true, updatedAtRaw: 5 },
     ], { onSelectSession });
-    expect(screen.getByText("Live conversations")).toBeTruthy();
-    expect(screen.getByText("Archived conversations")).toBeTruthy();
-    const row = screen.getByRole("button", { name: /old conversation.*archived/i });
-    expect(screen.getAllByRole("button").at(-1)).toBe(row);
+    expect(screen.queryByText(/live conversations|archived conversations/i)).toBeNull();
+    expect(screen.queryByText("Archived")).toBeNull();
+    const row = screen.getByRole("button", { name: /old conversation/i });
+    expect(screen.getAllByRole("button", { name: /old conversation|idle chat/i })[0]).toBe(row);
     fireEvent.click(row);
     expect(onSelectSession).toHaveBeenCalledWith("old");
   });

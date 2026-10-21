@@ -41,8 +41,7 @@ test('opens archived history without a live runtime and keeps it read-only after
     )
 
     await page.goto(`/w/${slug}`)
-    await expect(page.getByRole('heading', { name: 'Archived conversations', exact: true })).toBeVisible({ timeout: 30_000 })
-    await page.getByRole('button', { name: new RegExp(`${title}.*Archived`, 'i') }).click()
+    await page.getByRole('button', { name: new RegExp(`^${title}`) }).click({ timeout: 30_000 })
 
     const notice = page.getByText('This conversation was created on the previous runtime and is archived. It is read-only.', { exact: true })
     await expect(notice).toBeVisible()
