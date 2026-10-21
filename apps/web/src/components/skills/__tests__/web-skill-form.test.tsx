@@ -5,13 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { WebSkillForm } from '@/components/skills/web-skill-form'
 
-const pushMock = vi.fn()
-
 const skillFormMock = vi.fn()
-
-vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: pushMock }),
-}))
 
 vi.mock('@/components/skills/skill-form', () => ({
   SkillForm: (props: {
@@ -40,12 +34,16 @@ vi.mock('@/components/skills/skill-form', () => ({
 }))
 
 describe('WebSkillForm', () => {
+  let pushMock: ReturnType<typeof vi.spyOn>
+
   beforeEach(() => {
     vi.clearAllMocks()
+    pushMock = vi.spyOn(window.history, 'pushState')
   })
 
   afterEach(() => {
     cleanup()
+    pushMock.mockRestore()
   })
 
   it('renders SkillForm with correct props', () => {
@@ -64,21 +62,21 @@ describe('WebSkillForm', () => {
     render(<WebSkillForm slug="alice" mode="create" />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
-    expect(pushMock).toHaveBeenCalledWith('/w/alice?catalog=skills')
+    expect(pushMock).toHaveBeenCalledWith(null, '', '/w/alice?catalog=skills')
   })
 
   it('navigates to skills list on delete', () => {
     render(<WebSkillForm slug="alice" mode="edit" skillName="skill-1" />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
-    expect(pushMock).toHaveBeenCalledWith('/w/alice?catalog=skills')
+    expect(pushMock).toHaveBeenCalledWith(null, '', '/w/alice?catalog=skills')
   })
 
   it('navigates to skills list on save when mode is create', () => {
     render(<WebSkillForm slug="alice" mode="create" />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
-    expect(pushMock).toHaveBeenCalledWith('/w/alice?catalog=skills')
+    expect(pushMock).toHaveBeenCalledWith(null, '', '/w/alice?catalog=skills')
   })
 
   it('does not navigate on save when mode is edit', () => {
