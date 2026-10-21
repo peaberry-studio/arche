@@ -13,18 +13,14 @@ import {
 import {
   BookOpenText,
   CaretDown,
-  Check,
   CheckCircle,
   File,
   FolderOpen,
   Info,
-  Lightning,
   MagnifyingGlass,
   Paperclip,
   PaperPlaneTilt,
   PencilSimple,
-  Plus,
-  Robot,
   SpinnerGap,
   UploadSimple,
   X,
@@ -34,9 +30,9 @@ import { AgentMentionAutocomplete } from "@/components/workspace/chat-panel/agen
 import { ChatPanelMessages } from "@/components/workspace/chat-panel/messages";
 import { ChatPanelSessionHeader } from "@/components/workspace/chat-panel/session-header";
 import type { SessionTabInfo } from "@/components/workspace/chat-panel/types";
+import { ComposerAddButton } from "@/components/workspace/composer-add-button";
 import { WorkspaceChatEmptyComposer } from "@/components/workspace/workspace-chat-empty-composer";
 import { StatusIndicator } from "@/components/workspace/bitmap-status-indicator";
-import { GlyphAvatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -55,7 +51,6 @@ import {
 import { FlowHumanResponsePanel } from "@/components/flows/flow-human-response-panel";
 import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
 import { useAgentMentionAutocomplete } from "@/hooks/use-agent-mention-autocomplete";
-import type { SkillListItem } from "@/hooks/use-skills-catalog";
 import type { AgentCatalogItem } from "@/hooks/use-workspace";
 import type { ArchePermission } from "@/lib/harness/events";
 import { getDesktopPlatform, getOptionalDesktopBridge } from "@/lib/runtime/desktop/client";
@@ -85,7 +80,6 @@ type ChatPanelProps = {
   contextFilePaths?: string[];
   recentUpdates?: { fileName: string; filePath: string }[];
   sessions: ChatSession[];
-  skills?: SkillListItem[];
   messages: ChatMessage[];
   permissions?: ArchePermission[];
   activeSessionId: string | null;
@@ -141,7 +135,6 @@ const EMPTY_CONTEXT_FILE_PATHS: string[] = [];
 const EMPTY_MODELS: AvailableModel[] = [];
 const EMPTY_PERMISSIONS: ArchePermission[] = [];
 const EMPTY_SESSION_TABS: SessionTabInfo[] = [];
-const EMPTY_SKILLS: SkillListItem[] = [];
 
 function getAttachmentErrorMessage(error: string): string {
   switch (error) {
@@ -208,7 +201,6 @@ export function ChatPanel({
   contextFilePaths = EMPTY_CONTEXT_FILE_PATHS,
   recentUpdates,
   sessions,
-  skills = EMPTY_SKILLS,
   messages,
   permissions = EMPTY_PERMISSIONS,
   activeSessionId,
@@ -273,8 +265,6 @@ export function ChatPanel({
   const preventSessionMenuAutoFocusRef = useRef(false);
   const ignoreNextTitleBlurRef = useRef(false);
   const [inputValue, setInputValue] = useState("");
-  const [selectedExpertId, setSelectedExpertId] = useState<string | null>(null);
-  const [selectedSkillNames, setSelectedSkillNames] = useState<Set<string>>(() => new Set());
   const [modelSearch, setModelSearch] = useState("");
   const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
   const [attachments, setAttachments] = useState<WorkspaceAttachment[]>([]);
@@ -636,18 +626,6 @@ export function ChatPanel({
     });
   }, []);
 
-  const toggleSkillSelection = useCallback((name: string) => {
-    setSelectedSkillNames((previous) => {
-      const next = new Set(previous);
-      if (next.has(name)) {
-        next.delete(name);
-      } else {
-        next.add(name);
-      }
-      return next;
-    });
-  }, []);
-
   const handleUploadAttachments = useCallback(async (files: File[]) => {
     if (!attachmentsEnabled || files.length === 0) return;
 
@@ -986,16 +964,7 @@ export function ChatPanel({
   }, [isSending]);
 
   const handleSend = useCallback(async () => {
-    const text = inputValue.trim();
-    const composerDirectives = [
-      selectedExpertId ? `@${selectedExpertId}` : null,
-      ...Array.from(selectedSkillNames).map((name) => `/${name}`),
-    ].filter((value): value is string => Boolean(value));
-    const messageText = composerDirectives.length > 0
-      ? text
-        ? `${composerDirectives.join(" ")}\n\n${text}`
-        : composerDirectives.join(" ")
-      : text;
+    const messageText = inputValue.trim();
     const hasSelectedAttachments = selectedAttachments.length > 0;
     if (
       (!messageText && !hasSelectedAttachments) ||
@@ -1037,8 +1006,6 @@ export function ChatPanel({
     setInputValue("");
     textareaRef.current?.focus();
     setSelectedAttachmentPaths([]);
-    setSelectedExpertId(null);
-    setSelectedSkillNames(new Set());
   }, [
     clearAgentMentionAutocomplete,
     contextPathsToSend,
@@ -1049,9 +1016,7 @@ export function ChatPanel({
     isStartingNewSession,
     hasManualModelSelection,
     selectedModel,
-    selectedExpertId,
     selectedAttachments,
-    selectedSkillNames,
     isUploadingAttachment,
   ]);
 
@@ -1108,7 +1073,6 @@ export function ChatPanel({
       ? "border-destructive/40 focus-visible:ring-destructive/20"
       : "border-primary/20 focus-visible:ring-primary/20"
   );
-  const hasComposerDirectives = Boolean(selectedExpertId) || selectedSkillNames.size > 0;
   // When no conversation is selected, the centered empty-state composer is
   // the only composer; the bottom input area is hidden to avoid duplication.
   const showsEmptyStateComposer = !activeSessionId && !isReadOnly && Boolean(onSendMessage);
@@ -1150,10 +1114,8 @@ export function ChatPanel({
           !activeSessionId && !isReadOnly && onSendMessage ? (
             <div className="flex h-full flex-col items-center justify-center overflow-y-auto px-4">
               <WorkspaceChatEmptyComposer
-                agents={agents}
                 agentDefaultModel={agentDefaultModel}
                 models={models}
-                skills={skills}
                 recentUpdates={recentUpdates}
                 onSendMessage={onSendMessage}
                 onSelectModel={onSelectModel}
@@ -1304,21 +1266,12 @@ export function ChatPanel({
                 }}
               >
                 <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    className={cn(
-                      "inline-flex items-center gap-1.5 rounded-lg border px-2 py-0.5 text-[11px] font-medium transition-colors",
-                      attachTotalSelectedCount > 0
-                        ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/15"
-                        : "border-border/60 bg-foreground/5 text-foreground/80 hover:bg-foreground/10 hover:text-foreground"
-                    )}
-                    aria-label="Attach files"
+                  <ComposerAddButton
+                    count={attachTotalSelectedCount}
                     disabled={isSending || isStartingNewSession || !onSendMessage}
-                  >
-                    {isUploadingAttachment ? <SpinnerGap size={14} className="animate-spin" /> : <Plus size={14} weight="bold" />}
-                    Attach
-                    {attachTotalSelectedCount > 0 ? <span className="text-[11px] font-semibold">{attachTotalSelectedCount}</span> : null}
-                  </button>
+                    isBusy={isUploadingAttachment}
+                    label="Attach files"
+                  />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" side="top" sideOffset={8} className="w-80 rounded-lg p-0">
                   <div className="flex items-center gap-2 border-b border-border px-3 py-2">
@@ -1432,91 +1385,6 @@ export function ChatPanel({
                   ) : null}
                 </DropdownMenuContent>
               </DropdownMenu>
-
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    className={cn(
-                      "inline-flex items-center gap-1.5 rounded-lg border px-2 py-0.5 text-[11px] font-medium transition-colors",
-                      selectedExpertId
-                        ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/15"
-                        : "border-border/60 bg-foreground/5 text-foreground/80 hover:bg-foreground/10 hover:text-foreground"
-                    )}
-                  >
-                    <Robot size={14} weight="regular" />
-                    Experts
-                    {selectedExpertId ? <span className="text-[11px] font-semibold">1</span> : null}
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" side="top" sideOffset={8} className="w-80 rounded-lg p-1.5">
-                  {agents.length === 0 ? <p className="px-3 py-4 text-center text-sm text-muted-foreground">No experts available yet.</p> : null}
-                  {agents.map((agent) => {
-                    const isSelected = selectedExpertId === agent.id;
-                    return (
-                      <DropdownMenuItem
-                        key={agent.id}
-                        onSelect={(event) => {
-                          event.preventDefault();
-                          setSelectedExpertId((current) => current === agent.id ? null : agent.id);
-                        }}
-                        className={cn("gap-3 rounded-md px-3 py-2", isSelected && "bg-primary/10 text-primary")}
-                      >
-                        <GlyphAvatar
-                          seed={agent.id}
-                          kind="agent"
-                          size={28}
-                          active={isSending && agent.id === selectedExpertId}
-                        />
-                        <span className="min-w-0 flex-1 truncate text-sm">{agent.displayName}</span>
-                        {isSelected ? <Check size={14} weight="bold" /> : null}
-                      </DropdownMenuItem>
-                    );
-                  })}
-                </DropdownMenuContent>
-              </DropdownMenu>
-
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    className={cn(
-                      "inline-flex items-center gap-1.5 rounded-lg border px-2 py-0.5 text-[11px] font-medium transition-colors",
-                      selectedSkillNames.size > 0
-                        ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/15"
-                        : "border-border/60 bg-foreground/5 text-foreground/80 hover:bg-foreground/10 hover:text-foreground"
-                    )}
-                  >
-                    <Lightning size={14} weight="regular" />
-                    Skills
-                    {selectedSkillNames.size > 0 ? <span className="text-[11px] font-semibold">{selectedSkillNames.size}</span> : null}
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" side="top" sideOffset={8} className="w-80 rounded-lg p-1.5">
-                  {skills.length === 0 ? <p className="px-3 py-4 text-center text-sm text-muted-foreground">No skills available yet.</p> : null}
-                  {skills.map((skill) => {
-                    const isSelected = selectedSkillNames.has(skill.name);
-                    return (
-                      <DropdownMenuItem
-                        key={skill.name}
-                        onSelect={(event) => {
-                          event.preventDefault();
-                          toggleSkillSelection(skill.name);
-                        }}
-                        className={cn("items-start gap-2.5 rounded-md px-3 py-2", isSelected && "bg-primary/10 text-primary")}
-                      >
-                        <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border border-current/30">
-                          {isSelected ? <Check size={11} weight="bold" /> : null}
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm">{skill.name}</span>
-                          {skill.description ? <span className="line-clamp-1 text-xs text-muted-foreground">{skill.description}</span> : null}
-                        </span>
-                      </DropdownMenuItem>
-                    );
-                  })}
-                </DropdownMenuContent>
-              </DropdownMenu>
             </div>
 
             <div className="flex shrink-0 items-end gap-2">
@@ -1579,7 +1447,7 @@ export function ChatPanel({
                     : isSending
                       ? !onAbortMessage
                       : isUploadingAttachment ||
-                        (!inputValue.trim() && !hasComposerDirectives && selectedAttachments.length === 0) ||
+                        (!inputValue.trim() && selectedAttachments.length === 0) ||
                         !onSendMessage
                 }
                 onClick={isSending ? onAbortMessage : handleSend}

@@ -478,7 +478,7 @@ describe("ChatPanel textarea", () => {
     });
   });
 
-  it("sends selected context paths, experts, and skills", async () => {
+  it("sends selected context paths as context, without composer directives", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ attachments: [], connectors: [] }),
@@ -487,21 +487,8 @@ describe("ChatPanel textarea", () => {
 
     const onSendMessage = vi.fn().mockResolvedValue(true);
     renderChatPanel(onSendMessage, {
-      agents: [
-        { id: "assistant", displayName: "Assistant", isPrimary: true },
-        { id: "ads-scripts", displayName: "Ads Scripts", isPrimary: false },
-      ],
       contextFilePaths: ["docs/a.md", "notes/b.md"],
       openFilePaths: ["docs/a.md"],
-      skills: [
-        {
-          name: "pdf-processing",
-          description: "Process PDFs",
-          assignedAgentIds: [],
-          hasResources: false,
-          resourcePaths: [],
-        },
-      ],
     });
 
     const attachButton = screen.getByRole("button", { name: "Attach files" });
@@ -515,23 +502,8 @@ describe("ChatPanel textarea", () => {
       expect(screen.queryByRole("menu", { name: "Attach files" })).toBeNull();
     });
 
-    const expertsButton = screen.getByRole("button", { name: "Experts" });
-    fireEvent.pointerDown(expertsButton);
-    fireEvent.click(await screen.findByText("Ads Scripts"));
-    fireEvent.pointerDown(expertsButton);
-
-    await waitFor(() => {
-      expect(screen.queryByRole("menu", { name: /Experts/ })).toBeNull();
-    });
-
-    const skillsButton = screen.getByRole("button", { name: "Skills" });
-    fireEvent.pointerDown(skillsButton);
-    fireEvent.click(await screen.findByText("pdf-processing"));
-    fireEvent.pointerDown(skillsButton);
-
-    await waitFor(() => {
-      expect(screen.queryByRole("menu", { name: /Skills/ })).toBeNull();
-    });
+    expect(screen.queryByRole("button", { name: "Experts" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Skills" })).toBeNull();
 
     fireEvent.change(getTextarea(), { target: { value: "Use the selected context" } });
     fireEvent.click(getSendButton());
@@ -541,7 +513,7 @@ describe("ChatPanel textarea", () => {
     });
 
     expect(onSendMessage).toHaveBeenCalledWith(
-      "@ads-scripts /pdf-processing\n\nUse the selected context",
+      "Use the selected context",
       undefined,
       {
         attachments: [],
