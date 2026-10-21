@@ -101,8 +101,9 @@ export function createOpenCodeV2Runtime(slug: string): HarnessRuntime {
       if (model && (model.providerID !== session.data.model?.providerID || model.id !== session.data.model.id)) {
         await client.session.switchModel({ sessionID: input.sessionId, model }, options)
       }
+      // 2.0.32 only accepts native `msg_` ids; V1 accepted any id, so the UI sends UUIDs.
       return client.session.prompt({
-        sessionID: input.sessionId, id: input.messageId,
+        sessionID: input.sessionId, ...(input.messageId?.startsWith('msg_') && { id: input.messageId }),
         text: input.parts.flatMap((part) => part.type === 'text' ? [part.text] : []).join('\n\n'),
         ...(files.length > 0 && { files }),
         ...(input.noReply && { resume: false }),

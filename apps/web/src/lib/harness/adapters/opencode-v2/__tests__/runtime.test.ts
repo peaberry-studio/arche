@@ -161,6 +161,13 @@ describe('V2 runtime', () => {
     expect(prompt).toHaveBeenCalledWith({ sessionID: 's1', id: 'msg_note', text: 'hello', resume: false }, undefined)
   })
 
+  it('lets 2.0.32 assign the id when the caller sends a non-native message id', async () => {
+    const prompt = vi.fn().mockResolvedValue({ id: 'msg_generated' })
+    mocks.client.mockResolvedValue({ session: { get: vi.fn().mockResolvedValue(session('s1')), prompt } })
+    expect(await createOpenCodeV2Runtime('alice').prompt({ sessionId: 's1', messageId: '5b0e3c1d-8f6a-4c2e-9d7b-1a2b3c4d5e6f', parts: [{ type: 'text', text: 'hello' }] })).toEqual({ ok: true, data: undefined })
+    expect(prompt).toHaveBeenCalledWith({ sessionID: 's1', text: 'hello' }, undefined)
+  })
+
   it('preserves verified text prompt IDs, selection and cancellation at the native boundary', async () => {
     const prompt = vi.fn().mockResolvedValue({ id: 'msg_fixture_text' })
     const switchAgent = vi.fn().mockResolvedValue(undefined)
