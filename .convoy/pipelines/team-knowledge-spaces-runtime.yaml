@@ -1,0 +1,22 @@
+name: tks-runtime
+description: team-knowledge-spaces lane runtime (task group 6, infra/workspace-image only) on OpenCode with GPT-6.1-Sol
+# Brief: .convoy/pipelines/team-knowledge-spaces.prompt.md
+steps:
+  - agent: implementer
+    name: impl-rt-git
+    runner: opencode
+    model: openai/gpt-6.1-sol#high
+    advisor: openai/gpt-6-astra#xhigh
+    reports: none
+  - agent: implementer
+    name: impl-rt-kb
+    runner: opencode
+    model: openai/gpt-6.1-sol#high
+    advisor: openai/gpt-6-astra#xhigh
+    reports: previous
+    diff: false
+  - agent: tests
+    runner: opencode
+    model: openai/gpt-6.1-sol#high
+    advisor: false
+    reports: [impl-rt-git, impl-rt-kb]

@@ -1,0 +1,76 @@
+name: tks-integrate
+description: team-knowledge-spaces integration after both lanes merge — contract fixes, parallel multi-model GPT audits, triaged fixes, tests, 90/100 goal loop
+# Brief: .convoy/pipelines/team-knowledge-spaces.prompt.md
+maxConcurrentAgents: 6
+steps:
+  - agent: implementer
+    name: impl-integration
+    runner: opencode
+    model: openai/gpt-6.1-sol#high
+    advisor: openai/gpt-6-astra#xhigh
+    reports: none
+  - parallel:
+      - agent: security-reviewer
+        name: security
+        runner: opencode
+        models: [openai/gpt-6.1-sol#xhigh, openai/gpt-6-astra#high]
+        reports: none
+      - agent: bug-auditor
+        name: bugs
+        runner: opencode
+        models: [openai/gpt-6.1-sol#high, openai/gpt-6-astra#high]
+        reports: none
+      - agent: hunter-reliability
+        name: reliability
+        runner: opencode
+        model: openai/gpt-6.1-sol#high
+        reports: none
+      - agent: clean-code-auditor
+        name: patterns
+        runner: opencode
+        model: openai/gpt-6-astra#high
+        reports: none
+  - agent: review-adversary
+    name: triage
+    runner: opencode
+    model: openai/gpt-6.1-sol#xhigh
+    reports: [security, bugs, reliability, patterns]
+  - agent: review-fixer
+    name: review-fix
+    runner: opencode
+    model: openai/gpt-6.1-sol#high
+    advisor: false
+    reports: [triage]
+  - agent: tests
+    runner: opencode
+    model: openai/gpt-6.1-sol#high
+    advisor: false
+    reports: [review-fix]
+  - goal:
+      target: 90
+      maxIterations: 3
+      improve:
+        briefStep: fix
+        steps:
+          - agent: goal-fixer
+            name: fix
+            runner: opencode
+            model: openai/gpt-6.1-sol#high
+            reports: none
+            diff: true
+      measure:
+        steps:
+          - parallel:
+              - agent: quality-scorer
+                name: score
+                runner: opencode
+                models: [openai/gpt-6.1-sol#xhigh, openai/gpt-6-astra#xhigh]
+                reports: none
+                diff: true
+          - agent: quality-score-report
+            name: score-report
+            runner: opencode
+            model: openai/gpt-6.1-sol#high
+            reports: [score]
+            verify: true
+            diff: true
