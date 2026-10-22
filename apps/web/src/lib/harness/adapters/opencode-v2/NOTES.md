@@ -258,10 +258,12 @@ but its requested V2 start currently returns `runtime_unsupported` safely.
 | 8. MCP | Matched config preserves `codemode:false`; a synthetic connection probe returned an empty catalog. | Invocation, exact allowlists, session metadata and attachment parity are not proven. Explicit caller fallback must continue failing closed on missing/conflicting identity. |
 | 9. Config guards | Actual mapping-only renderer output validates against live 2.0.32 OpenAPI config schema and survives client `config.get`. Agent-level `policies` are silently dropped; policy statements expose only action/resource/effect. | No caller predicate can express the required self-delegation guard. Protected models still return `runtime_config_unsupported` at `guards.selfDelegation`; no guard was weakened to overridable permissions. Protected placement/enforcement remains unverified. |
 
-The files bridge uses the ignore-aware `find(query:"", limit:10000)` inventory for
-directory listing, emitting immediate children only. At the bound it returns
-`workspace_file_limit_exceeded` rather than silently presenting an incomplete
-tree. Search remains fuzzy/ignore-aware with a 50-result bound; read validates
+The files bridge lists one directory with `list` (complete, workspace-relative,
+but including ignored entries) and filters it with the ignore-aware
+`find(query:"", type, limit:10000)` inventories, cached per workspace for two
+seconds so one tree load fetches them once. An inventory that reaches the bound
+is incomplete, so that entry type is shown unfiltered instead of failing the
+whole tree. Search remains fuzzy/ignore-aware with a 50-result bound; read validates
 workspace-relative protected paths and decodes native bytes, never calling V1
 file endpoints. V2 state volumes are separate from V1 even for an internal test.
 
