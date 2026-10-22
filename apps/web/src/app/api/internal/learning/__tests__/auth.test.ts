@@ -3,10 +3,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   findIdBySlug: vi.fn(),
-  resolveInstanceConnection: vi.fn(),
+  getRuntimeConnection: vi.fn(),
 }))
 
-vi.mock('@/lib/opencode/connection-resolver', () => ({ resolveInstanceConnection: mocks.resolveInstanceConnection }))
+vi.mock('@/lib/harness/registry', () => ({ getRuntimeConnection: mocks.getRuntimeConnection }))
 vi.mock('@/lib/services', () => ({ userService: { findIdBySlug: mocks.findIdBySlug } }))
 
 import { getInternalLearningContext } from '../auth'
@@ -18,7 +18,7 @@ function makeRequest(headers: Record<string, string>): NextRequest {
 describe('getInternalLearningContext', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.resolveInstanceConnection.mockResolvedValue({ authHeader: 'Basic expected' })
+    mocks.getRuntimeConnection.mockResolvedValue({ authHeader: 'Basic expected' })
     mocks.findIdBySlug.mockResolvedValue({ id: 'user-1' })
   })
 

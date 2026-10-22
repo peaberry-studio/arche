@@ -215,6 +215,7 @@ services:
       postgres:
         condition: service_healthy
     labels:
+      - arche.runtime.contract=opencode-v2
       - traefik.enable=true
       - traefik.http.routers.arche-base.rule=Host(`{{ domain }}`)
       - traefik.http.routers.arche-base.entrypoints=web

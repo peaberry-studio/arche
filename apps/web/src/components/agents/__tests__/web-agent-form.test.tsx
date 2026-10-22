@@ -5,13 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { WebAgentForm } from '@/components/agents/web-agent-form'
 
-const pushMock = vi.fn()
-
 const agentFormMock = vi.fn()
-
-vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: pushMock }),
-}))
 
 vi.mock('@/components/agents/agent-form', () => ({
   AgentForm: (props: {
@@ -40,12 +34,16 @@ vi.mock('@/components/agents/agent-form', () => ({
 }))
 
 describe('WebAgentForm', () => {
+  let pushMock: ReturnType<typeof vi.spyOn>
+
   beforeEach(() => {
     vi.clearAllMocks()
+    pushMock = vi.spyOn(window.history, 'pushState')
   })
 
   afterEach(() => {
     cleanup()
+    pushMock.mockRestore()
   })
 
   it('renders AgentForm with correct props', () => {
@@ -64,21 +62,21 @@ describe('WebAgentForm', () => {
     render(<WebAgentForm slug="alice" mode="create" />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
-    expect(pushMock).toHaveBeenCalledWith('/w/alice?catalog=agents')
+    expect(pushMock).toHaveBeenCalledWith(null, '', '/w/alice?catalog=agents')
   })
 
   it('navigates to agents list on delete', () => {
     render(<WebAgentForm slug="alice" mode="edit" agentId="agent-1" />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
-    expect(pushMock).toHaveBeenCalledWith('/w/alice?catalog=agents')
+    expect(pushMock).toHaveBeenCalledWith(null, '', '/w/alice?catalog=agents')
   })
 
   it('navigates to agents list on save when mode is create', () => {
     render(<WebAgentForm slug="alice" mode="create" />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
-    expect(pushMock).toHaveBeenCalledWith('/w/alice?catalog=agents')
+    expect(pushMock).toHaveBeenCalledWith(null, '', '/w/alice?catalog=agents')
   })
 
   it('does not navigate on save when mode is edit', () => {

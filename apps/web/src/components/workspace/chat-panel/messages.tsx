@@ -29,10 +29,10 @@ import {
 } from "@/components/workspace/markdown-plugins";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { formatTimestamp } from "@/lib/format-timestamp";
-import type { WorkspacePermission } from "@/lib/opencode/permission";
-import type { MessagePart, PermissionResponse } from "@/lib/opencode/types";
+import type { ArchePermission } from "@/lib/harness/events";
 import { cn } from "@/lib/utils";
 import type { ChatMessage } from "@/types/workspace";
+import type { MessagePart, PermissionResponse } from "@/types/workspace-runtime";
 
 type ChatPanelMessagesProps = {
   chatContentStyle: CSSProperties;
@@ -44,7 +44,7 @@ type ChatPanelMessagesProps = {
   /** True while the session is generating a response (dots on the active reasoning block). */
   isStreaming?: boolean;
   messages: ChatMessage[];
-  permissions?: WorkspacePermission[];
+  permissions?: ArchePermission[];
   messagesEndRef: RefObject<HTMLDivElement | null>;
   onAnswerPermission?: (
     sessionId: string,

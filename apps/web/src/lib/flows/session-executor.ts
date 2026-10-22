@@ -1,16 +1,18 @@
 import { FlowRunStatus } from '@prisma/client'
 
+import type { HarnessRuntime } from '@/lib/harness/contract'
 import {
   captureSessionMessageCursor,
+  createSessionPromptRun,
   describeLatestAssistantReply,
+  readSessionFamilyRuntimeState,
   readLatestAssistantText,
+  type SessionMessageCursor,
   waitForSessionToComplete,
-  type SessionExecutionClient,
-} from '@/lib/opencode/session-execution'
+} from '@/lib/harness/execution'
 import { flowService, messageRunService } from '@/lib/services'
 
 const LEASE_EXTENSION_INTERVAL_MS = 60_000
-const FLOW_MCP_READINESS_DIRECTORY = '/workspace'
 const FLOW_MCP_READINESS_INITIAL_DELAY_MS = 250
 const FLOW_MCP_READINESS_MAX_ATTEMPTS = 30
 const FLOW_MCP_READINESS_MAX_DELAY_MS = 2_000
@@ -19,25 +21,6 @@ const FLOW_MCP_READINESS_STATUS_TIMEOUT_MS = 2_000
 const FLOW_MCP_READINESS_TIMEOUT_MS = 15_000
 export const FLOW_LEASE_MS = 15 * 60 * 1000
 export const FLOW_RUN_CANCELLED_ERROR = 'flow_run_cancelled'
-
-type PromptModel = {
-  modelID: string
-  providerID: string
-}
-
-type RuntimeAgent = {
-  model?: PromptModel
-  name?: string
-}
-
-type RuntimeProvider = {
-  id?: string
-  models?: Record<string, unknown>
-}
-
-type RuntimeConfig = {
-  mcpServerKeys: string[]
-}
 
 export type FlowConnectorDeclaration = {
   displayName?: string
@@ -49,19 +32,6 @@ export type FlowPromptResult =
   | { ok: false; type: 'failed'; error: string }
   | { ok: false; type: 'termination_unconfirmed'; cause: string }
 
-type RuntimeClientWithConfig = SessionExecutionClient & {
-  app?: {
-    agents?: (parameters?: unknown, options?: unknown) => Promise<{ data?: unknown }>
-  }
-  config?: {
-    get?: (parameters?: unknown, options?: unknown) => Promise<{ data?: unknown }>
-    providers?: (parameters?: unknown, options?: unknown) => Promise<{ data?: unknown }>
-  }
-  mcp?: {
-    status?: (parameters?: unknown, options?: unknown) => Promise<{ data?: unknown }>
-  }
-}
-
 function importRuntimeModule<T>(specifier: string): Promise<T> {
   if (process.env.VITEST) {
     return import(specifier) as Promise<T>
@@ -69,42 +39,6 @@ function importRuntimeModule<T>(specifier: string): Promise<T> {
 
   // Keep runtime imports out of Next/Vitest static module transforms.
   return Function('runtimeSpecifier', 'return import(runtimeSpecifier)')(specifier) as Promise<T>
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
-}
-
-function readAgentModel(agent: unknown): PromptModel | null {
-  if (!isRecord(agent) || !isRecord(agent.model)) return null
-
-  const providerID = agent.model.providerID
-  const modelID = agent.model.modelID
-  if (typeof providerID !== 'string' || typeof modelID !== 'string') return null
-
-  return { modelID, providerID }
-}
-
-function readRuntimeAgents(data: unknown): RuntimeAgent[] {
-  if (!Array.isArray(data)) return []
-
-  return data.flatMap((agent) => {
-    if (!isRecord(agent)) return []
-    const name = typeof agent.name === 'string' ? agent.name : undefined
-    const model = readAgentModel(agent) ?? undefined
-    return [{ model, name }]
-  })
-}
-
-function readRuntimeProviders(data: unknown): RuntimeProvider[] {
-  if (!isRecord(data) || !Array.isArray(data.providers)) return []
-
-  return data.providers.flatMap((provider) => {
-    if (!isRecord(provider)) return []
-    const id = typeof provider.id === 'string' ? provider.id : undefined
-    const models = isRecord(provider.models) ? provider.models : undefined
-    return [{ id, models }]
-  })
 }
 
 function sleep(ms: number): Promise<void> {
@@ -126,16 +60,6 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
   }
 }
 
-function readRuntimeConfig(data: unknown): RuntimeConfig {
-  if (!isRecord(data)) return { mcpServerKeys: [] }
-
-  return {
-    mcpServerKeys: isRecord(data.mcp)
-      ? Object.keys(data.mcp).filter((serverKey) => serverKey.startsWith('arche_')).sort()
-      : [],
-  }
-}
-
 type RequiredConnectorEntry = {
   declarationId: string
   serverKey: string | null
@@ -154,21 +78,19 @@ function resolveRequiredConnectorEntries(input: {
 }
 
 function getUnavailableDeclarationIds(
-  data: unknown,
+  status: Record<string, boolean>,
   required: RequiredConnectorEntry[],
 ): string[] {
-  const status = isRecord(data) ? data : {}
   return required
     .filter((entry) => {
       if (!entry.serverKey) return true
-      const connectorStatus = status[entry.serverKey]
-      return !isRecord(connectorStatus) || connectorStatus.status !== 'connected'
+      return status[entry.serverKey] !== true
     })
     .map((entry) => entry.declarationId)
 }
 
 async function getUnavailableMcpConnectorError(params: {
-  client: SessionExecutionClient
+  client: HarnessRuntime
   maxAttempts?: number
   initialDelayMs?: number
   requiredConnectors?: FlowConnectorDeclaration[]
@@ -178,23 +100,19 @@ async function getUnavailableMcpConnectorError(params: {
   const declarations = params.requiredConnectors ?? []
   if (declarations.length === 0) return null
 
-  const client = params.client as RuntimeClientWithConfig
-  if (!client.config?.get || !client.mcp?.status) return null
-
-  let runtimeConfig: RuntimeConfig
+  const client = params.client
+  let mcpServerKeys: string[]
   try {
-    const configResult = await client.config.get(
-      { directory: FLOW_MCP_READINESS_DIRECTORY },
-      { throwOnError: true },
-    )
-    runtimeConfig = readRuntimeConfig(configResult.data)
+    const configResult = await client.listConnectorKeys()
+    if (!configResult.ok) return null
+    mcpServerKeys = configResult.data
   } catch {
     return null
   }
 
   const requiredEntries = resolveRequiredConnectorEntries({
     declarations,
-    mcpServerKeys: runtimeConfig.mcpServerKeys,
+    mcpServerKeys,
   })
   const describeUnavailableConnector = (declarationId: string): string => {
     const declaration = declarations.find((candidate) => candidate.id === declarationId)
@@ -223,13 +141,12 @@ async function getUnavailableMcpConnectorError(params: {
     attempts += 1
     try {
       const statusResult = await withTimeout(
-        client.mcp.status(
-          { directory: FLOW_MCP_READINESS_DIRECTORY },
-          { throwOnError: true },
-        ),
+        client.listConnectorStatus(),
         statusTimeoutMs,
       )
-      unavailableDeclarationIds = getUnavailableDeclarationIds(statusResult.data, requiredEntries)
+      unavailableDeclarationIds = statusResult.ok
+        ? getUnavailableDeclarationIds(statusResult.data, requiredEntries)
+        : requiredEntries.map((entry) => entry.declarationId)
       if (unavailableDeclarationIds.length === 0) return null
     } catch {
       unavailableDeclarationIds = requiredEntries.map((entry) => entry.declarationId)
@@ -249,25 +166,25 @@ async function getUnavailableMcpConnectorError(params: {
 
 async function getUnavailableAgentModelError(params: {
   agent: string | null | undefined
-  client: SessionExecutionClient
+  client: HarnessRuntime
 }): Promise<string | null> {
   if (!params.agent) return null
 
-  const client = params.client as RuntimeClientWithConfig
-  if (!client.app?.agents || !client.config?.providers) return null
-
+  const client = params.client
   try {
-    const agentsResult = await client.app.agents({}, { throwOnError: true })
-    const agent = readRuntimeAgents(agentsResult.data).find((entry) => entry.name === params.agent)
+    const agentsResult = await client.listAgents()
+    if (!agentsResult.ok) return null
+    const agent = agentsResult.data.find((entry) => entry.id === params.agent)
     if (!agent?.model) return null
 
-    const providersResult = await client.config.providers({}, { throwOnError: true })
-    const provider = readRuntimeProviders(providersResult.data).find((entry) => entry.id === agent.model?.providerID)
-    if (provider?.models && Object.prototype.hasOwnProperty.call(provider.models, agent.model.modelID)) {
+    const modelsResult = await client.listModels()
+    if (!modelsResult.ok) return null
+    const agentModel = agent.model
+    if (modelsResult.data.some((model) => model.providerId === agentModel.providerId && model.modelId === agentModel.modelId)) {
       return null
     }
 
-    return `flow_agent_model_unavailable:${params.agent}:${agent.model.providerID}/${agent.model.modelID}`
+    return `flow_agent_model_unavailable:${params.agent}:${agent.model.providerId}/${agent.model.modelId}`
   } catch {
     return null
   }
@@ -280,7 +197,7 @@ export async function createFlowLeaseOwner(): Promise<string> {
 
 export async function runFlowPromptAndReadOutput(params: {
   agent?: string | null
-  client: SessionExecutionClient
+  client: HarnessRuntime
   flowId: string
   leaseOwner: string
   prompt: string
@@ -321,35 +238,42 @@ export async function runFlowPromptAndReadOutput(params: {
 
   let messageRunId: string | null = null
   if (params.userId) {
-    const runResult = await messageRunService.createActiveRunAfterRuntimeStateCheck({
-      readRuntimeSessionState: async () => {
-        const statusResult = await params.client.session.status({}, { throwOnError: true })
-        const sessionStatus = statusResult.data?.[params.sessionId]
-        if (sessionStatus?.type === 'busy' || sessionStatus?.type === 'retry') return 'busy'
-        if (!sessionStatus || sessionStatus.type === 'idle') return 'idle'
-        return 'unknown'
-      },
+    const runResult = await createSessionPromptRun({
+      client: params.client,
       sessionId: params.sessionId,
       slug: params.slug,
       source: 'flow',
     })
     if (!runResult.ok) {
-      return { ok: false, type: 'failed', error: 'session_busy' }
+      return { ok: false, type: 'failed', error: runResult.error }
     }
     messageRunId = runResult.run.id
+  } else {
+    const state = await readSessionFamilyRuntimeState(params.client, params.sessionId)
+    if (state !== 'idle') return { ok: false, type: 'failed', error: state === 'not_found' ? 'session_not_found' : 'session_busy' }
   }
 
-  let cursor: Awaited<ReturnType<typeof captureSessionMessageCursor>>
+  let cursor: SessionMessageCursor
   try {
-    cursor = await captureSessionMessageCursor(params.client, params.sessionId)
-    await params.client.session.promptAsync(
-      {
-        agent: params.agent ?? undefined,
-        parts: [{ text: params.prompt, type: 'text' }],
-        sessionID: params.sessionId,
-      },
-      { throwOnError: true },
-    )
+    const cursorResult = await captureSessionMessageCursor(params.client, params.sessionId)
+    if (!cursorResult.ok) {
+      if (messageRunId) {
+        await messageRunService.markRunFailed(messageRunId, cursorResult.error.code).catch(() => undefined)
+      }
+      return { ok: false, type: 'failed', error: cursorResult.error.code }
+    }
+    cursor = cursorResult.data
+    const submitted = await params.client.prompt({
+      agent: params.agent ?? undefined,
+      parts: [{ text: params.prompt, type: 'text' }],
+      sessionId: params.sessionId,
+    })
+    if (!submitted.ok) {
+      if (messageRunId) {
+        await messageRunService.markRunFailed(messageRunId, submitted.error.code).catch(() => undefined)
+      }
+      return { ok: false, type: 'failed', error: submitted.error.code }
+    }
   } catch (error) {
     if (messageRunId) {
       await messageRunService.markRunFailed(
@@ -394,6 +318,13 @@ export async function runFlowPromptAndReadOutput(params: {
       : undefined,
   })
 
+  if (completion.status === 'error') {
+    if (messageRunId) {
+      await messageRunService.markRunFailed(messageRunId, completion.error.code).catch(() => undefined)
+    }
+    return { ok: false, type: 'failed', error: completion.error.code }
+  }
+
   if (completion.status === 'termination_unconfirmed') {
     // Termination could not be confirmed, so the flow run stays preserved for
     // lease-expiry recovery — but this run's message run is definitively over
@@ -416,13 +347,18 @@ export async function runFlowPromptAndReadOutput(params: {
     await messageRunService.markRunSucceeded(messageRunId).catch(() => undefined)
   }
 
-  const output = await readLatestAssistantText(params.client, params.sessionId, cursor)
+  const outputResult = await readLatestAssistantText(params.client, params.sessionId, cursor)
+  if (!outputResult.ok) {
+    return { ok: false, type: 'failed', error: outputResult.error.code }
+  }
+  const output = outputResult.data
   if (!output) {
-    const diagnostics = await describeLatestAssistantReply({
+    const diagnosticsResult = await describeLatestAssistantReply({
       client: params.client,
       cursor,
       sessionId: params.sessionId,
     }).catch(() => null)
+    const diagnostics = diagnosticsResult?.ok ? diagnosticsResult.data : null
 
     if (diagnostics) {
       console.warn('[flows] Step completed without assistant output', { ...diagnostics })

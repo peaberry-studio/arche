@@ -18,6 +18,7 @@ export type InstanceRecord = {
   containerId: string | null
   serverPassword: string
   appliedConfigSha: string | null
+  runtimeKind: string | null
   providerSyncHash: string | null
   providerSyncedAt: Date | null
 }
@@ -28,6 +29,7 @@ export type InstanceCredentials = {
 }
 
 export type InstanceStatusDetails = {
+  runtimeKind: string | null
   status: InstanceStatus
   startedAt: Date | null
   stoppedAt: Date | null
@@ -59,6 +61,13 @@ export function findBySlug(slug: string): Promise<InstanceRecord | null> {
   return prisma.instance.findUnique({ where: { slug } })
 }
 
+export function findRuntimeKindBySlug(slug: string): Promise<{ runtimeKind: string | null } | null> {
+  return prisma.instance.findUnique({
+    where: { slug },
+    select: { runtimeKind: true },
+  })
+}
+
 export function findCredentialsBySlug(slug: string): Promise<InstanceCredentials | null> {
   return prisma.instance.findUnique({
     where: { slug },
@@ -72,6 +81,7 @@ export function findStatusBySlug(slug: string): Promise<InstanceStatusDetails | 
     select: {
       status: true,
       startedAt: true,
+      runtimeKind: true,
       stoppedAt: true,
       lastActivityAt: true,
       containerId: true,
@@ -130,12 +140,14 @@ export function findActiveInstances(): Promise<InstanceActiveEntry[]> {
   })
 }
 
+// Longest idle first, so the reaper stops the least recently used instance.
 export function findIdleInstances(threshold: Date): Promise<InstanceRecord[]> {
   return prisma.instance.findMany({
     where: {
       status: 'running',
       lastActivityAt: { lt: threshold },
     },
+    orderBy: { lastActivityAt: 'asc' },
   })
 }
 
@@ -143,21 +155,24 @@ export function findIdleInstances(threshold: Date): Promise<InstanceRecord[]> {
 // Mutations
 // ---------------------------------------------------------------------------
 
-export function upsertStarting(slug: string, serverPassword: string) {
+// `runtimeKind` marks a row created by a runtime that has no legacy history to
+// migrate, so a failed first start is not mistaken for an OpenCode 1 workspace.
+export function upsertStarting(slug: string, serverPassword: string, startedAt = new Date(), runtimeKind?: string) {
   return prisma.instance.upsert({
     where: { slug },
     create: {
       slug,
       status: 'starting',
       serverPassword,
-      startedAt: new Date(),
+      startedAt,
       providerSyncHash: null,
       providerSyncedAt: null,
+      ...(runtimeKind && { runtimeKind }),
     },
     update: {
       status: 'starting',
       serverPassword,
-      startedAt: new Date(),
+      startedAt,
       stoppedAt: null,
       containerId: null,
       providerSyncHash: null,
@@ -166,10 +181,92 @@ export function upsertStarting(slug: string, serverPassword: string) {
   })
 }
 
-export function setContainerId(slug: string, containerId: string) {
-  return prisma.instance.update({
-    where: { slug },
-    data: { containerId },
+export function claimStartingTransition(instance: InstanceRecord, startedAt: Date): Promise<{ count: number }> {
+  return prisma.instance.updateMany({
+    where: {
+      id: instance.id,
+      status: instance.status,
+      containerId: instance.containerId,
+      startedAt: instance.startedAt,
+    },
+    data: { status: 'starting', startedAt },
+  })
+}
+
+// Like `claimStartingTransition`, but loses to any activity recorded since the
+// instance was found idle, so an idle stop never cuts off a workspace in use.
+export function claimIdleStopTransition(instance: InstanceRecord, startedAt: Date): Promise<{ count: number }> {
+  return prisma.instance.updateMany({
+    where: {
+      id: instance.id,
+      status: instance.status,
+      containerId: instance.containerId,
+      startedAt: instance.startedAt,
+      lastActivityAt: instance.lastActivityAt,
+    },
+    data: { status: 'starting', startedAt },
+  })
+}
+
+export function continueStartingTransition(instance: InstanceRecord, startedAt: Date, serverPassword: string, nextStartedAt: Date): Promise<{ count: number }> {
+  return prisma.instance.updateMany({
+    where: {
+      id: instance.id,
+      status: 'starting',
+      containerId: instance.containerId,
+      runtimeKind: instance.runtimeKind,
+      startedAt,
+    },
+    data: {
+      containerId: null,
+      providerSyncedAt: null,
+      providerSyncHash: null,
+      serverPassword,
+      startedAt: nextStartedAt,
+      stoppedAt: null,
+    },
+  })
+}
+
+export function failStartingTransition(id: string, startedAt: Date): Promise<{ count: number }> {
+  return prisma.instance.updateMany({
+    where: { id, status: 'starting', startedAt },
+    data: { status: 'error', containerId: null, providerSyncHash: null, providerSyncedAt: null },
+  })
+}
+
+export function setStartingPassword(slug: string, startedAt: Date, serverPassword: string): Promise<{ count: number }> {
+  return prisma.instance.updateMany({
+    where: { slug, status: 'starting', containerId: null, startedAt },
+    data: { serverPassword },
+  })
+}
+
+export function finishStoppingTransition(id: string, startedAt: Date): Promise<{ count: number }> {
+  return prisma.instance.updateMany({
+    where: { id, status: 'starting', startedAt },
+    data: { status: 'stopped', stoppedAt: new Date(), containerId: null, providerSyncHash: null, providerSyncedAt: null },
+  })
+}
+
+export function recoverStoppingTransition(instance: InstanceRecord, startedAt: Date): Promise<{ count: number }> {
+  return prisma.instance.updateMany({
+    where: { id: instance.id, status: 'starting', containerId: instance.containerId, startedAt },
+    data: { status: instance.status, startedAt: instance.startedAt },
+  })
+}
+
+export function setStoppedIfCurrentSnapshot(slug: string, instance: Pick<InstanceStatusDetails, 'status' | 'containerId' | 'startedAt'>): Promise<{ count: number }> {
+  return prisma.instance.updateMany({
+    where: { slug, status: instance.status, containerId: instance.containerId, startedAt: instance.startedAt },
+    data: { status: 'stopped', stoppedAt: new Date(), containerId: null, providerSyncHash: null, providerSyncedAt: null },
+  })
+}
+
+export function setContainerId(slug: string, containerId: string, runtimeKind: string, startedAt: Date): Promise<{ count: number }> {
+  return prisma.instance.updateMany({
+    where: { slug, status: 'starting', containerId: null, startedAt },
+    data: { containerId, runtimeKind },
   })
 }
 
@@ -193,6 +290,7 @@ export function setRunningIfCurrentContainer(
   slug: string,
   containerId: string,
   appliedConfigSha: string | null,
+  runtimeKind: string,
 ): Promise<{ count: number }> {
   return prisma.instance.updateMany({
     where: { slug, status: 'starting', containerId },
@@ -200,7 +298,39 @@ export function setRunningIfCurrentContainer(
       status: 'running',
       lastActivityAt: new Date(),
       appliedConfigSha,
+      runtimeKind,
     },
+  })
+}
+
+export function setRunningIfCurrentDesktopStart(
+  slug: string,
+  startedAt: Date,
+  appliedConfigSha: string | null,
+  runtimeKind: string,
+): Promise<{ count: number }> {
+  return prisma.instance.updateMany({
+    where: { slug, status: 'starting', containerId: null, startedAt },
+    data: {
+      status: 'running',
+      lastActivityAt: new Date(),
+      appliedConfigSha,
+      runtimeKind,
+    },
+  })
+}
+
+export function setRuntimeKindIfCurrentDesktopStart(slug: string, startedAt: Date, runtimeKind: string): Promise<{ count: number }> {
+  return prisma.instance.updateMany({
+    where: { slug, status: 'starting', containerId: null, startedAt },
+    data: { runtimeKind },
+  })
+}
+
+export function setErrorIfCurrentDesktopStart(slug: string, startedAt: Date): Promise<{ count: number }> {
+  return prisma.instance.updateMany({
+    where: { slug, status: 'starting', containerId: null, startedAt },
+    data: { status: 'error', providerSyncHash: null, providerSyncedAt: null },
   })
 }
 
@@ -232,13 +362,14 @@ export function correctToRunningIfCurrentContainer(
   })
 }
 
-export function setRunning(slug: string, appliedConfigSha: string | null) {
+export function setRunning(slug: string, appliedConfigSha: string | null, runtimeKind: string) {
   return prisma.instance.update({
     where: { slug },
     data: {
       status: 'running',
       lastActivityAt: new Date(),
       appliedConfigSha,
+      runtimeKind,
     },
   })
 }

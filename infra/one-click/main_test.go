@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -230,6 +231,56 @@ func TestRenderUpdateScriptSetsFlowSchedulerModeAndStartsFlows(t *testing.T) {
 	}
 	if !strings.Contains(script, "docker compose up -d web flows reaper") {
 		t.Fatalf("renderUpdateScript() should bring up the flows and reaper services alongside web:\n%s", script)
+	}
+}
+
+func TestUpdateDrainsLegacyWritersBeforeReplacingWorkspaceImage(t *testing.T) {
+	for _, legacy := range []string{"web", "flows", "reaper", "", "inspection-error"} {
+		t.Run(legacy, func(t *testing.T) {
+			dir := t.TempDir()
+			calls := filepath.Join(dir, "calls")
+			docker := `#!/bin/sh
+printf '%s\n' "$*" >> "$CALLS"
+if [ "$1" = compose ] && [ "$2" = ps ]; then
+  printf 'web\nflows\nreaper\n'
+elif [ "$1" = inspect ]; then
+  if [ "$LEGACY_CONTAINER" = inspection-error ]; then exit 1; fi
+  if [ "$4" != "$LEGACY_CONTAINER" ]; then printf 'opencode-v2\n'; fi
+fi
+`
+			if err := os.WriteFile(filepath.Join(dir, "docker"), []byte(docker), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			script := renderUpdateScript("latest", "services:\n  web:\n")
+			start := strings.Index(script, "backend_ids=")
+			end := strings.Index(script, "log 'Recreating web, flows, and reaper services'")
+			if start < 0 || end <= start {
+				t.Fatal("update script is missing its runtime upgrade fence")
+			}
+			command := exec.Command("bash", "-c", "set -euo pipefail\nlog() { :; }\nOPENCODE_IMAGE=fixture:latest\n"+script[start:end])
+			command.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "CALLS="+calls, "LEGACY_CONTAINER="+legacy)
+			output, err := command.CombinedOutput()
+			if legacy == "inspection-error" && err == nil || legacy != "inspection-error" && err != nil {
+				t.Fatalf("update fence error = %v, output = %s", err, output)
+			}
+			recorded, err := os.ReadFile(calls)
+			if err != nil {
+				t.Fatal(err)
+			}
+			stop := strings.Index(string(recorded), "compose stop -t 10 web flows reaper")
+			pull := strings.Index(string(recorded), "pull fixture:latest")
+			if legacy == "inspection-error" {
+				if pull >= 0 {
+					t.Fatal("workspace image changed after an uncertain writer inspection")
+				}
+			} else if legacy != "" {
+				if stop < 0 || pull <= stop {
+					t.Fatalf("legacy writer was not drained before pull: %s", recorded)
+				}
+			} else if stop >= 0 || pull < 0 {
+				t.Fatalf("compatible writers should keep running during pull: %s", recorded)
+			}
+		})
 	}
 }
 

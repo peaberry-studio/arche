@@ -9,8 +9,7 @@ import {
   deleteSessionAction,
   markFlowRunSeenAction,
   updateSessionAction,
-} from "@/actions/opencode";
-import type { WorkspaceSession } from "@/lib/opencode/types";
+} from "@/actions/workspace-sessions";
 import {
   ROOT_SESSION_LIMIT_STEP,
 } from "@/hooks/workspace/workspace-types";
@@ -25,6 +24,7 @@ import {
   updateSessionById,
   type WorkspaceSessionStore,
 } from "@/hooks/workspace/workspace-session-store";
+import type { WorkspaceSession } from "@/types/workspace-runtime";
 
 type UseWorkspaceSessionsOptions = {
   slug: string;
@@ -42,6 +42,7 @@ export function useWorkspaceSessions({
   isConnected,
 }: UseWorkspaceSessionsOptions) {
   const initialSessionIdRef = useRef(initialSessionId);
+  const isConnectedRef = useRef(isConnected);
 
   const [sessionStore, setSessionStore] = useState<WorkspaceSessionStore>(() => createSessionStore());
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
@@ -84,6 +85,10 @@ export function useWorkspaceSessions({
     sessionsRef.current = sessions;
   }, [sessions]);
 
+  useEffect(() => {
+    isConnectedRef.current = isConnected;
+  }, [isConnected]);
+
   const activeSession = sessions.find((s) => s.id === activeSessionId) ?? null;
 
   const loadSessions = useCallback(() => {
@@ -99,6 +104,7 @@ export function useWorkspaceSessions({
 
     void (async () => {
       const isInitialLoad = !hasLoadedInitialSessionsRef.current;
+      const wasConnected = isConnectedRef.current;
       let shouldReload = false;
 
       setIsLoadingSessions(true);
@@ -114,7 +120,7 @@ export function useWorkspaceSessions({
         const rootSessionLimit = Math.max(
           ROOT_SESSION_LIMIT_STEP,
           rootSessionLimitRef.current,
-          sessionStoreRef.current.rootOrder.length,
+          sessionStoreRef.current.rootOrder.filter((id) => !sessionStoreRef.current.sessionsById[id]?.archived).length,
         );
         const result = await listSessionsAction(slug, {
           limit: rootSessionLimit,
@@ -135,6 +141,7 @@ export function useWorkspaceSessions({
 
         let familySessions: WorkspaceSession[] = [];
         let familyRootId: string | null = null;
+        let requestedSessionNotFound = false;
         if (
           preferredSessionId &&
           sessionStoreRef.current.loadedFamilySessionIds.has(preferredSessionId)
@@ -152,6 +159,8 @@ export function useWorkspaceSessions({
             familySessions = familyResult.sessions;
             familyRootId = familyResult.rootSessionId ?? familyRootId;
           }
+          requestedSessionNotFound = preferredSessionId === requestedSessionId &&
+            !familyResult.ok && familyResult.error === "not_found";
         }
 
         if (mutationVersionAtStart !== sessionMutationVersionRef.current) {
@@ -186,14 +195,16 @@ export function useWorkspaceSessions({
             ? requestedSessionId
             : null);
 
-        initialSessionIdRef.current = null;
+        if (nextActiveSessionId || requestedSessionNotFound) {
+          initialSessionIdRef.current = null;
+        }
 
         if (nextActiveSessionId !== currentSessionId) {
           activeSessionIdRef.current = nextActiveSessionId;
           setActiveSessionId(nextActiveSessionId);
         }
 
-        if (isInitialLoad) {
+        if (isInitialLoad && initialSessionIdRef.current === null) {
           hasLoadedInitialSessionsRef.current = true;
           setIsInitialSessionsReady(true);
           setSessionsError(null);
@@ -207,7 +218,7 @@ export function useWorkspaceSessions({
         if (sessionLoadPromiseRef.current === loadPromise) {
           setIsLoadingSessions(false);
           sessionLoadPromiseRef.current = null;
-          if (shouldReload) {
+          if (shouldReload || wasConnected !== isConnectedRef.current) {
             queueMicrotask(() => {
               void loadSessionsRef.current?.();
             });
@@ -231,7 +242,7 @@ export function useWorkspaceSessions({
 
     const nextLimit = Math.max(
       rootSessionLimitRef.current + ROOT_SESSION_LIMIT_STEP,
-      sessionStoreRef.current.rootOrder.length + ROOT_SESSION_LIMIT_STEP,
+      sessionStoreRef.current.rootOrder.filter((id) => !sessionStoreRef.current.sessionsById[id]?.archived).length + ROOT_SESSION_LIMIT_STEP,
     );
 
     setIsLoadingMoreSessions(true);
@@ -373,6 +384,7 @@ export function useWorkspaceSessions({
 
   const deleteSession = useCallback(
     async (id: string): Promise<DeleteWorkspaceSessionResult | null> => {
+      if (sessionStoreRef.current.sessionsById[id]?.archived) return null;
       const result = await deleteSessionAction(slug, id);
       if (result.ok) {
         markSessionsMutated();
@@ -402,6 +414,7 @@ export function useWorkspaceSessions({
 
   const renameSession = useCallback(
     async (id: string, title: string) => {
+      if (sessionStoreRef.current.sessionsById[id]?.archived) return false;
       const nextTitle = title.trim();
       if (!nextTitle) return false;
 

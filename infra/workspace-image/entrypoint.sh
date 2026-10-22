@@ -36,10 +36,10 @@ if [ -f "/tmp/arche-user-data/AGENTS.md" ]; then
   cp /tmp/arche-user-data/AGENTS.md /workspace/AGENTS.md
 fi
 
-mkdir -p /home/workspace/.config/opencode
-rm -rf /home/workspace/.config/opencode/skills
+mkdir -p /workspace/.opencode
+rm -rf /workspace/.opencode/skills
 if [ -d "/tmp/arche-user-data/skills" ]; then
-  cp -R /tmp/arche-user-data/skills /home/workspace/.config/opencode/skills
+  cp -R /tmp/arche-user-data/skills /workspace/.opencode/skills
 fi
 
 # Start workspace-agent if available
@@ -50,4 +50,9 @@ if command -v workspace-agent >/dev/null 2>&1; then
 fi
 
 # Run OpenCode with original arguments
+if [ -n "${OPENCODE_SERVER_PASSWORD:-}" ]; then
+  # Assignments never word-split, so the value needs no quotes.
+  OPENCODE_PASSWORD=$OPENCODE_SERVER_PASSWORD
+  export OPENCODE_PASSWORD
+fi
 exec opencode "$@"

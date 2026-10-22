@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getWorkspaceDiffsAction } from "@/actions/opencode";
+import { getWorkspaceDiffsAction } from "@/actions/workspace-sessions";
 
 export type WorkspaceDiff = {
   path: string;

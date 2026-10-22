@@ -5,23 +5,26 @@ const mocks = vi.hoisted(() => ({
   getRuntimeCapabilities: vi.fn(() => ({ csrf: false })),
   isDesktop: vi.fn(() => false),
   getSession: vi.fn(),
-  validateSameOrigin: vi.fn(() => ({ ok: true })),
+  validateSameOrigin: vi.fn((): { ok: boolean; error?: string } => ({ ok: true })),
   validateDesktopToken: vi.fn(() => true),
-  instanceService: { findCredentialsBySlug: vi.fn() },
+  getRuntimeForSlug: vi.fn(),
+  isArchivedSession: vi.fn(),
+  sessionStatus: vi.fn(),
+  listChildren: vi.fn(),
+  prompt: vi.fn(),
+  findIdBySlug: vi.fn(),
   messageRunService: {
     findActiveRun: vi.fn(),
     markActiveRunSucceeded: vi.fn(),
   },
-  decryptPassword: vi.fn(() => 'secret'),
-  getInstanceUrl: vi.fn(() => 'http://test-slug:3000'),
-  getWorkspaceAgentUrl: vi.fn(() => 'http://agent:3000'),
+  getWorkspaceAgentConnection: vi.fn(),
   buildWorkspacePromptParts: vi.fn(),
   ensureProviderAccessFreshForExecution: vi.fn(),
-  resolveRuntimeProviderId: vi.fn((id: string) => id),
   MAX_ATTACHMENTS_PER_MESSAGE: 10,
 }))
 
 vi.mock('@/lib/runtime/capabilities', () => ({ getRuntimeCapabilities: mocks.getRuntimeCapabilities }))
+vi.mock('@/lib/services/legacy-session-archive', () => ({ isArchivedSession: mocks.isArchivedSession }))
 vi.mock('@/lib/runtime/mode', () => ({ isDesktop: mocks.isDesktop }))
 vi.mock('@/lib/runtime/session', () => ({ getSession: mocks.getSession }))
 vi.mock('@/lib/csrf', () => ({ validateSameOrigin: mocks.validateSameOrigin }))
@@ -30,26 +33,16 @@ vi.mock('@/lib/runtime/desktop/token', () => ({
   validateDesktopToken: mocks.validateDesktopToken,
 }))
 vi.mock('@/lib/services', () => ({
-  instanceService: mocks.instanceService,
   messageRunService: mocks.messageRunService,
+  userService: { findIdBySlug: mocks.findIdBySlug },
 }))
-vi.mock('@/lib/spawner/crypto', () => ({ decryptPassword: mocks.decryptPassword }))
-vi.mock('@/lib/opencode/client', () => ({ getInstanceUrl: mocks.getInstanceUrl }))
-vi.mock('@/lib/opencode/providers', () => ({ ensureProviderAccessFreshForExecution: mocks.ensureProviderAccessFreshForExecution }))
-vi.mock('@/lib/opencode/workspace-prompt', async (importOriginal) => {
-  const original = await importOriginal<typeof import('@/lib/opencode/workspace-prompt')>()
-  return {
-    ...original,
-    buildWorkspacePromptParts: mocks.buildWorkspacePromptParts,
-  }
-})
-vi.mock('@/lib/providers/catalog', () => ({
-  resolveRuntimeProviderId: mocks.resolveRuntimeProviderId,
-  getCanonicalProviderId: vi.fn((id: string) => id),
-  isProviderId: vi.fn(() => true),
-  normalizeProviderId: vi.fn((id: string) => id),
+vi.mock('@/lib/harness/registry', () => ({
+  getRuntimeForSlug: mocks.getRuntimeForSlug,
+  buildWorkspacePromptParts: mocks.buildWorkspacePromptParts,
+  normalizeMessageAttachments: (value: unknown) => Array.isArray(value) ? value : [],
+  normalizeContextPaths: (value: unknown) => Array.isArray(value) ? value : [],
 }))
-vi.mock('@/lib/workspace-agent/client', () => ({ getWorkspaceAgentUrl: mocks.getWorkspaceAgentUrl }))
+vi.mock('@/lib/runtime/workspace-host', () => ({ getWorkspaceAgentConnection: mocks.getWorkspaceAgentConnection }))
 vi.mock('@/lib/workspace-attachments', () => ({ MAX_ATTACHMENTS_PER_MESSAGE: 10 }))
 
 import { POST } from '../route'
@@ -67,37 +60,38 @@ function params() {
 }
 
 function statusResponse(statusRecord: unknown) {
-  return new Response(JSON.stringify(statusRecord), {
-    headers: { 'Content-Type': 'application/json' },
-  })
+  return { ok: true, data: statusRecord }
 }
 
 describe('POST /api/w/[slug]/chat/prompt', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.isArchivedSession.mockResolvedValue(false)
+    mocks.findIdBySlug.mockResolvedValue({ id: 'workspace-owner' })
     mocks.getRuntimeCapabilities.mockReturnValue({ csrf: false })
     mocks.validateSameOrigin.mockReturnValue({ ok: true })
     mocks.getSession.mockResolvedValue({
       user: { id: 'u1', email: 'alice@test.com', slug: 'alice', role: 'USER' },
       sessionId: 's1',
     })
-    mocks.instanceService.findCredentialsBySlug.mockResolvedValue({
-      status: 'running',
-      serverPassword: 'enc:pw',
-    })
-    mocks.decryptPassword.mockReturnValue('secret')
-    mocks.getInstanceUrl.mockReturnValue('http://test-slug:3000')
-    mocks.getWorkspaceAgentUrl.mockReturnValue('http://agent:3000')
+    mocks.getRuntimeForSlug.mockResolvedValue({ ok: true, data: {
+      sessionStatus: mocks.sessionStatus,
+      listChildren: mocks.listChildren,
+      prompt: mocks.prompt,
+      syncProviderAccess: mocks.ensureProviderAccessFreshForExecution,
+    } })
+    mocks.sessionStatus.mockResolvedValue(statusResponse({ s1: { type: 'idle' } }))
+    mocks.listChildren.mockResolvedValue({ ok: true, data: [] })
+    mocks.prompt.mockResolvedValue({ ok: true })
+    mocks.getWorkspaceAgentConnection.mockResolvedValue({ baseUrl: 'http://agent:3000', authHeader: 'Basic expected' })
     mocks.buildWorkspacePromptParts.mockResolvedValue({ ok: true, parts: [{ type: 'text', text: 'Hola' }] })
     mocks.ensureProviderAccessFreshForExecution.mockResolvedValue(undefined)
     mocks.messageRunService.findActiveRun.mockResolvedValue(null)
     mocks.messageRunService.markActiveRunSucceeded.mockResolvedValue(undefined)
   })
 
-  it('202: calls prompt_async with id + parts and does not open /event', async () => {
+  it('202: submits a normalized prompt with message id and does not open an event stream', async () => {
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(statusResponse({ s1: { type: 'idle' } })) // session/status
-      .mockResolvedValueOnce(new Response('', { status: 200 })) // prompt_async
     vi.stubGlobal('fetch', fetchMock)
 
     const res = await POST(makeRequest({
@@ -113,23 +107,41 @@ describe('POST /api/w/[slug]/chat/prompt', () => {
       text: 'Hola',
       agent: { baseUrl: 'http://agent:3000', authHeader: expect.stringContaining('Basic ') },
     }))
-    expect(fetchMock).toHaveBeenCalledWith(
-      'http://test-slug:3000/session/s1/prompt_async',
-      expect.objectContaining({
-        method: 'POST',
-        body: JSON.stringify({
-          id: 'user-1',
-          parts: [{ type: 'text', text: 'Hola' }],
-          model: { providerID: 'openai', modelID: 'gpt-4o' },
-        }),
-      }),
-    )
-    const allUrls = fetchMock.mock.calls.map(([input]) => String(input))
-    expect(allUrls.some((url) => url.endsWith('/event'))).toBe(false)
+    expect(mocks.prompt).toHaveBeenCalledWith({
+      sessionId: 's1',
+      messageId: 'user-1',
+      parts: [{ type: 'text', text: 'Hola' }],
+      model: { providerId: 'openai', modelId: 'gpt-4o' },
+    }, { signal: expect.any(AbortSignal) })
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(mocks.ensureProviderAccessFreshForExecution).toHaveBeenCalledWith({ userId: 'u1' })
+    expect(mocks.findIdBySlug).not.toHaveBeenCalled()
+  })
+
+  it('refreshes the workspace owner credentials, never the visiting admin credentials', async () => {
+    mocks.getSession.mockResolvedValue({ user: { id: 'admin-1', slug: 'admin', role: 'ADMIN' }, sessionId: 'auth' })
+
+    const res = await POST(makeRequest({ sessionId: 's1', messageId: 'm1', text: 'Hello' }), params())
+
+    expect(res.status).toBe(202)
+    expect(mocks.findIdBySlug).toHaveBeenCalledExactlyOnceWith('alice')
+    expect(mocks.ensureProviderAccessFreshForExecution).toHaveBeenCalledExactlyOnceWith({ userId: 'workspace-owner' })
+  })
+
+  it('refuses an admin prompt for a missing workspace owner without syncing or dispatching', async () => {
+    mocks.getSession.mockResolvedValue({ user: { id: 'admin-1', slug: 'admin', role: 'ADMIN' }, sessionId: 'auth' })
+    mocks.findIdBySlug.mockResolvedValue(null)
+
+    const res = await POST(makeRequest({ sessionId: 's1', messageId: 'm1', text: 'Hello' }), params())
+
+    expect(res.status).toBe(404)
+    expect(await res.json()).toEqual({ error: 'user_not_found' })
+    expect(mocks.ensureProviderAccessFreshForExecution).not.toHaveBeenCalled()
+    expect(mocks.prompt).not.toHaveBeenCalled()
   })
 
   it('returns 409 when OpenCode is busy', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(statusResponse({ s1: { type: 'busy' } })))
+    mocks.sessionStatus.mockResolvedValue(statusResponse({ s1: { type: 'busy' } }))
     const res = await POST(makeRequest({ sessionId: 's1', messageId: 'user-1', text: 'Hola' }), params())
     expect(res.status).toBe(409)
     expect((await res.json()).error).toBe('session_busy')
@@ -137,17 +149,13 @@ describe('POST /api/w/[slug]/chat/prompt', () => {
 
   it('returns 409 when a MessageRun lock exists and OpenCode is busy', async () => {
     mocks.messageRunService.findActiveRun.mockResolvedValue({ id: 'run-1', status: 'running' })
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(statusResponse({ s1: { type: 'retry' } })))
+    mocks.sessionStatus.mockResolvedValue(statusResponse({ s1: { type: 'retry' } }))
     const res = await POST(makeRequest({ sessionId: 's1', messageId: 'user-1', text: 'Hola' }), params())
     expect(res.status).toBe(409)
   })
 
   it('reaps an idle MessageRun lock and continues with 202', async () => {
     mocks.messageRunService.findActiveRun.mockResolvedValue({ id: 'run-1', status: 'running' })
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(statusResponse({ s1: { type: 'idle' } }))
-      .mockResolvedValueOnce(new Response('', { status: 200 }))
-    vi.stubGlobal('fetch', fetchMock)
 
     const res = await POST(makeRequest({ sessionId: 's1', messageId: 'user-1', text: 'Hola' }), params())
     expect(res.status).toBe(202)
@@ -161,17 +169,14 @@ describe('POST /api/w/[slug]/chat/prompt', () => {
   })
 
   it('returns 503 when the instance is unavailable', async () => {
-    mocks.instanceService.findCredentialsBySlug.mockResolvedValue({ status: 'stopped', serverPassword: null })
+    mocks.getWorkspaceAgentConnection.mockResolvedValue(null)
     const res = await POST(makeRequest({ sessionId: 's1', messageId: 'user-1', text: 'Hola' }), params())
     expect(res.status).toBe(503)
     expect((await res.json()).error).toBe('instance_unavailable')
   })
 
   it('returns 502 when OpenCode rejects the prompt', async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(statusResponse({ s1: { type: 'idle' } }))
-      .mockResolvedValueOnce(new Response('rejected', { status: 500 }))
-    vi.stubGlobal('fetch', fetchMock)
+    mocks.prompt.mockResolvedValue({ ok: false, error: { code: 'runtime_error' } })
     const res = await POST(makeRequest({ sessionId: 's1', messageId: 'user-1', text: 'Hola' }), params())
     expect(res.status).toBe(502)
     expect((await res.json()).error).toBe('prompt_failed')
@@ -191,39 +196,94 @@ describe('POST /api/w/[slug]/chat/prompt', () => {
     })
     const res = await POST(makeRequest({ sessionId: 's1', messageId: 'user-1', text: 'Hola' }), params())
     expect(res.status).toBe(403)
+    expect(mocks.isArchivedSession).not.toHaveBeenCalled()
+    expect(mocks.getRuntimeForSlug).not.toHaveBeenCalled()
+  })
+
+  it.each(['USER', 'ADMIN'])('rejects archived prompts as %s before runtime access', async (role) => {
+    mocks.getSession.mockResolvedValue({ user: { id: 'u1', slug: role === 'ADMIN' ? 'admin' : 'alice', role }, sessionId: 'auth' })
+    mocks.isArchivedSession.mockResolvedValue(true)
+    const res = await POST(makeRequest({ sessionId: 'old', messageId: 'user-1', text: 'Hello' }), params())
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ error: 'session_archived' })
+    expect(mocks.isArchivedSession).toHaveBeenCalledWith('alice', 'old')
+    expect(mocks.getRuntimeForSlug).not.toHaveBeenCalled()
+    expect(mocks.getWorkspaceAgentConnection).not.toHaveBeenCalled()
+    expect(mocks.messageRunService.findActiveRun).not.toHaveBeenCalled()
+    expect(mocks.ensureProviderAccessFreshForExecution).not.toHaveBeenCalled()
+    expect(mocks.prompt).not.toHaveBeenCalled()
+  })
+
+  it('rejects unauthenticated archive requests before storage access', async () => {
+    mocks.getSession.mockResolvedValue(null)
+    const res = await POST(makeRequest({ sessionId: 'old', messageId: 'm', text: 'Hello' }), params())
+    expect(res.status).toBe(401)
+    expect(mocks.isArchivedSession).not.toHaveBeenCalled()
   })
 
   it('returns 409 when runtime status is unknown and a MessageRun is running', async () => {
     mocks.messageRunService.findActiveRun.mockResolvedValue({ id: 'run-1', status: 'running' })
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(new Response('nope', { status: 500 })))
+    mocks.sessionStatus.mockResolvedValue({ ok: false, error: { code: 'runtime_error' } })
     const res = await POST(makeRequest({ sessionId: 's1', messageId: 'user-1', text: 'Hola' }), params())
     expect(res.status).toBe(409)
     expect((await res.json()).error).toBe('session_busy')
     expect(mocks.messageRunService.markActiveRunSucceeded).not.toHaveBeenCalled()
   })
 
-  it('prompts when runtime status is unknown and no MessageRun is running', async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response('nope', { status: 500 }))
-      .mockResolvedValueOnce(new Response('', { status: 200 }))
-    vi.stubGlobal('fetch', fetchMock)
+  it('rejects unknown runtime status even without a MessageRun lock', async () => {
+    mocks.sessionStatus.mockResolvedValue({ ok: false, error: { code: 'runtime_error' } })
     const res = await POST(makeRequest({ sessionId: 's1', messageId: 'user-1', text: 'Hola' }), params())
-    expect(res.status).toBe(202)
-    expect(mocks.messageRunService.findActiveRun).toHaveBeenCalledWith('alice', 's1')
+    expect(res.status).toBe(409)
+    expect(mocks.prompt).not.toHaveBeenCalled()
     expect(mocks.messageRunService.markActiveRunSucceeded).not.toHaveBeenCalled()
   })
 
-  it('passes an 8s timeout to the session status probe', async () => {
+  it('passes bounded signals to the status probe and prompt dispatch', async () => {
     const timeoutSpy = vi.spyOn(AbortSignal, 'timeout')
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(statusResponse({ s1: { type: 'idle' } }))
-      .mockResolvedValueOnce(new Response('', { status: 200 }))
-    vi.stubGlobal('fetch', fetchMock)
 
     await POST(makeRequest({ sessionId: 's1', messageId: 'user-1', text: 'Hola' }), params())
 
-    expect(timeoutSpy).toHaveBeenCalledWith(8_000)
+    expect(timeoutSpy.mock.calls.some(([ms]) => ms > 0 && ms <= 8_000)).toBe(true)
+    expect(timeoutSpy).toHaveBeenCalledWith(60_000)
     timeoutSpy.mockRestore()
+  })
+
+  it.each(['busy', 'retry'])('rejects an idle root with a %s grandchild without settling its lock', async (type) => {
+    mocks.listChildren.mockImplementation(async (id: string) => ({ ok: true, data: id === 's1' ? [{ id: 'child' }] : id === 'child' ? [{ id: 'grandchild' }] : [] }))
+    mocks.sessionStatus.mockResolvedValue(statusResponse({ s1: { type: 'idle' }, grandchild: { type } }))
+    mocks.messageRunService.findActiveRun.mockResolvedValue({ id: 'run-1', status: 'running' })
+    const res = await POST(makeRequest({ sessionId: 's1', messageId: 'user-1', text: 'Hola' }), params())
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ error: 'session_busy' })
+    expect(mocks.messageRunService.markActiveRunSucceeded).not.toHaveBeenCalled()
+    expect(mocks.buildWorkspacePromptParts).not.toHaveBeenCalled()
+    expect(mocks.ensureProviderAccessFreshForExecution).not.toHaveBeenCalled()
+    expect(mocks.prompt).not.toHaveBeenCalled()
+  })
+
+  it('preserves missing-session errors from family discovery', async () => {
+    mocks.listChildren.mockResolvedValue({ ok: false, error: { code: 'session_not_found' } })
+    const res = await POST(makeRequest({ sessionId: 'missing', messageId: 'user-1', text: 'Hola' }), params())
+    expect(res.status).toBe(404)
+    expect(await res.json()).toEqual({ error: 'session_not_found' })
+    expect(mocks.prompt).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['session_not_found', 404],
+    ['session_busy', 409],
+  ])('returns the normalized prompt error %s', async (code, status) => {
+    mocks.prompt.mockResolvedValue({ ok: false, error: { code } })
+    const res = await POST(makeRequest({ sessionId: 's1', messageId: 'user-1', text: 'Hola' }), params())
+    expect(res.status).toBe(status)
+    expect(await res.json()).toEqual({ error: code })
+  })
+
+  it('keeps provider refresh best-effort when the runtime returns a typed failure', async () => {
+    mocks.ensureProviderAccessFreshForExecution.mockResolvedValue({ ok: false, error: { code: 'sync_failed' } })
+    const res = await POST(makeRequest({ sessionId: 's1', messageId: 'user-1', text: 'Hola' }), params())
+    expect(res.status).toBe(202)
+    expect(mocks.prompt).toHaveBeenCalled()
   })
 
   it('returns 400 when the body is invalid JSON', async () => {

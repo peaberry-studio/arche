@@ -24,8 +24,8 @@ import {
   type KnowledgeGraphEdge,
   type KnowledgeGraphNode,
 } from '@/lib/kb-graph'
-import type { WorkspaceFileNode } from '@/lib/opencode/types'
 import { cn } from '@/lib/utils'
+import type { WorkspaceFileNode } from '@/types/workspace'
 
 type OpenKnowledgeFile = {
   content: string

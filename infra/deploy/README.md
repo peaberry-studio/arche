@@ -224,10 +224,14 @@ No DNS provider token is required in direct mode. Traefik uses ACME HTTP challen
 | `WEB_VERSION` | `latest` |
 | `WEB_IMAGE` | `<IMAGE_PREFIX>web:<WEB_VERSION>` |
 | `OPENCODE_IMAGE` | `arche-workspace:latest` |
+| `OPENCODE_V1_IMAGE` | `<IMAGE_PREFIX>workspace:opencode-v1-1.18.18` remote, locally built `arche-workspace:opencode-v1-1.18.18` local-dev |
 | `CLOUDFLARED_IMAGE` | `docker.io/cloudflare/cloudflared:2026.5.0` |
 | `PODMAN_SOCKET_PATH` | Auto-detected (see below) |
 | `ARCHE_PUBLIC_BASE_URL` | Derived from request origin unless set; in tunnel mode defaults to `https://<domain>` |
 | `ARCHE_SESSION_TTL_DAYS` | `7` |
+| `ARCHE_IDLE_TIMEOUT_MINUTES` | `120`: minimum idle time before the reaper may stop a workspace |
+| `ARCHE_REAPER_MIN_AVAILABLE_MEMORY_PERCENT` | `15`: the reaper only stops workspaces while available host memory is below this percentage |
+| `ARCHE_REAPER_MIN_AVAILABLE_MEMORY_MB` | Unset: optional absolute floor in MB, checked in addition to the percentage |
 | `ARCHE_USERS_PATH` | `/opt/arche/users` remote, `~/.arche/users` local-dev |
 | `KB_CONTENT_HOST_PATH` | `/opt/arche/kb-content` remote, `~/.arche/kb-content` local-dev |
 | `KB_CONFIG_HOST_PATH` | `/opt/arche/kb-config` remote, `~/.arche/kb-config` local-dev |
@@ -238,8 +242,8 @@ No DNS provider token is required in direct mode. Traefik uses ACME HTTP challen
 | `ARCHE_CONNECTOR_META_ADS_GRAPH_API_VERSION` | `v25.0` |
 
 To build the web image directly on the VPS, set `WEB_IMAGE=arche-web:latest`.
-To build the workspace image directly on the VPS, set `OPENCODE_IMAGE=arche-workspace:latest`.
-Published GHCR tags stay amd64 by default. If you need arm64, use the matching `-arm64` tag explicitly, for example `WEB_IMAGE=ghcr.io/peaberry-studio/arche/web:latest-arm64` and `OPENCODE_IMAGE=ghcr.io/peaberry-studio/arche/workspace:latest-arm64`.
+To build the workspace image directly on the VPS, set `OPENCODE_IMAGE=arche-workspace:latest`. The deployer builds a separate tag containing the runtime version, commit and source hash, preserving the image used by old backends during the rollout.
+Published workspace images must use a release/commit tag or digest; mutable `latest` tags are rejected. Published GHCR tags stay amd64 by default. If you need arm64, use the matching `-arm64` tag explicitly, for example `WEB_IMAGE=ghcr.io/peaberry-studio/arche/web:v1.2.3-arm64` and `OPENCODE_IMAGE=ghcr.io/peaberry-studio/arche/workspace:v1.2.3-arm64`.
 
 Connector-specific OAuth and MCP overrides are optional and documented in `.env.example` and `apps/web/.env.example`.
 

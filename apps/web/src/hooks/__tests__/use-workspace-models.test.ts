@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { filterModelsByProviderStatus } from "@/hooks/use-workspace";
-import type { AvailableModel } from "@/lib/opencode/types";
+import type { AvailableModel } from "@/types/workspace-runtime";
 
 const OPENCODE_MODEL: AvailableModel = {
   providerId: "opencode",

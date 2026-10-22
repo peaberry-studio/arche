@@ -22,12 +22,13 @@ describe('kickstart manifests', () => {
     expect(blank?.recommendedAgentIds).toEqual(['assistant'])
   })
 
-  it('assistant prompt enforces learning_propose without delegation to knowledge-curator', () => {
+  it('assistant prompt enforces arche_tools_learning_propose without delegation to knowledge-curator', () => {
     const assistant = KICKSTART_AGENT_BY_ID.get('assistant')
 
     expect(assistant?.systemPrompt.toLowerCase()).toContain('learn')
     expect(assistant?.systemPrompt.toLowerCase()).toContain('remember')
-    expect(assistant?.systemPrompt.toLowerCase()).toContain('learning_propose')
+    expect(assistant?.systemPrompt).toContain('`arche_tools_learning_propose`')
+    expect(assistant?.systemPrompt).not.toContain('`learning_propose`')
     expect(assistant?.systemPrompt.toLowerCase()).not.toContain('knowledge-curator')
   })
 

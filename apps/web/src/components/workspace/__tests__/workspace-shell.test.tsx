@@ -44,6 +44,14 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(window.location.search),
 }));
 
+// The shell writes ?session= to the real URL, which the runtime provider reads
+// to load that session's family. It never settles here, so no provider work
+// continues after a test's environment is torn down.
+vi.mock("@/actions/workspace-sessions", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/actions/workspace-sessions")>()),
+  listSessionFamilyAction: vi.fn(() => new Promise(() => {})),
+}));
+
 vi.mock("@/actions/spawner", () => ({
   ensureInstanceRunningAction: ensureInstanceRunningActionMock,
 }));
@@ -269,6 +277,8 @@ function jsonResponse(body: unknown, status = 200) {
 
 describe("WorkspaceShell", () => {
   beforeEach(() => {
+    // The shell mirrors the active session into the real history entry.
+    window.history.replaceState(null, "", "/");
     stubBrowserStorage();
     setViewportWidth(1440);
     curatorDialogProps.current = undefined;
@@ -424,6 +434,19 @@ describe("WorkspaceShell", () => {
     expect(screen.getByText("Error: socket down")).toBeTruthy();
   });
 
+  it("opens an archived conversation read-only even when the runtime is offline", async () => {
+    instanceStartupMock.mockReturnValue({ instanceStatus: "error", instanceError: "start_timeout" });
+    connectionMock.mockReturnValue({ connection: { status: "error", error: "offline" }, isConnected: false });
+    workspaceMockOverrides = {
+      sessions: [{ id: "root-session", title: "Archive", status: "idle", updatedAt: "now", archived: true }],
+    };
+    renderWorkspaceShell({ slug: "alice" });
+    expect(await screen.findByTestId("chat-panel")).toBeTruthy();
+    expect(screen.getByTestId("chat-panel").getAttribute("data-read-only")).toBe("true");
+    expect(screen.queryByText("Failed to start")).toBeNull();
+    expect(createSessionMock).not.toHaveBeenCalled();
+  });
+
   it("opens the empty composer with Command+Period", async () => {
     renderWorkspaceShell({ slug: "alice" });
 
@@ -507,8 +530,9 @@ describe("WorkspaceShell", () => {
     await screen.findByTestId("chat-panel");
 
     await waitFor(() => {
-      expect(routerReplaceMock).toHaveBeenCalledWith("/w/alice?session=root-session");
+      expect(`${window.location.pathname}${window.location.search}`).toBe("/w/alice?session=root-session");
     });
+    expect(routerReplaceMock).not.toHaveBeenCalled();
   });
 
   it("removes the ?session= param when no conversation is active", async () => {
@@ -519,8 +543,9 @@ describe("WorkspaceShell", () => {
     await screen.findByTestId("chat-panel");
 
     await waitFor(() => {
-      expect(routerReplaceMock).toHaveBeenCalledWith("/w/alice");
+      expect(`${window.location.pathname}${window.location.search}`).toBe("/w/alice");
     });
+    expect(routerReplaceMock).not.toHaveBeenCalled();
   });
 
   it("does not rewrite the session param until sessions are ready", async () => {
@@ -530,7 +555,7 @@ describe("WorkspaceShell", () => {
 
     await screen.findByTestId("chat-panel");
 
-    expect(routerReplaceMock).not.toHaveBeenCalled();
+    expect(window.location.search).toBe("?session=pending-session");
   });
 
   it("marks busy flow sessions read-only", async () => {

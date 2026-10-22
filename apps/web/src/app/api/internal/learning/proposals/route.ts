@@ -66,11 +66,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     baseContent: base.data.baseContent,
     baseHash: base.data.baseHash,
     initialStatus: base.data.initialStatus,
+    requirePendingAcknowledged: true,
+    supersedesId: input.supersedesId ?? null,
+    supersedesRevision: input.supersedesRevision ?? null,
   })
 
   if (!result.ok) {
-    const status = result.error === 'regeneration_source_not_rebaseable' ? 409 : 400
-    return NextResponse.json({ error: result.error }, { status })
+    // The caller merges its change into the pending proposal and retries with
+    // `supersedesId`, so the pending learning is never dropped unreviewed.
+    if (result.error === 'pending_proposal_exists') {
+      return NextResponse.json({ error: result.error, pending: result.pending }, { status: 409 })
+    }
+    return NextResponse.json({ error: result.error }, { status: 409 })
   }
 
   publishWorkspaceEvent(context.userId, { type: KNOWLEDGE_PROPOSALS_CHANGED_EVENT })

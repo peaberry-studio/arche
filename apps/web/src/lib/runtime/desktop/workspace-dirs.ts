@@ -1,6 +1,8 @@
 import { execFileSync } from 'child_process'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
-import { dirname, join } from 'path'
+import { createHash } from 'crypto'
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
+import { dirname, join, sep } from 'path'
 
 import {
   getDesktopRuntimeDataDir,
@@ -10,7 +12,7 @@ import {
 import { getKbContentRoot } from '@/lib/runtime/paths'
 import { assertValidSlug } from '@/lib/validation/slug'
 
-const WORKSPACE_GIT_EXCLUDE_ENTRIES = ['opencode.json', 'AGENTS.md', 'node_modules/'] as const
+const WORKSPACE_GIT_EXCLUDE_ENTRIES = ['opencode.json', 'AGENTS.md', 'node_modules/', '.opencode/skills/'] as const
 
 function getRequiredVaultRoot(): string {
   const vaultRoot = process.env.ARCHE_DATA_DIR?.trim()
@@ -76,12 +78,35 @@ function ensureWorkspaceExcludes(workspaceDir: string): void {
   writeFileSync(excludePath, `${Array.from(currentEntries).join('\n')}\n`, 'utf-8')
 }
 
-export function getArcheOpencodeDataDir(): string {
-  const runtimeDir = getRequiredOpencodeRuntimeDir()
-  if (!existsSync(runtimeDir)) {
-    mkdirSync(runtimeDir, { recursive: true })
+function ensureDir(dir: string): string {
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true })
   }
-  return runtimeDir
+  return dir
+}
+
+export function getArcheOpencodeDataDir(): string {
+  return ensureDir(`${getRequiredOpencodeRuntimeDir()}-v2`)
+}
+
+// OpenCode 1 data, read only to archive conversations from older vaults.
+export function getLegacyOpencodeDataDir(): string {
+  return ensureDir(getRequiredOpencodeRuntimeDir())
+}
+
+export function hasLegacyOpencodeData(): boolean {
+  return existsSync(join(getRequiredOpencodeRuntimeDir(), '.local', 'share', 'opencode'))
+}
+
+// Session scratch folders live in the OS temp dir, so they are always outside
+// the vault and the OS reclaims them; agents may work there without asking.
+export function getDesktopScratch(slug: string): { root: string; workspaceRoot: string } {
+  const workspaceRoot = getWorkspaceDir(slug)
+  const vaultHash = createHash('sha256').update(realpathSync(getRequiredVaultRoot())).digest('hex')
+  return {
+    root: join(tmpdir(), 'arche-scratch', vaultHash).split(sep).join('/'),
+    workspaceRoot: workspaceRoot.split(sep).join('/'),
+  }
 }
 
 export function getWorkspaceDir(slug: string): string {

@@ -12,7 +12,7 @@ import {
   replaceRootSessions,
   updateSessionById,
 } from "@/hooks/workspace/workspace-session-store";
-import type { WorkspaceSession } from "@/lib/opencode/types";
+import type { WorkspaceSession } from "@/types/workspace-runtime";
 
 function session(
   id: string,

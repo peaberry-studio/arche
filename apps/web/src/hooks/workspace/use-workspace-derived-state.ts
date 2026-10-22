@@ -2,12 +2,12 @@
 
 import { useMemo } from "react";
 
-import type { AvailableModel, WorkspaceSession } from "@/lib/opencode/types";
 import {
   getSessionSelectionKey,
   type AgentCatalogItem,
   type SessionSelectionState,
 } from "@/hooks/workspace/workspace-types";
+import type { AvailableModel, WorkspaceSession } from "@/types/workspace-runtime";
 
 type UseWorkspaceDerivedStateOptions = {
   sessions: WorkspaceSession[];

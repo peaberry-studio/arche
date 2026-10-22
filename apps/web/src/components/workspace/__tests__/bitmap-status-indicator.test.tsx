@@ -4,7 +4,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { StatusIndicator } from "@/components/workspace/bitmap-status-indicator";
-import type { MessageStatusInfo } from "@/lib/opencode/types";
+import type { MessageStatusInfo } from "@/types/workspace-runtime";
 
 beforeEach(() => {
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {

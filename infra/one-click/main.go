@@ -1388,6 +1388,18 @@ set -a
 set +a
 log "Pulling ${ARCHE_WEB_IMAGE}"
 docker pull "${ARCHE_WEB_IMAGE}"
+backend_ids="$(docker compose ps -q web flows reaper)"
+runtime_upgrade=false
+for container_id in $backend_ids; do
+  contract="$(docker inspect --format '{{ index .Config.Labels "arche.runtime.contract" }}' "$container_id")"
+  if [[ "$contract" != 'opencode-v2' ]]; then
+    runtime_upgrade=true
+  fi
+done
+if $runtime_upgrade; then
+  log 'Stopping legacy backend writers before changing the workspace image'
+  docker compose stop -t 10 web flows reaper
+fi
 log "Pulling ${OPENCODE_IMAGE}"
 docker pull "${OPENCODE_IMAGE}"
 log 'Recreating web, flows, and reaper services'

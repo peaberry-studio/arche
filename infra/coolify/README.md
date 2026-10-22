@@ -108,6 +108,7 @@ Set these in the web application's environment variables in Coolify:
 | `CONTAINER_PROXY_HOST` | Yes | Hostname of docker-socket-proxy (use the Coolify service name) |
 | `CONTAINER_PROXY_PORT` | Yes | `2375` |
 | `OPENCODE_IMAGE` | No | Default: `ghcr.io/peaberry-studio/arche/workspace:latest` |
+| `OPENCODE_V1_IMAGE` | No | Legacy OpenCode 1 image, used only to archive V1 history. Default: `ghcr.io/peaberry-studio/arche/workspace:opencode-v1-1.18.18` (`-arm64` suffix on arm64) |
 | `OPENCODE_NETWORK` | Yes | `arche_internal` |
 | `ARCHE_USERS_PATH` | No | Default: `/opt/arche/users` |
 | `KB_CONTENT_HOST_PATH` | No | Default: `/opt/arche/kb-content` |
@@ -214,6 +215,7 @@ You only need to build a custom image if you want to override `OPENCODE_IMAGE`.
    | `ARCHE_SEED_ADMIN_PASSWORD` | Yes | Initial admin password |
    | `ARCHE_SEED_ADMIN_SLUG` | No | Admin URL slug (default: `admin`) |
    | `OPENCODE_IMAGE` | No | Workspace image (default: `ghcr.io/peaberry-studio/arche/workspace:latest`) |
+   | `OPENCODE_V1_IMAGE` | No | Legacy OpenCode 1 image, used only to archive V1 history (default: `ghcr.io/peaberry-studio/arche/workspace:opencode-v1-1.18.18`) |
    | `KB_CONTENT_HOST_PATH` | No | Host path for KB content bare repo (default: `/opt/arche/kb-content`) |
    | `KB_CONFIG_HOST_PATH` | No | Host path for config bare repo (default: `/opt/arche/kb-config`) |
    | `ARCHE_USERS_PATH` | No | Host path for persisted user runtime data (default: `/opt/arche/users`) |

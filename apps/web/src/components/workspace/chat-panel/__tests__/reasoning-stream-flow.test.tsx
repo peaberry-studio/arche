@@ -8,9 +8,10 @@ import { ChatPanelMessages } from "@/components/workspace/chat-panel/messages";
 import {
   createEmptyChatStore,
   isSending,
-  reduceOpenCodeEvent,
+  reduceArcheEvent,
   type ChatStore,
-} from "@/lib/opencode/event-reducer";
+} from "@/lib/workspace-events/reducer";
+import type { ArcheEvent } from "@/lib/harness/events";
 import type { ChatMessage } from "@/types/workspace";
 
 /**
@@ -18,37 +19,30 @@ import type { ChatMessage } from "@/types/workspace";
  * isSending → ChatPanelMessages render. Verifies the typing dots appear on the
  * active reasoning block exactly as they should in the live app.
  */
-function apply(store: ChatStore, type: string, properties: Record<string, unknown>): ChatStore {
-  return reduceOpenCodeEvent(store, { type, properties }).store;
+function apply(store: ChatStore, event: ArcheEvent): ChatStore {
+  return reduceArcheEvent(store, event).store;
 }
 
 function streamReasoningResponse(): ChatStore {
   let store = createEmptyChatStore();
 
   // Session goes busy (bus event).
-  store = apply(store, "session.status", {
-    sessionID: "s1",
-    status: { type: "busy" },
-  });
+  store = apply(store, { v: 1, type: "session.status", sessionId: "s1", status: "busy" });
 
   // User message.
-  store = apply(store, "message.updated", {
-    info: { id: "u1", role: "user", sessionID: "s1", time: { created: 1 }, parts: [{ type: "text", text: "Hola" }] },
-  });
+  store = apply(store, { v: 1, type: "message.upserted", message: { id: "u1", role: "user", sessionId: "s1", timestamp: "", timestampRaw: 1, content: "Hola", parts: [{ type: "text", text: "Hola" }] } });
 
   // Assistant message created.
-  store = apply(store, "message.updated", {
-    info: { id: "m1", role: "assistant", sessionID: "s1", time: { created: 2 } },
-  });
+  store = apply(store, { v: 1, type: "message.upserted", message: { id: "m1", role: "assistant", sessionId: "s1", timestamp: "", timestampRaw: 2, content: "", parts: [] } });
 
   // Full-message snapshot with step-start + empty reasoning placeholder
   // (the server includes step-start parts in message.updated snapshots).
-  store = apply(store, "message.updated", {
-    info: {
+  store = apply(store, { v: 1, type: "message.upserted",
+    message: {
       id: "m1",
       role: "assistant",
-      sessionID: "s1",
-      time: { created: 2 },
+      sessionId: "s1",
+      timestamp: "", timestampRaw: 2, content: "",
       parts: [
         { type: "step-start", id: "ss1" },
         { type: "reasoning", id: "r1", text: "" },
@@ -57,17 +51,17 @@ function streamReasoningResponse(): ChatStore {
   });
 
   // Reasoning streams via deltas.
-  store = apply(store, "message.part.delta", {
-    sessionID: "s1",
-    messageID: "m1",
-    partID: "r1",
+  store = apply(store, { v: 1, type: "part.delta",
+    sessionId: "s1",
+    messageId: "m1",
+    partId: "r1",
     field: "text",
     delta: "Thinking ",
   });
-  store = apply(store, "message.part.delta", {
-    sessionID: "s1",
-    messageID: "m1",
-    partID: "r1",
+  store = apply(store, { v: 1, type: "part.delta",
+    sessionId: "s1",
+    messageId: "m1",
+    partId: "r1",
     field: "text",
     delta: "it through",
   });
@@ -135,7 +129,7 @@ describe("reasoning streaming full flow (SSE → reducer → UI)", () => {
 
   it("removes the dots when the session goes idle", () => {
     const store = streamReasoningResponse();
-    const idleStore = apply(store, "session.idle", { sessionID: "s1" });
+    const idleStore = apply(store, { v: 1, type: "session.status", sessionId: "s1", status: "idle" });
 
     expect(isSending(idleStore, "s1")).toBe(false);
 

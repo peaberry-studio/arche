@@ -2,12 +2,12 @@ import { NextRequest } from 'next/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
-  createInstanceClient: vi.fn(),
+  getRuntimeForSlug: vi.fn(),
   getInternalLearningContext: vi.fn(),
 }))
 
 vi.mock('@/app/api/internal/learning/auth', () => ({ getInternalLearningContext: mocks.getInternalLearningContext }))
-vi.mock('@/lib/opencode/client', () => ({ createInstanceClient: mocks.createInstanceClient }))
+vi.mock('@/lib/harness/registry', () => ({ getRuntimeForSlug: mocks.getRuntimeForSlug }))
 
 import { POST } from '../route'
 
@@ -23,23 +23,23 @@ describe('POST /api/internal/learning/session-history', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.getInternalLearningContext.mockResolvedValue({ ok: true, userId: 'user-1', slug: 'alice' })
-    mocks.createInstanceClient.mockResolvedValue({
-      session: {
-        list: vi.fn().mockResolvedValue({
+    mocks.getRuntimeForSlug.mockResolvedValue({ ok: true, data: {
+        listSessions: vi.fn().mockResolvedValue({
+          ok: true,
           data: [
             { id: 'session-1', title: 'Roadmap planning' },
             { id: 'session-2', title: 'Learning | Roadmap planning' },
             { id: 'session-3', title: 'Support notes' },
           ],
         }),
-        messages: vi.fn().mockResolvedValue({
+        listMessages: vi.fn().mockResolvedValue({
+          ok: true,
           data: [
-            { info: { role: 'user' }, parts: [{ text: 'Remember this preference', type: 'text' }] },
-            { info: { role: 'assistant' }, parts: [{ text: 'Noted', type: 'text' }] },
+            { role: 'user', parts: [{ text: 'Remember this preference', type: 'text' }] },
+            { role: 'assistant', parts: [{ text: 'Noted', type: 'text' }] },
           ],
         }),
-      },
-    })
+    } })
   })
 
   it('returns auth errors from the internal context', async () => {
@@ -51,7 +51,9 @@ describe('POST /api/internal/learning/session-history', () => {
   })
 
   it('returns instance errors', async () => {
-    mocks.createInstanceClient.mockResolvedValue(null)
+    mocks.getRuntimeForSlug.mockResolvedValue({ ok: true, data: {
+      listSessions: vi.fn().mockResolvedValue({ ok: false, error: { code: 'instance_unavailable' } }),
+    } })
 
     const response = await POST(makeRequest({}))
 
@@ -68,5 +70,24 @@ describe('POST /api/internal/learning/session-history', () => {
         { id: 'session-1', title: 'Roadmap planning', messages: [{ role: 'assistant', text: 'Noted' }] },
       ],
     })
+  })
+
+  it('does not turn a typed session-list failure into an empty successful history', async () => {
+    mocks.getRuntimeForSlug.mockResolvedValue({ ok: true, data: {
+      listSessions: vi.fn().mockResolvedValue({ ok: false, error: { code: 'runtime_error' } }),
+    } })
+    const response = await POST(makeRequest({}))
+    expect(response.status).toBe(502)
+    expect(await response.json()).toEqual({ error: 'runtime_error' })
+  })
+
+  it('propagates a typed message-read failure', async () => {
+    mocks.getRuntimeForSlug.mockResolvedValue({ ok: true, data: {
+      listSessions: vi.fn().mockResolvedValue({ ok: true, data: [{ id: 'session-1', title: 'Planning' }] }),
+      listMessages: vi.fn().mockResolvedValue({ ok: false, error: { code: 'session_not_found' } }),
+    } })
+    const response = await POST(makeRequest({ includeMessages: true }))
+    expect(response.status).toBe(502)
+    expect(await response.json()).toEqual({ error: 'session_not_found' })
   })
 })

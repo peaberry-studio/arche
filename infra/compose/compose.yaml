@@ -128,6 +128,7 @@ services:
       - ${ARCHE_USERS_PATH:-/tmp/arche-users}:${ARCHE_USERS_PATH:-/tmp/arche-users}
     command: sh scripts/dev-server.sh
     labels:
+      - arche.runtime.contract=opencode-v2
       - traefik.enable=true
       - traefik.docker.network=arche_default
       - traefik.http.routers.arche.rule=Host(`arche.lvh.me`)

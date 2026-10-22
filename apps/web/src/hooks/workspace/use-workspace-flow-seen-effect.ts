@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 
-import type { WorkspaceSession } from "@/lib/opencode/types";
+import type { WorkspaceSession } from "@/types/workspace-runtime";
 
 export function useWorkspaceFlowSeenEffect({
   activeSession,

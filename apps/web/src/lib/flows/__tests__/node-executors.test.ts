@@ -2,7 +2,7 @@ import { FlowNodeType, FlowRunStepStatus, FlowRunTrigger } from '@prisma/client'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { FlowConditionOperator, FlowDefinition, FlowNode } from '@/lib/flows/types'
-import type { SessionExecutionClient } from '@/lib/opencode/session-execution'
+import type { HarnessRuntime } from '@/lib/harness/contract'
 import type { FlowRecord, FlowRunRecord, FlowRunStepRecord } from '@/lib/services/flow'
 
 const mocks = vi.hoisted(() => ({
@@ -37,7 +37,7 @@ vi.mock('@/lib/slack/notifications', () => ({
 import { executeFlowNode } from '@/lib/flows/node-executors'
 
 const now = new Date('2026-05-12T10:00:00.000Z')
-const client = {} as SessionExecutionClient
+const client = {} as HarnessRuntime
 
 function createFlowRecord(definition: FlowDefinition): FlowRecord {
   return {

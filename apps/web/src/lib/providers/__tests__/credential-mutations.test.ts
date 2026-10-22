@@ -7,24 +7,21 @@ const mocks = vi.hoisted(() => ({
   disableEnabledForProvider: vi.fn(),
   disableEnabledOrganizationProvider: vi.fn(),
   findCredentialsBySlug: vi.fn(),
-  getInstanceUrl: vi.fn(),
+  getRuntimeBaseUrl: vi.fn(),
   invalidateProviderSyncStateForAllInstances: vi.fn(),
   markWorkspaceRestartRequired: vi.fn(),
   replaceApiCredential: vi.fn(),
   replaceOrganizationApiCredential: vi.fn(),
-  syncProviderAccessForInstance: vi.fn(),
+  syncRuntimeProviderAccess: vi.fn(),
 }))
 
 vi.mock('@/lib/auth', () => ({
   auditEvent: mocks.auditEvent,
 }))
 
-vi.mock('@/lib/opencode/client', () => ({
-  getInstanceUrl: mocks.getInstanceUrl,
-}))
-
-vi.mock('@/lib/opencode/providers', () => ({
-  syncProviderAccessForInstance: mocks.syncProviderAccessForInstance,
+vi.mock('@/lib/harness/registry', () => ({
+  getRuntimeBaseUrl: mocks.getRuntimeBaseUrl,
+  syncRuntimeProviderAccess: mocks.syncRuntimeProviderAccess,
 }))
 
 vi.mock('@/lib/services', () => ({
@@ -65,12 +62,12 @@ describe('provider credential mutations', () => {
     mocks.disableEnabledForProvider.mockResolvedValue({ count: 1 })
     mocks.disableEnabledOrganizationProvider.mockResolvedValue({ count: 2 })
     mocks.findCredentialsBySlug.mockResolvedValue(null)
-    mocks.getInstanceUrl.mockReturnValue('http://opencode-alice:4096')
+    mocks.getRuntimeBaseUrl.mockReturnValue('http://opencode-alice:4096')
     mocks.invalidateProviderSyncStateForAllInstances.mockResolvedValue({ count: 3 })
     mocks.markWorkspaceRestartRequired.mockResolvedValue(undefined)
     mocks.replaceApiCredential.mockResolvedValue({ id: 'cred-1', secret: 'encrypted', type: 'api', version: 1 })
     mocks.replaceOrganizationApiCredential.mockResolvedValue({ id: 'org-cred-1', secret: 'encrypted', type: 'api', version: 4 })
-    mocks.syncProviderAccessForInstance.mockResolvedValue({ ok: true })
+    mocks.syncRuntimeProviderAccess.mockResolvedValue({ ok: true, data: undefined })
   })
 
   it('replaces a user credential and clears restart state when the workspace is not running', async () => {
@@ -104,7 +101,7 @@ describe('provider credential mutations', () => {
       serverPassword: 'encrypted-password',
       status: 'running',
     })
-    mocks.syncProviderAccessForInstance.mockResolvedValue({ ok: false, error: 'provider_sync_failed' })
+    mocks.syncRuntimeProviderAccess.mockResolvedValue({ ok: false, error: { code: 'sync_failed', detail: 'provider_sync_failed' } })
 
     const result = await replaceUserProviderApiCredential({
       actorUserId: 'admin-1',
@@ -115,12 +112,11 @@ describe('provider credential mutations', () => {
     })
 
     expect(result.restartRequired).toBe(true)
-    expect(mocks.syncProviderAccessForInstance).toHaveBeenCalledWith({
-      instance: {
+    expect(mocks.syncRuntimeProviderAccess).toHaveBeenCalledWith('alice', {
+      connection: {
         authHeader: `Basic ${Buffer.from('opencode:password').toString('base64')}`,
         baseUrl: 'http://opencode-alice:4096',
       },
-      slug: 'alice',
       userId: 'user-1',
     })
     expect(mocks.markWorkspaceRestartRequired).toHaveBeenCalledWith('user-1')
@@ -131,7 +127,7 @@ describe('provider credential mutations', () => {
       serverPassword: 'encrypted-password',
       status: 'running',
     })
-    mocks.syncProviderAccessForInstance.mockRejectedValue(new Error('offline'))
+    mocks.syncRuntimeProviderAccess.mockRejectedValue(new Error('offline'))
 
     const result = await disableUserProviderApiCredential({
       actorUserId: 'admin-1',

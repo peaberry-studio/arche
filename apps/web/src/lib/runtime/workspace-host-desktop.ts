@@ -1,40 +1,47 @@
 import { spawn, type ChildProcess } from 'child_process'
-import { writeFileSync } from 'fs'
+import { readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 
 import { findAvailablePort } from '@arche/desktop-runtime/network'
 
 import { isE2eFakeRuntimeEnabled } from '@/lib/e2e/runtime'
-import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
-import { getKbContentRoot } from '@/lib/runtime/paths'
-import { desktopWorkspaceHostE2e } from '@/lib/runtime/workspace-host-desktop-e2e'
-import {
-  checkOpenCodeHealthy,
-  waitForHttpReady,
-  waitForOpenCodeHealthy,
-} from '@/lib/runtime/desktop/health'
+import { CURRENT_RUNTIME_KIND, isCurrentRuntimeKind, syncRuntimeProviderAccess } from '@/lib/harness/registry'
+import { getGatewayModelsCatalog } from '@/lib/providers/zen-catalog'
 import {
   DEFAULT_USERNAME,
   LOOPBACK_HOST,
   canSpawnWorkspaceAgent,
   createSafeEnv,
   generateDesktopPassword,
-  getDesktopOpencodeConfigDir,
+  getDesktopArcheToolsCommand,
   getDesktopProviderGatewayConfig,
   getOpencodeBinary,
   getWorkspaceAgentBinary,
   makeAuthHeader,
 } from '@/lib/runtime/desktop/config'
-import { getArcheOpencodeDataDir, getWorkspaceDir } from '@/lib/runtime/desktop/workspace-dirs'
-import { writeRuntimeSkills } from '@/lib/skills/runtime-skills'
+import {
+  checkOpenCodeHealthy,
+  waitForHttpReady,
+  waitForOpenCodeHealthy,
+} from '@/lib/runtime/desktop/health'
+import { archiveDesktopLegacySessions, cleanupDesktopLegacyArchive } from '@/lib/runtime/desktop/legacy-archive'
+import { waitForProcessExit } from '@/lib/runtime/desktop/process'
+import { getArcheOpencodeDataDir, getDesktopScratch, getLegacyOpencodeDataDir, getWorkspaceDir, hasLegacyOpencodeData } from '@/lib/runtime/desktop/workspace-dirs'
+import { getRuntimeInternalApiRoot, getRuntimeModelsCatalogUrl } from '@/lib/runtime/internal-api'
+import { getKbContentRoot } from '@/lib/runtime/paths'
 import type { WorkspaceHost, WorkspaceHostConnection, WorkspaceHostStatus } from '@/lib/runtime/types'
+import { desktopWorkspaceHostE2e } from '@/lib/runtime/workspace-host-desktop-e2e'
 import { instanceService, providerService } from '@/lib/services'
+import { settleRuntimeMigratedRuns } from '@/lib/services/runtime-migration'
+import { writeRuntimeSkills } from '@/lib/skills/runtime-skills'
 import { getWorkspaceAgentPort } from '@/lib/spawner/config'
 import { decryptPassword, encryptPassword } from '@/lib/spawner/crypto'
+import { withHistoryMigrationProgress } from '@/lib/spawner/legacy-archive'
 import {
   buildWorkspaceRuntimeArtifacts,
   hashWorkspaceRuntimeArtifacts,
 } from '@/lib/spawner/runtime-artifacts'
+import { createWorkspaceAgentClient } from '@/lib/workspace-agent/client'
 
 // Re-export for consumers that import from this module
 export { getOpencodeBinary, getWorkspaceAgentBinary }
@@ -73,6 +80,7 @@ type LocalRuntime = {
 }
 
 const runtimes = new Map<string, LocalRuntime>()
+const pendingStarts = new Map<string, ReturnType<WorkspaceHost['start']>>()
 
 // ---------------------------------------------------------------------------
 // Timing helpers
@@ -111,17 +119,16 @@ async function syncProvidersWithRetry(input: {
   slug: string
   timeoutMs: number
   userId: string
-}): Promise<Awaited<ReturnType<typeof syncProviderAccessForInstance>>> {
+}): Promise<Awaited<ReturnType<typeof syncRuntimeProviderAccess>>> {
   const deadline = Date.now() + input.timeoutMs
   let attempt = 1
 
   while (true) {
-    const result = await syncProviderAccessForInstance({
-      instance: {
+    const result = await syncRuntimeProviderAccess(input.slug, {
+      connection: {
         baseUrl: `http://${LOOPBACK_HOST}:${input.port}`,
         authHeader: input.authHeader,
       },
-      slug: input.slug,
       userId: input.userId,
     })
 
@@ -133,7 +140,7 @@ async function syncProvidersWithRetry(input: {
       input.slug,
       'providers',
       'sync_retry',
-      `attempt=${String(attempt)} error=${result.error}`,
+      `attempt=${String(attempt)} error=${result.error.code}`,
     )
     attempt += 1
 
@@ -185,7 +192,10 @@ type DesktopRuntimeArtifacts = {
 }
 
 async function buildDesktopRuntimeArtifacts(slug: string): Promise<DesktopRuntimeArtifacts> {
-  return buildWorkspaceRuntimeArtifacts(slug, getDesktopProviderGatewayConfig())
+  return buildWorkspaceRuntimeArtifacts(slug, getDesktopProviderGatewayConfig(), {
+    archeToolsCommand: getDesktopArcheToolsCommand(),
+    scratch: getDesktopScratch(slug),
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -244,22 +254,13 @@ async function stopManagedProcess(slug: string, managed: ManagedProcess): Promis
   managed.expectedExit = true
   managed.child.kill('SIGTERM')
 
-  const exited = await new Promise<boolean>((resolve) => {
-    if (managed.child.exitCode !== null || managed.child.signalCode !== null) {
-      resolve(true)
-      return
-    }
-
-    const timer = setTimeout(() => resolve(false), SHUTDOWN_TIMEOUT_MS)
-    managed.child.once('exit', () => {
-      clearTimeout(timer)
-      resolve(true)
-    })
-  })
+  const exited = await waitForProcessExit(managed.child, SHUTDOWN_TIMEOUT_MS)
 
   if (!exited) {
     logDesktopRuntime(slug, managed.name, 'shutdown_escalated')
     managed.child.kill('SIGKILL')
+    const killed = await waitForProcessExit(managed.child, SHUTDOWN_TIMEOUT_MS)
+    if (!killed) throw new Error('desktop_runtime_cleanup_unconfirmed')
   }
 }
 
@@ -274,7 +275,7 @@ async function stopRuntime(slug: string, persistStoppedState: boolean): Promise<
   }
 
   runtime.stopPromise = (async () => {
-    await Promise.allSettled([
+    await Promise.all([
       runtime.workspaceAgent ? stopManagedProcess(slug, runtime.workspaceAgent) : Promise.resolve(),
       stopManagedProcess(slug, runtime.opencode),
     ])
@@ -287,7 +288,12 @@ async function stopRuntime(slug: string, persistStoppedState: boolean): Promise<
     }
   })()
 
-  await runtime.stopPromise
+  try {
+    await runtime.stopPromise
+  } catch (error) {
+    runtime.stopPromise = null
+    throw error
+  }
 }
 
 async function stopAllDesktopRuntimes(): Promise<void> {
@@ -343,37 +349,74 @@ export async function reconcileDesktopInstances(): Promise<void> {
 // WorkspaceHost implementation
 // ---------------------------------------------------------------------------
 
-const desktopWorkspaceHostReal: WorkspaceHost = {
-  async start(
-    slug: string,
-    userId: string,
-  ): Promise<{ ok: true; status: string } | { ok: false; error: string; detail?: string }> {
-    ensureCleanupHooks()
-    await reconcileDesktopInstances()
+async function startDesktopWorkspace(
+  slug: string,
+  userId: string,
+): ReturnType<WorkspaceHost['start']> {
+  const existing = runtimes.get(slug)
+  if (existing && existing.state === 'running') {
+    setDesktopRuntimePortEnv(existing)
+    return { ok: true, status: 'already_running' }
+  }
 
-    const existing = runtimes.get(slug)
-    if (existing && existing.state === 'running') {
-      setDesktopRuntimePortEnv(existing)
-      return { ok: true, status: 'already_running' }
+  ensureCleanupHooks()
+  await reconcileDesktopInstances()
+  try {
+    if (existing) await stopRuntime(slug, false)
+    await cleanupDesktopLegacyArchive(getLegacyOpencodeDataDir())
+  } catch (error) {
+    return { ok: false, error: 'start_failed', detail: error instanceof Error ? error.message : 'desktop_runtime_cleanup_unconfirmed' }
+  }
+  const previous = await instanceService.findStatusBySlug(slug)
+
+  const password = process.env.OPENCODE_SERVER_PASSWORD || generateDesktopPassword()
+  const encryptedPassword = encryptPassword(password)
+  const workspaceDir = getWorkspaceDir(slug)
+  const kbContentDir = getKbContentRoot()
+  const authHeader = makeAuthHeader(DEFAULT_USERNAME, password)
+  const preferredAgentPort = getWorkspaceAgentPort()
+  const safeEnv = createSafeEnv()
+
+  const port = await findAvailablePort(DEFAULT_PORT)
+  const agentPort = await findAvailablePort(preferredAgentPort, [port])
+
+  const startedAt = new Date()
+  await instanceService.upsertStarting(slug, encryptedPassword, startedAt)
+  try {
+    // A vault last run on OpenCode 1 archives its conversations first. A failed
+    // export fails this start and is retried on the next one; the data stays put.
+    if (!isCurrentRuntimeKind(previous?.runtimeKind) && hasLegacyOpencodeData()) {
+      const archived = await withHistoryMigrationProgress(slug, () => archiveDesktopLegacySessions({
+        slug,
+        workspaceDir,
+        dataDir: getLegacyOpencodeDataDir(),
+        port,
+        password,
+        timeoutMs: getStartTimeoutMs(),
+        intervalMs: getStartIntervalMs(),
+      }))
+      if (!archived.ok) {
+        console.warn('[desktop-runtime] Legacy archive failed; retrying on the next start', { slug, error: archived.error.code })
+        throw new Error(`legacy_archive_failed: ${archived.error.code}`)
+      }
+      await settleRuntimeMigratedRuns(slug)
+      logDesktopRuntime(slug, 'archive', 'completed', `archived=${archived.data.archived}`)
     }
-
-    const password = process.env.OPENCODE_SERVER_PASSWORD || generateDesktopPassword()
-    const encryptedPassword = encryptPassword(password)
     const archeDataDir = getArcheOpencodeDataDir()
-    const workspaceDir = getWorkspaceDir(slug)
-    const kbContentDir = getKbContentRoot()
-    const authHeader = makeAuthHeader(DEFAULT_USERNAME, password)
-    const preferredAgentPort = getWorkspaceAgentPort()
-    const safeEnv = createSafeEnv()
-    const opencodeConfigDir = getDesktopOpencodeConfigDir()
-
-    const port = await findAvailablePort(DEFAULT_PORT)
-    const agentPort = await findAvailablePort(preferredAgentPort, [port])
-
+    const modelsCatalogPath = join(archeDataDir, 'models-catalog.json')
+    let lastRendered: string | null = null
+    try {
+      lastRendered = readFileSync(modelsCatalogPath, 'utf-8')
+    } catch {
+      // First start on this vault: nothing to fall back to.
+    }
+    const catalog = await getGatewayModelsCatalog(`${getRuntimeInternalApiRoot()}/providers`, lastRendered)
+    if (!catalog.ok) throw new Error(catalog.error)
+    writeFileSync(modelsCatalogPath, catalog.data, 'utf-8')
     const artifacts = await buildDesktopRuntimeArtifacts(slug)
     const appliedConfigSha = hashWorkspaceRuntimeArtifacts(artifacts)
     const opencodeConfigContent = artifacts.opencodeConfigContent
-    const runtimeSkillDir = join(archeDataDir, '.config', 'opencode', 'skills')
+    const runtimeSkillDir = join(workspaceDir, '.opencode', 'skills')
 
     writeFileSync(
       join(workspaceDir, 'opencode.json'),
@@ -387,7 +430,8 @@ const desktopWorkspaceHostReal: WorkspaceHost = {
 
     await writeRuntimeSkills(runtimeSkillDir, artifacts.skills)
 
-    await instanceService.upsertStarting(slug, encryptedPassword)
+    const recorded = await instanceService.setRuntimeKindIfCurrentDesktopStart(slug, startedAt, CURRENT_RUNTIME_KIND)
+    if (recorded.count === 0) return { ok: false, error: 'start_failed', detail: 'startup superseded by another attempt' }
 
     const opencodeProcess = createManagedProcess(
       'opencode',
@@ -397,10 +441,13 @@ const desktopWorkspaceHostReal: WorkspaceHost = {
           ...safeEnv,
           OPENCODE_SERVER_PASSWORD: password,
           OPENCODE_SERVER_USERNAME: DEFAULT_USERNAME,
+          OPENCODE_PASSWORD: password,
+          OPENCODE_MODELS_URL: getRuntimeModelsCatalogUrl(),
+          OPENCODE_MODELS_PATH: modelsCatalogPath,
           ARCHE_WORKSPACE_SLUG: slug,
           ARCHE_INTERNAL_API_BASE_URL: process.env.ARCHE_INTERNAL_API_BASE_URL ?? `http://${LOOPBACK_HOST}:3000`,
-          ...(opencodeConfigDir ? { OPENCODE_CONFIG_DIR: opencodeConfigDir } : {}),
           WORKSPACE_DIR: workspaceDir,
+          ARCHE_SCRATCH_DIR: getDesktopScratch(slug).root,
           HOME: archeDataDir,
           XDG_DATA_HOME: join(archeDataDir, '.local', 'share'),
           XDG_STATE_HOME: join(archeDataDir, '.local', 'state'),
@@ -454,7 +501,7 @@ const desktopWorkspaceHostReal: WorkspaceHost = {
       port,
       agentPort,
       password,
-      startedAt: new Date(),
+      startedAt,
       state: 'starting',
       stopPromise: null,
       lastErrorDetail: null,
@@ -468,7 +515,7 @@ const desktopWorkspaceHostReal: WorkspaceHost = {
 
     try {
       const [opencodeReady, workspaceAgentReady] = await Promise.all([
-        waitForOpenCodeHealthy(port, password, timeoutMs, intervalMs),
+        waitForOpenCodeHealthy(port, password, timeoutMs, intervalMs, slug),
         workspaceAgentProcess
           ? waitForHttpReady(`http://${LOOPBACK_HOST}:${agentPort}/health`, {
               Authorization: authHeader,
@@ -503,19 +550,27 @@ const desktopWorkspaceHostReal: WorkspaceHost = {
       if (!syncResult.ok) {
         await providerService.markWorkspaceRestartRequired(syncUserId)
         console.error('[desktop] Failed to sync OpenCode providers', syncResult.error)
+        markRuntimeError(slug, syncResult.error.code)
+        await stopRuntime(slug, false)
+        return { ok: false, error: 'start_failed', detail: syncResult.error.code }
       } else {
         await providerService.clearWorkspaceRestartRequired(syncUserId)
       }
 
       const runtime = runtimes.get(slug)
-      if (!runtime) {
+      if (!runtime || runtime.opencode !== opencodeProcess) {
         return { ok: false, error: 'start_failed', detail: 'runtime_disposed_during_start' }
+      }
+
+      const affected = await instanceService.setRunningIfCurrentDesktopStart(slug, startedAt, appliedConfigSha, CURRENT_RUNTIME_KIND)
+      if (affected.count === 0) {
+        if (runtimes.get(slug) === runtime) await stopRuntime(slug, false)
+        return { ok: false, error: 'start_failed', detail: 'startup superseded by another attempt' }
       }
 
       runtime.state = 'running'
       runtime.lastErrorDetail = null
       logDesktopRuntime(slug, 'runtime', 'state_changed', 'running')
-      await instanceService.setRunning(slug, appliedConfigSha)
 
       return { ok: true, status: 'started' }
     } catch (error) {
@@ -524,9 +579,27 @@ const desktopWorkspaceHostReal: WorkspaceHost = {
       await stopRuntime(slug, false)
       return { ok: false, error: 'start_failed', detail }
     }
+  } catch (error) {
+    await instanceService.setErrorIfCurrentDesktopStart(slug, startedAt)
+    return { ok: false, error: 'start_failed', detail: error instanceof Error ? error.message : 'desktop_runtime_preparation_failed' }
+  }
+}
+
+const desktopWorkspaceHostReal: WorkspaceHost = {
+  async start(slug, userId) {
+    const pending = pendingStarts.get(slug)
+    if (pending) return pending
+    const start = startDesktopWorkspace(slug, userId)
+    pendingStarts.set(slug, start)
+    try {
+      return await start
+    } finally {
+      pendingStarts.delete(slug)
+    }
   },
 
   async stop(slug: string): Promise<{ ok: true; status: string } | { ok: false; error: string }> {
+    if (pendingStarts.has(slug)) return { ok: false, error: 'stop_failed' }
     const runtime = runtimes.get(slug)
     if (!runtime) {
       return { ok: true, status: 'already_stopped' }
@@ -534,8 +607,12 @@ const desktopWorkspaceHostReal: WorkspaceHost = {
 
     runtime.state = 'stopped'
     logDesktopRuntime(slug, 'runtime', 'state_changed', 'stopped')
-    await stopRuntime(slug, true)
-    return { ok: true, status: 'stopped' }
+    try {
+      await stopRuntime(slug, true)
+      return { ok: true, status: 'stopped' }
+    } catch {
+      return { ok: false, error: 'stop_failed' }
+    }
   },
 
   async getStatus(slug: string): Promise<WorkspaceHostStatus | null> {
@@ -551,10 +628,24 @@ const desktopWorkspaceHostReal: WorkspaceHost = {
         }
       }
 
-      if (instance.status === 'running' || instance.status === 'starting') {
+      if (instance.status === 'starting') {
+        if (!pendingStarts.has(slug)) {
+          const stopped = await instanceService.setStoppedIfCurrentSnapshot(slug, instance)
+          if (stopped.count > 0) {
+            return { status: 'stopped', startedAt: instance.startedAt, stoppedAt: new Date(), lastActivityAt: instance.lastActivityAt }
+          }
+        }
+        return {
+          status: 'starting',
+          startedAt: instance.startedAt,
+          stoppedAt: null,
+          lastActivityAt: instance.lastActivityAt,
+        }
+      }
+      if (instance.status === 'running') {
         try {
           const password = decryptPassword(instance.serverPassword)
-          const healthy = await checkOpenCodeHealthy(getDesktopRuntimePortFromEnv(), password)
+          const healthy = await checkOpenCodeHealthy(getDesktopRuntimePortFromEnv(), password, slug)
           if (healthy) {
             return {
               status: 'running',
@@ -598,7 +689,13 @@ const desktopWorkspaceHostReal: WorkspaceHost = {
 
   async getAgentConnection(slug: string): Promise<WorkspaceHostConnection | null> {
     const runtime = runtimes.get(slug)
-    if (!runtime || runtime.state !== 'running') {
+    // Route handlers can load their own copy of this module without the runtime
+    // map; the agent port env and the stored password are process-wide.
+    if (!runtime) {
+      return process.env[DESKTOP_WORKSPACE_AGENT_PORT_ENV] ? createWorkspaceAgentClient(slug) : null
+    }
+
+    if (runtime.state !== 'running') {
       return null
     }
 

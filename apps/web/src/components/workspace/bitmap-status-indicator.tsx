@@ -7,9 +7,9 @@ import {
   createFrame,
   type BitmapAnimationConfig,
 } from "@/components/workspace/bitmap-glyph";
-import type { MessageStatusInfo } from "@/lib/opencode/types";
 import { cn } from "@/lib/utils";
 import { getWorkspaceToolDisplay } from "@/lib/workspace-tool-display";
+import type { MessageStatusInfo } from "@/types/workspace-runtime";
 
 type BitmapPattern = "orbit" | "scan" | "columns" | "wave-rows" | "diagonal-swipe";
 

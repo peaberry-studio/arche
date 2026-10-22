@@ -241,12 +241,20 @@ async function handleSlackEvent(args: {
     const threadTs = event.thread_ts ?? eventTs
 
     if (isSlackDmMessage(event)) {
-      await handleSlackDmEvent({
+      const result = await handleSlackDmEvent({
         body: args.body,
         client: args.client,
         event,
         eventId,
       })
+      if (result) {
+        console.error('[slack] Failed to handle event', {
+          error: result.error,
+          eventId,
+          type: args.type,
+        })
+        return
+      }
 
       await recordSlackEventReceipt(eventId, 'message.im')
       return
@@ -278,7 +286,7 @@ async function handleSlackEvent(args: {
       return
     }
 
-    await handleSlackThreadEvent({
+    const result = await handleSlackThreadEvent({
       channel,
       client: args.client,
       event,
@@ -287,6 +295,14 @@ async function handleSlackEvent(args: {
       savedBotUserId: args.savedBotUserId,
       threadTs,
     })
+    if (result) {
+      console.error('[slack] Failed to handle event', {
+        error: result.error,
+        eventId,
+        type: args.type,
+      })
+      return
+    }
 
     await recordSlackEventReceipt(eventId, args.type)
   }).catch((error) => {

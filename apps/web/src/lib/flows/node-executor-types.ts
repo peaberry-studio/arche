@@ -1,5 +1,5 @@
 import type { FlowDefinition, FlowNode } from '@/lib/flows/types'
-import type { SessionExecutionClient } from '@/lib/opencode/session-execution'
+import type { HarnessRuntime } from '@/lib/harness/contract'
 import type { FlowRecord, FlowRunRecord, FlowRunStepRecord } from '@/lib/services/flow'
 
 export type FlowNodeExecutionResult =
@@ -10,7 +10,7 @@ export type FlowNodeExecutionResult =
   | { status: 'waiting_for_human'; nodeId: string; steps: FlowRunStepRecord[] }
 
 export type FlowNodeExecutorParams = {
-  client: SessionExecutionClient
+  client: HarnessRuntime
   definition: FlowDefinition
   executionUserId: string
   flow: FlowRecord

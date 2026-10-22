@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { isStreamingReasoningPart } from "@/components/workspace/chat-panel/is-streaming-reasoning-part";
-import type { MessagePart } from "@/lib/opencode/types";
 import type { ChatMessage } from "@/types/workspace";
+import type { MessagePart } from "@/types/workspace-runtime";
 
 function assistantMessage(parts: MessagePart[], overrides?: Partial<ChatMessage>): ChatMessage {
   return {

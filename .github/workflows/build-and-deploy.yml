@@ -53,9 +53,9 @@ jobs:
           ARCHE_SEED_ADMIN_EMAIL: ${{ secrets.ARCHE_SEED_ADMIN_EMAIL }}
           ARCHE_SEED_ADMIN_PASSWORD: ${{ secrets.ARCHE_SEED_ADMIN_PASSWORD }}
           ARCHE_SEED_ADMIN_SLUG: ${{ secrets.ARCHE_SEED_ADMIN_SLUG }}
-          OPENCODE_IMAGE: ghcr.io/peaberry-studio/arche/workspace:latest
           VPS_USER: ${{ secrets.VPS_USER }}
         run: |
+          export OPENCODE_IMAGE="ghcr.io/peaberry-studio/arche/workspace:$(git rev-parse --short HEAD)"
           USER_FLAG=()
           if [[ -n "${VPS_USER}" ]]; then
             USER_FLAG=(--user "${VPS_USER}")

@@ -6,8 +6,8 @@ import { CaretLineLeft, CaretLineRight, Database, GitBranch, GraduationCap, Ligh
 
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
-import type { WorkspaceSession } from '@/lib/opencode/types'
 import { hasUnseenFlowResult } from '@/lib/workspace-session-utils'
+import type { WorkspaceSession } from '@/types/workspace-runtime'
 
 import { ArcheMark } from './arche-mark'
 import { SessionsPanel } from './sessions-panel'

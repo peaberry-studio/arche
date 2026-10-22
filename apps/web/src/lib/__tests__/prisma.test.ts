@@ -51,6 +51,7 @@ describe('prisma dispatcher', () => {
     await initWebPrisma()
 
     expect(prisma).toBeDefined()
+    expect(mockPool).toHaveBeenCalledWith({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 5_000 })
     expect((prisma as unknown as { _isMockClient?: boolean })._isMockClient).toBe(true)
   })
 

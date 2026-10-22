@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 
+import { getModelsCatalogToken } from '@/lib/providers/models-catalog-token'
+import { getGatewayModelsCatalog } from '@/lib/providers/zen-catalog'
+
+vi.mock('@/lib/providers/zen-catalog', () => ({ getGatewayModelsCatalog: vi.fn() }))
+
 const mockContainer = {
   id: 'container-123',
   start: vi.fn(),
@@ -8,10 +13,16 @@ const mockContainer = {
   inspect: vi.fn(),
 }
 
+const mockImage = { inspect: vi.fn() }
+
 const mockDockerInstance = {
   createContainer: vi.fn().mockResolvedValue(mockContainer),
   getContainer: vi.fn().mockReturnValue(mockContainer),
   createVolume: vi.fn().mockResolvedValue({}),
+  listContainers: vi.fn(),
+  getImage: vi.fn().mockReturnValue(mockImage),
+  pull: vi.fn(),
+  modem: { followProgress: vi.fn() },
 }
 
 const mockDockerConstructor = vi.fn(function Docker() {
@@ -26,8 +37,10 @@ const mockWriteFile = vi.fn().mockResolvedValue(undefined)
 const mockChmod = vi.fn().mockResolvedValue(undefined)
 const mockMkdir = vi.fn().mockResolvedValue(undefined)
 const mockRm = vi.fn().mockResolvedValue(undefined)
+const mockReadFile = vi.fn()
 vi.mock('fs/promises', () => ({
   mkdir: (...args: unknown[]) => mockMkdir(...args),
+  readFile: (...args: unknown[]) => mockReadFile(...args),
   rm: (...args: unknown[]) => mockRm(...args),
   writeFile: (...args: unknown[]) => mockWriteFile(...args),
   chmod: (...args: unknown[]) => mockChmod(...args),
@@ -35,6 +48,7 @@ vi.mock('fs/promises', () => ({
 
 vi.mock('node:fs/promises', () => ({
   mkdir: (...args: unknown[]) => mockMkdir(...args),
+  readFile: (...args: unknown[]) => mockReadFile(...args),
   rm: (...args: unknown[]) => mockRm(...args),
   writeFile: (...args: unknown[]) => mockWriteFile(...args),
   chmod: (...args: unknown[]) => mockChmod(...args),
@@ -47,13 +61,19 @@ vi.mock('@/lib/user-data', () => ({
 
 import {
   createContainer,
+  createArchiveContainer,
+  findLegacyArchiveSource,
+  hasLegacyBackendWriters,
+  removeOrphanedV2ContainerForSlug,
+  removeManagedArchiveContainerForSlug,
   startContainer,
   stopContainer,
   removeContainer,
   removeManagedContainerForSlug,
   inspectContainer,
   isContainerRunning,
-} from '../docker'
+  prepareModelsCatalog,
+} from '@/lib/spawner/docker'
 
 describe('docker', () => {
   const originalEnv = process.env
@@ -64,8 +84,77 @@ describe('docker', () => {
     process.env.CONTAINER_PROXY_HOST = 'test-proxy'
     process.env.CONTAINER_PROXY_PORT = '2375'
     process.env.OPENCODE_IMAGE = 'test-image:latest'
+    process.env.OPENCODE_V1_IMAGE = 'test-image:opencode-v1'
     process.env.OPENCODE_NETWORK = 'test-network'
+    process.env.ARCHE_GATEWAY_TOKEN_SECRET = 'fixture'
     process.env.KB_CONTENT_HOST_PATH = '/opt/arche/kb-content'
+    vi.mocked(getGatewayModelsCatalog).mockResolvedValue({ ok: true, data: '{"seeded":true}' })
+    mockReadFile.mockReset().mockRejectedValue(Object.assign(new Error('missing'), { code: 'ENOENT' }))
+    mockDockerInstance.listContainers.mockResolvedValue([])
+    mockDockerInstance.getContainer.mockReturnValue(mockContainer)
+    mockContainer.inspect.mockRejectedValue({ statusCode: 404 })
+    mockContainer.remove.mockResolvedValue(undefined)
+    mockImage.inspect.mockResolvedValue({})
+    process.env.DATABASE_URL = 'postgresql://current:fixture@postgres:5432/arche?schema=public'
+  })
+
+  describe('runtime upgrade writers', () => {
+    function backend(labels: Record<string, string>, databaseUrl: string, running = true) {
+      mockDockerInstance.listContainers.mockResolvedValue([{
+        Id: 'backend', Labels: labels, NetworkSettings: { Networks: { 'test-network': {} } },
+      }])
+      mockContainer.inspect.mockResolvedValue({ State: { Running: running }, Config: { Env: [`DATABASE_URL=${databaseUrl}`] } })
+    }
+
+    it.each(['web', 'flows', 'reaper'])('waits for an old %s backend using the same database regardless of credentials', async (service) => {
+      backend({ 'com.docker.compose.service': service }, 'postgres://previous:old-fixture@POSTGRES/arche')
+      await expect(hasLegacyBackendWriters()).resolves.toBe(true)
+    })
+
+    it('waits for old blue-green web containers outside compose', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      backend({ 'arche.role': 'web' }, process.env.DATABASE_URL!)
+      await expect(hasLegacyBackendWriters()).resolves.toBe(true)
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('runtime contract'), { container: 'backend' })
+      warn.mockRestore()
+    })
+
+    it.each([
+      'postgresql://fixture@postgres/another-db',
+      'postgresql://fixture@other-postgres/arche',
+      'postgresql://fixture@postgres:5433/arche',
+      'postgresql://fixture@postgres/arche?schema=other',
+    ])('ignores an old backend scoped to a different database: %s', async (databaseUrl) => {
+      backend({ 'arche.role': 'web' }, databaseUrl)
+      await expect(hasLegacyBackendWriters()).resolves.toBe(false)
+    })
+
+    it('allows only the current contract once all old backends are stopped', async () => {
+      backend({ 'arche.role': 'web', 'arche.runtime.contract': 'opencode-v2' }, process.env.DATABASE_URL!)
+      await expect(hasLegacyBackendWriters()).resolves.toBe(false)
+      expect(mockContainer.inspect).not.toHaveBeenCalled()
+      backend({ 'arche.role': 'web' }, process.env.DATABASE_URL!, false)
+      await expect(hasLegacyBackendWriters()).resolves.toBe(false)
+    })
+
+    it('does not confuse service DNS in an unrelated stack with the workspace database', async () => {
+      backend({ 'arche.role': 'web' }, process.env.DATABASE_URL!)
+      mockDockerInstance.listContainers.mockResolvedValue([{
+        Id: 'unrelated', Labels: { 'arche.role': 'web' }, NetworkSettings: { Networks: { other: {} } },
+      }])
+      await expect(hasLegacyBackendWriters()).resolves.toBe(false)
+      expect(mockContainer.inspect).not.toHaveBeenCalled()
+    })
+
+    it('fails closed on unavailable inventory or an uncertain old backend', async () => {
+      mockDockerInstance.listContainers.mockRejectedValueOnce(new Error('proxy unavailable'))
+      await expect(hasLegacyBackendWriters()).rejects.toThrow('proxy unavailable')
+      backend({ 'arche.role': 'web' }, process.env.DATABASE_URL!)
+      mockContainer.inspect.mockRejectedValueOnce(new Error('inspection unavailable'))
+      await expect(hasLegacyBackendWriters()).rejects.toThrow('inspection unavailable')
+      mockContainer.inspect.mockResolvedValueOnce({ State: { Running: true }, Config: { Env: [] } })
+      await expect(hasLegacyBackendWriters()).rejects.toThrow('runtime_upgrade_database_unavailable')
+    })
   })
 
   afterEach(() => {
@@ -74,6 +163,204 @@ describe('docker', () => {
   })
 
   describe('createContainer', () => {
+    it('awaits the gateway catalog and writes its boot file before creating a fresh runtime', async () => {
+      const catalog = Promise.withResolvers<Awaited<ReturnType<typeof getGatewayModelsCatalog>>>()
+      vi.mocked(getGatewayModelsCatalog).mockReturnValueOnce(catalog.promise)
+      const creating = createContainer('user-slug', 'fixture')
+      await vi.waitFor(() => expect(getGatewayModelsCatalog).toHaveBeenCalledWith('http://web:3000/api/internal/providers', null))
+      expect(mockDockerInstance.createContainer).not.toHaveBeenCalled()
+      catalog.resolve({ ok: true, data: '{"seeded":true}' })
+      await creating
+      expect(mockWriteFile).toHaveBeenCalledWith('/opt/arche/users/user-slug/models-catalog.json', '{"seeded":true}', 'utf-8')
+      const writeIndex = mockWriteFile.mock.calls.findIndex(([path]) => path.endsWith('/models-catalog.json'))
+      expect(mockWriteFile.mock.invocationCallOrder[writeIndex]).toBeLessThan(mockDockerInstance.createContainer.mock.invocationCallOrder[0])
+      expect(mockDockerInstance.createContainer).toHaveBeenCalledWith(expect.objectContaining({
+        Env: expect.arrayContaining(['OPENCODE_MODELS_PATH=/tmp/arche-user-data/models-catalog.json']),
+      }))
+    })
+
+    it('does not create a runtime when the gateway catalog is unavailable or cannot be written', async () => {
+      vi.mocked(getGatewayModelsCatalog).mockResolvedValueOnce({ ok: false, error: 'catalog_unavailable' })
+      await expect(createContainer('user-slug', 'fixture')).rejects.toThrow('catalog_unavailable')
+      mockWriteFile.mockImplementationOnce(async () => { throw new Error('write failed') })
+      await expect(createContainer('user-slug', 'fixture')).rejects.toThrow('write failed')
+      expect(mockDockerInstance.createContainer).not.toHaveBeenCalled()
+    })
+
+    it('offers the catalog written by the previous start as the outage fallback', async () => {
+      mockReadFile.mockResolvedValueOnce('{"previous":true}')
+      expect(await prepareModelsCatalog('user-slug')).toEqual({ ok: true, data: '{"seeded":true}' })
+      expect(mockReadFile).toHaveBeenCalledWith('/opt/arche/users/user-slug/models-catalog.json', 'utf-8')
+      expect(getGatewayModelsCatalog).toHaveBeenCalledWith('http://web:3000/api/internal/providers', '{"previous":true}')
+    })
+
+    it('boots with a catalog resolved before the call without resolving it again', async () => {
+      await createContainer('user-slug', 'fixture', undefined, undefined, undefined, undefined, '{"prepared":true}')
+      expect(getGatewayModelsCatalog).not.toHaveBeenCalled()
+      expect(mockWriteFile).toHaveBeenCalledWith('/opt/arche/users/user-slug/models-catalog.json', '{"prepared":true}', 'utf-8')
+    })
+
+    const ownedSource = {
+      Id: 'source', Name: '/opencode-user-slug', State: { Running: true },
+      Config: { Labels: { 'arche.managed': 'true', 'arche.user.slug': 'user-slug' } },
+    }
+
+    it.each([null, 'stale-pointer'])('discovers the owned running source independently of pointer %s', async (pointer) => {
+      mockDockerInstance.listContainers.mockResolvedValue([{ Id: 'source', Labels: ownedSource.Config.Labels }])
+      mockContainer.inspect.mockImplementation(async function () { throw { statusCode: 404 } })
+      mockDockerInstance.getContainer.mockImplementation((id: string) => ({
+        ...mockContainer, inspect: async () => {
+          if (id !== 'source') throw { statusCode: 404 }
+          return { ...ownedSource, Name: '/renamed-source' }
+        },
+      }))
+      await expect(findLegacyArchiveSource('user-slug', pointer)).resolves.toEqual({ id: 'source', name: 'renamed-source', running: true })
+      expect(mockDockerInstance.listContainers).toHaveBeenCalledWith({ all: true, filters: { label: ['arche.managed=true', 'arche.user.slug=user-slug'] } })
+    })
+
+    it('never mounts a helper while any owned source remains, running or stopped', async () => {
+      for (const running of [true, false]) {
+        mockContainer.inspect.mockResolvedValue({ ...ownedSource, State: { Running: running } })
+        await expect(createArchiveContainer('user-slug', 'fixture')).rejects.toThrow('legacy_archive_source_not_removed')
+      }
+      expect(mockDockerInstance.createContainer).not.toHaveBeenCalled()
+    })
+
+    it('allows a helper only on confirmed source absence, not uncertain inspections or inventory', async () => {
+      mockContainer.inspect.mockRejectedValueOnce(new Error('proxy down'))
+      await expect(createArchiveContainer('user-slug', 'fixture')).rejects.toThrow('proxy down')
+      mockDockerInstance.listContainers.mockRejectedValueOnce(new Error('inventory unavailable'))
+      await expect(createArchiveContainer('user-slug', 'fixture')).rejects.toThrow('inventory unavailable')
+      expect(mockDockerInstance.createContainer).not.toHaveBeenCalled()
+    })
+
+    it.each([
+      { labels: { 'arche.managed': 'true', 'arche.user.slug': 'other' }, error: 'legacy_archive_source_not_owned_v1' },
+      { labels: { ...ownedSource.Config.Labels, 'arche.runtime.kind': 'opencode-v2' }, error: 'legacy_archive_source_not_owned_v1' },
+    ])('fails closed on uncertain source ownership: $error', async ({ labels, error }) => {
+      mockContainer.inspect.mockResolvedValue({ ...ownedSource, Config: { Labels: labels } })
+      await expect(findLegacyArchiveSource('user-slug', null)).rejects.toThrow(error)
+    })
+
+    it('rejects incomplete inspections and multiple owned sources', async () => {
+      mockContainer.inspect.mockResolvedValueOnce({ ...ownedSource, State: {} })
+      await expect(findLegacyArchiveSource('user-slug', null)).rejects.toThrow('legacy_archive_source_inspection_incomplete')
+      mockContainer.inspect.mockResolvedValueOnce(ownedSource).mockResolvedValueOnce({ ...ownedSource, Id: 'second' })
+      await expect(findLegacyArchiveSource('user-slug', 'second')).rejects.toThrow('legacy_archive_multiple_sources')
+    })
+
+    it('boots legacy archive mode from disposable copies with read-only source mounts', async () => {
+      const result = await createArchiveContainer('user-slug', 'archive-only')
+      expect(result).toEqual({ id: 'container-123', name: 'opencode-archive-user-slug' })
+      expect(mockDockerInstance.createContainer).toHaveBeenCalledWith(expect.objectContaining({
+        Image: 'test-image:opencode-v1',
+        Entrypoint: ['sh', '-c',
+          'mkdir -p /home/workspace/.local/share/opencode /home/workspace/.local/state/opencode && ' +
+          'cp -a /tmp/arche-archive-source/share/. /home/workspace/.local/share/opencode/ && ' +
+          'cp -a /tmp/arche-archive-source/state/. /home/workspace/.local/state/opencode/ && ' +
+          'exec opencode "$@"', 'arche-archive'],
+        Cmd: ['serve', '--hostname', '0.0.0.0', '--port', '4096'],
+        Env: expect.arrayContaining([
+          'OPENCODE_DISABLE_PROJECT_CONFIG=true',
+          'OPENCODE_CONFIG_CONTENT={"mcp":{},"plugin":[],"enabled_providers":[]}',
+          'XDG_CONFIG_HOME=/tmp/arche-archive-config',
+          'GIT_CONFIG_COUNT=1',
+          'GIT_CONFIG_KEY_0=safe.directory',
+          'GIT_CONFIG_VALUE_0=/workspace',
+        ]),
+        HostConfig: {
+          NetworkMode: 'test-network', RestartPolicy: { Name: 'no' },
+          Binds: [
+            'arche-workspace-user-slug:/workspace:ro',
+            'arche-opencode-share-user-slug:/tmp/arche-archive-source/share:ro',
+            'arche-opencode-state-user-slug:/tmp/arche-archive-source/state:ro',
+          ],
+        },
+        Labels: expect.objectContaining({ 'arche.archive': 'true' }),
+      }))
+      expect(mockWriteFile).not.toHaveBeenCalled()
+      expect(mockDockerInstance.createVolume).not.toHaveBeenCalled()
+    })
+
+    it('pulls a missing legacy image to completion before creating the archive helper', async () => {
+      mockImage.inspect.mockRejectedValueOnce({ statusCode: 404 })
+      const stream = { fixture: true }
+      mockDockerInstance.pull.mockResolvedValueOnce(stream)
+      mockDockerInstance.modem.followProgress.mockImplementationOnce((_stream, done) => done(null))
+      await createArchiveContainer('user-slug', 'fixture')
+      expect(mockDockerInstance.pull).toHaveBeenCalledExactlyOnceWith('test-image:opencode-v1')
+      expect(mockDockerInstance.modem.followProgress).toHaveBeenCalledWith(stream, expect.any(Function))
+      expect(mockDockerInstance.pull.mock.invocationCallOrder[0]).toBeLessThan(mockDockerInstance.createContainer.mock.invocationCallOrder[0])
+    })
+
+    it('does not create the archive helper when image inspection or pulling fails', async () => {
+      mockImage.inspect.mockRejectedValueOnce(new Error('image inspection unavailable'))
+      await expect(createArchiveContainer('user-slug', 'fixture')).rejects.toThrow('image inspection unavailable')
+      expect(mockDockerInstance.pull).not.toHaveBeenCalled()
+      mockImage.inspect.mockRejectedValueOnce({ statusCode: 404 })
+      mockDockerInstance.pull.mockResolvedValueOnce({})
+      mockDockerInstance.modem.followProgress.mockImplementationOnce((_stream, done) => done(new Error('registry unavailable')))
+      await expect(createArchiveContainer('user-slug', 'fixture')).rejects.toThrow('registry unavailable')
+      expect(mockDockerInstance.createContainer).not.toHaveBeenCalled()
+    })
+
+    it('removes only an owned V2 orphan before legacy source discovery', async () => {
+      mockContainer.inspect.mockResolvedValue({ Id: 'orphan', Config: { Labels: {
+        'arche.managed': 'true', 'arche.user.slug': 'user-slug', 'arche.runtime.kind': 'opencode-v2',
+      } } })
+      await removeOrphanedV2ContainerForSlug('user-slug')
+      expect(mockDockerInstance.getContainer).toHaveBeenLastCalledWith('orphan')
+      expect(mockContainer.remove).toHaveBeenCalledWith({ force: true })
+    })
+
+    it.each([
+      { 'arche.managed': 'true', 'arche.user.slug': 'user-slug' },
+      { 'arche.managed': 'true', 'arche.user.slug': 'other', 'arche.runtime.kind': 'opencode-v2' },
+      { 'arche.managed': 'false', 'arche.user.slug': 'user-slug', 'arche.runtime.kind': 'opencode-v2' },
+    ])('never removes a V1 source or another container while recovering an orphan (%j)', async (labels) => {
+      mockContainer.inspect.mockResolvedValue({ Id: 'source', Config: { Labels: labels } })
+      await removeOrphanedV2ContainerForSlug('user-slug')
+      expect(mockContainer.remove).not.toHaveBeenCalled()
+    })
+
+    it('fails orphan recovery when the container cannot be inspected or removed', async () => {
+      mockContainer.inspect.mockRejectedValueOnce(new Error('inspection unavailable'))
+      await expect(removeOrphanedV2ContainerForSlug('user-slug')).rejects.toThrow('inspection unavailable')
+      mockContainer.inspect.mockResolvedValueOnce({ Id: 'orphan', Config: { Labels: {
+        'arche.managed': 'true', 'arche.user.slug': 'user-slug', 'arche.runtime.kind': 'opencode-v2',
+      } } })
+      mockContainer.remove.mockRejectedValueOnce(new Error('removal unconfirmed'))
+      await expect(removeOrphanedV2ContainerForSlug('user-slug')).rejects.toThrow('removal unconfirmed')
+    })
+
+    it('reclaims only an owned archive container left by an interrupted migration', async () => {
+      mockDockerInstance.createContainer.mockRejectedValueOnce(new Error('container name is already in use'))
+      mockContainer.inspect.mockRejectedValueOnce({ statusCode: 404 })
+      mockContainer.inspect.mockResolvedValueOnce({ Config: { Labels: {
+        'arche.managed': 'true', 'arche.user.slug': 'user-slug', 'arche.archive': 'true',
+      } } })
+      await createArchiveContainer('user-slug', 'fixture')
+      expect(mockDockerInstance.getContainer).toHaveBeenCalledWith('opencode-archive-user-slug')
+      expect(mockContainer.remove).toHaveBeenCalledWith({ force: true })
+      expect(mockDockerInstance.createContainer).toHaveBeenCalledTimes(2)
+    })
+
+    it('never removes an unmanaged archive-name conflict', async () => {
+      mockDockerInstance.createContainer.mockRejectedValueOnce(new Error('container name is already in use'))
+      mockContainer.inspect.mockRejectedValueOnce({ statusCode: 404 })
+      mockContainer.inspect.mockResolvedValueOnce({ Config: { Labels: { 'arche.managed': 'true', 'arche.user.slug': 'other', 'arche.archive': 'true' } } })
+      await expect(createArchiveContainer('user-slug', 'fixture')).rejects.toThrow('archive_container_not_managed')
+      expect(mockContainer.remove).not.toHaveBeenCalled()
+    })
+
+    it('confirms absence of an archive helper but never treats inspection failures as absence', async () => {
+      mockContainer.inspect.mockRejectedValueOnce({ statusCode: 404 })
+      await expect(removeManagedArchiveContainerForSlug('user-slug')).resolves.toBeUndefined()
+      mockContainer.inspect.mockRejectedValueOnce(new Error('proxy down'))
+      await expect(removeManagedArchiveContainerForSlug('user-slug')).rejects.toThrow('proxy down')
+      expect(mockContainer.remove).not.toHaveBeenCalled()
+    })
+
     it('creates container with default runtime configuration', async () => {
       await createContainer('user-slug', 'secret-password')
 
@@ -137,8 +424,10 @@ describe('docker', () => {
       )
 
       expect(mockDockerInstance.createVolume).toHaveBeenCalledWith({ Name: 'arche-workspace-user-slug' })
-      expect(mockDockerInstance.createVolume).toHaveBeenCalledWith({ Name: 'arche-opencode-share-user-slug' })
-      expect(mockDockerInstance.createVolume).toHaveBeenCalledWith({ Name: 'arche-opencode-state-user-slug' })
+      expect(mockDockerInstance.createVolume).toHaveBeenCalledWith({ Name: 'arche-opencode2-share-user-slug' })
+      expect(mockDockerInstance.createVolume).toHaveBeenCalledWith({ Name: 'arche-opencode2-state-user-slug' })
+      expect(mockDockerInstance.createVolume).not.toHaveBeenCalledWith({ Name: 'arche-opencode-share-user-slug' })
+      expect(mockDockerInstance.createVolume).not.toHaveBeenCalledWith({ Name: 'arche-opencode-state-user-slug' })
 
       expect(mockDockerInstance.createContainer).toHaveBeenCalledWith({
         Image: 'test-image:latest',
@@ -148,7 +437,6 @@ describe('docker', () => {
         Env: expect.arrayContaining([
           'OPENCODE_SERVER_PASSWORD=secret-password',
           'OPENCODE_SERVER_USERNAME=opencode',
-          'OPENCODE_CONFIG_DIR=/opt/arche/opencode-config',
           'HOME=/home/workspace',
           'XDG_DATA_HOME=/home/workspace/.local/share',
           'XDG_CONFIG_HOME=/home/workspace/.config',
@@ -156,21 +444,25 @@ describe('docker', () => {
           'WORKSPACE_AGENT_PORT=4097',
           'WORKSPACE_GIT_AUTHOR_NAME=user-slug',
           'WORKSPACE_GIT_AUTHOR_EMAIL=user-slug@arche.local',
+          `OPENCODE_MODELS_URL=http://web:3000/api/internal/models/${getModelsCatalogToken()}`,
+          'ARCHE_SCRATCH_DIR=/tmp/arche-scratch',
         ]),
         HostConfig: {
           NetworkMode: 'test-network',
           RestartPolicy: { Name: 'on-failure', MaximumRetryCount: 5 },
           Binds: [
             'arche-workspace-user-slug:/workspace',
-            'arche-opencode-share-user-slug:/home/workspace/.local/share/opencode',
-            'arche-opencode-state-user-slug:/home/workspace/.local/state/opencode',
+            'arche-opencode2-share-user-slug:/home/workspace/.local/share/opencode',
+            'arche-opencode2-state-user-slug:/home/workspace/.local/state/opencode',
             '/opt/arche/kb-content:/kb-content',
             '/opt/arche/users/user-slug:/tmp/arche-user-data:ro',
           ],
+          Tmpfs: { '/tmp/arche-scratch': 'rw,nosuid,nodev,size=512m,mode=0700' },
         },
         Labels: {
           'arche.managed': 'true',
           'arche.user.slug': 'user-slug',
+          'arche.runtime.kind': 'opencode-v2',
         },
       })
     })
@@ -353,6 +645,12 @@ describe('docker', () => {
   })
 
   describe('removeContainer', () => {
+    it('confirms absence on 404 while preserving actual teardown errors', async () => {
+      mockContainer.remove.mockRejectedValueOnce({ statusCode: 404 })
+      await expect(removeContainer('missing')).resolves.toBeUndefined()
+      mockContainer.remove.mockRejectedValueOnce({ statusCode: 500 })
+      await expect(removeContainer('uncertain')).rejects.toEqual({ statusCode: 500 })
+    })
     it('removes a container with force option', async () => {
       await removeContainer('container-123')
       expect(mockContainer.remove).toHaveBeenCalledWith({ force: true })
