@@ -96,6 +96,12 @@ Runtime config is injected by Arche spawner when creating the container:
 
 The image includes `/opt/arche/arche-tools/server.js`, registered by the spawner as the local `arche_tools` MCP server (`node /opt/arche/arche-tools/server.js`). It has no harness plugin dependency. Agent tool maps and permissions are remapped at runtime; stored workspace configuration is not rewritten.
 
+The adjacent `shared/scratch-isolation` directory is a separate OpenCode 2 permission
+plugin, also copied into desktop bundles. It binds native file-tool scratch access
+to the trusted calling session, including subagents: own scratch stays prompt-free;
+other sessions and symlink escapes are denied. This is not shell or OS-user isolation.
+Existing workspaces need updated runtime artifacts and a restart to load the guard.
+
 Tool output remains JSON text (including chart, diagram and attachment payloads), also exposed as MCP structured content. Workspace-scoped internal API credentials are inherited by the stdio process, never passed as tool arguments. Learning and session history require explicit `caller_agent` plus harness session metadata (`ai.opencode/sessionID`) or an explicit `caller_session_id`. Missing or conflicting context returns `caller_identity_unavailable` without calling the internal API. Explicit identity is attribution, not authentication; workspace authorization remains on the internal API. Agents must not invent a session id when none is known.
 
 Tool checks: from `arche-tools/`, run `pnpm install --ignore-scripts` and `pnpm test`. Regression calls use an in-process MCP client/server pair.

@@ -406,7 +406,7 @@ describe('V2 runtime config renderer: session scratch folders', () => {
     },
   }
 
-  it('lets agents that can edit work in the scratch folder while the vault and other paths stay guarded', () => {
+  it('requires the session-aware guard for scratch while keeping the vault and other paths guarded', () => {
     const rendered = config({ ...createRuntimeConfigModel(source), scratch })
     const writer = agentConfig(rendered, 'writer').permissions
     const reader = agentConfig(rendered, 'reader').permissions
@@ -415,12 +415,15 @@ describe('V2 runtime config renderer: session scratch folders', () => {
     expect(decision(writer, 'edit', '../tmp/arche-scratch/ses_1/draft.md')).toBe('allow')
     expect(decision(writer, 'edit', 'notes.md')).toBe('deny')
     expect(decision(writer, 'edit', '../etc/hosts')).toBe('deny')
-    expect(decision(writer, 'external_directory', '/tmp/arche-scratch/ses_1/draft.md')).toBe('allow')
+    expect(decision(writer, 'edit', '/tmp/arche-scratch/ses_1/draft.md')).toBe('allow')
+    expect(decision(writer, 'external_directory', '/tmp/arche-scratch/ses_1/draft.md')).toBe('ask')
     expect(decision(writer, 'external_directory', '/etc/hosts')).toBe('ask')
     expect(decision(reader, 'edit', '../tmp/arche-scratch/ses_1/draft.md')).toBe('deny')
-    expect(decision(reader, 'external_directory', '/tmp/arche-scratch/ses_1/draft.md')).toBe('allow')
-    expect(decision(rendered.permissions, 'external_directory', '/tmp/arche-scratch/ses_1')).toBe('allow')
+    expect(decision(reader, 'external_directory', '/tmp/arche-scratch/ses_1/draft.md')).toBe('ask')
+    expect(decision(rendered.permissions, 'external_directory', '/tmp/arche-scratch/ses_1')).toBe('ask')
+    expect(rendered.plugins).toEqual([{ package: '/opt/arche/arche-tools/shared/scratch-isolation', options: { root: scratch.root } }])
     expect(decision(rendered.policies, 'tool.use', 'edit:../tmp/arche-scratch/ses_1/draft.md')).toBe('allow')
+    expect(decision(rendered.policies, 'tool.use', 'edit:/tmp/arche-scratch/ses_1/draft.md')).toBe('allow')
     expect(decision(rendered.policies, 'tool.use', 'edit:notes.md')).toBe('deny')
     expect(decision(rendered.policies, 'tool.use', 'edit:.opencode/opencode.json')).toBe('deny')
   })
@@ -431,9 +434,9 @@ describe('V2 runtime config renderer: session scratch folders', () => {
   })
 
   it.each([
-    { scratch, sha: '6f58fdb7f5fe843a0a8cb563eb190878fc8ff9acdd9ad4e52db655343d916730' },
-    { scratch: { root: '/var/tmp/scratch/', workspaceRoot: '/Users/me/vault/workspace' }, sha: '5a2d8cfe8e0c6fabf090ff9b3c53e733903a899b0ed941d69615859cb0bd074e' },
-  ])('keeps POSIX output byte-identical for $scratch', ({ scratch, sha }) => {
+    { scratch, sha: '1230f2b37252f09a340930e7a1f8aa18083a11a267582373578df5f2fa424c69' },
+    { scratch: { root: '/var/tmp/scratch/', workspaceRoot: '/Users/me/vault/workspace' }, sha: 'a91005113c56f440c691c9cadf4bc0e62f90e308e4b6863a0da131b4ac06c456' },
+  ])('keeps POSIX scratch output stable for $scratch', ({ scratch, sha }) => {
     const result = renderRuntimeConfig({ ...createRuntimeConfigModel(source), scratch })
     if (!result.ok) throw new Error(JSON.stringify(result.error))
     expect(createHash('sha256').update(result.data.opencodeConfigContent).digest('hex')).toBe(sha)
@@ -457,7 +460,7 @@ describe('V2 runtime config renderer: session scratch folders', () => {
       expect(decision(rendered.policies, 'tool.use', `edit:${resource}`)).toBe('allow')
     }
     for (const permissions of [writer, reader, rendered.permissions]) {
-      expect(decision(permissions, 'external_directory', `${absolute}/ses_1/*`)).toBe('allow')
+      expect(decision(permissions, 'external_directory', `${absolute}/ses_1/*`)).toBe('ask')
       expect(decision(permissions, 'external_directory', 'C:/Users/Ada/Temp/other/*')).toBe('ask')
     }
     for (const resource of ['notes.md', '.opencode/opencode.json', 'C:/Users/Ada/Temp/other/draft.md', '../other/draft.md']) {
@@ -465,6 +468,11 @@ describe('V2 runtime config renderer: session scratch folders', () => {
       expect(decision(rendered.policies, 'tool.use', `edit:${resource}`)).toBe('deny')
     }
     expect(JSON.stringify(rendered)).not.toContain('\\\\')
+  })
+
+  it.each(['/bundle with spaces/arche-tools/server.js', String.raw`C:\Arche\bin\arche-tools\server.js`])('loads the isolation guard from the bundled tools next to %s', (entry) => {
+    const rendered = config({ ...createRuntimeConfigModel({ ...source, mcp: { arche_tools: { type: 'local', command: ['node', entry] } } }), scratch })
+    expect(rendered.plugins).toEqual([{ package: entry.replaceAll('\\', '/').replace('/server.js', '/shared/scratch-isolation'), options: { root: scratch.root } }])
   })
 
   it('adds no scratch rules without a scratch folder', () => {

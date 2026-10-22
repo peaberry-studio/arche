@@ -181,10 +181,13 @@ describe.skipIf(!LIVE)('V2 adapter against a live isolated 2.0.32 server', () =>
   it('admits, refuses while busy, settles and books a completed run', async () => {
     const session = await create('run')
     expect(await createSessionPromptRun({ client: runtime, sessionId: session.id, slug: 'live', source: 'flow' })).toEqual({ ok: true, run: { id: 'live-run' } })
-    const cursor = await captureSessionMessageCursor(runtime, session.id)
+    const captured = await captureSessionMessageCursor(runtime, session.id)
+    expect(captured.ok).toBe(true)
+    if (!captured.ok) throw new Error(captured.error.code)
+    const cursor = captured.data
     expect(await runtime.prompt({ sessionId: session.id, messageId: 'msg_live_run', parts: [{ type: 'text', text: 'Settle this run' }] })).toEqual({ ok: true, data: undefined })
     expect(await waitForSessionToComplete({ client: runtime, cursor, sessionId: session.id, slug: 'live', usage: { messageRunId: 'live-run', userId: 'user-1', source: 'flow' } })).toEqual({ status: 'completed' })
-    expect(await readLatestAssistantText(runtime, session.id, cursor)).toBe('Live fixture reply')
+    expect(await readLatestAssistantText(runtime, session.id, cursor)).toEqual({ ok: true, data: 'Live fixture reply' })
     expect(mocks.usage).toHaveBeenCalledWith(expect.objectContaining({ messageRunId: 'live-run', providerId: 'openrouter', inputTokens: 11, outputTokens: 3 }), '[harness/execution]')
     const first = await client.message.list({ sessionID: session.id, order: 'asc', limit: 1 })
     const rest = await client.message.list({ sessionID: session.id, limit: 100, cursor: first.cursor.next ?? undefined })

@@ -38,6 +38,11 @@ test('image checks build and smoke-test both runtimes without pruning shared res
   assert.match(script, /tests\/runtime-smoke\.mjs/)
 })
 
+test('web and desktop bundles include the native scratch isolation guard', () => {
+  assert.match(read('infra/workspace-image/Containerfile'), /COPY arche-tools\/shared\/scratch-isolation\/\*\.js \.\/shared\/scratch-isolation\//)
+  assert.match(read('scripts/prepare-desktop-runtime.sh'), /cp -R "\$ARCHE_TOOLS_SOURCE_DIR\/shared\/scratch-isolation" "\$ARCHE_TOOLS_OUTPUT_DIR\/shared\/scratch-isolation"/)
+})
+
 test('new backend images and source-mounted development stacks declare the runtime contract', () => {
   assert.match(read('apps/web/Containerfile'), /LABEL arche\.runtime\.contract=opencode-v2/)
   for (const path of ['infra/compose/compose.yaml', 'infra/deploy/ansible/roles/app/templates/compose.yml.j2']) {

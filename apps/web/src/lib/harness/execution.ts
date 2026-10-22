@@ -1,5 +1,5 @@
 import type { HarnessMessage, HarnessRuntime } from '@/lib/harness/contract'
-import { EXECUTION_TERMINATION_UNCONFIRMED_ERROR, type HarnessResult } from '@/lib/harness/errors'
+import { EXECUTION_TERMINATION_UNCONFIRMED_ERROR, type HarnessError, type HarnessResult } from '@/lib/harness/errors'
 import { syncRuntimeProviderAccess } from '@/lib/harness/registry'
 import { isProviderId, normalizeProviderId } from '@/lib/providers/catalog'
 import { recordProviderRunUsageBestEffort } from '@/lib/providers/run-usage'
@@ -24,6 +24,7 @@ export type SessionCompletionResult =
   | { status: 'completed' }
   | { status: 'failed'; error: string }
   | { status: 'termination_unconfirmed'; cause: string }
+  | { status: 'error'; error: HarnessError }
 
 export type SessionExecutionClient = HarnessRuntime
 type SessionFamilyClient = Pick<HarnessRuntime, 'listChildren' | 'sessionStatus' | 'abortSession'>
@@ -58,11 +59,6 @@ function normalizeRole(role: unknown): 'assistant' | 'system' | 'user' | null {
   }
 
   return null
-}
-
-function requireData<T>(result: HarnessResult<T>): T {
-  if (!result.ok) throw new Error(result.error.code)
-  return result.data
 }
 
 function getNumber(value: unknown): number {
@@ -233,13 +229,13 @@ export async function ensureWorkspaceRunningForExecution(
   slug: string,
   userId: string,
   options: { forceProviderRefresh?: boolean } = {},
-): Promise<void> {
+): Promise<{ ok: true } | { ok: false; error: string }> {
   const current = await getWorkspaceStatus(slug)
   if (current?.status === 'running') {
     // Only the already-running path honors the flag: a freshly started
     // workspace was just synced, so it has no aged token to refresh.
-    requireData(await syncRuntimeProviderAccess(slug, { userId, force: options.forceProviderRefresh }))
-    return
+    const synced = await syncRuntimeProviderAccess(slug, { userId, force: options.forceProviderRefresh })
+    return synced.ok ? { ok: true } : { ok: false, error: synced.error.code }
   }
 
   if (current?.status === 'starting') {
@@ -248,36 +244,39 @@ export async function ensureWorkspaceRunningForExecution(
       await sleep(INSTANCE_START_POLL_INTERVAL_MS)
       const next = await getWorkspaceStatus(slug)
       if (next?.status === 'running') {
-        requireData(await syncRuntimeProviderAccess(slug, { userId }))
-        return
+        const synced = await syncRuntimeProviderAccess(slug, { userId })
+        return synced.ok ? { ok: true } : { ok: false, error: synced.error.code }
       }
     }
 
-    throw new Error('instance_start_timeout')
+    return { ok: false, error: 'instance_start_timeout' }
   }
 
   let startResult = await startWorkspace(slug, userId)
   const deadline = Date.now() + RUN_TIMEOUT_MS
   while (!startResult.ok && startResult.error === 'runtime_upgrade_pending') {
     await sleep(INSTANCE_START_POLL_INTERVAL_MS)
-    if (Date.now() >= deadline) throw new Error('instance_start_timeout')
+    if (Date.now() >= deadline) return { ok: false, error: 'instance_start_timeout' }
     startResult = await startWorkspace(slug, userId)
   }
   if (!startResult.ok && startResult.error !== 'already_running') {
-    throw new Error(startResult.detail ?? startResult.error)
+    return { ok: false, error: startResult.detail ?? startResult.error }
   }
 
-  requireData(await syncRuntimeProviderAccess(slug, { userId }))
+  const synced = await syncRuntimeProviderAccess(slug, { userId })
+  return synced.ok ? { ok: true } : { ok: false, error: synced.error.code }
 }
 
 export async function captureSessionMessageCursor(
   client: SessionExecutionClient,
   sessionId: string,
-): Promise<SessionMessageCursor> {
-  const messages = requireData(await client.listMessages(sessionId))
+): Promise<HarnessResult<SessionMessageCursor>> {
+  const messages = await client.listMessages(sessionId)
+  if (!messages.ok) return messages
 
   return {
-    messageCount: messages.length,
+    ok: true,
+    data: { messageCount: messages.data.length },
   }
 }
 
@@ -474,8 +473,9 @@ export async function waitForSessionToComplete(params: {
         : { status: 'termination_unconfirmed', cause: pulseFailure }
     }
 
-    const statuses = requireData(await params.client.sessionStatus())
-    const sessionStatus = statuses[params.sessionId]
+    const statuses = await params.client.sessionStatus()
+    if (!statuses.ok) return { status: 'error', error: statuses.error }
+    const sessionStatus = statuses.data[params.sessionId]
 
     if (sessionStatus?.type === 'busy' || sessionStatus?.type === 'retry') {
       fetchedIdleSnapshot = false
@@ -485,7 +485,9 @@ export async function waitForSessionToComplete(params: {
 
     if (sessionStatus?.type === 'idle' || !sessionStatus) {
       if (!fetchedIdleSnapshot) {
-        const messages = getMessagesSinceCursor(requireData(await params.client.listMessages(params.sessionId)), params.cursor)
+        const response = await params.client.listMessages(params.sessionId)
+        if (!response.ok) return { status: 'error', error: response.error }
+        const messages = getMessagesSinceCursor(response.data, params.cursor)
         const hasAssistant = messages.some((message) => normalizeRole(message.role) === 'assistant')
 
         if (hasAssistant) {
@@ -520,8 +522,10 @@ export async function readLatestAssistantText(
   client: SessionExecutionClient,
   sessionId: string,
   cursor?: SessionMessageCursor,
-): Promise<string | null> {
-  const messages = getMessagesSinceCursor(requireData(await client.listMessages(sessionId)), cursor)
+): Promise<HarnessResult<string | null>> {
+  const response = await client.listMessages(sessionId)
+  if (!response.ok) return response
+  const messages = getMessagesSinceCursor(response.data, cursor)
 
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index]
@@ -531,11 +535,11 @@ export async function readLatestAssistantText(
 
     const text = extractAssistantReplyText(message.parts ?? [])
     if (text) {
-      return text
+      return { ok: true, data: text }
     }
   }
 
-  return null
+  return { ok: true, data: null }
 }
 
 export type LatestAssistantReplyDiagnostics = {
@@ -554,8 +558,10 @@ export async function describeLatestAssistantReply(params: {
   client: SessionExecutionClient
   cursor?: SessionMessageCursor
   sessionId: string
-}): Promise<LatestAssistantReplyDiagnostics> {
-  const messages = getMessagesSinceCursor(requireData(await params.client.listMessages(params.sessionId)), params.cursor)
+}): Promise<HarnessResult<LatestAssistantReplyDiagnostics>> {
+  const response = await params.client.listMessages(params.sessionId)
+  if (!response.ok) return response
+  const messages = getMessagesSinceCursor(response.data, params.cursor)
   const assistantMessages = messages.filter((message) => normalizeRole(message.role) === 'assistant')
   const partTypes = new Set<string>()
   for (const message of assistantMessages) {
@@ -567,11 +573,14 @@ export async function describeLatestAssistantReply(params: {
   const latest = assistantMessages[assistantMessages.length - 1]
 
   return {
-    agent: latest?.agentId?.trim() || null,
-    assistantMessageCount: assistantMessages.length,
-    messageCount: messages.length,
-    modelId: latest?.model?.modelId?.trim() || null,
-    partTypes: [...partTypes].sort(),
-    providerId: latest?.model?.providerId?.trim() || null,
+    ok: true,
+    data: {
+      agent: latest?.agentId?.trim() || null,
+      assistantMessageCount: assistantMessages.length,
+      messageCount: messages.length,
+      modelId: latest?.model?.modelId?.trim() || null,
+      partTypes: [...partTypes].sort(),
+      providerId: latest?.model?.providerId?.trim() || null,
+    },
   }
 }

@@ -7,6 +7,7 @@ import {
   describeLatestAssistantReply,
   readSessionFamilyRuntimeState,
   readLatestAssistantText,
+  type SessionMessageCursor,
   waitForSessionToComplete,
 } from '@/lib/harness/execution'
 import { flowService, messageRunService } from '@/lib/services'
@@ -252,15 +253,27 @@ export async function runFlowPromptAndReadOutput(params: {
     if (state !== 'idle') return { ok: false, type: 'failed', error: state === 'not_found' ? 'session_not_found' : 'session_busy' }
   }
 
-  let cursor: Awaited<ReturnType<typeof captureSessionMessageCursor>>
+  let cursor: SessionMessageCursor
   try {
-    cursor = await captureSessionMessageCursor(params.client, params.sessionId)
+    const cursorResult = await captureSessionMessageCursor(params.client, params.sessionId)
+    if (!cursorResult.ok) {
+      if (messageRunId) {
+        await messageRunService.markRunFailed(messageRunId, cursorResult.error.code).catch(() => undefined)
+      }
+      return { ok: false, type: 'failed', error: cursorResult.error.code }
+    }
+    cursor = cursorResult.data
     const submitted = await params.client.prompt({
       agent: params.agent ?? undefined,
       parts: [{ text: params.prompt, type: 'text' }],
       sessionId: params.sessionId,
     })
-    if (!submitted.ok) throw new Error(submitted.error.code)
+    if (!submitted.ok) {
+      if (messageRunId) {
+        await messageRunService.markRunFailed(messageRunId, submitted.error.code).catch(() => undefined)
+      }
+      return { ok: false, type: 'failed', error: submitted.error.code }
+    }
   } catch (error) {
     if (messageRunId) {
       await messageRunService.markRunFailed(
@@ -305,6 +318,10 @@ export async function runFlowPromptAndReadOutput(params: {
       : undefined,
   })
 
+  if (completion.status === 'error') {
+    return { ok: false, type: 'failed', error: completion.error.code }
+  }
+
   if (completion.status === 'termination_unconfirmed') {
     // Termination could not be confirmed, so the flow run stays preserved for
     // lease-expiry recovery — but this run's message run is definitively over
@@ -327,13 +344,18 @@ export async function runFlowPromptAndReadOutput(params: {
     await messageRunService.markRunSucceeded(messageRunId).catch(() => undefined)
   }
 
-  const output = await readLatestAssistantText(params.client, params.sessionId, cursor)
+  const outputResult = await readLatestAssistantText(params.client, params.sessionId, cursor)
+  if (!outputResult.ok) {
+    return { ok: false, type: 'failed', error: outputResult.error.code }
+  }
+  const output = outputResult.data
   if (!output) {
-    const diagnostics = await describeLatestAssistantReply({
+    const diagnosticsResult = await describeLatestAssistantReply({
       client: params.client,
       cursor,
       sessionId: params.sessionId,
     }).catch(() => null)
+    const diagnostics = diagnosticsResult?.ok ? diagnosticsResult.data : null
 
     if (diagnostics) {
       console.warn('[flows] Step completed without assistant output', { ...diagnostics })

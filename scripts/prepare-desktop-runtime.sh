@@ -97,6 +97,7 @@ prepare_arche_tools_dir() {
   rm -rf "$ARCHE_TOOLS_OUTPUT_DIR/shared"
   mkdir -p "$ARCHE_TOOLS_OUTPUT_DIR/shared"
   cp "$ARCHE_TOOLS_SOURCE_DIR/shared/"*.js "$ARCHE_TOOLS_OUTPUT_DIR/shared/"
+  cp -R "$ARCHE_TOOLS_SOURCE_DIR/shared/scratch-isolation" "$ARCHE_TOOLS_OUTPUT_DIR/shared/scratch-isolation"
 
   rm -rf "$ARCHE_TOOLS_OUTPUT_DIR/tools"
   mkdir -p "$ARCHE_TOOLS_OUTPUT_DIR/tools"

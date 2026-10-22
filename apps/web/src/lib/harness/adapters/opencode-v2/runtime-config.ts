@@ -64,9 +64,7 @@ function matches(pattern: string, value: string): boolean {
   return new RegExp(`^${pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`).test(value)
 }
 
-// Keep POSIX's workspace-relative edit patterns. Windows also needs the absolute
-// form for scratch outside the Git worktree (and for paths on another drive).
-// OpenCode 2 always matches external_directory against the absolute path.
+// External edits use absolute resources; keep the relative form for a containing worktree.
 function scratchPatterns(scratch: NonNullable<RuntimeConfigModel['scratch']>): { absolute: string; edits: string[]; outsideWorkspace: boolean } {
   const windows = /^[a-z]:[\\/]/i.test(scratch.root)
   const paths = windows ? win32 : posix
@@ -76,7 +74,7 @@ function scratchPatterns(scratch: NonNullable<RuntimeConfigModel['scratch']>): {
   const absolute = `${root}/*`
   return {
     absolute,
-    edits: [...new Set([`${relative}/*`, ...(windows ? [absolute] : [])])],
+    edits: [...new Set([`${relative}/*`, absolute])],
     outsideWorkspace: relative.startsWith('..') || (windows && win32.isAbsolute(relative)),
   }
 }
@@ -182,7 +180,6 @@ function renderAgent(agent: RuntimeAgentModel, model: RuntimeConfigModel, global
   if (model.guards.selfDelegation) permissions.push({ action: 'subagent', resource: agent.id, effect: 'deny' })
   if (model.scratch) {
     const patterns = scratchPatterns(model.scratch)
-    permissions.push({ action: 'external_directory', resource: patterns.absolute, effect: 'allow' })
     if (canEdit) {
       for (const resource of patterns.edits) permissions.push({ action: 'edit', resource, effect: 'allow' })
     }
@@ -310,7 +307,6 @@ export function renderRuntimeConfig(model: RuntimeConfigModel): RuntimeConfigRen
     }
     const globalRules = toolRules(model.tools, permissionRules(model.access, 'access'), 'tools', false)
     globalRules.push({ action: 'external_directory', resource: '*', effect: 'ask' })
-    if (model.scratch) globalRules.push({ action: 'external_directory', resource: scratchPatterns(model.scratch).absolute, effect: 'allow' })
     const policies = renderPolicies(authoredPolicies)
     const prompts = agentPrompts(model)
     if (model.guards.workspace) {
@@ -336,6 +332,12 @@ export function renderRuntimeConfig(model: RuntimeConfigModel): RuntimeConfigRen
       agents: Object.fromEntries((model.agents ?? []).map((agent) => [agent.id, renderAgent(agent, model, globalRules, prompts)])),
       permissions: globalRules,
       policies,
+    }
+    if (model.scratch) {
+      const server = model.connectorTargets?.arche_tools
+      const command = isRecord(server) && Array.isArray(server.command) ? server.command : []
+      const entry = typeof command[1] === 'string' ? command[1].replaceAll('\\', '/') : '/opt/arche/arche-tools/server.js'
+      config.plugins = [{ package: `${posix.dirname(entry)}/shared/scratch-isolation`, options: { root: model.scratch.root.replaceAll('\\', '/') } }]
     }
     return { ok: true, data: {
       config,

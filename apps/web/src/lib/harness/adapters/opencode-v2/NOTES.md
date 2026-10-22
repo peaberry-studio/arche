@@ -30,6 +30,39 @@ of v1 starts, the v1 golden and the default switch no longer apply. Live accepta
 staging) and 7.2 is recorded at the end of `tasks.md`; MCP servers render with
 `codemode: false` so connector tools stay individually permissioned.
 
+## SR-16: native scratch isolation (2026-10-22)
+
+Pinned `@opencode/core@2.0.32` source confirms session rules are appended after
+agent rules (`dist/chunks/instance-f4mxpp6t.js`, `configured`/`evaluateInput`).
+`session.create` and `session.update` accept `permissions`, but native subagents
+inherit their parent's rules (`instance-fjz5gha3.js`). Literal path wildcards have
+no session-template substitution. A static own-folder allowance would therefore
+give a child access to its parent's scratch, and miss existing sessions.
+
+The V2 `permission.evaluate` hook receives the trusted invocation `sessionID`
+after configured rules and saved approvals, including automatically allowed
+checks. Arche's small `arche.scratch-isolation` plugin uses that ID for each
+native file operation; built-in tools remain harness-independent stdio MCP.
+The plugin is bundled beside arche-tools on both hosts, with no SDK dependency.
+It denies sibling folders, scratch-root/ancestor scans, and symlink escapes,
+and allows only the caller's external scratch boundary without prompting.
+Other tool permissions and vault policies still apply. External access defaults
+to ask in the config, rather than granting the entire scratch root statically.
+
+`file-access` (`instance-76an7qnj.js`) checks external boundaries for read/edit/
+write and for glob/grep (`instance-kp7zea7r.js`, `instance-wjsh9s1s.js`). The
+hook also checks canonical read/edit resources and search-path metadata, covering
+workspace symlinks. Absolute edit exceptions are needed on POSIX too when scratch
+is outside the Git worktree; the old probe accidentally put both in one worktree.
+
+Run `pnpm exec tsx src/lib/harness/adapters/opencode-v2/__tests__/scratch.probe.mjs`
+from apps/web, also with `SCRATCH_PROBE_HOST=desktop`. Both use repository-local
+isolated servers, a fake provider, packaged plugin copies, a separate Git workspace,
+and real native parent/subagent/peer tool calls. Reverting the renderer reproduces
+cross-session content disclosure in both modes. Shell authority, hardlinks, and
+adversarial same-UID filesystem replacement races are not a sandbox guarantee.
+Existing workspaces need runtime config regeneration/restart and updated bundles.
+
 ## Second goal-fix execution verification (2026-10-20; updates gates 4–5 below)
 
 `node src/lib/harness/adapters/opencode-v2/__tests__/execution-local.mjs`

@@ -71,9 +71,9 @@ describe('runFlowPromptAndReadOutput', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.captureSessionMessageCursor.mockResolvedValue({ messageCount: 3 })
+    mocks.captureSessionMessageCursor.mockResolvedValue({ ok: true, data: { messageCount: 3 } })
     mocks.waitForSessionToComplete.mockResolvedValue({ status: 'completed' })
-    mocks.readLatestAssistantText.mockResolvedValue('assistant output')
+    mocks.readLatestAssistantText.mockResolvedValue({ ok: true, data: 'assistant output' })
     mocks.extendFlowLease.mockResolvedValue({ count: 1 })
     mocks.findRunStatusById.mockResolvedValue({ status: FlowRunStatus.running })
     mocks.messageRunService.markRunFailed.mockResolvedValue(undefined)
@@ -513,9 +513,54 @@ describe('runFlowPromptAndReadOutput', () => {
     await expect(runFlowPromptAndReadOutput({
       client, flowId: 'flow-1', leaseOwner: 'worker-1', prompt: 'Do work',
       runId: 'run-1', sessionId: 'session-1', slug: 'alice', userId: 'user-1',
-    })).rejects.toThrow('session_not_found')
+    })).resolves.toEqual({ ok: false, type: 'failed', error: 'session_not_found' })
     expect(mocks.messageRunService.markRunFailed).toHaveBeenCalledWith('message-run-1', 'session_not_found')
     expect(mocks.waitForSessionToComplete).not.toHaveBeenCalled()
+  })
+
+  it('fails the tracked message run after a typed cursor failure without dispatching', async () => {
+    const client = createClient()
+    mocks.messageRunService.createActiveRunAfterRuntimeStateCheck.mockResolvedValue({ ok: true, run: { id: 'message-run-1' } })
+    mocks.captureSessionMessageCursor.mockResolvedValue({ ok: false, error: { code: 'session_not_found', detail: 'Do not replace the code' } })
+
+    await expect(runFlowPromptAndReadOutput({
+      client, flowId: 'flow-1', leaseOwner: 'worker-1', prompt: 'Do work',
+      runId: 'run-1', sessionId: 'session-1', slug: 'alice', userId: 'user-1',
+    })).resolves.toEqual({ ok: false, type: 'failed', error: 'session_not_found' })
+
+    expect(mocks.messageRunService.markRunFailed).toHaveBeenCalledWith('message-run-1', 'session_not_found')
+    expect(mocks.messageRunService.markRunSucceeded).not.toHaveBeenCalled()
+    expect(client.prompt).not.toHaveBeenCalled()
+    expect(mocks.waitForSessionToComplete).not.toHaveBeenCalled()
+  })
+
+  it('leaves message-run bookkeeping untouched after a typed waiter error', async () => {
+    mocks.messageRunService.createActiveRunAfterRuntimeStateCheck.mockResolvedValue({ ok: true, run: { id: 'message-run-1' } })
+    mocks.waitForSessionToComplete.mockResolvedValue({ status: 'error', error: { code: 'instance_unavailable', detail: 'Do not replace the code' } })
+
+    await expect(runFlowPromptAndReadOutput({
+      client: createClient(), flowId: 'flow-1', leaseOwner: 'worker-1', prompt: 'Do work',
+      runId: 'run-1', sessionId: 'session-1', slug: 'alice', userId: 'user-1',
+    })).resolves.toEqual({ ok: false, type: 'failed', error: 'instance_unavailable' })
+
+    expect(mocks.messageRunService.markRunFailed).not.toHaveBeenCalled()
+    expect(mocks.messageRunService.markRunSucceeded).not.toHaveBeenCalled()
+    expect(mocks.readLatestAssistantText).not.toHaveBeenCalled()
+  })
+
+  it('preserves success bookkeeping before a typed output-read failure', async () => {
+    mocks.messageRunService.createActiveRunAfterRuntimeStateCheck.mockResolvedValue({ ok: true, run: { id: 'message-run-1' } })
+    mocks.readLatestAssistantText.mockResolvedValue({ ok: false, error: { code: 'runtime_error', detail: 'Do not replace the code' } })
+
+    await expect(runFlowPromptAndReadOutput({
+      client: createClient(), flowId: 'flow-1', leaseOwner: 'worker-1', prompt: 'Do work',
+      runId: 'run-1', sessionId: 'session-1', slug: 'alice', userId: 'user-1',
+    })).resolves.toEqual({ ok: false, type: 'failed', error: 'runtime_error' })
+
+    expect(mocks.messageRunService.markRunSucceeded).toHaveBeenCalledWith('message-run-1')
+    expect(mocks.messageRunService.markRunSucceeded.mock.invocationCallOrder[0]).toBeLessThan(mocks.readLatestAssistantText.mock.invocationCallOrder[0])
+    expect(mocks.messageRunService.markRunFailed).not.toHaveBeenCalled()
+    expect(mocks.describeLatestAssistantReply).not.toHaveBeenCalled()
   })
 
   it('marks tracked message runs failed when completion returns a failure reason', async () => {
@@ -570,14 +615,17 @@ describe('runFlowPromptAndReadOutput', () => {
 
   it('returns a self-describing error when no assistant output is available', async () => {
     const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    mocks.readLatestAssistantText.mockResolvedValue(null)
+    mocks.readLatestAssistantText.mockResolvedValue({ ok: true, data: null })
     mocks.describeLatestAssistantReply.mockResolvedValue({
-      agent: 'repository-analyst',
-      assistantMessageCount: 1,
-      messageCount: 2,
-      modelId: 'glm-5.2',
-      partTypes: ['reasoning', 'step-finish'],
-      providerId: 'openrouter',
+      ok: true,
+      data: {
+        agent: 'repository-analyst',
+        assistantMessageCount: 1,
+        messageCount: 2,
+        modelId: 'glm-5.2',
+        partTypes: ['reasoning', 'step-finish'],
+        providerId: 'openrouter',
+      },
     })
 
     await expect(runFlowPromptAndReadOutput({
@@ -603,7 +651,7 @@ describe('runFlowPromptAndReadOutput', () => {
 
   it('returns the plain no-output error when diagnostics are unavailable', async () => {
     const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    mocks.readLatestAssistantText.mockResolvedValue(null)
+    mocks.readLatestAssistantText.mockResolvedValue({ ok: true, data: null })
     mocks.describeLatestAssistantReply.mockRejectedValue(new Error('instance unavailable'))
 
     await expect(runFlowPromptAndReadOutput({
@@ -617,6 +665,16 @@ describe('runFlowPromptAndReadOutput', () => {
     })).resolves.toEqual({ ok: false, type: 'failed', error: 'flow_no_assistant_output' })
 
     consoleWarnSpy.mockRestore()
+  })
+
+  it('returns the plain no-output error after a typed diagnostics failure', async () => {
+    mocks.readLatestAssistantText.mockResolvedValue({ ok: true, data: null })
+    mocks.describeLatestAssistantReply.mockResolvedValue({ ok: false, error: { code: 'instance_unavailable' } })
+
+    await expect(runFlowPromptAndReadOutput({
+      client: createClient(), flowId: 'flow-1', leaseOwner: 'worker-1', prompt: 'Do work',
+      runId: 'run-1', sessionId: 'session-1', slug: 'alice',
+    })).resolves.toEqual({ ok: false, type: 'failed', error: 'flow_no_assistant_output' })
   })
 })
 

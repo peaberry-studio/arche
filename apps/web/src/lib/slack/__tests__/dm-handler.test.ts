@@ -158,7 +158,11 @@ describe('Slack DM handler', () => {
     mocks.socketUtils.getSlackActionValue.mockReturnValue('decision-1')
     mocks.socketUtils.postSlackDmMessage.mockResolvedValue(undefined)
     mocks.socketUtils.postSlackDmPlaceholder.mockResolvedValue('placeholder-ts')
+    mocks.socketUtils.finalizeSlackDmReply.mockResolvedValue(undefined)
     mocks.socketUtils.updateSlackActionMessage.mockResolvedValue(undefined)
+    mocks.sessionExecution.ensureWorkspaceRunningForExecution.mockResolvedValue({ ok: true })
+    mocks.sessionExecution.captureSessionMessageCursor.mockResolvedValue({ ok: true, data: { messageCount: 0 } })
+    mocks.sessionExecution.readLatestAssistantText.mockResolvedValue({ ok: true, data: 'Reply' })
     mocks.sessionExecution.createSessionPromptRun.mockResolvedValue({
       ok: true,
       run: { id: 'run-1' },
@@ -246,8 +250,8 @@ describe('Slack DM handler', () => {
       prompt: vi.fn().mockResolvedValue({ ok: true }),
     } })
     mocks.slackService.createDmSessionBinding.mockResolvedValue({ id: 'binding-1' })
-    mocks.sessionExecution.captureSessionMessageCursor.mockResolvedValue({ messageCount: 0 })
-    mocks.sessionExecution.readLatestAssistantText.mockResolvedValue(`**Bold** <@U123> <@U999>\n\n${'x'.repeat(3_501)}`)
+    mocks.sessionExecution.captureSessionMessageCursor.mockResolvedValue({ ok: true, data: { messageCount: 0 } })
+    mocks.sessionExecution.readLatestAssistantText.mockResolvedValue({ ok: true, data: `**Bold** <@U123> <@U999>\n\n${'x'.repeat(3_501)}` })
     mocks.sessionExecution.waitForSessionToComplete.mockResolvedValue({ status: 'completed' })
 
     await handleSlackDmEvent({ body: {}, client, event: messageEvent(), eventId: 'Ev1' })
@@ -272,7 +276,7 @@ describe('Slack DM handler', () => {
     const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     mocks.opencode.getRuntimeForSlug.mockResolvedValue({ ok: true, data: { createSession, prompt } })
     mocks.slackService.createDmSessionBinding.mockResolvedValue({ id: 'binding-1' })
-    mocks.sessionExecution.captureSessionMessageCursor.mockResolvedValue({ messageCount: 0 })
+    mocks.sessionExecution.captureSessionMessageCursor.mockResolvedValue({ ok: true, data: { messageCount: 0 } })
     mocks.sessionExecution.waitForSessionToComplete.mockResolvedValue({
       status: 'termination_unconfirmed',
       cause: 'flow_run_timeout',
@@ -322,7 +326,7 @@ describe('Slack DM handler', () => {
       prompt,
     } })
     mocks.slackService.createDmSessionBinding.mockResolvedValue({ id: 'live-binding' })
-    mocks.sessionExecution.readLatestAssistantText.mockResolvedValue('Recovered reply')
+    mocks.sessionExecution.readLatestAssistantText.mockResolvedValue({ ok: true, data: 'Recovered reply' })
 
     await handleSlackDmEvent({ body: {}, client, event: messageEvent(), eventId: 'Ev1' })
 
@@ -348,7 +352,7 @@ describe('Slack DM handler', () => {
     })
     mocks.opencode.getRuntimeForSlug.mockResolvedValue({ ok: true, data: { createSession, getSession, prompt } })
     mocks.slackService.createDmSessionBinding.mockResolvedValue({ id: 'live-binding' })
-    mocks.sessionExecution.readLatestAssistantText.mockResolvedValue('Reply')
+    mocks.sessionExecution.readLatestAssistantText.mockResolvedValue({ ok: true, data: 'Reply' })
 
     await handleSlackDmEvent({ body: {}, client, event: messageEvent(), eventId: 'Ev1' })
 
@@ -372,7 +376,7 @@ describe('Slack DM handler', () => {
     mocks.opencode.getRuntimeForSlug.mockResolvedValue({ ok: true, data: {
       createSession: vi.fn().mockResolvedValue({ ok: true, data: { id: 'live-session' } }), getSession, prompt,
     } })
-    mocks.sessionExecution.readLatestAssistantText.mockResolvedValue('Reply')
+    mocks.sessionExecution.readLatestAssistantText.mockResolvedValue({ ok: true, data: 'Reply' })
 
     await handleSlackDmDecisionAction({ action: 'continue', body: {}, client })
 
@@ -393,6 +397,71 @@ describe('Slack DM handler', () => {
       response_type: 'ephemeral',
       text: '/new is intended for Arche DMs. For channels, mention Arche in a thread.',
     })
+  })
+
+  it('SF-10 returns a typed DM workspace failure before posting a placeholder', async () => {
+    const client = createClient()
+    mocks.sessionExecution.ensureWorkspaceRunningForExecution.mockResolvedValue({ ok: false, error: 'provider refresh failed' })
+
+    await expect(handleSlackDmEvent({ body: {}, client, event: messageEvent(), eventId: 'Ev1' }))
+      .resolves.toEqual({ ok: false, error: 'provider refresh failed' })
+
+    expect(mocks.opencode.getRuntimeForSlug).not.toHaveBeenCalled()
+    expect(mocks.socketUtils.postSlackDmPlaceholder).not.toHaveBeenCalled()
+    expect(mocks.socketUtils.postSlackDmMessage).toHaveBeenCalledExactlyOnceWith(
+      client, 'D123', 'I hit an error while preparing the Slack reply. Please try again.',
+    )
+    expect(mocks.slackService.markLastError).toHaveBeenCalledWith('provider refresh failed')
+  })
+
+  it.each(['setup', 'prompt'])('SF-10 reports a typed /new %s failure without throwing', async (stage) => {
+    const client = createClient()
+    const respond: SlackCommandRespond = vi.fn().mockResolvedValue({})
+    mocks.socketUtils.isSlackDmCommand.mockReturnValue(true)
+    mocks.opencode.getRuntimeForSlug.mockResolvedValue({ ok: true, data: {
+      createSession: vi.fn().mockResolvedValue({ ok: true, data: { id: 'session-1' } }),
+      prompt: vi.fn().mockResolvedValue({ ok: true }),
+    } })
+    mocks.slackService.createDmSessionBinding.mockResolvedValue({ id: 'binding-1' })
+    if (stage === 'setup') {
+      mocks.sessionExecution.ensureWorkspaceRunningForExecution.mockResolvedValue({ ok: false, error: 'sync_failed' })
+    } else {
+      mocks.sessionExecution.captureSessionMessageCursor.mockResolvedValue({ ok: false, error: { code: 'sync_failed' } })
+    }
+
+    await expect(handleNewSlackDmCommand({ body: commandBody(), client, respond })).resolves.toBeUndefined()
+
+    expect(respond).toHaveBeenLastCalledWith({ text: 'I hit an error while preparing the Slack reply. Please try again.' })
+    expect(mocks.slackService.markLastError).toHaveBeenLastCalledWith('sync_failed')
+    expect(mocks.sessionExecution.waitForSessionToComplete).not.toHaveBeenCalled()
+    if (stage === 'setup') {
+      expect(mocks.auditService.createEvent).not.toHaveBeenCalled()
+      expect(mocks.socketUtils.postSlackDmPlaceholder).not.toHaveBeenCalled()
+    } else {
+      expect(mocks.messageRunService.markRunFailed).toHaveBeenCalledExactlyOnceWith('run-1', 'sync_failed')
+      expect(mocks.socketUtils.finalizeSlackDmReply).toHaveBeenCalledWith(
+        client, 'D123', 'placeholder-ts', 'I hit an error while preparing the Slack reply. Please try again.',
+      )
+    }
+  })
+
+  it.each(['continue', 'start_new'] as const)('SF-10 reports a typed %s decision workspace failure without throwing', async (action) => {
+    const client = createClient()
+    mocks.slackService.findPendingDmDecision.mockResolvedValue(pendingDecision())
+    mocks.slackService.findDmSessionBindingById.mockResolvedValue({ executionUserId: 'user-1', id: 'binding-1', openCodeSessionId: 'session-1' })
+    mocks.slackService.markPendingDmDecisionContinued.mockResolvedValue(true)
+    mocks.slackService.markPendingDmDecisionStartedNew.mockResolvedValue(true)
+    mocks.userService.findByIdSelect.mockResolvedValue({ slug: 'alice' })
+    mocks.sessionExecution.ensureWorkspaceRunningForExecution.mockResolvedValue({ ok: false, error: 'instance_start_timeout' })
+
+    await expect(handleSlackDmDecisionAction({ action, body: {}, client })).resolves.toBeUndefined()
+
+    expect(mocks.opencode.getRuntimeForSlug).not.toHaveBeenCalled()
+    expect(mocks.socketUtils.postSlackDmPlaceholder).not.toHaveBeenCalled()
+    expect(mocks.socketUtils.updateSlackActionMessage).toHaveBeenLastCalledWith(
+      client, { channelId: 'D123', messageTs: '1000.0001' }, 'I hit an error while preparing the Slack reply. Please try again.',
+    )
+    expect(mocks.slackService.markLastError).toHaveBeenLastCalledWith('instance_start_timeout')
   })
 
   it('reports Slack team and user resolution failures for /new', async () => {

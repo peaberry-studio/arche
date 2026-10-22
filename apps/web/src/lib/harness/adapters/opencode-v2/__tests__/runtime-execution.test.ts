@@ -114,12 +114,14 @@ describe('V2 primitives in shared execution (real adapter and matched HTTP clien
   it('captures the cursor before prompt and reads only the new assistant reply and its accounting', async () => {
     const { calls, state } = nativeTransport({ messages: [assistantSnapshot] })
     const runtime = createOpenCodeV2Runtime('alice')
-    const cursor = await captureSessionMessageCursor(runtime, SESSION_ID)
-    expect(cursor).toEqual({ messageCount: 1 })
+    const captured = await captureSessionMessageCursor(runtime, SESSION_ID)
+    expect(captured).toEqual({ ok: true, data: { messageCount: 1 } })
+    if (!captured.ok) throw new Error(captured.error.code)
+    const cursor = captured.data
     expect(await runtime.prompt({ sessionId: SESSION_ID, messageId: 'msg_current', parts: [{ type: 'text', text: 'Current input' }] })).toEqual({ ok: true, data: undefined })
     state.messages.push(userSnapshot, { ...assistantSnapshot, id: 'msg_latest', content: [{ type: 'text', text: 'Latest reply' }] })
-    expect(await readLatestAssistantText(runtime, SESSION_ID, cursor)).toBe('Latest reply')
-    expect(await describeLatestAssistantReply({ client: runtime, sessionId: SESSION_ID, cursor })).toMatchObject({ assistantMessageCount: 1, messageCount: 2, modelId: 'fixture', providerId: 'fixture', partTypes: ['step-finish', 'text'] })
+    expect(await readLatestAssistantText(runtime, SESSION_ID, cursor)).toEqual({ ok: true, data: 'Latest reply' })
+    expect(await describeLatestAssistantReply({ client: runtime, sessionId: SESSION_ID, cursor })).toMatchObject({ ok: true, data: { assistantMessageCount: 1, messageCount: 2, modelId: 'fixture', providerId: 'fixture', partTypes: ['step-finish', 'text'] } })
     expect(calls.find((call) => call.path.endsWith('/prompt'))?.body).toEqual({ id: 'msg_current', text: 'Current input' })
   })
 
@@ -209,7 +211,10 @@ describe('V2 primitives in shared execution (real adapter and matched HTTP clien
   it('settles a completed run and books its per-message usage once the root drain ends', async () => {
     const { state } = nativeTransport({ active: new Set([SESSION_ID]), messages: [userSnapshot] })
     const runtime = createOpenCodeV2Runtime('alice')
-    const cursor = await captureSessionMessageCursor(runtime, SESSION_ID)
+    const captured = await captureSessionMessageCursor(runtime, SESSION_ID)
+    expect(captured.ok).toBe(true)
+    if (!captured.ok) throw new Error(captured.error.code)
+    const cursor = captured.data
     vi.useFakeTimers()
     const pending = waitForSessionToComplete({ client: runtime, cursor, sessionId: SESSION_ID, slug: 'alice', usage: { messageRunId: 'run-1', userId: 'user-1', source: 'flow' } })
     await vi.advanceTimersByTimeAsync(2_000)
@@ -230,6 +235,19 @@ describe('V2 primitives in shared execution (real adapter and matched HTTP clien
     }
     const result = await createOpenCodeV2Runtime('alice').sendMessage({ sessionId: SESSION_ID, messageId: 'msg_sync', parts: [{ type: 'text', text: 'Question' }] })
     expect(result).toMatchObject({ ok: true, data: { id: 'msg_reply', role: 'assistant', content: 'Synchronous reply' } })
+  })
+
+  it.each(['cursor', 'status', 'messages'] as const)('preserves the synchronous failure envelope after a %s read failure', async (stage) => {
+    const { calls } = nativeTransport()
+    const runtime = createOpenCodeV2Runtime('alice')
+    const failure = { ok: false, error: { code: 'fetch_failed', detail: 'Runtime unreachable', status: 503 } } as const
+    if (stage === 'cursor') vi.spyOn(runtime, 'listMessages').mockResolvedValue(failure)
+    if (stage === 'status') vi.spyOn(runtime, 'sessionStatus').mockResolvedValue(failure)
+    if (stage === 'messages') vi.spyOn(runtime, 'listMessages').mockResolvedValueOnce({ ok: true, data: [] }).mockResolvedValue(failure)
+
+    await expect(runtime.sendMessage({ sessionId: SESSION_ID, parts: [{ type: 'text', text: 'Question' }] }))
+      .resolves.toEqual({ ok: false, error: { code: 'runtime_error', detail: 'fetch_failed' } })
+    expect(calls.filter((call) => call.path.endsWith('/prompt'))).toHaveLength(stage === 'cursor' ? 0 : 1)
   })
 
   it('returns the queued user input for a synchronous no-reply submission without waiting for a reply', async () => {

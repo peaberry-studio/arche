@@ -97,15 +97,23 @@ export async function executeLearningRun(input: LearningRunExecutionInput): Prom
     return { ok: false, error: 'run_not_claimable' }
   }
 
+  const failRun = async (error: string): Promise<LearningRunExecutionResult> => {
+    if (error !== LEARNING_RUN_CANCELLED_ERROR) {
+      await markLearningRunFailed({ runId: input.runId, error }).catch(() => undefined)
+    }
+    return { ok: false, error }
+  }
+
   try {
-    await ensureWorkspaceRunningForExecution(input.slug, input.userId)
+    const workspace = await ensureWorkspaceRunningForExecution(input.slug, input.userId)
+    if (!workspace.ok) return failRun(workspace.error || 'learning_run_failed')
 
     const runtimeResult = await getRuntimeForSlug(input.slug)
-    if (!runtimeResult.ok) throw new Error(runtimeResult.error.code)
+    if (!runtimeResult.ok) return failRun(runtimeResult.error.code)
     const client = runtimeResult.data
 
     const sessionResult = await client.createSession({ title: buildLearningSessionTitle(input.title) })
-    if (!sessionResult.ok) throw new Error(sessionResult.error.code)
+    if (!sessionResult.ok) return failRun(sessionResult.error.code)
     const sessionId = sessionResult.data.id
 
     await setLearningRunInternalSessionId({ runId: input.runId, internalSessionId: sessionId })
@@ -124,22 +132,29 @@ export async function executeLearningRun(input: LearningRunExecutionInput): Prom
       source: 'learning',
     })
     if (!promptRun.ok) {
-      throw new Error('session_busy')
+      return failRun('session_busy')
     }
 
     let completion: Awaited<ReturnType<typeof waitForSessionToComplete>>
     try {
-      const cursor = await captureSessionMessageCursor(client, sessionId)
+      const cursorResult = await captureSessionMessageCursor(client, sessionId)
+      if (!cursorResult.ok) {
+        await messageRunService.markRunFailed(promptRun.run.id, cursorResult.error.code).catch(() => undefined)
+        return failRun(cursorResult.error.code)
+      }
       const submitted = await client.prompt({
         agent: SYSTEM_KNOWLEDGE_CURATOR_AGENT_ID,
         parts: [{ text: buildCuratorPrompt(input, sessionId), type: 'text' }],
         sessionId,
       })
-      if (!submitted.ok) throw new Error(submitted.error.code)
+      if (!submitted.ok) {
+        await messageRunService.markRunFailed(promptRun.run.id, submitted.error.code).catch(() => undefined)
+        return failRun(submitted.error.code)
+      }
 
       completion = await waitForSessionToComplete({
         client,
-        cursor,
+        cursor: cursorResult.data,
         onPulse: getCancellationFailure,
         sessionId,
         slug: input.slug,
@@ -149,6 +164,11 @@ export async function executeLearningRun(input: LearningRunExecutionInput): Prom
       const message = error instanceof Error ? error.message : 'learning_prompt_failed'
       await messageRunService.markRunFailed(promptRun.run.id, message).catch(() => undefined)
       throw error
+    }
+
+    if (completion.status === 'error') {
+      await messageRunService.markRunFailed(promptRun.run.id, completion.error.code).catch(() => undefined)
+      return failRun(completion.error.code)
     }
 
     if (completion.status === 'termination_unconfirmed') {
@@ -179,10 +199,7 @@ export async function executeLearningRun(input: LearningRunExecutionInput): Prom
     return { ok: true }
   } catch (error) {
     const message = error instanceof Error && error.message ? error.message : 'learning_run_failed'
-    if (message !== LEARNING_RUN_CANCELLED_ERROR) {
-      await markLearningRunFailed({ runId: input.runId, error: message }).catch(() => undefined)
-    }
-    return { ok: false, error: message }
+    return failRun(message)
   }
 }
 

@@ -74,10 +74,10 @@ describe('executeLearningRun', () => {
     mocks.markRunAborted.mockResolvedValue(undefined)
     mocks.markRunFailed.mockResolvedValue(undefined)
     mocks.markRunSucceeded.mockResolvedValue(undefined)
-    mocks.ensureWorkspaceRunningForExecution.mockResolvedValue(undefined)
+    mocks.ensureWorkspaceRunningForExecution.mockResolvedValue({ ok: true })
     mocks.getRuntimeForSlug.mockResolvedValue({ ok: true, data: makeClient() })
     mocks.createSessionPromptRun.mockResolvedValue({ ok: true, run: { id: 'message-run-1' } })
-    mocks.captureSessionMessageCursor.mockResolvedValue({ messageCount: 0 })
+    mocks.captureSessionMessageCursor.mockResolvedValue({ ok: true, data: { messageCount: 0 } })
     mocks.waitForSessionToComplete.mockResolvedValue({ status: 'completed' })
   })
 
@@ -103,6 +103,7 @@ describe('executeLearningRun', () => {
     expect(mocks.waitForSessionToComplete).toHaveBeenCalledWith(expect.objectContaining({
       sessionId: 'internal-session-1',
       slug: 'alice',
+      cursor: { messageCount: 0 },
       usage: { messageRunId: 'message-run-1', source: 'learning', userId: 'user-1' },
     }))
     expect(mocks.markRunSucceeded).toHaveBeenCalledWith('message-run-1')
@@ -162,12 +163,37 @@ describe('executeLearningRun', () => {
     expect(mocks.markLearningRunFailed).toHaveBeenCalledWith({ runId: 'run-1', error: 'instance_unavailable' })
   })
 
-  it('marks the run failed when the workspace cannot start', async () => {
-    mocks.ensureWorkspaceRunningForExecution.mockRejectedValue(new Error('instance_start_timeout'))
+  it('marks the run failed after a typed workspace startup failure', async () => {
+    mocks.ensureWorkspaceRunningForExecution.mockResolvedValue({ ok: false, error: 'instance_start_timeout' })
 
     await expect(executeLearningRun(baseInput)).resolves.toEqual({ ok: false, error: 'instance_start_timeout' })
 
     expect(mocks.markLearningRunFailed).toHaveBeenCalledWith({ runId: 'run-1', error: 'instance_start_timeout' })
+    expect(mocks.getRuntimeForSlug).not.toHaveBeenCalled()
+    expect(mocks.markRunFailed).not.toHaveBeenCalled()
+    expect(mocks.markLearningRunSucceeded).not.toHaveBeenCalled()
+  })
+
+  it.each(['cursor', 'waiter'])('settles both runs after a typed %s failure', async (stage) => {
+    const client = makeClient()
+    mocks.getRuntimeForSlug.mockResolvedValue({ ok: true, data: client })
+    const error = { code: 'session_not_found', detail: 'Do not replace the code' }
+    if (stage === 'cursor') {
+      mocks.captureSessionMessageCursor.mockResolvedValue({ ok: false, error })
+    } else {
+      mocks.waitForSessionToComplete.mockResolvedValue({ status: 'error', error })
+    }
+
+    await expect(executeLearningRun(baseInput)).resolves.toEqual({ ok: false, error: 'session_not_found' })
+
+    expect(mocks.markRunFailed).toHaveBeenCalledExactlyOnceWith('message-run-1', 'session_not_found')
+    expect(mocks.markLearningRunFailed).toHaveBeenCalledExactlyOnceWith({ runId: 'run-1', error: 'session_not_found' })
+    expect(mocks.markRunSucceeded).not.toHaveBeenCalled()
+    expect(mocks.markLearningRunSucceeded).not.toHaveBeenCalled()
+    if (stage === 'cursor') {
+      expect(client.prompt).not.toHaveBeenCalled()
+      expect(mocks.waitForSessionToComplete).not.toHaveBeenCalled()
+    }
   })
 
   it('settles message and learning runs after a typed prompt failure', async () => {
@@ -177,6 +203,7 @@ describe('executeLearningRun', () => {
 
     await expect(executeLearningRun(baseInput)).resolves.toEqual({ ok: false, error: 'session_not_found' })
     expect(mocks.markRunFailed).toHaveBeenCalledWith('message-run-1', 'session_not_found')
+    expect(mocks.markLearningRunFailed).toHaveBeenCalledWith({ runId: 'run-1', error: 'session_not_found' })
     expect(mocks.waitForSessionToComplete).not.toHaveBeenCalled()
   })
 

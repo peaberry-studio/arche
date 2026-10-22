@@ -37,26 +37,64 @@ describe('harness execution', () => {
 
   afterEach(() => { vi.useRealTimers() })
 
+  it.each([
+    ['cursor', captureSessionMessageCursor],
+    ['text', readLatestAssistantText],
+    ['diagnostics', (client: ReturnType<typeof fakeRuntime>, sessionId: string) => describeLatestAssistantReply({ client, sessionId })],
+  ] as const)('returns typed message-read failures with their detail and status: %s', async (_name, read) => {
+    const client = fakeRuntime()
+    const failure = { ok: false, error: { code: 'session_not_found', detail: 'Session missing', status: 404 } } as const
+    client.listMessages.mockResolvedValue(failure)
+    await expect(read(client, 'missing')).resolves.toEqual(failure)
+  })
+
+  it.each(['sessionStatus', 'listMessages'] as const)('returns typed polling failures without treating them as completed outcomes: %s', async (operation) => {
+    const client = fakeRuntime()
+    const error = { code: 'fetch_failed', detail: 'Runtime unreachable', status: 503 } as const
+    client[operation].mockResolvedValue({ ok: false, error })
+    await expect(waitForSessionToComplete({ client, sessionId: 'session-1', slug: 'alice' }))
+      .resolves.toEqual({ status: 'error', error })
+    expect(client.abortSession).not.toHaveBeenCalled()
+    expect(mocks.usage).not.toHaveBeenCalled()
+  })
+
+  it.each(['running', 'starting', 'stopped'] as const)('returns typed provider-sync failures after workspace state %s', async (status) => {
+    vi.useFakeTimers()
+    vi.mocked(getWorkspaceStatus).mockResolvedValueOnce({ status } as never).mockResolvedValue({ status: 'running' } as never)
+    vi.mocked(startWorkspace).mockResolvedValue({ ok: true, status: 'started' })
+    vi.mocked(syncRuntimeProviderAccess).mockResolvedValue({ ok: false, error: { code: 'sync_failed', detail: 'Sync unavailable' } })
+    await Promise.all([
+      expect(ensureWorkspaceRunningForExecution('alice', 'user-1')).resolves.toEqual({ ok: false, error: 'sync_failed' }),
+      vi.advanceTimersByTimeAsync(2_000),
+    ])
+  })
+
+  it('still rejects genuinely unexpected message-read errors', async () => {
+    const client = fakeRuntime()
+    client.listMessages.mockRejectedValue(new Error('unexpected bug'))
+    await expect(captureSessionMessageCursor(client, 'session-1')).rejects.toThrow('unexpected bug')
+  })
+
   it('captures the current message count', async () => {
     const client = fakeRuntime()
     client.listMessages.mockResolvedValue({ ok: true, data: [message({ role: 'user' }), message()] })
-    expect(await captureSessionMessageCursor(client, 'session-1')).toEqual({ messageCount: 2 })
+    expect(await captureSessionMessageCursor(client, 'session-1')).toEqual({ ok: true, data: { messageCount: 2 } })
   })
 
   it('does not read stale assistant text before the cursor', async () => {
-    expect(await readLatestAssistantText(fakeRuntime(), 'session-1', { messageCount: 1 })).toBeNull()
+    expect(await readLatestAssistantText(fakeRuntime(), 'session-1', { messageCount: 1 })).toEqual({ ok: true, data: null })
   })
 
   it('returns only visible assistant text, excluding reasoning', async () => {
     const client = fakeRuntime()
     client.listMessages.mockResolvedValue({ ok: true, data: [message({ parts: [{ type: 'reasoning', text: 'Internal' }, { type: 'text', text: 'Final reply' }] })] })
-    expect(await readLatestAssistantText(client, 'session-1')).toBe('Final reply')
+    expect(await readLatestAssistantText(client, 'session-1')).toEqual({ ok: true, data: 'Final reply' })
   })
 
   it('skips non-assistant messages while reading the latest text', async () => {
     const client = fakeRuntime()
     client.listMessages.mockResolvedValue({ ok: true, data: [message(), message({ role: 'user', parts: [{ type: 'text', text: 'User' }] })] })
-    expect(await readLatestAssistantText(client, 'session-1')).toBe('Done')
+    expect(await readLatestAssistantText(client, 'session-1')).toEqual({ ok: true, data: 'Done' })
   })
 
   it.each([
@@ -138,7 +176,7 @@ describe('harness execution', () => {
 
   it.each([undefined, true])('refreshes provider access on an already running workspace (force=%s)', async (force) => {
     vi.mocked(getWorkspaceStatus).mockResolvedValue({ status: 'running' } as never)
-    await ensureWorkspaceRunningForExecution('slack-bot', 'user-1', { forceProviderRefresh: force })
+    expect(await ensureWorkspaceRunningForExecution('slack-bot', 'user-1', { forceProviderRefresh: force })).toEqual({ ok: true })
     expect(syncRuntimeProviderAccess).toHaveBeenCalledWith('slack-bot', { userId: 'user-1', force })
   })
 
@@ -147,7 +185,7 @@ describe('harness execution', () => {
     vi.mocked(getWorkspaceStatus).mockResolvedValueOnce({ status: 'starting' } as never).mockResolvedValueOnce({ status: 'running' } as never)
     const promise = ensureWorkspaceRunningForExecution('slack-bot', 'user-1')
     await vi.advanceTimersByTimeAsync(2_000)
-    await promise
+    expect(await promise).toEqual({ ok: true })
     expect(syncRuntimeProviderAccess).toHaveBeenCalledWith('slack-bot', { userId: 'user-1' })
   })
 
@@ -155,15 +193,16 @@ describe('harness execution', () => {
     vi.useFakeTimers()
     vi.mocked(getWorkspaceStatus).mockResolvedValue({ status: 'starting' } as never)
     const promise = ensureWorkspaceRunningForExecution('slack-bot', 'user-1')
-    const expectation = expect(promise).rejects.toThrow('instance_start_timeout')
-    await vi.advanceTimersByTimeAsync(30 * 60 * 1000)
-    await expectation
+    await Promise.all([
+      expect(promise).resolves.toEqual({ ok: false, error: 'instance_start_timeout' }),
+      vi.advanceTimersByTimeAsync(30 * 60 * 1000),
+    ])
   })
 
   it('starts a stopped workspace and refreshes access', async () => {
     vi.mocked(getWorkspaceStatus).mockResolvedValue({ status: 'stopped' } as never)
     vi.mocked(startWorkspace).mockResolvedValue({ ok: true } as never)
-    await ensureWorkspaceRunningForExecution('slack-bot', 'user-1')
+    expect(await ensureWorkspaceRunningForExecution('slack-bot', 'user-1')).toEqual({ ok: true })
     expect(startWorkspace).toHaveBeenCalledWith('slack-bot', 'user-1')
     expect(syncRuntimeProviderAccess).toHaveBeenCalledWith('slack-bot', { userId: 'user-1' })
   })
@@ -171,7 +210,7 @@ describe('harness execution', () => {
   it('surfaces workspace startup failures', async () => {
     vi.mocked(getWorkspaceStatus).mockResolvedValue({ status: 'stopped' } as never)
     vi.mocked(startWorkspace).mockResolvedValue({ ok: false, error: 'insufficient_capacity', detail: 'No resources' } as never)
-    await expect(ensureWorkspaceRunningForExecution('slack-bot', 'user-1')).rejects.toThrow('No resources')
+    await expect(ensureWorkspaceRunningForExecution('slack-bot', 'user-1')).resolves.toEqual({ ok: false, error: 'No resources' })
   })
 
   it('retries startup while legacy backend writers drain before refreshing providers', async () => {
@@ -184,7 +223,7 @@ describe('harness execution', () => {
     await vi.advanceTimersByTimeAsync(2_000)
     expect(syncRuntimeProviderAccess).not.toHaveBeenCalled()
     await vi.advanceTimersByTimeAsync(2_000)
-    await pending
+    expect(await pending).toEqual({ ok: true })
     expect(startWorkspace).toHaveBeenCalledTimes(3)
     expect(syncRuntimeProviderAccess).toHaveBeenCalledOnce()
   })
@@ -194,9 +233,10 @@ describe('harness execution', () => {
     vi.mocked(getWorkspaceStatus).mockResolvedValue({ status: 'stopped' } as never)
     vi.mocked(startWorkspace).mockResolvedValue({ ok: false, error: 'runtime_upgrade_pending' })
     const pending = ensureWorkspaceRunningForExecution('slack-bot', 'user-1')
-    const rejected = expect(pending).rejects.toThrow('instance_start_timeout')
-    await vi.advanceTimersByTimeAsync(30 * 60 * 1_000)
-    await rejected
+    await Promise.all([
+      expect(pending).resolves.toEqual({ ok: false, error: 'instance_start_timeout' }),
+      vi.advanceTimersByTimeAsync(30 * 60 * 1_000),
+    ])
     expect(syncRuntimeProviderAccess).not.toHaveBeenCalled()
   })
 
@@ -296,7 +336,7 @@ describe('harness execution', () => {
   it('describes the latest normalized assistant reply', async () => {
     const client = fakeRuntime()
     client.listMessages.mockResolvedValue({ ok: true, data: [message({ agentId: 'reviewer', model: { providerId: 'openai', modelId: 'gpt-5.5' } })] })
-    expect(await describeLatestAssistantReply({ client, sessionId: 'session-1' })).toEqual({ agent: 'reviewer', assistantMessageCount: 1, messageCount: 1, modelId: 'gpt-5.5', partTypes: ['text'], providerId: 'openai' })
+    expect(await describeLatestAssistantReply({ client, sessionId: 'session-1' })).toEqual({ ok: true, data: { agent: 'reviewer', assistantMessageCount: 1, messageCount: 1, modelId: 'gpt-5.5', partTypes: ['text'], providerId: 'openai' } })
   })
 
   it.each(['busy', 'retry', 'idle', 'unknown'] as const)('admits a run only for idle family status: %s', async (type) => {

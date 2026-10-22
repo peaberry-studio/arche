@@ -27,6 +27,7 @@ type RenderedConfig = {
   agents?: Record<string, RenderedAgent>
   permissions?: Rule[]
   policies?: Rule[]
+  plugins?: { package: string; options: { root: string } }[]
   mcp?: { servers?: Record<string, { command?: string[] } & Record<string, unknown>> }
   providers?: Record<string, { settings?: { baseURL?: string }; models?: Record<string, { name?: string }> }>
 }
@@ -314,11 +315,12 @@ describe('runtime artifacts', () => {
     const v2 = parseConfig((await buildWorkspaceRuntimeArtifacts('alice', {})).opencodeConfigContent)
 
     expect(Object.keys(v2.agents ?? {}).sort()).toEqual(['analyst', 'knowledge-curator', 'reviewer'])
+    expect(v2.plugins).toEqual([{ package: '/opt/arche/arche-tools/shared/scratch-isolation', options: { root: '/tmp/arche-scratch' } }])
     for (const [id, agent] of Object.entries(v2.agents ?? {})) {
       expect(agent.system, id).toContain(`Your current agent id is "${id}".`)
       expect(agent.system?.endsWith(AGENT_KB_POLICY_PROMPT_BLOCK), id).toBe(true)
       expect(agent.permissions?.findLast((rule) => rule.action === 'subagent')).toEqual({ action: 'subagent', resource: id, effect: 'deny' })
-      expect(decision(agent.permissions, 'external_directory', '/tmp/arche-scratch/ses_1/draft.md'), id).toBe('allow')
+      expect(decision(agent.permissions, 'external_directory', '/tmp/arche-scratch/ses_1/draft.md'), id).toBe('ask')
       expect(decision(agent.permissions, 'external_directory', '/etc/passwd'), id).toBe('ask')
     }
     // No write tool, no scratch writes: the allowance never widens an agent's tools.
@@ -328,9 +330,10 @@ describe('runtime artifacts', () => {
       { action: 'tool.use', resource: 'edit:opencode.json', effect: 'deny' },
       { action: 'tool.use', resource: 'shell:*opencode.json*', effect: 'deny' },
     ]))
-    expect(v2.policies?.slice(-2)).toEqual([
+    expect(v2.policies?.slice(-3)).toEqual([
       { action: 'tool.use', resource: 'edit:*', effect: 'deny' },
       { action: 'tool.use', resource: 'edit:../tmp/arche-scratch/*', effect: 'allow' },
+      { action: 'tool.use', resource: 'edit:/tmp/arche-scratch/*', effect: 'allow' },
     ])
   })
 

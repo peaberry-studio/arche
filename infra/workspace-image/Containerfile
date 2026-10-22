@@ -17,6 +17,7 @@ COPY arche-tools/pnpm-lock.yaml ./pnpm-lock.yaml
 RUN pnpm install --frozen-lockfile --prod --ignore-scripts
 COPY arche-tools/server.js ./server.js
 COPY arche-tools/shared/*.js ./shared/
+COPY arche-tools/shared/scratch-isolation/*.js ./shared/scratch-isolation/
 COPY arche-tools/tools/*.js ./tools/
 
 FROM ghcr.io/anomalyco/opencode:${OPENCODE_VERSION}

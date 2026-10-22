@@ -442,7 +442,11 @@ async function executeClaimedFlowRun(
     // Force a token refresh at flow start: a scheduled flow can begin long
     // after the last interactive sync, and would otherwise inherit a gateway
     // token with too little TTL left to cover the first step.
-    await ensureWorkspaceRunningForExecution(slug, executionUserId, { forceProviderRefresh: true })
+    const workspace = await ensureWorkspaceRunningForExecution(slug, executionUserId, { forceProviderRefresh: true })
+    if (!workspace.ok) {
+      outcome = { status: 'failed', error: workspace.error }
+      return
+    }
     await instanceService.touchActivity(slug).catch(() => undefined)
 
     const runtimeResult = await getRuntimeForSlug(slug)
@@ -652,7 +656,11 @@ async function resumeClaimedFlowRun(params: {
       return
     }
 
-    await ensureWorkspaceRunningForExecution(slug, executionUserId, { forceProviderRefresh: true })
+    const workspace = await ensureWorkspaceRunningForExecution(slug, executionUserId, { forceProviderRefresh: true })
+    if (!workspace.ok) {
+      outcome = { status: 'failed', error: workspace.error }
+      return
+    }
     const runtimeResult = await getRuntimeForSlug(slug)
     if (!runtimeResult.ok) throw new Error(runtimeResult.error.code)
     const client = runtimeResult.data

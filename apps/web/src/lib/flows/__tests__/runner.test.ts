@@ -105,7 +105,7 @@ function createClaimedFlow() {
     timezone: 'UTC',
     updatedAt: now,
     userId: 'user-1',
-    visibility: 'private',
+    visibility: 'private' as const,
   }
 }
 
@@ -216,7 +216,7 @@ describe('triggerFlowNow', () => {
     mocks.findRunStatusById.mockResolvedValue({ status: FlowRunStatus.running })
     mocks.extendFlowLease.mockResolvedValue({ count: 1 })
     mocks.ensureProviderAccessFreshForExecution.mockResolvedValue({ ok: true })
-    mocks.ensureWorkspaceRunningForExecution.mockResolvedValue(undefined)
+    mocks.ensureWorkspaceRunningForExecution.mockResolvedValue({ ok: true })
     mocks.markRunFailed.mockResolvedValue({ count: 1 })
     mocks.markRunRunning.mockResolvedValue(undefined)
     mocks.markRunRetryScheduled.mockResolvedValue({ count: 1 })
@@ -520,9 +520,9 @@ describe('triggerFlowNow', () => {
     expect(mocks.upsertRunStep).toHaveBeenCalledWith(expect.objectContaining({ nodeId: 'slack-fixed', nodeType: FlowNodeType.slack }))
   })
 
-  it('schedules retries for retryable startup failures across run triggers', async () => {
+  it('schedules retries for typed startup failures across run triggers', async () => {
     mocks.userFindByIdSelect.mockResolvedValue({ slug: 'alice' })
-    mocks.ensureWorkspaceRunningForExecution.mockRejectedValue(new Error('instance_unavailable'))
+    mocks.ensureWorkspaceRunningForExecution.mockResolvedValue({ ok: false, error: 'instance_unavailable' })
     mocks.createRun
       .mockResolvedValueOnce(createRunRecord({ id: 'run-manual', trigger: FlowRunTrigger.manual }))
       .mockResolvedValueOnce(createRunRecord({ id: 'run-schedule', trigger: FlowRunTrigger.schedule }))
@@ -540,11 +540,13 @@ describe('triggerFlowNow', () => {
     }))
     expect(mocks.markRunFailed).not.toHaveBeenCalledWith('run-manual', expect.any(Object))
     expect(mocks.releaseFlowLease).toHaveBeenCalledWith('flow-1', 'worker-1', undefined)
+    expect(mocks.getRuntimeForSlug).not.toHaveBeenCalled()
+    expect(mocks.runFlowPromptAndReadOutput).not.toHaveBeenCalled()
   })
 
-  it('stops retrying after the max attempt and records the retry reason', async () => {
+  it('stops retrying a typed startup failure after the max attempt and records the retry reason', async () => {
     mocks.userFindByIdSelect.mockResolvedValue({ slug: 'alice' })
-    mocks.ensureWorkspaceRunningForExecution.mockRejectedValue(new Error('instance_unavailable'))
+    mocks.ensureWorkspaceRunningForExecution.mockResolvedValue({ ok: false, error: 'instance_unavailable' })
     mocks.createRun.mockResolvedValue(createRunRecord({ attempt: 5, id: 'run-exhausted' }))
 
     await runClaimedFlow(createClaimedFlow(), FlowRunTrigger.manual)
@@ -554,6 +556,23 @@ describe('triggerFlowNow', () => {
     expect(mocks.auditCreateEvent).toHaveBeenCalledWith(expect.objectContaining({
       metadata: expect.objectContaining({ retryReason: 'retry_exhausted', willRetry: false }),
     }))
+    expect(mocks.releaseFlowLease).toHaveBeenCalledWith('flow-1', 'worker-1', expect.any(Date))
+    expect(mocks.getRuntimeForSlug).not.toHaveBeenCalled()
+  })
+
+  it('finalizes a typed startup failure with the exact workspace error', async () => {
+    mocks.userFindByIdSelect.mockResolvedValue({ slug: 'alice' })
+    mocks.ensureWorkspaceRunningForExecution.mockResolvedValue({ ok: false, error: 'Workspace failed: denied' })
+
+    await runClaimedFlow(createClaimedFlow(), FlowRunTrigger.manual)
+
+    expect(mocks.markRunFailed).toHaveBeenCalledWith('run-1', expect.objectContaining({ error: 'Workspace failed: denied', openCodeSessionId: null }))
+    expect(mocks.auditCreateEvent).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'flows.run_failed', metadata: expect.objectContaining({ error: 'Workspace failed: denied' }),
+    }))
+    expect(mocks.releaseFlowLease).toHaveBeenCalledWith('flow-1', 'worker-1', expect.any(Date))
+    expect(mocks.getRuntimeForSlug).not.toHaveBeenCalled()
+    expect(mocks.touchActivity).not.toHaveBeenCalled()
   })
 
   it('stops before prompting when a run is cancelled before the next node', async () => {
@@ -995,6 +1014,32 @@ describe('triggerFlowNow', () => {
     } finally {
       consoleErrorSpy.mockRestore()
     }
+  })
+
+  it.each(['instance_unavailable', 'Workspace failed: denied'])('finalizes a typed resume startup failure (%s)', async (error) => {
+    const waitingRun = createWaitingRun()
+    mocks.findRunByIdForScope
+      .mockResolvedValueOnce(waitingRun)
+      .mockResolvedValueOnce({ ...waitingRun, status: FlowRunStatus.running })
+      .mockResolvedValue(null)
+    mocks.claimFlowLeaseById.mockResolvedValue(waitingRun.flow)
+    mocks.userFindByIdSelect.mockResolvedValue({ slug: 'alice' })
+    mocks.ensureWorkspaceRunningForExecution.mockResolvedValue({ ok: false, error })
+
+    await expect(resumeFlowRun({ humanResponse: 'Approved', runId: 'run-1', userId: 'user-1' }))
+      .resolves.toMatchObject({ ok: true, run: { id: 'run-1' } })
+
+    await vi.waitFor(() => expect(mocks.releaseFlowLease).toHaveBeenCalledWith(
+      'flow-1', 'worker-1', error === 'instance_unavailable' ? undefined : expect.any(Date),
+    ))
+    const finalizer = error === 'instance_unavailable' ? mocks.markRunRetryScheduled : mocks.markRunFailed
+    expect(finalizer).toHaveBeenCalledWith('run-1', expect.objectContaining({ error, openCodeSessionId: 'session-1' }))
+    expect(mocks.auditCreateEvent).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'flows.run_failed', metadata: expect.objectContaining({ error, trigger: FlowRunTrigger.resume }),
+    }))
+    expect(mocks.getRuntimeForSlug).not.toHaveBeenCalled()
+    expect(mocks.runFlowPromptAndReadOutput).not.toHaveBeenCalled()
+    expect(mocks.markRunSucceeded).not.toHaveBeenCalled()
   })
 
   it('marks invalid definitions failed and skips finalizing cancelled runs', async () => {

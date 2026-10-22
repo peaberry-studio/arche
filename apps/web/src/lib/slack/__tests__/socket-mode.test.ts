@@ -222,8 +222,8 @@ describe('slack socket manager', () => {
     findThreadBindingMock.mockResolvedValue(null)
     isNotificationChannelAllowedMock.mockResolvedValue(true)
     ensureSlackServiceUserMock.mockResolvedValue({ ok: true, user: { id: 'service-1', slug: 'slack-bot' } })
-    ensureWorkspaceRunningForExecutionMock.mockResolvedValue(undefined)
-    captureSessionMessageCursorMock.mockResolvedValue({ messageCount: 0 })
+    ensureWorkspaceRunningForExecutionMock.mockResolvedValue({ ok: true })
+    captureSessionMessageCursorMock.mockResolvedValue({ ok: true, data: { messageCount: 0 } })
     createSessionPromptRunMock.mockResolvedValue({
       ok: true,
       run: {
@@ -247,7 +247,7 @@ describe('slack socket manager', () => {
     buildSlackContextMock.mockResolvedValue({ contextText: 'ctx', mentionTokens: ['<@U123>'] })
     buildSlackPromptMock.mockReturnValue('prompt')
     waitForSessionToCompleteMock.mockResolvedValue({ status: 'completed' })
-    readLatestAssistantTextMock.mockResolvedValue('Final reply')
+    readLatestAssistantTextMock.mockResolvedValue({ ok: true, data: 'Final reply' })
     getRuntimeForSlugMock.mockResolvedValue({ ok: true, data: {
       getSession: vi.fn().mockResolvedValue({ ok: true, data: { id: 'existing-session' } }),
       abortSession: vi.fn().mockResolvedValue({ ok: true }),
@@ -348,7 +348,7 @@ describe('slack socket manager', () => {
         user: 'U123',
       },
       eventId: 'evt-dm-instance-missing',
-    })).rejects.toThrow('instance_unavailable')
+    })).resolves.toEqual({ ok: false, error: 'instance_unavailable' })
 
     expect(client.chat.postMessage).toHaveBeenCalledWith({
       channel: 'D123',
@@ -821,7 +821,7 @@ describe('slack socket manager', () => {
 
   it('formats and posts every Slack thread reply chunk with context-authorized mentions', async () => {
     const client = createSlackClient()
-    readLatestAssistantTextMock.mockResolvedValue(`**Bold** <@U123> <@U999>\n\n${'x'.repeat(3_501)}`)
+    readLatestAssistantTextMock.mockResolvedValue({ ok: true, data: `**Bold** <@U123> <@U999>\n\n${'x'.repeat(3_501)}` })
     const { handleSlackThreadEvent } = await import('../thread-handler')
 
     await handleSlackThreadEvent({
@@ -1072,7 +1072,7 @@ describe('slack socket manager', () => {
       channel: 'C123', client,
       event: { channel: 'C123', text: '<@U999> hello', ts: '100.1', user: 'U123' },
       eventTs: '100.1', isMention: true, savedBotUserId: 'U999', threadTs: '100.1',
-    })).rejects.toThrow('runtime_error')
+    })).resolves.toEqual({ ok: false, error: 'runtime_error' })
     expect(deleteSessionBindingsByOpenCodeSessionIdMock).not.toHaveBeenCalled()
     expect(upsertThreadBindingMock).not.toHaveBeenCalled()
   })
@@ -2119,6 +2119,156 @@ describe('slack socket manager', () => {
     expect(readLatestAssistantTextMock).not.toHaveBeenCalled()
 
     stopSlackSocketManager()
+  })
+
+  describe.each(['dm', 'thread'] as const)('SF-10 typed %s execution failures', (kind) => {
+    it.each(['workspace', 'runtime', 'lookup', 'create', 'cursor', 'prompt', 'completion', 'reply'])(
+      'preserves replies, run finalization, logs and event retry after a %s failure',
+      async (stage) => {
+        const client = createSlackClient()
+        const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+        const failure = { ok: false, error: { code: 'runtime_error', detail: 'private adapter detail' } }
+        const getSession = vi.fn().mockResolvedValue({ ok: true, data: { id: 'existing-session' } })
+        const createSession = vi.fn().mockResolvedValue({ ok: true, data: { id: 'session-1' } })
+        const prompt = vi.fn().mockResolvedValue({ ok: true })
+        const detail = stage === 'workspace' ? 'provider refresh failed' : 'runtime_error'
+        getRuntimeForSlugMock.mockResolvedValue({ ok: true, data: { createSession, getSession, prompt } })
+        if (stage === 'workspace') ensureWorkspaceRunningForExecutionMock.mockResolvedValueOnce({ ok: false, error: detail })
+        if (stage === 'runtime') getRuntimeForSlugMock.mockResolvedValueOnce(failure)
+        if (stage === 'lookup') {
+          findLatestDmSessionMock.mockResolvedValue({ id: 'binding-1', executionUserId: 'user-1', openCodeSessionId: 'existing-session', lastMessageAt: new Date() })
+          findThreadBindingMock.mockResolvedValue({ openCodeSessionId: 'existing-session' })
+          getSession.mockResolvedValueOnce(failure)
+        }
+        if (stage === 'create') createSession.mockResolvedValueOnce(failure)
+        if (stage === 'cursor') captureSessionMessageCursorMock.mockResolvedValueOnce(failure)
+        if (stage === 'prompt') prompt.mockResolvedValueOnce(failure)
+        if (stage === 'completion') waitForSessionToCompleteMock.mockResolvedValueOnce({ status: 'error', error: failure.error })
+        if (stage === 'reply') readLatestAssistantTextMock.mockResolvedValueOnce(failure)
+
+        const { syncSlackSocketManager, stopSlackSocketManager } = await import('@/lib/slack/socket-mode')
+        try {
+          await syncSlackSocketManager()
+          const type = kind === 'dm' ? 'message' : 'app_mention'
+          const eventHandler = appInstances[0].event.mock.calls.find(([name]) => name === type)?.[1]
+          const eventId = `evt-${kind}-${stage}`
+          const channel = kind === 'dm' ? 'D123' : 'C123'
+          const eventArgs = {
+            body: { event_id: eventId, team_id: 'T123' }, client,
+            event: { channel, text: 'hello', ts: '100.1', user: 'U123' },
+          }
+
+          await expect(eventHandler(eventArgs)).resolves.toBeUndefined()
+
+          expect(consoleErrorSpy).toHaveBeenCalledExactlyOnceWith('[slack] Failed to handle event', { error: detail, eventId, type })
+          expect(markLastErrorMock).toHaveBeenLastCalledWith(detail)
+          expect(recordEventReceiptMock).not.toHaveBeenCalled()
+          expect(deleteSessionBindingsByOpenCodeSessionIdMock).not.toHaveBeenCalled()
+          const startedRun = ['cursor', 'prompt', 'completion', 'reply'].includes(stage)
+          if (startedRun) {
+            expect(markRunFailedMock).toHaveBeenCalledExactlyOnceWith('run-1', detail)
+            expect(markRunSucceededMock).toHaveBeenCalledTimes(stage === 'reply' ? 1 : 0)
+            expect(client.chat.update).toHaveBeenCalledExactlyOnceWith({
+              channel, text: 'I hit an error while preparing the Slack reply. Please try again.', ts: 'reply-1',
+            })
+            if (kind === 'dm') {
+              expect(client.chat.postMessage).toHaveBeenLastCalledWith({ channel, text: 'I hit an error while preparing the Slack reply. Please try again.' })
+            }
+          } else {
+            expect(createSessionPromptRunMock).not.toHaveBeenCalled()
+            expect(markRunFailedMock).not.toHaveBeenCalled()
+            expect(client.chat.update).not.toHaveBeenCalled()
+            expect(client.chat.postMessage).toHaveBeenCalledExactlyOnceWith({
+              channel, text: 'I hit an error while preparing the Slack reply. Please try again.',
+              ...(kind === 'thread' ? { thread_ts: '100.1' } : {}),
+            })
+          }
+          if (stage === 'workspace') expect(getRuntimeForSlugMock).not.toHaveBeenCalled()
+          if (stage === 'cursor') expect(prompt).not.toHaveBeenCalled()
+          if (stage === 'cursor' || stage === 'prompt') expect(waitForSessionToCompleteMock).not.toHaveBeenCalled()
+          if (stage !== 'reply') expect(readLatestAssistantTextMock).not.toHaveBeenCalled()
+
+          await eventHandler(eventArgs)
+
+          expect(recordEventReceiptMock).toHaveBeenCalledExactlyOnceWith({
+            eventId, receivedAt: expect.any(Date), type: kind === 'dm' ? 'message.im' : type,
+          })
+          expect(client.chat.update).toHaveBeenLastCalledWith({ channel, text: 'Final reply', ts: 'reply-1' })
+        } finally {
+          consoleErrorSpy.mockRestore()
+          stopSlackSocketManager()
+        }
+      },
+    )
+
+    it.each([
+      ['cursor', false], ['completion', false], ['reply', false],
+      ['cursor', true], ['completion', true], ['reply', true],
+    ] as const)('retries session_not_found from %s exactly once (retry fails=%s)', async (stage, retryFails) => {
+      const client = createSlackClient()
+      const failure = { ok: false, error: { code: 'session_not_found' } }
+      const createSession = vi.fn().mockResolvedValue({ ok: true, data: { id: 'recovered-session' } })
+      const prompt = vi.fn().mockResolvedValue({ ok: true })
+      getRuntimeForSlugMock.mockResolvedValue({ ok: true, data: {
+        createSession, getSession: vi.fn().mockResolvedValue({ ok: true, data: { id: 'existing-session' } }), prompt,
+      } })
+      findLatestDmSessionMock.mockResolvedValue({ id: 'binding-1', executionUserId: 'user-1', openCodeSessionId: 'existing-session', lastMessageAt: new Date() })
+      findThreadBindingMock.mockResolvedValue({ openCodeSessionId: 'existing-session' })
+      if (stage === 'cursor') captureSessionMessageCursorMock.mockResolvedValueOnce(failure).mockResolvedValue(retryFails ? failure : { ok: true, data: { messageCount: 0 } })
+      if (stage === 'completion') waitForSessionToCompleteMock.mockResolvedValueOnce({ status: 'error', error: failure.error }).mockResolvedValue(retryFails ? { status: 'error', error: failure.error } : { status: 'completed' })
+      if (stage === 'reply') readLatestAssistantTextMock.mockResolvedValueOnce(failure).mockResolvedValue(retryFails ? failure : { ok: true, data: 'Final reply' })
+
+      const args = {
+        client, event: { channel: kind === 'dm' ? 'D123' : 'C123', text: 'hello', ts: '100.1', user: 'U123' },
+      }
+      let result
+      if (kind === 'dm') {
+        const { handleSlackDmEvent } = await import('@/lib/slack/dm-handler')
+        result = await handleSlackDmEvent({ ...args, body: { team_id: 'T123' }, eventId: 'evt-stale' })
+      } else {
+        const { handleSlackThreadEvent } = await import('@/lib/slack/thread-handler')
+        result = await handleSlackThreadEvent({ ...args, channel: 'C123', eventTs: '100.1', isMention: true, savedBotUserId: 'U999', threadTs: '100.1' })
+      }
+
+      expect(result).toEqual(retryFails ? { ok: false, error: 'session_not_found' } : undefined)
+      expect(deleteSessionBindingsByOpenCodeSessionIdMock).toHaveBeenCalledExactlyOnceWith('existing-session')
+      expect(createSession).toHaveBeenCalledTimes(1)
+      expect(createSessionPromptRunMock).toHaveBeenCalledTimes(2)
+      expect(markRunFailedMock).toHaveBeenCalledTimes(retryFails ? 2 : 1)
+      expect(markRunFailedMock).toHaveBeenCalledWith('run-1', 'session_not_found')
+      expect(markRunSucceededMock).toHaveBeenCalledTimes(stage === 'reply' ? 2 : retryFails ? 0 : 1)
+      expect(client.chat.update).toHaveBeenCalledExactlyOnceWith({
+        channel: args.event.channel, ts: 'reply-1',
+        text: retryFails
+          ? 'I hit an error while preparing the Slack reply. Please try again.'
+          : `${kind === 'dm' ? 'The previous Slack conversation was no longer available, so I started a new conversation.' : 'The previous Slack thread conversation was no longer available, so I started a new conversation.'}\n\nFinal reply`,
+      })
+      expect(markLastErrorMock).toHaveBeenLastCalledWith(retryFails ? 'session_not_found' : null)
+    })
+
+    it('keeps unexpected prompt exceptions on the existing catch/log path', async () => {
+      const client = createSlackClient()
+      const error = new Error('unexpected prompt exception')
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+      captureSessionMessageCursorMock.mockRejectedValueOnce(error)
+      const { syncSlackSocketManager, stopSlackSocketManager } = await import('@/lib/slack/socket-mode')
+      try {
+        await syncSlackSocketManager()
+        const type = kind === 'dm' ? 'message' : 'app_mention'
+        const eventHandler = appInstances[0].event.mock.calls.find(([name]) => name === type)?.[1]
+        await eventHandler({
+          body: { event_id: 'evt-unexpected', team_id: 'T123' }, client,
+          event: { channel: kind === 'dm' ? 'D123' : 'C123', text: 'hello', ts: '100.1', user: 'U123' },
+        })
+
+        expect(consoleErrorSpy).toHaveBeenCalledExactlyOnceWith('[slack] Failed to handle event', { error, eventId: 'evt-unexpected', type })
+        expect(markRunFailedMock).toHaveBeenCalledExactlyOnceWith('run-1', 'unexpected prompt exception')
+        expect(recordEventReceiptMock).not.toHaveBeenCalled()
+      } finally {
+        consoleErrorSpy.mockRestore()
+        stopSlackSocketManager()
+      }
+    })
   })
 
   it('does not persist an event receipt when processing fails, so the same event can retry', async () => {
