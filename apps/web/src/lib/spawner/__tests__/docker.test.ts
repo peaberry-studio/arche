@@ -269,7 +269,8 @@ describe('docker', () => {
           'GIT_CONFIG_VALUE_0=/workspace',
         ]),
         HostConfig: {
-          NetworkMode: 'test-network', RestartPolicy: { Name: 'no' },
+          NetworkMode: 'test-network',
+          RestartPolicy: { Name: 'no' },
           Binds: [
             'arche-workspace-user-slug:/workspace:ro',
             'arche-opencode-share-user-slug:/tmp/arche-archive-source/share:ro',
@@ -449,12 +450,19 @@ describe('docker', () => {
         ]),
         HostConfig: {
           NetworkMode: 'test-network',
+          CapDrop: ['ALL'],
+          CapAdd: ['DAC_OVERRIDE'],
+          SecurityOpt: ['no-new-privileges'],
+          PidsLimit: 512,
+          Memory: 2 * 1024 * 1024 * 1024,
+          MemorySwap: 2 * 1024 * 1024 * 1024,
+          NanoCpus: 2_000_000_000,
           RestartPolicy: { Name: 'on-failure', MaximumRetryCount: 5 },
           Binds: [
             'arche-workspace-user-slug:/workspace',
             'arche-opencode2-share-user-slug:/home/workspace/.local/share/opencode',
             'arche-opencode2-state-user-slug:/home/workspace/.local/state/opencode',
-            '/opt/arche/kb-content:/kb-content',
+            '/opt/arche/kb-content:/kb-content:ro',
             '/opt/arche/users/user-slug:/tmp/arche-user-data:ro',
           ],
           Tmpfs: { '/tmp/arche-scratch': 'rw,nosuid,nodev,size=512m,mode=0700' },

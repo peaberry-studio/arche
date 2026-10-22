@@ -65,7 +65,7 @@ async function openAddConnectorDialog(page: Page) {
   // /u/{slug}/connectors redirects into it.
   await page.goto(`/u/${adminSlug}/connectors`)
   await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Connectors' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Connectors', exact: true })).toBeVisible()
 
   const addFirstButton = page.getByRole('button', { name: 'Add your first connector' })
   if (await addFirstButton.isVisible()) {

@@ -52,7 +52,7 @@ test('new backend images and source-mounted development stacks declare the runti
 })
 
 for (const version of ['1.18.18', '2.0.32']) {
-  for (const corrupt of version.startsWith('2.') ? [false, true] : [false]) {
+  for (const corrupt of [false, true]) {
     test(`download ${version}${corrupt ? ' rejects bad integrity' : ' uses exact version and replaces stale binary'}`, () => {
       const scratch = mkdtempSync(join(root, '.runtime-infra-test-'))
       try {
@@ -65,7 +65,7 @@ for (const version of ['1.18.18', '2.0.32']) {
         assert.equal(spawnSync('tar', ['-czf', archive, '-C', payload, '.']).status, 0)
         const metadata = join(scratch, 'metadata.json')
         const integrity = 'sha512-' + createHash('sha512').update(readFileSync(archive)).digest('base64')
-        writeFileSync(metadata, JSON.stringify({ version, dist: { integrity: corrupt ? 'sha512-bad' : integrity } }))
+        writeFileSync(metadata, JSON.stringify({ version, dist: { integrity: corrupt ? 'sha512-bad' : integrity }, assets: [{ name: 'opencode-linux-arm64.tar.gz', digest: corrupt ? 'sha256:bad' : 'sha256:' + createHash('sha256').update(readFileSync(archive)).digest('hex') }] }))
         const bin = join(scratch, 'bin')
         mkdirSync(bin)
         writeFileSync(join(bin, 'curl'), `#!/usr/bin/env node

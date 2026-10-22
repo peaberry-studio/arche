@@ -32,6 +32,7 @@ const watchpackIgnored = [
 ]
 
 const nextConfig: NextConfig = {
+  typescript: { tsconfigPath: "tsconfig.build.json" },
   allowedDevOrigins: ["arche.lvh.me", "127.0.0.1", "localhost"],
   ...(process.env.ARCHE_DESKTOP_NEXT_DIST_DIR && { distDir: process.env.ARCHE_DESKTOP_NEXT_DIST_DIR }),
   ...(process.env.ARCHE_RUNTIME_MODE === "desktop" && {

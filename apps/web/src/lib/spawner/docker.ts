@@ -212,7 +212,7 @@ export async function createContainer(
     `${opencodeStateVolumeName}:/home/workspace/.local/state/opencode`,
   ];
   const kbContentHostPath = getKbContentHostPath();
-  binds.push(`${kbContentHostPath}:/kb-content`);
+  binds.push(`${kbContentHostPath}:/kb-content:ro`);
 
   // Persist runtime files in host user-data directory.
   // We mount files individually into /tmp inside the container so the workspace
@@ -262,6 +262,7 @@ export async function createContainer(
     `OPENCODE_SERVER_PASSWORD=${password}`,
     `OPENCODE_SERVER_USERNAME=opencode`,
     `ARCHE_WORKSPACE_SLUG=${slug}`,
+    `ARCHE_KB_PUSH_URL=${process.env.ARCHE_INTERNAL_API_BASE_URL ?? 'http://web:3000'}/api/internal/kb/${slug}`,
     `ARCHE_INTERNAL_API_BASE_URL=${process.env.ARCHE_INTERNAL_API_BASE_URL ?? 'http://web:3000'}`,
     // The workspace image runs as root for Podman volume compatibility.
     // Force HOME/XDG to mounted /home/workspace paths so session data persists.
@@ -286,6 +287,13 @@ export async function createContainer(
     Env: env,
     HostConfig: {
       NetworkMode: getOpencodeNetwork(),
+      CapDrop: ["ALL"],
+      CapAdd: ["DAC_OVERRIDE"],
+      SecurityOpt: ["no-new-privileges"],
+      PidsLimit: 512,
+      Memory: 2 * 1024 * 1024 * 1024,
+      MemorySwap: 2 * 1024 * 1024 * 1024,
+      NanoCpus: 2_000_000_000,
       RestartPolicy: { Name: "on-failure", MaximumRetryCount: 5 },
       Binds: binds,
       Tmpfs: { [WEB_SCRATCH.root]: `rw,nosuid,nodev,size=${getScratchSizeMb()}m,mode=0700` },

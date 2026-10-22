@@ -12,7 +12,7 @@ services:
   # Security proxy for the Podman socket.
   # Filters allowed operations; both Traefik and web use it.
   docker-socket-proxy:
-    image: ghcr.io/tecnativa/docker-socket-proxy:master
+    image: ghcr.io/tecnativa/docker-socket-proxy@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459
     environment:
       CONTAINERS: 1 # list/inspect containers
       NETWORKS: 1 # inspect networks
@@ -23,7 +23,7 @@ services:
     volumes:
       - /run/podman/podman.sock:/var/run/docker.sock:ro
     networks:
-      - arche-internal
+      - arche-control
 
   traefik:
     image: traefik:v3.6.7
@@ -41,10 +41,11 @@ services:
       - --log.level=INFO
     ports:
       - 8080:80
-      - 8081:8080
+      - 127.0.0.1:8081:8080
     networks:
       - default
       - arche-internal
+      - arche-control
 
   postgres:
     image: postgres:16
@@ -74,7 +75,7 @@ services:
         gosu postgres psql -v ON_ERROR_STOP=1 -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -c "ALTER USER \"$$POSTGRES_USER\" PASSWORD '$$POSTGRES_PASSWORD';"
         wait "$$pid"
     ports:
-      - 5432:5432
+      - 127.0.0.1:5432:5432
     volumes:
       - arche_postgres:/var/lib/postgresql/data
 
@@ -117,6 +118,7 @@ services:
     networks:
       - default
       - arche-internal
+      - arche-control
     volumes:
       - ./../../apps/web:/app
       - ./../../apps/desktop-runtime:/desktop-runtime
@@ -137,6 +139,9 @@ services:
       - traefik.http.services.arche-web.loadbalancer.server.port=3000
 
 networks:
+  arche-control:
+    name: arche-control
+    internal: true
   default:
     name: arche_default
   arche-internal:

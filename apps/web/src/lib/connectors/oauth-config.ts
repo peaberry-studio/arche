@@ -1,4 +1,5 @@
 import { isOAuthConnectorType } from '@/lib/connectors/oauth'
+import { CONNECTOR_PRIVATE_FIELDS } from '@/lib/connectors/private-fields'
 import type { ConnectorType, OAuthConnectorType } from '@/lib/connectors/types'
 
 export type ConnectorOAuthConfig = {
@@ -98,6 +99,13 @@ export function mergeConnectorConfigWithPreservedOAuth(input: {
   nextConfig: ConnectorConfigRecord
 }): ConnectorConfigRecord {
   const next = { ...input.nextConfig }
+  for (const [field, presence] of Object.entries(CONNECTOR_PRIVATE_FIELDS)) {
+    if (next[field] === undefined && input.currentConfig[field] !== undefined) {
+      next[field] = input.currentConfig[field]
+    }
+    delete next[presence]
+  }
+  delete next.oauthPendingState
 
   // GitHub PATs are stripped from API responses, so a client editing an existing
   // connector (e.g. to add a pinned repo) sends config back without `pat`.

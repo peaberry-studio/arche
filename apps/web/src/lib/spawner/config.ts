@@ -1,6 +1,10 @@
 export function getEncryptionKey(): Buffer {
   const key = process.env.ARCHE_ENCRYPTION_KEY
-  if (key) return Buffer.from(key, 'base64')
+  if (key) {
+    const decoded = Buffer.from(key, 'base64')
+    if (decoded.length !== 32) throw new Error('ARCHE_ENCRYPTION_KEY must contain 32 bytes')
+    return decoded
+  }
   if (process.env.NODE_ENV === 'production') {
     throw new Error('ARCHE_ENCRYPTION_KEY is required in production')
   }

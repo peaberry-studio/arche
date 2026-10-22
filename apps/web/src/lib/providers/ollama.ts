@@ -1,3 +1,4 @@
+import { publicFetch } from '@/lib/security/public-fetch'
 import { isRecord } from '@/lib/records'
 import { validateConnectorTestEndpoint, type LookupHost } from '@/lib/security/ssrf'
 
@@ -97,7 +98,7 @@ async function fetchOllamaModels(
   apiKey: string | null,
   options: OllamaDiscoveryOptions = {},
 ): Promise<OllamaDiscoveryResult> {
-  const fetchImpl = options.fetchImpl ?? fetch
+  const fetchImpl = options.fetchImpl ?? (apiKey ? publicFetch : fetch)
   const timeoutMs = options.timeoutMs ?? OLLAMA_DISCOVERY_TIMEOUT_MS
   const { signal, cleanup } = createAbortSignal(timeoutMs)
   const headers = new Headers({ accept: 'application/json' })

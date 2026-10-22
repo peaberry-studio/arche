@@ -192,7 +192,7 @@ describe('GET /api/u/[slug]/connectors/[id]', () => {
     setupDefaultMocks()
   })
 
-  it('returns connector detail with decrypted config', async () => {
+  it('returns connector detail without exposing credentials', async () => {
     const { GET } = await import('../route')
     const res = await GET(
       makeRequest('http://localhost/api/u/alice/connectors/conn-1'),
@@ -205,7 +205,7 @@ describe('GET /api/u/[slug]/connectors/[id]', () => {
       id: 'conn-1',
       type: 'notion',
       name: 'My Notion',
-      config: { apiKey: 'key-123' },
+      config: { hasApiKey: true },
       enabled: true,
       authType: 'manual',
       oauthConnected: false,

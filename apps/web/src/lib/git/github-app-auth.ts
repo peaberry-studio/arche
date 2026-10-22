@@ -30,11 +30,13 @@ export async function getInstallationToken(
   appId: string,
   privateKey: string,
   installationId: number,
+  repository?: string,
 ): Promise<InstallationTokenResult> {
   try {
     const response = await fetch(`${GITHUB_API_BASE}/app/installations/${installationId}/access_tokens`, {
       method: 'POST',
       headers: githubAppHeaders(createAppJwt(appId, privateKey)),
+      ...(repository ? { body: JSON.stringify({ repositories: [repository], permissions: { contents: 'write' } }) } : {}),
     })
 
     if (response.status === 401) {

@@ -7,6 +7,8 @@ for (const [image, version] of [
 ]) {
   const result = spawnSync('podman', [
     'run', '--rm', '-i', '--network', 'none', '--entrypoint', 'node',
+    '--cap-drop=ALL', '--cap-add=DAC_OVERRIDE', '--security-opt=no-new-privileges', '--pids-limit=512',
+    '--memory=2g', '--memory-swap=2g', '--cpus=2',
     '-e', `EXPECTED_VERSION=${version}`, image, '--input-type=module',
   ], {
     encoding: 'utf8',

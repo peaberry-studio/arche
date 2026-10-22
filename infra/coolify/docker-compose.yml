@@ -10,7 +10,7 @@ name: arche
 
 services:
   docker-socket-proxy:
-    image: ghcr.io/tecnativa/docker-socket-proxy:master
+    image: ghcr.io/tecnativa/docker-socket-proxy@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459
     restart: unless-stopped
     environment:
       CONTAINERS: 1
@@ -22,7 +22,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
-      - internal
+      - arche-control
 
   postgres:
     image: postgres:16
@@ -104,6 +104,7 @@ services:
     networks:
       - default
       - internal
+      - arche-control
     volumes:
       - ${KB_CONTENT_HOST_PATH:-/opt/arche/kb-content}:/kb-content
       - ${KB_CONFIG_HOST_PATH:-/opt/arche/kb-config}:/kb-config
@@ -115,6 +116,9 @@ services:
       - coolify.managed=true
 
 networks:
+  arche-control:
+    name: arche-control
+    internal: true
   default:
   internal:
     name: arche_internal

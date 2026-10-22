@@ -6,6 +6,7 @@ import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/
 import { parseUmamiConnectorConfig, testUmamiConnection } from '@/lib/connectors/umami'
 import { getZendeskMcpProtocolVersion, parseZendeskConnectorConfig, testZendeskConnection } from '@/lib/connectors/zendesk'
 import type { ConnectorType } from '@/lib/connectors/types'
+import { publicFetch } from '@/lib/security/public-fetch'
 
 export type TestConnectionResult = {
   ok: boolean
@@ -22,11 +23,11 @@ type TestConnectionHandler = (
   options: TestConnectionOptions
 ) => Promise<TestConnectionResult>
 
-async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit, timeoutMs = 8000) {
+async function fetchWithTimeout(input: string | URL, init: RequestInit, timeoutMs = 8000) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
-    return await fetch(input, { ...init, signal: controller.signal, cache: 'no-store' })
+    return await publicFetch(input.toString(), { ...init, signal: controller.signal, cache: 'no-store' })
   } finally {
     clearTimeout(timer)
   }

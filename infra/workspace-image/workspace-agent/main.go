@@ -2494,6 +2494,9 @@ func runCmdWithEnv(ctx context.Context, dir string, args []string, env []string)
 	if len(args) == 0 {
 		return "", "", 1, errors.New("no_command")
 	}
+	if args[0] == "git" {
+		args = append([]string{"git", "-c", "core.hooksPath=/dev/null"}, args[1:]...)
+	}
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 	cmd.Dir = dir
 	if len(env) > 0 {
@@ -2734,6 +2737,20 @@ func (s *server) resolvePath(rel string) (string, error) {
 
 	if !strings.HasPrefix(abs+string(os.PathSeparator), workspaceAbs+string(os.PathSeparator)) && abs != workspaceAbs {
 		return "", errors.New("path_outside_workspace")
+	}
+	current := workspaceAbs
+	for _, component := range strings.Split(cleaned, string(os.PathSeparator)) {
+		current = filepath.Join(current, component)
+		info, statErr := os.Lstat(current)
+		if os.IsNotExist(statErr) {
+			break
+		}
+		if statErr != nil {
+			return "", statErr
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return "", errors.New("symlinks_not_allowed")
+		}
 	}
 	return abs, nil
 }

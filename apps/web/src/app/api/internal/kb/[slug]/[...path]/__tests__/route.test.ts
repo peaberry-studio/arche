@@ -1,0 +1,40 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+const mocks = vi.hoisted(() => ({ credentials: vi.fn(), serve: vi.fn(), audit: vi.fn() }))
+vi.mock('@/lib/auth', () => ({ auditEvent: mocks.audit }))
+vi.mock('@/lib/git/kb-http-backend', () => ({ serveKbGit: mocks.serve }))
+vi.mock('@/lib/runtime/paths', () => ({ getKbContentRoot: () => '/kb-content' }))
+vi.mock('@/lib/services', () => ({ instanceService: { findCredentialsBySlug: mocks.credentials } }))
+vi.mock('@/lib/spawner/crypto', () => ({ decryptPassword: (value: string) => value }))
+
+import { GET, POST } from '@/app/api/internal/kb/[slug]/[...path]/route'
+
+const params = { params: Promise.resolve({ slug: 'alice', path: ['info', 'refs'] }) }
+const auth = `Basic ${Buffer.from('opencode:alice-secret').toString('base64')}`
+
+describe('workspace KB broker authentication', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.credentials.mockResolvedValue({ serverPassword: 'alice-secret', status: 'running' })
+    mocks.serve.mockImplementation(async () => new Response('git-protocol'))
+  })
+
+  it.each([undefined, 'Bearer wrong', `Basic ${Buffer.from('opencode:bob-secret').toString('base64')}`])('rejects invalid credentials', async (authorization) => {
+    const response = await GET(new Request('http://localhost/', { headers: authorization ? { authorization } : {} }), params)
+    expect(response.status).toBe(401)
+    expect(mocks.serve).not.toHaveBeenCalled()
+  })
+
+  it('rejects credentials for a stopped workspace', async () => {
+    mocks.credentials.mockResolvedValue({ serverPassword: 'alice-secret', status: 'stopped' })
+    expect((await GET(new Request('http://localhost/', { headers: { authorization: auth } }), params)).status).toBe(401)
+    expect(mocks.serve).not.toHaveBeenCalled()
+  })
+
+  it('accepts the current workspace credential and audits publication', async () => {
+    const request = new Request('http://localhost/', { method: 'POST', headers: { authorization: auth } })
+    expect((await POST(request, { params: Promise.resolve({ slug: 'alice', path: ['git-receive-pack'] }) })).status).toBe(200)
+    expect(mocks.serve).toHaveBeenCalledWith(request, '/kb-content', 'git-receive-pack')
+    expect(mocks.audit).toHaveBeenCalledWith({ action: 'kb.workspace_push', metadata: { slug: 'alice', status: 200 } })
+  })
+})

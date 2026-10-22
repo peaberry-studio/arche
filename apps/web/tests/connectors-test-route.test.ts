@@ -39,6 +39,10 @@ vi.mock('@/lib/security/ssrf', () => ({
   validateConnectorTestEndpoint: (...args: unknown[]) => mockValidateConnectorTestEndpoint(...args),
 }))
 
+vi.mock('@/lib/security/public-fetch', () => ({
+  publicFetch: (url: string, init: RequestInit) => fetch(url, { ...init, redirect: 'error' }),
+}))
+
 function session(slug: string) {
   return { user: { id: 'user-1', email: 'alice@example.com', slug, role: 'USER' }, sessionId: 'session-1' }
 }
@@ -103,17 +107,17 @@ describe('POST /api/u/[slug]/connectors/[id]/test SSRF hardening', () => {
     expect(globalThis.fetch).not.toHaveBeenCalled()
   })
 
-  it('uses redirect manual when testing allowed custom endpoints', async () => {
+  it('rejects redirects when testing allowed custom endpoints', async () => {
     const { status, body } = await callTestRoute('alice', 'conn-1')
 
     expect(status).toBe(200)
     expect(body).toMatchObject({ ok: true, tested: true })
     expect(mockValidateConnectorTestEndpoint).toHaveBeenCalledWith('https://api.example.com/mcp')
     expect(globalThis.fetch).toHaveBeenCalledWith(
-      new URL('https://api.example.com/mcp'),
+      'https://api.example.com/mcp',
       expect.objectContaining({
         method: 'GET',
-        redirect: 'manual',
+        redirect: 'error',
       })
     )
   })

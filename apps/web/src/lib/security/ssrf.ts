@@ -22,6 +22,19 @@ BLOCKED_SUBNETS.addSubnet('172.16.0.0', 12, 'ipv4')
 BLOCKED_SUBNETS.addSubnet('192.168.0.0', 16, 'ipv4')
 BLOCKED_SUBNETS.addSubnet('169.254.0.0', 16, 'ipv4')
 BLOCKED_SUBNETS.addSubnet('0.0.0.0', 8, 'ipv4')
+BLOCKED_SUBNETS.addSubnet('100.64.0.0', 10, 'ipv4')
+BLOCKED_SUBNETS.addSubnet('192.0.0.0', 24, 'ipv4')
+BLOCKED_SUBNETS.addSubnet('192.0.2.0', 24, 'ipv4')
+BLOCKED_SUBNETS.addSubnet('198.18.0.0', 15, 'ipv4')
+BLOCKED_SUBNETS.addSubnet('198.51.100.0', 24, 'ipv4')
+BLOCKED_SUBNETS.addSubnet('203.0.113.0', 24, 'ipv4')
+BLOCKED_SUBNETS.addSubnet('224.0.0.0', 4, 'ipv4')
+BLOCKED_SUBNETS.addSubnet('240.0.0.0', 4, 'ipv4')
+BLOCKED_SUBNETS.addSubnet('ff00::', 8, 'ipv6')
+BLOCKED_SUBNETS.addSubnet('64:ff9b::', 96, 'ipv6')
+BLOCKED_SUBNETS.addSubnet('64:ff9b:1::', 48, 'ipv6')
+BLOCKED_SUBNETS.addSubnet('2002::', 16, 'ipv6')
+BLOCKED_SUBNETS.addSubnet('2001::', 32, 'ipv6')
 
 BLOCKED_SUBNETS.addSubnet('::', 128, 'ipv6')
 BLOCKED_SUBNETS.addSubnet('::1', 128, 'ipv6')
@@ -68,7 +81,7 @@ function extractMappedIpv4Address(address: string): string | null {
   return octets.join('.')
 }
 
-function isBlockedIpAddress(address: string): boolean {
+export function isBlockedIpAddress(address: string): boolean {
   const family = isIP(address)
 
   if (family === 4) {
@@ -103,7 +116,7 @@ export async function validateConnectorTestEndpoint(
     return { ok: false, error: 'invalid_endpoint' }
   }
 
-  if (parsedUrl.protocol !== 'https:') {
+  if (parsedUrl.protocol !== 'https:' || parsedUrl.username || parsedUrl.password) {
     return { ok: false, error: 'invalid_endpoint' }
   }
 
