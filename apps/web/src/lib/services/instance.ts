@@ -155,7 +155,9 @@ export function findIdleInstances(threshold: Date): Promise<InstanceRecord[]> {
 // Mutations
 // ---------------------------------------------------------------------------
 
-export function upsertStarting(slug: string, serverPassword: string, startedAt = new Date()) {
+// `runtimeKind` marks a row created by a runtime that has no legacy history to
+// migrate, so a failed first start is not mistaken for an OpenCode 1 workspace.
+export function upsertStarting(slug: string, serverPassword: string, startedAt = new Date(), runtimeKind?: string) {
   return prisma.instance.upsert({
     where: { slug },
     create: {
@@ -165,6 +167,7 @@ export function upsertStarting(slug: string, serverPassword: string, startedAt =
       startedAt,
       providerSyncHash: null,
       providerSyncedAt: null,
+      ...(runtimeKind && { runtimeKind }),
     },
     update: {
       status: 'starting',

@@ -187,7 +187,7 @@ export async function startInstance(
       await docker.removeContainer(existing.containerId).catch(() => {})
     }
     await docker.removeManagedContainerForSlug(slug)
-    if (!existing) await instanceService.upsertStarting(slug, encryptedPassword, ownedStartedAt)
+    if (!existing) await instanceService.upsertStarting(slug, encryptedPassword, ownedStartedAt, CURRENT_RUNTIME_KIND)
     if (existing && !isCurrentRuntimeKind(existing.runtimeKind)) {
       const rotated = await instanceService.setStartingPassword(slug, ownedStartedAt, encryptedPassword)
       if (rotated.count === 0) return { ok: false, error: 'already_running' }

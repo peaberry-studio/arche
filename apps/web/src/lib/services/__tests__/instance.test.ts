@@ -281,6 +281,14 @@ describe('instanceService', () => {
       expect(transition.create).not.toHaveProperty('runtimeKind')
       expect(transition.update).not.toHaveProperty('runtimeKind')
     })
+
+    it('records the runtime kind only when creating the row', async () => {
+      mockPrisma.instance.upsert.mockResolvedValue({})
+      await upsertStarting('alice', 'pwd', new Date(1), 'opencode-v2')
+      const transition = mockPrisma.instance.upsert.mock.calls[0][0]
+      expect(transition.create).toMatchObject({ runtimeKind: 'opencode-v2' })
+      expect(transition.update).not.toHaveProperty('runtimeKind')
+    })
   })
 
   describe('setContainerId', () => {

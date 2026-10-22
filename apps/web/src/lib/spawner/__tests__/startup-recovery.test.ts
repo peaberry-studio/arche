@@ -252,3 +252,25 @@ describe('legacy migration recovery', () => {
     expect(mocks.authHeaders).toEqual(Array(2).fill(`Basic ${Buffer.from('opencode:old').toString('base64')}`))
   })
 })
+
+describe('fresh workspace runtime kind', () => {
+  it('retries a failed first start on the current runtime instead of the legacy archive path', async () => {
+    current = { ...current, status: 'stopped', containerId: null, runtimeKind: null }
+    mocks.findUnique.mockResolvedValueOnce(null)
+    mocks.upsert.mockImplementation(async ({ create }: { create: Partial<InstanceRecord> }) => {
+      current = { ...current, ...create }
+      return { ...current }
+    })
+    mocks.removeContainer.mockReset().mockResolvedValue(undefined)
+    mocks.createContainer.mockRejectedValueOnce(new Error('registry unavailable'))
+
+    expect(await startInstance('alice', 'owner')).toMatchObject({ ok: false, error: 'start_failed' })
+    expect(current).toMatchObject({ status: 'error', runtimeKind: 'opencode-v2' })
+
+    expect(await startInstance('alice', 'owner')).toEqual({ ok: true, status: 'running' })
+    expect(mocks.findLegacyArchiveSource).not.toHaveBeenCalled()
+    expect(mocks.createArchiveContainer).not.toHaveBeenCalled()
+    expect(mocks.export).not.toHaveBeenCalled()
+    expect(current).toMatchObject({ status: 'running', runtimeKind: 'opencode-v2', containerId: 'next' })
+  })
+})
