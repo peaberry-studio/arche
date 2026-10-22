@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import test from 'node:test'
 
@@ -61,4 +61,43 @@ test('scratch permission hook enforces trusted session ownership for every nativ
   const shell = { sessionID: 'ses_a', action: 'shell', resources: ['ls'], effect: 'ask' }
   await evaluate(shell)
   assert.equal(shell.effect, 'ask', 'shell remains outside this boundary')
+})
+
+test('own-session native access refreshes the retention marker, throttled and without following links', async (t) => {
+  const base = await mkdtemp(path.join(process.cwd(), '.scratch-isolation-test-'))
+  t.after(() => rm(base, { recursive: true, force: true }))
+  const root = path.join(base, 'scratch')
+  const workspace = path.join(base, 'workspace')
+  const own = path.join(root, 'ses_a')
+  const linked = path.join(root, 'ses_b')
+  await Promise.all([own, linked, workspace].map((dir) => mkdir(dir, { recursive: true })))
+  const old = new Date(Date.now() - 25 * 60 * 60 * 1000)
+  const marker = path.join(own, '.last-used')
+  await writeFile(marker, '')
+  await writeFile(path.join(own, 'data.csv'), 'a,b\n')
+  const target = path.join(base, 'not-a-marker.txt')
+  await writeFile(target, '')
+  await symlink(target, path.join(linked, '.last-used'), 'file')
+  await utimes(marker, old, old)
+  await utimes(target, old, old)
+  let evaluate
+  await scratchIsolation.setup({
+    options: { root }, location: { directory: workspace },
+    permission: { hook: async (_name, callback) => { evaluate = callback } },
+  })
+  const read = (sessionID, file) => ({ sessionID, action: 'read', effect: 'allow', resources: [file], metadata: {} })
+
+  await evaluate(read('ses_a', path.join(own, 'data.csv')))
+  assert.ok((await stat(marker)).mtimeMs > old.getTime(), 'a native read keeps the folder from being pruned')
+
+  await utimes(marker, old, old)
+  await evaluate(read('ses_a', path.join(own, 'data.csv')))
+  assert.ok(Math.abs((await stat(marker)).mtimeMs - old.getTime()) < 1000, 'refreshes at most once a minute per session')
+
+  await evaluate(read('ses_b', path.join(linked, 'anything.txt')))
+  assert.ok(Math.abs((await stat(target)).mtimeMs - old.getTime()) < 1000, 'a symlinked marker target is never touched')
+
+  const denied = read('ses_a', path.join(linked, 'anything.txt'))
+  await evaluate(denied)
+  assert.equal(denied.effect, 'deny')
 })

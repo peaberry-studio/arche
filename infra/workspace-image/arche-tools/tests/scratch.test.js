@@ -70,6 +70,29 @@ for (const tool of ['dir', 'publish']) {
   })
 }
 
+test('scratch pruning keeps a session whose files changed recently even if its marker is old', async (t) => {
+  const { scratch } = await setup(t)
+  const old = new Date(Date.now() - 25 * 60 * 60 * 1000)
+  const activeDir = path.join(scratch, 'ses_native')
+  await fs.mkdir(path.join(activeDir, 'out', 'deep'), { recursive: true })
+  await fs.writeFile(path.join(activeDir, '.last-used'), '')
+  await fs.writeFile(path.join(activeDir, 'out', 'deep', 'draft.md'), 'edited by a native tool')
+  for (const target of [path.join(activeDir, '.last-used'), path.join(activeDir, 'out', 'deep'), path.join(activeDir, 'out'), activeDir]) {
+    await fs.utimes(target, old, old)
+  }
+  const staleDir = path.join(scratch, 'ses_untouched')
+  await fs.mkdir(path.join(staleDir, 'out'), { recursive: true })
+  await fs.writeFile(path.join(staleDir, 'out', 'old.md'), 'old')
+  for (const target of [path.join(staleDir, 'out', 'old.md'), path.join(staleDir, 'out'), staleDir]) {
+    await fs.utimes(target, old, old)
+  }
+
+  assert.equal(JSON.parse(await scratchDir.execute({}, session('ses_other'))).ok, true)
+
+  assert.equal(await fs.readFile(path.join(activeDir, 'out', 'deep', 'draft.md'), 'utf8'), 'edited by a native tool')
+  await assert.rejects(fs.stat(staleDir), { code: 'ENOENT' })
+})
+
 test('scratch pruning expires the last-used marker even when the directory mtime is recent', async (t) => {
   const { scratch } = await setup(t)
   const staleDir = path.join(scratch, 'ses_stale')

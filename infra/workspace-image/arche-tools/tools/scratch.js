@@ -11,6 +11,7 @@ const DEFAULT_SCRATCH_ROOT = '/tmp/arche-scratch'
 const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{1,200}$/
 const SCRATCH_RETENTION_MS = 24 * 60 * 60 * 1000
 const LAST_USED_MARKER = '.last-used'
+const MAX_RETENTION_SCAN_ENTRIES = 10_000
 
 function getScratchRoot() {
   return path.resolve(process.env.ARCHE_SCRATCH_DIR?.trim() || DEFAULT_SCRATCH_ROOT)
@@ -40,13 +41,36 @@ function withSuffix(name, index) {
   return `${name.slice(0, lastDot)} (${index})${name.slice(lastDot)}`
 }
 
+// Native tools and shell commands write inside a session folder without
+// touching its marker, so recent content keeps the folder too. The walk never
+// follows links and stops early once it finds recent content or hits the bound
+// (a folder too large to scan is kept).
+async function hasRecentContent(dir, cutoff) {
+  const pending = [dir]
+  let scanned = 0
+  while (pending.length > 0) {
+    const current = pending.pop()
+    const entries = await fs.readdir(current, { withFileTypes: true }).catch(() => [])
+    for (const entry of entries) {
+      if (++scanned > MAX_RETENTION_SCAN_ENTRIES) return true
+      const target = path.join(current, entry.name)
+      if (entry.name === LAST_USED_MARKER || entry.name.startsWith(`${LAST_USED_MARKER}-`)) continue
+      const stat = await fs.lstat(target).catch(() => null)
+      if (stat && stat.mtimeMs >= cutoff) return true
+      if (entry.isDirectory()) pending.push(target)
+    }
+  }
+  return false
+}
+
 async function removeStaleSessionDirs(root, keep) {
   const entries = await fs.readdir(root, { withFileTypes: true }).catch(() => [])
   const cutoff = Date.now() - SCRATCH_RETENTION_MS
   await Promise.all(entries.filter((entry) => entry.isDirectory() && entry.name !== keep).map(async (entry) => {
     const target = path.join(root, entry.name)
     const stat = await fs.stat(path.join(target, LAST_USED_MARKER)).catch(() => fs.stat(target).catch(() => null))
-    if (stat && stat.mtimeMs < cutoff) await fs.rm(target, { recursive: true, force: true }).catch(() => {})
+    if (!stat || stat.mtimeMs >= cutoff || await hasRecentContent(target, cutoff)) return
+    await fs.rm(target, { recursive: true, force: true }).catch(() => {})
   }))
 }
 

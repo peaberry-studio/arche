@@ -1,5 +1,28 @@
-import { lstat, readlink, realpath } from 'node:fs/promises'
+import { constants } from 'node:fs'
+import { lstat, open, readlink, realpath } from 'node:fs/promises'
 import path from 'node:path'
+
+const LAST_USED_MARKER = '.last-used'
+const MARKER_REFRESH_INTERVAL_MS = 60_000
+
+// Native reads leave no trace in the folder, so own-session access refreshes
+// the retention marker that scratch_dir created. Never follows a link and never
+// touches a hardlinked marker.
+async function refreshMarker(dir) {
+  let handle
+  try {
+    handle = await open(path.join(dir, LAST_USED_MARKER), constants.O_WRONLY | constants.O_NOFOLLOW)
+    const stat = await handle.stat()
+    if (stat.isFile() && stat.nlink === 1) {
+      const now = new Date()
+      await handle.utimes(now, now)
+    }
+  } catch {
+    // No marker yet: scratch_dir has not run for this session.
+  } finally {
+    await handle?.close()
+  }
+}
 
 async function canonical(file) {
   try {
@@ -29,6 +52,7 @@ export const scratchIsolation = {
   async setup(ctx) {
     const configuredRoot = path.resolve(ctx.options.root)
     const root = await canonical(configuredRoot)
+    const refreshedAt = new Map()
     await ctx.permission.hook('evaluate', async (event) => {
       let targets
       if (event.action === 'external_directory') {
@@ -42,6 +66,7 @@ export const scratchIsolation = {
       }
       const own = path.join(root, event.sessionID)
       let ownOnly = true
+      let touchesOwn = false
       for (const target of targets) {
         const absolute = path.resolve(ctx.location.directory, target)
         const resolved = await canonical(absolute)
@@ -53,9 +78,14 @@ export const scratchIsolation = {
           return
         }
         if (!contains(own, resolved)) ownOnly = false
+        else touchesOwn = true
       }
       if (event.action === 'external_directory' && ownOnly && event.effect !== 'deny') {
         event.effect = 'allow'
+      }
+      if (touchesOwn && event.effect !== 'deny' && Date.now() - (refreshedAt.get(event.sessionID) ?? 0) >= MARKER_REFRESH_INTERVAL_MS) {
+        refreshedAt.set(event.sessionID, Date.now())
+        await refreshMarker(own)
       }
     })
   },
