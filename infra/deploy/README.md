@@ -8,6 +8,7 @@ Deploy Arche to a VPS or run the local development stack with hot reload.
 Local Machine
   ./deploy.sh --ip X --domain Y [--ssh-key K] --acme-email E
   ./deploy.sh --ip X --domain Y [--ssh-key K] --cloudflare-tunnel
+  ./deploy.sh --ip X --domain Y [--ssh-key K] --tailscale
               │ SSH (Ansible)
               ▼
 Remote VPS (/opt/arche)
@@ -16,6 +17,7 @@ Remote VPS (/opt/arche)
   │  ┌──────────────────┐                                     │
   │  │ Traefik           │ :80 → :443 (direct TLS/ACME)       │
   │  │                   │ :80 internal (Cloudflare Tunnel)   │
+  │  │                   │ 127.0.0.1:80 (Tailscale serve)     │
   │  │ Container provider│──► docker-socket-proxy :2375       │
   │  └────────┬─────────┘                                     │
   │           │                                                │
@@ -98,7 +100,7 @@ Edit files in `apps/web/src/` and Next.js reloads automatically. If Podman misse
 
 Deploys to a VPS via SSH using Ansible. The playbook provisions Podman (if missing), renders the compose and env templates, deploys images (from GHCR or local VPS builds), runs migrations, and seeds the database.
 
-Remote deployments support two exposure modes: direct exposure with Traefik and ACME, or Cloudflare Tunnel with the origin ports closed.
+Remote deployments support three exposure modes: direct exposure with Traefik and ACME, Cloudflare Tunnel with the origin ports closed, or Tailscale for a private tailnet-only instance.
 
 If `--ssh-key` is omitted, the deployer lets OpenSSH and Ansible use your normal SSH setup: ssh-agent, 1Password SSH agent, `~/.ssh/config`, and default key discovery. Pass `--ssh-key` only when you want to force a specific local private key file.
 
@@ -152,6 +154,28 @@ cp .env.example .env
 
 Create and configure the tunnel in the Cloudflare dashboard before deploying. The deployer starts `cloudflared` with the token, but it does not create the Cloudflare tunnel or DNS routing for you.
 
+#### Tailscale exposure
+
+- Domain: the host's MagicDNS name (e.g. `arche.tail1234.ts.net`); reachable only from devices in your tailnet
+- Works behind CGNAT: no public ports, DNS records or ACME
+- Traefik publishes HTTP only on host loopback (`127.0.0.1:80`); UFW keeps `80/443` closed
+- `tailscale serve` terminates TLS with the tailnet certificate and proxies to `http://127.0.0.1:80`
+
+Install Tailscale on the host and enable MagicDNS and HTTPS certificates in the tailnet admin console before deploying:
+
+```bash
+# On the host
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up
+sudo tailscale serve --bg http://127.0.0.1:80
+
+# From your machine (the domain is the host's MagicDNS name; behind CGNAT,
+# use the host's tailnet IP (100.x.y.z) for --ip)
+./deploy.sh --ip <HOST_IP> --domain arche.tail1234.ts.net --tailscale
+```
+
+The deployer does not install Tailscale or configure `tailscale serve` for you.
+
 ## CLI Reference
 
 ### Remote flags
@@ -163,6 +187,7 @@ Create and configure the tunnel in the Cloudflare dashboard before deploying. Th
 | `--ssh-key` | No | Path to SSH private key. Omit to use ssh-agent, 1Password SSH agent, `~/.ssh/config`, or default OpenSSH keys |
 | `--acme-email` | Direct only | Let's Encrypt ACME email |
 | `--cloudflare-tunnel` | No | Use Cloudflare Tunnel instead of public `80/443` and ACME |
+| `--tailscale` | No | Serve HTTP on host loopback for `tailscale serve` instead of public `80/443` and ACME |
 | `--version` | No | Web image tag to deploy (default: `latest`) |
 | `--user` | No | SSH user (default: `root`) |
 | `--skip-ensure-dns-record` | No | Skip `ensure_dns_record` verification before running Ansible |
@@ -214,7 +239,7 @@ Set in `.env` or export before running `deploy.sh`.
 
 ### ACME notes
 
-No DNS provider token is required in direct mode. Traefik uses ACME HTTP challenge on entrypoint `web` (port 80). Cloudflare Tunnel mode skips ACME entirely.
+No DNS provider token is required in direct mode. Traefik uses ACME HTTP challenge on entrypoint `web` (port 80). Cloudflare Tunnel and Tailscale modes skip ACME entirely.
 
 ### Optional overrides
 
@@ -226,7 +251,7 @@ No DNS provider token is required in direct mode. Traefik uses ACME HTTP challen
 | `OPENCODE_IMAGE` | `arche-workspace:latest` |
 | `CLOUDFLARED_IMAGE` | `docker.io/cloudflare/cloudflared:2026.5.0` |
 | `PODMAN_SOCKET_PATH` | Auto-detected (see below) |
-| `ARCHE_PUBLIC_BASE_URL` | Derived from request origin unless set; in tunnel mode defaults to `https://<domain>` |
+| `ARCHE_PUBLIC_BASE_URL` | Derived from request origin unless set; in Cloudflare Tunnel and Tailscale modes defaults to `https://<domain>` |
 | `ARCHE_SESSION_TTL_DAYS` | `7` |
 | `ARCHE_USERS_PATH` | `/opt/arche/users` remote, `~/.arche/users` local-dev |
 | `KB_CONTENT_HOST_PATH` | `/opt/arche/kb-content` remote, `~/.arche/kb-content` local-dev |
@@ -262,7 +287,7 @@ On remote deploys, the playbook auto-detects whether Podman and a `deploy` user 
 
 ## ACME Notes
 
-HTTP-01 challenge is used in direct remote mode. Make sure your domain resolves to the VPS and ports `80/443` are reachable. Cloudflare Tunnel mode does not use ACME on the VPS.
+HTTP-01 challenge is used in direct remote mode. Make sure your domain resolves to the VPS and ports `80/443` are reachable. Cloudflare Tunnel and Tailscale modes do not use ACME on the VPS.
 
 ## Services
 
@@ -314,6 +339,9 @@ podman ps -a --filter label=arche.managed=true
 
 # Re-deploy in Cloudflare Tunnel mode (from local machine)
 ./deploy.sh --ip <IP> --domain <DOMAIN> [--ssh-key <KEY>] --cloudflare-tunnel
+
+# Re-deploy in Tailscale mode (from local machine)
+./deploy.sh --ip <IP> --domain <TAILNET-HOSTNAME> [--ssh-key <KEY>] --tailscale
 ```
 
 ## Troubleshooting

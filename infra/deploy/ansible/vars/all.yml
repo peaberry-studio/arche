@@ -2,7 +2,7 @@
 # Deployment mode: "remote" or "local-dev"
 deploy_mode: "{{ lookup('env', 'DEPLOY_MODE') | default('remote', true) }}"
 
-# Exposure mode: "direct" or "cloudflare-tunnel"
+# Exposure mode: "direct", "cloudflare-tunnel" or "tailscale"
 exposure_mode: "{{ lookup('env', 'ARCHE_EXPOSURE_MODE') | default('direct', true) }}"
 
 # Domain

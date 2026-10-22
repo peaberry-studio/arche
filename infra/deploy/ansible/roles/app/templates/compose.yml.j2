@@ -26,6 +26,9 @@ services:
 {% elif deploy_mode == 'remote' and exposure_mode == 'cloudflare-tunnel' %}
       # HTTP-only behind Cloudflare Tunnel
       - --entrypoints.web.address=:80
+{% elif deploy_mode == 'remote' and exposure_mode == 'tailscale' %}
+      # HTTP-only on host loopback; `tailscale serve` terminates TLS
+      - --entrypoints.web.address=:80
 {% else %}
       # HTTP-only (local-dev mode)
       - --entrypoints.web.address=:80
@@ -43,6 +46,9 @@ services:
       - "443:443"
     volumes:
       - traefik_letsencrypt:/letsencrypt
+{% elif deploy_mode == 'remote' and exposure_mode == 'tailscale' %}
+    ports:
+      - "127.0.0.1:80:80"
 {% elif deploy_mode == 'local-dev' %}
     ports:
       - "8080:80"
