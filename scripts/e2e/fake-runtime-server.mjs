@@ -741,6 +741,23 @@ async function handleV2Request(request, response, method, pathname, url) {
     return true
   }
 
+  if (method === 'GET' && pathname === '/api/fs/list') {
+    const requested = url.searchParams.get('path') ?? DEFAULT_DIRECTORY
+    const relative = requested === DEFAULT_DIRECTORY
+      ? ''
+      : requested.startsWith(`${DEFAULT_DIRECTORY}/`) ? requested.slice(DEFAULT_DIRECTORY.length + 1) : requested
+    const parent = relative.replace(/^\/+|\/+$/g, '')
+    sendJson(response, 200, {
+      location: V2_LOCATION,
+      data: listV2FsEntries().filter((entry) => {
+        const entryPath = entry.path.replace(/\/$/, '')
+        const separator = entryPath.lastIndexOf('/')
+        return (separator === -1 ? '' : entryPath.slice(0, separator)) === parent
+      }),
+    })
+    return true
+  }
+
   if (method === 'GET' && pathname.startsWith('/api/fs/read/')) {
     const requested = decodeURIComponent(pathname.slice('/api/fs/read/'.length)).replace(/^\/+/, '')
     const filePath = requested.startsWith(`${DEFAULT_DIRECTORY.slice(1)}/`) ? requested.slice(DEFAULT_DIRECTORY.length) : requested
