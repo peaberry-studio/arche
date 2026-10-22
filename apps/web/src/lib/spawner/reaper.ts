@@ -6,7 +6,7 @@ import {
   getReaperMinAvailableMemoryMb,
   getReaperMinAvailableMemoryPercent,
 } from '@/lib/spawner/config'
-import { type HostMemory, isUnderMemoryPressure, readHostMemory } from '@/lib/spawner/host-resources'
+import { type HostMemory, isUnderMemoryPressure, type MemoryPressurePolicy, readHostMemory } from '@/lib/spawner/host-resources'
 
 export const REAPER_INTERVAL_MS = 5 * 60 * 1000
 
@@ -49,7 +49,9 @@ export async function reapIdleInstances(): Promise<number> {
   let reapedCount = 0
   for (const instance of candidates) {
     if (reapedCount >= MAX_REAPED_INSTANCES_PER_CYCLE || !isUnderMemoryPressure(memory, policy)) break
-    if (!await stopIdleInstance(instance, memory)) continue
+    const outcome = await stopIdleInstance(instance, policy)
+    if (outcome === 'relieved') break
+    if (outcome === 'skipped') continue
     reapedCount++
     memory = await readHostMemory()
   }
@@ -64,15 +66,24 @@ function describeMemory(memory: HostMemory) {
   }
 }
 
-// Race-safe teardown: claim the instance, stop and remove its container, then
-// finish only if this attempt still owns the transition.
-async function stopIdleInstance(instance: InstanceRecord, memory: HostMemory): Promise<boolean> {
+// Race-safe teardown: claim the instance only while it is still idle, confirm
+// the host is still short on memory, stop and remove its container, then finish
+// only if this attempt still owns the transition.
+async function stopIdleInstance(
+  instance: InstanceRecord,
+  policy: MemoryPressurePolicy,
+): Promise<'stopped' | 'skipped' | 'relieved'> {
   const startedAt = new Date()
   let ownsTransition = false
   try {
-    const claimed = await instanceService.claimStartingTransition(instance, startedAt)
-    if (claimed.count === 0) return false
+    const claimed = await instanceService.claimIdleStopTransition(instance, startedAt)
+    if (claimed.count === 0) return 'skipped'
     ownsTransition = true
+    const memory = await readHostMemory()
+    if (!isUnderMemoryPressure(memory, policy)) {
+      await instanceService.recoverStoppingTransition(instance, startedAt)
+      return 'relieved'
+    }
     if (instance.containerId) {
       const docker = await import('@/lib/spawner/docker')
       let stopConfirmed = false
@@ -86,7 +97,7 @@ async function stopIdleInstance(instance: InstanceRecord, memory: HostMemory): P
     }
 
     const stopped = await instanceService.finishStoppingTransition(instance.id, startedAt)
-    if (stopped.count === 0) return false
+    if (stopped.count === 0) return 'skipped'
 
     await auditService.createEvent({
       actorUserId: null,
@@ -99,7 +110,7 @@ async function stopIdleInstance(instance: InstanceRecord, memory: HostMemory): P
         ...describeMemory(memory),
       },
     })
-    return true
+    return 'stopped'
   } catch (err) {
     if (ownsTransition) {
       await instanceService.recoverStoppingTransition(instance, startedAt).catch((error) => {
@@ -107,7 +118,7 @@ async function stopIdleInstance(instance: InstanceRecord, memory: HostMemory): P
       })
     }
     console.error('[reaper] Failed to reap instance:', { slug: instance.slug, error: err })
-    return false
+    return 'skipped'
   }
 }
 

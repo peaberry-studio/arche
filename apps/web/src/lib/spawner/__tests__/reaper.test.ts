@@ -6,7 +6,7 @@ vi.mock('@/lib/harness/legacy-session-archive', () => ({
 
 vi.mock('@/lib/services', () => ({
   instanceService: {
-    claimStartingTransition: vi.fn(),
+    claimIdleStopTransition: vi.fn(),
     findIdleInstances: vi.fn(),
     finishStoppingTransition: vi.fn(),
     recoverStoppingTransition: vi.fn().mockResolvedValue({ count: 1 }),
@@ -63,7 +63,7 @@ beforeEach(() => {
   vi.spyOn(console, 'warn').mockImplementation(() => {})
   mockMessageRun.reapStaleRuns.mockResolvedValue(0)
   mockRateLimit.deleteExpiredRateLimitBuckets.mockResolvedValue({ count: 0 })
-  mockInstance.claimStartingTransition.mockResolvedValue({ count: 1 })
+  mockInstance.claimIdleStopTransition.mockResolvedValue({ count: 1 })
   mockInstance.finishStoppingTransition.mockResolvedValue({ count: 1 })
   readHostMemory.mockResolvedValue(LOW_MEMORY)
   vi.useFakeTimers()
@@ -84,13 +84,13 @@ describe('reapIdleInstances', () => {
   ])('does not tear down a stale candidate after a $label', async ({ change }) => {
     const current = { ...idleCandidate, ...change }
     mockInstance.findIdleInstances.mockResolvedValue([idleCandidate])
-    mockInstance.claimStartingTransition.mockImplementation(async (candidate) => ({
+    mockInstance.claimIdleStopTransition.mockImplementation(async (candidate) => ({
       count: current.status === candidate.status && current.containerId === candidate.containerId &&
         current.startedAt?.getTime() === candidate.startedAt?.getTime() ? 1 : 0,
     }))
 
     expect(await reapIdleInstances()).toBe(0)
-    expect(mockInstance.claimStartingTransition).toHaveBeenCalledWith(idleCandidate, new Date('2026-10-20T12:00:00.000Z'))
+    expect(mockInstance.claimIdleStopTransition).toHaveBeenCalledWith(idleCandidate, new Date('2026-10-20T12:00:00.000Z'))
     expect(mockDocker.stopContainer).not.toHaveBeenCalled()
     expect(mockDocker.removeContainer).not.toHaveBeenCalled()
     expect(mockInstance.finishStoppingTransition).not.toHaveBeenCalled()
@@ -107,14 +107,14 @@ describe('reapIdleInstances', () => {
     expect(await reapIdleInstances()).toBe(0)
     expect(mockDocker.stopContainer).toHaveBeenCalledExactlyOnceWith('old-container')
     expect(mockDocker.removeContainer).toHaveBeenCalledExactlyOnceWith('old-container')
-    expect(mockInstance.finishStoppingTransition).toHaveBeenCalledWith(idleCandidate.id, mockInstance.claimStartingTransition.mock.calls[0][1])
+    expect(mockInstance.finishStoppingTransition).toHaveBeenCalledWith(idleCandidate.id, mockInstance.claimIdleStopTransition.mock.calls[0][1])
     expect(auditService.createEvent).not.toHaveBeenCalled()
   })
 
   it('continues with other idle candidates after losing a claim', async () => {
     const second = { ...idleCandidate, id: 'inst-2', slug: 'bob', containerId: 'bob-container' }
     mockInstance.findIdleInstances.mockResolvedValue([idleCandidate, second])
-    mockInstance.claimStartingTransition.mockResolvedValueOnce({ count: 0 })
+    mockInstance.claimIdleStopTransition.mockResolvedValueOnce({ count: 0 })
     mockDocker.stopContainer.mockResolvedValue(undefined)
     mockDocker.removeContainer.mockResolvedValue(undefined)
 
@@ -157,8 +157,8 @@ describe('reapIdleInstances', () => {
     expect(mockDocker.stopContainer).toHaveBeenCalledWith('container-abc')
     expect(mockDocker.removeContainer).toHaveBeenCalledWith('container-abc')
     const token = new Date('2026-10-20T12:00:00.000Z')
-    expect(mockInstance.claimStartingTransition).toHaveBeenCalledWith(idleInstance, token)
-    expect(mockInstance.claimStartingTransition.mock.invocationCallOrder[0]).toBeLessThan(mockDocker.stopContainer.mock.invocationCallOrder[0])
+    expect(mockInstance.claimIdleStopTransition).toHaveBeenCalledWith(idleInstance, token)
+    expect(mockInstance.claimIdleStopTransition.mock.invocationCallOrder[0]).toBeLessThan(mockDocker.stopContainer.mock.invocationCallOrder[0])
     expect(mockInstance.finishStoppingTransition).toHaveBeenCalledWith('inst-1', token)
   })
 
@@ -277,7 +277,7 @@ describe('reapIdleInstances under the memory pressure policy', () => {
 
   it('stops the longest idle instance first and stops once memory recovers', async () => {
     mockInstance.findIdleInstances.mockResolvedValue([candidate('oldest', 9), candidate('older', 5), candidate('recent', 3)])
-    readHostMemory.mockResolvedValueOnce(LOW_MEMORY).mockResolvedValueOnce(HEALTHY_MEMORY)
+    readHostMemory.mockResolvedValueOnce(LOW_MEMORY).mockResolvedValueOnce(LOW_MEMORY).mockResolvedValueOnce(HEALTHY_MEMORY)
 
     expect(await reapIdleInstances()).toBe(1)
     expect(mockDocker.stopContainer).toHaveBeenCalledExactlyOnceWith('oldest-container')
@@ -294,7 +294,22 @@ describe('reapIdleInstances under the memory pressure policy', () => {
 
     expect(await reapIdleInstances()).toBe(MAX_REAPED_INSTANCES_PER_CYCLE)
     expect(mockDocker.stopContainer.mock.calls.map(([id]) => id)).toEqual(['a-container', 'b-container', 'c-container'])
-    expect(readHostMemory).toHaveBeenCalledTimes(1 + MAX_REAPED_INSTANCES_PER_CYCLE)
+    // One initial measurement, then one confirmation per claim and one after each stop.
+    expect(readHostMemory).toHaveBeenCalledTimes(1 + 2 * MAX_REAPED_INSTANCES_PER_CYCLE)
+  })
+
+  it('releases a claimed instance and stops reaping when memory recovered before its stop', async () => {
+    mockInstance.findIdleInstances.mockResolvedValue([candidate('oldest', 9), candidate('older', 5)])
+    readHostMemory.mockResolvedValueOnce(LOW_MEMORY).mockResolvedValueOnce(HEALTHY_MEMORY)
+
+    expect(await reapIdleInstances()).toBe(0)
+    expect(mockInstance.claimIdleStopTransition).toHaveBeenCalledOnce()
+    expect(mockInstance.recoverStoppingTransition).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ slug: 'oldest' }),
+      mockInstance.claimIdleStopTransition.mock.calls[0][1],
+    )
+    expect(mockDocker.stopContainer).not.toHaveBeenCalled()
+    expect(mockInstance.finishStoppingTransition).not.toHaveBeenCalled()
   })
 
   it('applies the optional absolute floor even when the percentage looks healthy', async () => {
@@ -307,8 +322,8 @@ describe('reapIdleInstances under the memory pressure policy', () => {
 
   it('does not re-measure or count an instance it could not stop', async () => {
     mockInstance.findIdleInstances.mockResolvedValue([candidate('busy', 9), candidate('next', 4)])
-    mockInstance.claimStartingTransition.mockResolvedValueOnce({ count: 0 })
-    readHostMemory.mockResolvedValueOnce(LOW_MEMORY).mockResolvedValueOnce(HEALTHY_MEMORY)
+    mockInstance.claimIdleStopTransition.mockResolvedValueOnce({ count: 0 })
+    readHostMemory.mockResolvedValueOnce(LOW_MEMORY).mockResolvedValueOnce(LOW_MEMORY).mockResolvedValueOnce(HEALTHY_MEMORY)
 
     expect(await reapIdleInstances()).toBe(1)
     expect(mockDocker.stopContainer).toHaveBeenCalledExactlyOnceWith('next-container')

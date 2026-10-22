@@ -96,6 +96,16 @@ describe('instanceService', () => {
       })
     })
 
+    it('claims an idle stop only while no activity arrived after the instance was found idle', async () => {
+      const startedAt = new Date(3)
+      const idle = { ...instance, status: 'running' as const, lastActivityAt: new Date(2) }
+      await transitions.claimIdleStopTransition(idle, startedAt)
+      expect(mockPrisma.instance.updateMany).toHaveBeenCalledWith({
+        where: { id: 'i1', status: 'running', containerId: 'legacy', startedAt: new Date(1), lastActivityAt: new Date(2) },
+        data: { status: 'starting', startedAt },
+      })
+    })
+
     it('continues migration only while its legacy container, kind and attempt still match', async () => {
       const startedAt = new Date(3)
       const nextStartedAt = new Date(4)

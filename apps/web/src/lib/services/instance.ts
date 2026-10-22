@@ -193,6 +193,21 @@ export function claimStartingTransition(instance: InstanceRecord, startedAt: Dat
   })
 }
 
+// Like `claimStartingTransition`, but loses to any activity recorded since the
+// instance was found idle, so an idle stop never cuts off a workspace in use.
+export function claimIdleStopTransition(instance: InstanceRecord, startedAt: Date): Promise<{ count: number }> {
+  return prisma.instance.updateMany({
+    where: {
+      id: instance.id,
+      status: instance.status,
+      containerId: instance.containerId,
+      startedAt: instance.startedAt,
+      lastActivityAt: instance.lastActivityAt,
+    },
+    data: { status: 'starting', startedAt },
+  })
+}
+
 export function continueStartingTransition(instance: InstanceRecord, startedAt: Date, serverPassword: string, nextStartedAt: Date): Promise<{ count: number }> {
   return prisma.instance.updateMany({
     where: {
