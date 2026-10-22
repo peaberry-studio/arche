@@ -14,7 +14,7 @@ test('bundles the Arche MCP server with frozen scriptless pnpm dependencies and 
 
   try {
     mkdirSync(scripts, { recursive: true })
-    mkdirSync(join(source, 'shared'), { recursive: true })
+    mkdirSync(join(source, 'shared/scratch-isolation'), { recursive: true })
     mkdirSync(join(source, 'tools'), { recursive: true })
     mkdirSync(mockBin)
     mkdirSync(join(root, 'versions'))
@@ -30,6 +30,7 @@ test('bundles the Arche MCP server with frozen scriptless pnpm dependencies and 
     writeFileSync(join(source, 'pnpm-lock.yaml'), 'lockfileVersion: 9.0\n')
     writeFileSync(join(source, 'server.js'), 'export const server = true\n')
     writeFileSync(join(source, 'shared/tool.js'), 'export const tool = true\n')
+    writeFileSync(join(source, 'shared/scratch-isolation/index.js'), 'export const guard = true\n')
     writeFileSync(join(source, 'tools/chart.js'), 'export const chart = true\n')
 
     const prepare = () => {
@@ -50,6 +51,7 @@ test('bundles the Arche MCP server with frozen scriptless pnpm dependencies and 
     assert.equal(readFileSync(join(root, 'apps/desktop/bin/download-calls'), 'utf8'), '2.0.32 opencode\n1.18.18 opencode-v1\n')
     assert.equal(readFileSync(join(output, 'server.js'), 'utf8'), 'export const server = true\n')
     assert.equal(readFileSync(join(output, 'shared/tool.js'), 'utf8'), 'export const tool = true\n')
+    assert.equal(readFileSync(join(output, 'shared/scratch-isolation/index.js'), 'utf8'), 'export const guard = true\n')
     assert.equal(readFileSync(join(output, 'tools/chart.js'), 'utf8'), 'export const chart = true\n')
     assert.equal(
       readFileSync(join(output, 'install-calls'), 'utf8'),
