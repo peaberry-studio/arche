@@ -534,7 +534,7 @@ describe('runFlowPromptAndReadOutput', () => {
     expect(mocks.waitForSessionToComplete).not.toHaveBeenCalled()
   })
 
-  it('leaves message-run bookkeeping untouched after a typed waiter error', async () => {
+  it('fails the tracked message run after a typed waiter error so its lock is released', async () => {
     mocks.messageRunService.createActiveRunAfterRuntimeStateCheck.mockResolvedValue({ ok: true, run: { id: 'message-run-1' } })
     mocks.waitForSessionToComplete.mockResolvedValue({ status: 'error', error: { code: 'instance_unavailable', detail: 'Do not replace the code' } })
 
@@ -543,7 +543,7 @@ describe('runFlowPromptAndReadOutput', () => {
       runId: 'run-1', sessionId: 'session-1', slug: 'alice', userId: 'user-1',
     })).resolves.toEqual({ ok: false, type: 'failed', error: 'instance_unavailable' })
 
-    expect(mocks.messageRunService.markRunFailed).not.toHaveBeenCalled()
+    expect(mocks.messageRunService.markRunFailed).toHaveBeenCalledWith('message-run-1', 'instance_unavailable')
     expect(mocks.messageRunService.markRunSucceeded).not.toHaveBeenCalled()
     expect(mocks.readLatestAssistantText).not.toHaveBeenCalled()
   })

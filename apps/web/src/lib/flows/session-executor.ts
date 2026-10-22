@@ -319,6 +319,9 @@ export async function runFlowPromptAndReadOutput(params: {
   })
 
   if (completion.status === 'error') {
+    if (messageRunId) {
+      await messageRunService.markRunFailed(messageRunId, completion.error.code).catch(() => undefined)
+    }
     return { ok: false, type: 'failed', error: completion.error.code }
   }
 
