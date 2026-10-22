@@ -338,6 +338,7 @@ model LegacySessionArchive {
   updatedAt  DateTime @map("updated_at")
   messages   Json
   archivedAt DateTime @default(now()) @map("archived_at")
+  validatedAt DateTime? @map("validated_at")
 
   user       User     @relation(fields: [slug], references: [slug], onDelete: Cascade)
 

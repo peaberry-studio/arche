@@ -9,6 +9,14 @@ import { fileURLToPath } from 'node:url'
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
 const read = path => readFileSync(join(root, path), 'utf8')
 
+test('workspace image documentation describes V2-only runtime and archive-only V1', () => {
+  const readme = read('infra/workspace-image/README.md')
+  assert.match(readme, /OpenCode 2 is the only workspace runtime/)
+  assert.match(readme, /OPENCODE_V1_IMAGE=.*` only for history export/)
+  assert.match(readme, /There is no rollback to V1/)
+  assert.doesNotMatch(readme, /deployment runtime default remains `opencode-v1`|for rollback\/export|both workspace runtimes|Both runtimes discover|shared by V1 and V2/i)
+})
+
 test('workspace runtimes are separately pinned and rollback tags survive retention', () => {
   assert.equal(read('versions/opencode.version').trim(), '2.0.32')
   assert.equal(read('versions/opencode-v1.version').trim(), '1.18.18')

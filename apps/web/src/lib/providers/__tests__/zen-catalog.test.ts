@@ -94,4 +94,16 @@ describe('Zen model catalog for OpenCode 2', () => {
     fetchMock.mockRejectedValueOnce(new Error('network down'))
     expect(await getGatewayModelsCatalog(GATEWAY)).toEqual(fresh)
   })
+
+  it.each([
+    {},
+    { ...upstreamCatalog(), opencode: undefined },
+    { ...upstreamCatalog(), 'opencode-go': { ...upstreamCatalog()['opencode-go'], models: {} } },
+    { ...upstreamCatalog(), opencode: { ...upstreamCatalog().opencode, api: 'https://external.invalid/v1' } },
+    { ...upstreamCatalog(), opencode: { ...upstreamCatalog().opencode, models: { unsafe: { provider: { api: 'https://opencode.ai.evil.invalid/inference/openai/v1' } } } } },
+  ])('refuses an incomplete or unrewritable boot catalog (%j)', async (catalog) => {
+    const { getGatewayModelsCatalog } = await loadModule()
+    fetchMock.mockResolvedValueOnce(Response.json(catalog))
+    expect(await getGatewayModelsCatalog(GATEWAY)).toEqual({ ok: false, error: 'catalog_unavailable' })
+  })
 })

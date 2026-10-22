@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 
+import { getModelsCatalogToken } from '@/lib/providers/models-catalog-token'
+import { getGatewayModelsCatalog } from '@/lib/providers/zen-catalog'
+
+vi.mock('@/lib/providers/zen-catalog', () => ({ getGatewayModelsCatalog: vi.fn() }))
+
 const mockContainer = {
   id: 'container-123',
   start: vi.fn(),
@@ -77,7 +82,9 @@ describe('docker', () => {
     process.env.OPENCODE_IMAGE = 'test-image:latest'
     process.env.OPENCODE_V1_IMAGE = 'test-image:opencode-v1'
     process.env.OPENCODE_NETWORK = 'test-network'
+    process.env.ARCHE_GATEWAY_TOKEN_SECRET = 'fixture'
     process.env.KB_CONTENT_HOST_PATH = '/opt/arche/kb-content'
+    vi.mocked(getGatewayModelsCatalog).mockResolvedValue({ ok: true, data: '{"seeded":true}' })
     mockDockerInstance.listContainers.mockResolvedValue([])
     mockDockerInstance.getContainer.mockReturnValue(mockContainer)
     mockContainer.inspect.mockRejectedValue({ statusCode: 404 })
@@ -151,6 +158,30 @@ describe('docker', () => {
   })
 
   describe('createContainer', () => {
+    it('awaits the gateway catalog and writes its boot file before creating a fresh runtime', async () => {
+      const catalog = Promise.withResolvers<Awaited<ReturnType<typeof getGatewayModelsCatalog>>>()
+      vi.mocked(getGatewayModelsCatalog).mockReturnValueOnce(catalog.promise)
+      const creating = createContainer('user-slug', 'fixture')
+      await vi.waitFor(() => expect(getGatewayModelsCatalog).toHaveBeenCalledWith('http://web:3000/api/internal/providers'))
+      expect(mockDockerInstance.createContainer).not.toHaveBeenCalled()
+      catalog.resolve({ ok: true, data: '{"seeded":true}' })
+      await creating
+      expect(mockWriteFile).toHaveBeenCalledWith('/opt/arche/users/user-slug/models-catalog.json', '{"seeded":true}', 'utf-8')
+      const writeIndex = mockWriteFile.mock.calls.findIndex(([path]) => path.endsWith('/models-catalog.json'))
+      expect(mockWriteFile.mock.invocationCallOrder[writeIndex]).toBeLessThan(mockDockerInstance.createContainer.mock.invocationCallOrder[0])
+      expect(mockDockerInstance.createContainer).toHaveBeenCalledWith(expect.objectContaining({
+        Env: expect.arrayContaining(['OPENCODE_MODELS_PATH=/tmp/arche-user-data/models-catalog.json']),
+      }))
+    })
+
+    it('does not create a runtime when the gateway catalog is unavailable or cannot be written', async () => {
+      vi.mocked(getGatewayModelsCatalog).mockResolvedValueOnce({ ok: false, error: 'catalog_unavailable' })
+      await expect(createContainer('user-slug', 'fixture')).rejects.toThrow('catalog_unavailable')
+      mockWriteFile.mockImplementationOnce(async () => { throw new Error('write failed') })
+      await expect(createContainer('user-slug', 'fixture')).rejects.toThrow('write failed')
+      expect(mockDockerInstance.createContainer).not.toHaveBeenCalled()
+    })
+
     const ownedSource = {
       Id: 'source', Name: '/opencode-user-slug', State: { Running: true },
       Config: { Labels: { 'arche.managed': 'true', 'arche.user.slug': 'user-slug' } },
@@ -200,12 +231,17 @@ describe('docker', () => {
       await expect(findLegacyArchiveSource('user-slug', 'second')).rejects.toThrow('legacy_archive_multiple_sources')
     })
 
-    it('boots legacy archive mode without project config, providers, MCP, startup scripts or writable workspace', async () => {
+    it('boots legacy archive mode from disposable copies with read-only source mounts', async () => {
       const result = await createArchiveContainer('user-slug', 'archive-only')
       expect(result).toEqual({ id: 'container-123', name: 'opencode-archive-user-slug' })
       expect(mockDockerInstance.createContainer).toHaveBeenCalledWith(expect.objectContaining({
         Image: 'test-image:opencode-v1',
-        Entrypoint: ['opencode'],
+        Entrypoint: ['sh', '-c',
+          'mkdir -p /home/workspace/.local/share/opencode /home/workspace/.local/state/opencode && ' +
+          'cp -a /tmp/arche-archive-source/share/. /home/workspace/.local/share/opencode/ && ' +
+          'cp -a /tmp/arche-archive-source/state/. /home/workspace/.local/state/opencode/ && ' +
+          'exec opencode "$@"', 'arche-archive'],
+        Cmd: ['serve', '--hostname', '0.0.0.0', '--port', '4096'],
         Env: expect.arrayContaining([
           'OPENCODE_DISABLE_PROJECT_CONFIG=true',
           'OPENCODE_CONFIG_CONTENT={"mcp":{},"plugin":[],"enabled_providers":[]}',
@@ -218,8 +254,8 @@ describe('docker', () => {
           NetworkMode: 'test-network', RestartPolicy: { Name: 'no' },
           Binds: [
             'arche-workspace-user-slug:/workspace:ro',
-            'arche-opencode-share-user-slug:/home/workspace/.local/share/opencode',
-            'arche-opencode-state-user-slug:/home/workspace/.local/state/opencode',
+            'arche-opencode-share-user-slug:/tmp/arche-archive-source/share:ro',
+            'arche-opencode-state-user-slug:/tmp/arche-archive-source/state:ro',
           ],
         },
         Labels: expect.objectContaining({ 'arche.archive': 'true' }),
@@ -390,7 +426,7 @@ describe('docker', () => {
           'WORKSPACE_AGENT_PORT=4097',
           'WORKSPACE_GIT_AUTHOR_NAME=user-slug',
           'WORKSPACE_GIT_AUTHOR_EMAIL=user-slug@arche.local',
-          'OPENCODE_MODELS_URL=http://web:3000/api/internal/models',
+          `OPENCODE_MODELS_URL=http://web:3000/api/internal/models/${getModelsCatalogToken()}`,
           'ARCHE_SCRATCH_DIR=/tmp/arche-scratch',
         ]),
         HostConfig: {
@@ -403,7 +439,7 @@ describe('docker', () => {
             '/opt/arche/kb-content:/kb-content',
             '/opt/arche/users/user-slug:/tmp/arche-user-data:ro',
           ],
-          Tmpfs: { '/tmp/arche-scratch': 'rw,nosuid,nodev,size=512m,mode=1777' },
+          Tmpfs: { '/tmp/arche-scratch': 'rw,nosuid,nodev,size=512m,mode=0700' },
         },
         Labels: {
           'arche.managed': 'true',

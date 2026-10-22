@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { fakeRuntime } from '@/lib/harness/__tests__/fake-runtime'
 import { exportLegacySessions } from '@/lib/harness/legacy-session-archive'
@@ -6,6 +6,7 @@ import { getLegacySessionReader, getRuntime } from '@/lib/harness/registry'
 import { instanceService } from '@/lib/services'
 import type { InstanceRecord } from '@/lib/services/instance'
 import { settleRuntimeMigratedRuns } from '@/lib/services/runtime-migration'
+import { getStartTimeoutMs } from '@/lib/spawner/config'
 import { getInstanceStatus, startInstance, stopInstance } from '@/lib/spawner/core'
 import * as docker from '@/lib/spawner/docker'
 
@@ -13,7 +14,10 @@ const mocks = vi.hoisted(() => ({ abort: vi.fn() }))
 vi.mock('@/lib/harness/execution', () => ({ abortSessionFamilyAndConfirmIdle: mocks.abort }))
 vi.mock('@/lib/harness/legacy-session-archive', () => ({ exportLegacySessions: vi.fn() }))
 vi.mock('@/lib/services/runtime-migration', () => ({ settleRuntimeMigratedRuns: vi.fn() }))
-vi.mock('@/lib/spawner/legacy-archive', () => ({ withHistoryMigrationProgress: (_slug: string, work: () => Promise<unknown>) => work() }))
+vi.mock('@/lib/spawner/legacy-archive', () => ({
+  isHistoryMigrationInProgress: async () => false,
+  withHistoryMigrationProgress: (_slug: string, work: () => Promise<unknown>) => work(),
+}))
 vi.mock('@/lib/services', () => ({
   instanceService: {
     findBySlug: vi.fn(), findStatusBySlug: vi.fn(), claimStartingTransition: vi.fn(), continueStartingTransition: vi.fn(), setStartingPassword: vi.fn(), failStartingTransition: vi.fn(), finishStoppingTransition: vi.fn(), upsertStarting: vi.fn(),
@@ -52,16 +56,22 @@ function legacyInstance(runtimeKind: string | null = 'opencode-v1'): InstanceRec
 describe('archive-on-start', () => {
   let reader: ReturnType<typeof fakeRuntime>
 
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.useRealTimers()
+  })
+
   beforeEach(() => {
     vi.clearAllMocks()
     reader = fakeRuntime()
     vi.mocked(getLegacySessionReader).mockReturnValue(reader)
     vi.mocked(getRuntime).mockReturnValue({ ...fakeRuntime(), kind: 'opencode-v2' })
-    mocks.abort.mockResolvedValue(true)
+    mocks.abort.mockReset().mockResolvedValue(true)
     vi.mocked(instanceService.findBySlug).mockResolvedValue(legacyInstance())
     vi.mocked(instanceService.claimStartingTransition).mockResolvedValue({ count: 1 })
     vi.mocked(instanceService.continueStartingTransition).mockResolvedValue({ count: 1 })
     vi.mocked(instanceService.setStartingPassword).mockResolvedValue({ count: 1 })
+    vi.mocked(instanceService.setContainerId).mockResolvedValue({ count: 1 })
     vi.mocked(instanceService.setRunningIfCurrentContainer).mockResolvedValue({ count: 1 })
     vi.mocked(instanceService.recoverStoppingTransition).mockResolvedValue({ count: 1 })
     vi.mocked(docker.findLegacyArchiveSource).mockResolvedValue({ id: 'legacy', name: 'opencode-alice', running: true })
@@ -81,11 +91,30 @@ describe('archive-on-start', () => {
     expect(await startInstance('alice', 'owner')).toEqual({ ok: true, status: 'running' })
     expect(exportLegacySessions).toHaveBeenCalledWith('alice', reader)
     expect(docker.createArchiveContainer).not.toHaveBeenCalled()
-    expect(getLegacySessionReader).toHaveBeenCalledWith('alice', expect.objectContaining({ baseUrl: 'http://opencode-alice:4096', signal: expect.any(AbortSignal) }))
+    expect(getLegacySessionReader).toHaveBeenCalledWith('alice', expect.objectContaining({ baseUrl: 'http://opencode-alice:4096' }))
     expect(vi.mocked(exportLegacySessions).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(docker.createContainer).mock.invocationCallOrder[0])
     expect(vi.mocked(settleRuntimeMigratedRuns).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(docker.createContainer).mock.invocationCallOrder[0])
     expect(docker.createContainer).toHaveBeenCalledWith('alice', 'test-only', '{}', '', [], expect.anything())
-    expect(instanceService.setContainerId).toHaveBeenCalledWith('alice', 'next', 'opencode-v2')
+    expect(instanceService.setContainerId).toHaveBeenCalledWith('alice', 'next', 'opencode-v2', vi.mocked(instanceService.continueStartingTransition).mock.calls[0][3])
+  })
+
+  it('does not bind the archive reader to one shared startup deadline', async () => {
+    vi.useFakeTimers()
+    vi.spyOn(AbortSignal, 'timeout').mockImplementation((ms) => {
+      const controller = new AbortController()
+      setTimeout(() => controller.abort(), ms)
+      return controller.signal
+    })
+    vi.mocked(exportLegacySessions).mockImplementationOnce(async () => {
+      await vi.advanceTimersByTimeAsync(getStartTimeoutMs() + 1)
+      const connection = vi.mocked(getLegacySessionReader).mock.calls.at(-1)?.[1]
+      expect(connection).toBeDefined()
+      expect(connection?.signal?.aborted ?? false).toBe(false)
+      return { ok: true, data: { archived: 40 } }
+    })
+
+    expect(await startInstance('alice', 'owner')).toEqual({ ok: true, status: 'running' })
+    expect(docker.createContainer).toHaveBeenCalledOnce()
   })
 
   it('migrates a workspace still running OpenCode 1 instead of reporting it already running', async () => {
@@ -97,7 +126,7 @@ describe('archive-on-start', () => {
     expect(exportLegacySessions).toHaveBeenCalledWith('alice', reader)
     expect(vi.mocked(docker.removeContainer).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(docker.createContainer).mock.invocationCallOrder[0])
     expect(docker.removeContainer).toHaveBeenCalledWith('legacy')
-    expect(instanceService.setContainerId).toHaveBeenCalledWith('alice', 'next', 'opencode-v2')
+    expect(instanceService.setContainerId).toHaveBeenCalledWith('alice', 'next', 'opencode-v2', vi.mocked(instanceService.continueStartingTransition).mock.calls[0][3])
   })
 
   it('reports a running OpenCode 2 workspace as already running', async () => {
@@ -211,13 +240,51 @@ describe('archive-on-start', () => {
     expect(settleRuntimeMigratedRuns).not.toHaveBeenCalled()
   })
 
-  it('does not switch if a legacy run cannot be confirmed idle', async () => {
-    reader.sessionStatus.mockResolvedValue({ ok: true, data: { busy: { type: 'busy' } } })
-    mocks.abort.mockResolvedValue(false)
-    expect(await startInstance('alice', 'owner')).toEqual({ ok: false, error: 'start_failed', detail: 'legacy_archive_failed' })
-    expect(mocks.abort).toHaveBeenCalledWith({ client: reader, rootSessionId: 'busy' })
+  it.each(['busy', 'retry', 'unknown'] as const)('leaves a %s legacy session untouched instead of aborting before export', async (type) => {
+    const existing = { ...legacyInstance(), status: 'running' as const }
+    vi.mocked(instanceService.findBySlug).mockResolvedValue(existing)
+    reader.sessionStatus.mockResolvedValue({ ok: true, data: { active: { type } } })
+    mocks.abort.mockImplementationOnce(async () => {
+      await reader.abortSession('active')
+      return true
+    })
+
+    const result = await startInstance('alice', 'owner')
+
+    expect(mocks.abort).not.toHaveBeenCalled()
+    expect(reader.abortSession).not.toHaveBeenCalled()
+    expect(result).toEqual({ ok: false, error: 'start_failed', detail: 'legacy_archive_busy' })
+    expect(instanceService.recoverStoppingTransition).toHaveBeenCalledWith(existing, expect.any(Date))
+    expect(instanceService.failStartingTransition).not.toHaveBeenCalled()
     expect(exportLegacySessions).not.toHaveBeenCalled()
+    expect(settleRuntimeMigratedRuns).not.toHaveBeenCalled()
+    expect(instanceService.setStartingPassword).not.toHaveBeenCalled()
+    expect(docker.stopContainer).not.toHaveBeenCalled()
+    expect(docker.removeContainer).not.toHaveBeenCalled()
+    expect(docker.removeManagedContainerForSlug).not.toHaveBeenCalled()
+    expect(docker.createArchiveContainer).not.toHaveBeenCalled()
     expect(docker.createContainer).not.toHaveBeenCalled()
+  })
+
+  it('retries the archive on the next start after the legacy source becomes idle', async () => {
+    reader.sessionStatus.mockResolvedValueOnce({ ok: true, data: { active: { type: 'busy' } } })
+    expect(await startInstance('alice', 'owner')).toEqual({ ok: false, error: 'start_failed', detail: 'legacy_archive_busy' })
+    expect(exportLegacySessions).not.toHaveBeenCalled()
+
+    expect(await startInstance('alice', 'owner')).toEqual({ ok: true, status: 'running' })
+    expect(exportLegacySessions).toHaveBeenCalledExactlyOnceWith('alice', reader)
+    expect(mocks.abort).not.toHaveBeenCalled()
+    expect(reader.abortSession).not.toHaveBeenCalled()
+  })
+
+  it('defers without teardown if the source becomes busy during export', async () => {
+    vi.mocked(exportLegacySessions).mockResolvedValueOnce({ ok: false, error: { code: 'session_busy' } })
+    expect(await startInstance('alice', 'owner')).toEqual({ ok: false, error: 'start_failed', detail: 'legacy_archive_busy' })
+    expect(instanceService.recoverStoppingTransition).toHaveBeenCalledWith(legacyInstance(), expect.any(Date))
+    expect(instanceService.failStartingTransition).not.toHaveBeenCalled()
+    expect(docker.removeContainer).not.toHaveBeenCalled()
+    expect(docker.createContainer).not.toHaveBeenCalled()
+    expect(mocks.abort).not.toHaveBeenCalled()
   })
 
   it('does not touch containers when another startup wins the migration claim', async () => {

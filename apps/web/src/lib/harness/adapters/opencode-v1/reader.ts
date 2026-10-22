@@ -52,7 +52,8 @@ function normalizeHealthFailure(detail: string, message?: string): ReturnType<ty
 export function createOpenCodeV1Reader(slug: string, connection: Connection): LegacySessionReader {
   async function withClient<T>(work: (client: OpencodeClient) => Promise<T>): Promise<HarnessResult<T>> {
     try {
-      return { ok: true, data: await work(await createConfiguredOpencodeClient(connection)) }
+      const signal = AbortSignal.any([AbortSignal.timeout(60_000), ...(connection.signal ? [connection.signal] : [])])
+      return { ok: true, data: await work(await createConfiguredOpencodeClient({ ...connection, signal })) }
     } catch (error) {
       return normalizeOpenCodeError(error)
     }
@@ -79,13 +80,12 @@ export function createOpenCodeV1Reader(slug: string, connection: Connection): Le
       // Anything not idle (busy, retrying) is still running for archive purposes.
       return Object.fromEntries(Object.entries(response.data).map(([id, value]): [string, HarnessSessionStatus] => [id, { type: value.type === 'idle' ? 'idle' : 'busy' }]))
     }),
-    listMessages: (sessionId) => withClient(async (client) => {
-      const response = await client.session.messages({ sessionID: sessionId }, { throwOnError: true })
+    listMessages: (sessionId, options) => withClient(async (client) => {
+      const response = await client.session.messages({ sessionID: sessionId }, { throwOnError: true, ...options })
       return response.data.flatMap((message) => {
         const normalized = toHarnessMessage({ ...message.info, sessionID: sessionId, parts: message.parts })
         return normalized ? [normalized] : []
       })
     }),
-    abortSession: (sessionId) => withClient(async (client) => { await client.session.abort({ sessionID: sessionId }, { throwOnError: true }) }),
   }
 }

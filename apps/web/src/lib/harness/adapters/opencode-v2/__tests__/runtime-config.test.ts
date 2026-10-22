@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 import { describe, expect, it } from 'vitest'
 
 import { renderRuntimeConfig } from '@/lib/harness/adapters/opencode-v2/runtime-config'
@@ -428,6 +430,43 @@ describe('V2 runtime config renderer: session scratch folders', () => {
     expect(decision(agentConfig(rendered, 'writer').permissions, 'edit', '../../../../var/tmp/scratch/ses_1/a.md')).toBe('allow')
   })
 
+  it.each([
+    { scratch, sha: '6f58fdb7f5fe843a0a8cb563eb190878fc8ff9acdd9ad4e52db655343d916730' },
+    { scratch: { root: '/var/tmp/scratch/', workspaceRoot: '/Users/me/vault/workspace' }, sha: '5a2d8cfe8e0c6fabf090ff9b3c53e733903a899b0ed941d69615859cb0bd074e' },
+  ])('keeps POSIX output byte-identical for $scratch', ({ scratch, sha }) => {
+    const result = renderRuntimeConfig({ ...createRuntimeConfigModel(source), scratch })
+    if (!result.ok) throw new Error(JSON.stringify(result.error))
+    expect(createHash('sha256').update(result.data.opencodeConfigContent).digest('hex')).toBe(sha)
+  })
+
+  it.each([
+    { root: 'C:/Users/Ada/Temp/arche-scratch/', workspaceRoot: 'C:/Users/Ada/Vault/workspace', relative: '../../Temp/arche-scratch' },
+    { root: String.raw`C:\Users\Ada\Temp\arche-scratch`, workspaceRoot: String.raw`C:\Users\Ada\Vault\workspace`, relative: '../../Temp/arche-scratch' },
+    { root: 'C:/Users/Ada/Temp/arche-scratch', workspaceRoot: 'D:/Vault/workspace', relative: 'C:/Users/Ada/Temp/arche-scratch' },
+  ])('renders Windows scratch resources for $workspaceRoot', ({ root, workspaceRoot, relative }) => {
+    const absolute = 'C:/Users/Ada/Temp/arche-scratch'
+    const rendered = config({ ...createRuntimeConfigModel(source), scratch: { root, workspaceRoot } })
+    const writer = agentConfig(rendered, 'writer').permissions
+    const reader = agentConfig(rendered, 'reader').permissions
+    const editRules = rules(writer).filter((rule) => rule.action === 'edit' && rule.resource.includes('arche-scratch'))
+
+    expect(editRules.map((rule) => rule.resource)).toEqual([...new Set([`${relative}/*`, `${absolute}/*`])])
+    for (const resource of new Set([`${relative}/ses_1/draft.md`, `${absolute}/ses_1/draft.md`])) {
+      expect(decision(writer, 'edit', resource)).toBe('allow')
+      expect(decision(reader, 'edit', resource)).toBe('deny')
+      expect(decision(rendered.policies, 'tool.use', `edit:${resource}`)).toBe('allow')
+    }
+    for (const permissions of [writer, reader, rendered.permissions]) {
+      expect(decision(permissions, 'external_directory', `${absolute}/ses_1/*`)).toBe('allow')
+      expect(decision(permissions, 'external_directory', 'C:/Users/Ada/Temp/other/*')).toBe('ask')
+    }
+    for (const resource of ['notes.md', '.opencode/opencode.json', 'C:/Users/Ada/Temp/other/draft.md', '../other/draft.md']) {
+      expect(decision(writer, 'edit', resource)).toBe('deny')
+      expect(decision(rendered.policies, 'tool.use', `edit:${resource}`)).toBe('deny')
+    }
+    expect(JSON.stringify(rendered)).not.toContain('\\\\')
+  })
+
   it('adds no scratch rules without a scratch folder', () => {
     const rendered = config(createRuntimeConfigModel(source))
     const scratchRules = [rendered.permissions, rendered.policies, ...['writer', 'reader'].map((id) => agentConfig(rendered, id).permissions)]
@@ -442,6 +481,11 @@ describe('V2 runtime config renderer: session scratch folders', () => {
     [{ root: '/tmp/arche-scratch', workspaceRoot: 'workspace' }, 'scratch.workspaceRoot'],
     [{ root: '/workspace/scratch', workspaceRoot: '/workspace' }, 'scratch.root'],
     [{ root: '/workspace', workspaceRoot: '/workspace' }, 'scratch.root'],
+    [{ root: 'C:Temp/scratch', workspaceRoot: 'C:/Vault/workspace' }, 'scratch.root'],
+    [{ root: 'C:/Temp/*', workspaceRoot: 'C:/Vault/workspace' }, 'scratch.root'],
+    [{ root: 'C:/Temp/scratch', workspaceRoot: 'C:Vault/workspace' }, 'scratch.workspaceRoot'],
+    [{ root: 'c:/VAULT/workspace/scratch', workspaceRoot: 'C:/Vault/workspace' }, 'scratch.root'],
+    [{ root: 'C:/Vault/workspace', workspaceRoot: 'C:/Vault/workspace' }, 'scratch.root'],
   ])('rejects scratch folder %j', (invalid, path) => {
     const result = renderRuntimeConfig({ ...createRuntimeConfigModel(source), scratch: invalid })
     expect(result).toMatchObject({ ok: false, error: { code: 'runtime_config_unsupported', path } })

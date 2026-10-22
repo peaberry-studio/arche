@@ -1,11 +1,11 @@
 ## Purpose
 
-Defines how Arche's built-in agent tools (charts, diagrams, documents, email drafts, flows, learning, presentations, session history, spreadsheets) reach agents: a harness-agnostic MCP server inside the workspace, so every harness that speaks MCP gets the same tools with the same behavior.
+Defines how Arche's built-in agent tools (charts, diagrams, documents, email drafts, flows, learning, presentations, scratch folders, session history, spreadsheets) reach agents: a harness-agnostic MCP server inside the workspace, so every harness that speaks MCP gets the same tools with the same behavior.
 
 ## ADDED Requirements
 
 ### Requirement: Built-in tools are served by an in-workspace MCP server
-Every workspace SHALL run an `arche-tools` MCP server over stdio, registered in the harness runtime config, that exposes the built-in tool inventory: chart, diagram, document inspection, email draft, flow, learning, presentation inspection, session history, and spreadsheet tools. Built-in tools SHALL NOT depend on a harness plugin API.
+Every workspace SHALL run an `arche-tools` MCP server over stdio, registered in the harness runtime config, that exposes the built-in tool inventory: chart, diagram, document inspection, email draft, flow, learning, presentation inspection, scratch directory and publish, session history, and spreadsheet tools. Built-in tools SHALL NOT depend on a harness plugin API.
 
 #### Scenario: Agent lists tools on a fresh workspace
 - **WHEN** an agent with built-in tools enabled starts in a new workspace
@@ -38,7 +38,7 @@ Tools whose behavior depends on the calling agent or session (learning, session 
 - **THEN** it returns the error `caller_identity_unavailable` and creates no proposal
 
 ### Requirement: Agent tool permissions follow the new tool ids
-The spawner SHALL remap each agent's built-in tool enablement and permissions from the former plugin tool ids to the `arche-tools` MCP tool ids when generating runtime config, so agents keep exactly the built-in tools they had.
+The spawner SHALL remap each agent's built-in tool enablement and permissions from the former plugin tool ids to the `arche-tools` MCP tool ids when generating runtime config, so agents keep exactly the built-in tools they had. Scratch tools (`scratch_dir` and `scratch_publish`) SHALL also be enabled by default when absent from a stored tool map; only an explicit `false` SHALL disable one.
 
 #### Scenario: Agent had only the spreadsheet tools
 - **WHEN** an agent's configuration enables only the spreadsheet tools
@@ -47,6 +47,10 @@ The spawner SHALL remap each agent's built-in tool enablement and permissions fr
 #### Scenario: Agent saved before built-in tools were configurable
 - **WHEN** an agent's stored tool map has no entry for chart, diagram, email draft, flow proposal, learning proposal, or session history (tools every agent had before they could be toggled)
 - **THEN** the generated runtime config keeps those tools enabled for that agent, and only an explicit `false` disables one
+
+#### Scenario: Scratch tools are enabled by default
+- **WHEN** an agent's stored tool map has no entry for `scratch_dir` or `scratch_publish`
+- **THEN** those scratch tools are enabled by default, and only an explicit `false` disables one
 
 #### Scenario: Knowledge curator
 - **WHEN** the runtime config includes the system knowledge curator

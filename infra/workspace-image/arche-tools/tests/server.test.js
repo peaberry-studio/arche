@@ -15,7 +15,7 @@ test('MCP lists the complete inventory with JSON schemas and no harness plugin',
   const learning = result.tools.find((tool) => tool.name === 'learning_propose')
   assert.equal(learning.inputSchema.properties.caller_agent.type, 'string')
   const scratch = result.tools.find((tool) => tool.name === 'scratch_publish')
-  assert.equal(scratch.inputSchema.properties.caller_session_id.type, 'string')
+  assert.equal(scratch.inputSchema.properties.caller_session_id, undefined)
   assert.equal(scratch.inputSchema.properties.caller_agent, undefined)
 })
 

@@ -15,6 +15,7 @@ after(async () => {
 })
 
 export function mcpTool(name) {
+  const sessionMetadata = name === 'scratch_dir' || name === 'scratch_publish'
   return {
     description: tools[name].description,
     async execute(args, context) {
@@ -23,8 +24,9 @@ export function mcpTool(name) {
         arguments: {
           ...args,
           ...(context?.agent ? { caller_agent: context.agent } : {}),
-          ...(context?.sessionID ? { caller_session_id: context.sessionID } : {}),
+          ...(context?.sessionID && !sessionMetadata ? { caller_session_id: context.sessionID } : {}),
         },
+        ...(context?.sessionID && sessionMetadata ? { _meta: { 'ai.opencode/sessionID': context.sessionID } } : {}),
       })
       return result.content[0].text
     },

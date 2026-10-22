@@ -93,12 +93,16 @@ FORCE_DOWNLOAD=1 pnpm prepare:runtime
 
 Desktop workspaces run the bundled OpenCode 2 binary. The OpenCode 1 binary is
 bundled only to archive the history of vaults created before OpenCode 2: on the
-first start of such a vault, the host starts it on loopback with project config,
-MCP, plugins and providers disabled, exports history into the vault's SQLite
+first start of such a vault, the host copies the legacy `.local` data/state tree
+(including SQLite WAL/SHM files) to a disposable sibling directory and starts
+the helper there on loopback with project config, MCP, plugins and providers
+disabled. It exports history into the vault's SQLite
 archive, and confirms that the helper exited. An export failure fails the start
-and retries on the next one; unconfirmed helper cleanup also blocks startup.
+and retries on the next one; unconfirmed helper cleanup retains the copy and
+blocks startup until exit is confirmed, then the copy is removed.
 
-V1 state stays in `.runtime/opencode` and is never written; V2 uses
+Original V1 state stays in `.runtime/opencode`; helper startup/SQLite/log writes
+go only to the disposable copy. V2 uses
 `.runtime/opencode-v2`. An explicit `ARCHE_OPENCODE_DATA_DIR` remains the V1 root,
 with `-v2` appended for V2. Development binary overrides: `ARCHE_OPENCODE_BIN` for
 OpenCode 2 and `ARCHE_OPENCODE_V1_BIN` for the archive helper. Do not point either

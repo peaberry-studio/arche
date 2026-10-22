@@ -12,6 +12,7 @@ vi.mock('@/lib/services/legacy-session-archive', () => ({
   withArchiveWriteFence: vi.fn(), reconcileSessions: vi.fn(),
 }))
 vi.mock('@/lib/harness/registry', () => ({ getLegacySessionReader: vi.fn(), getRuntimeConnection: vi.fn() }))
+vi.mock('@/lib/harness/operation-lock', () => ({ withRuntimeOperationLock: (_key: string, work: (signal: AbortSignal) => unknown) => work(new AbortController().signal) }))
 
 import { exportLegacySessions } from '@/lib/harness/legacy-session-archive'
 import { getLegacySessionReader, getRuntimeConnection } from '@/lib/harness/registry'
@@ -26,7 +27,7 @@ function legacySession(id: string, parentId?: string): HarnessSession {
   return { ...session(id), title: id, parentId, createdAtRaw: 1_700_000_000_123, updatedAtRaw: 1_700_000_100_456 }
 }
 
-let exported: Map<string, ExportedSessionMetadata & { messages: WorkspaceMessage[] }>
+let exported: Map<string, ExportedSessionMetadata & { messages: WorkspaceMessage[]; validatedAt: Date | null }>
 let runtime: ReturnType<typeof fakeRuntime>
 
 beforeEach(() => {
@@ -44,7 +45,7 @@ beforeEach(() => {
   runtime.listMessages.mockImplementation(async (sessionId) => ({ ok: true, data: [message({ sessionId, timestampRaw: 1_700_000_050_789 })] }))
   mockStorage.findExportedSession.mockImplementation(async (slug, id) => exported.get(`${slug}/${id}`) ?? null)
   mockStorage.upsertSession.mockImplementation(async (input) => {
-    exported.set(`${input.slug}/${input.sessionId}`, input)
+    exported.set(`${input.slug}/${input.sessionId}`, { ...input, validatedAt: input.validatedAt ?? null })
     return true
   })
   mockConnection.mockResolvedValue({ baseUrl: 'http://opencode-alice:4096', authHeader: 'Basic fixture' })
@@ -57,6 +58,39 @@ afterEach(() => {
 })
 
 describe('exportLegacySessions', () => {
+  it('converges an over-budget history in two attempts without re-reading validated sessions', async () => {
+    vi.useFakeTimers()
+    vi.spyOn(AbortSignal, 'timeout').mockImplementation((ms) => {
+      const controller = new AbortController()
+      setTimeout(() => controller.abort(new Error('archive_read_timeout')), ms)
+      return controller.signal
+    })
+    const sources = Array.from({ length: 5 }, (_, index) => legacySession(`session-${index}`))
+    runtime.listSessions.mockResolvedValue({ ok: true, data: sources })
+    runtime.listMessages.mockImplementation(async (id) => {
+      await new Promise((resolve) => setTimeout(resolve, id === 'session-3' ? 70_000 : 50_000))
+      return { ok: true, data: [message({ sessionId: id })] }
+    })
+    const first = exportLegacySessions(runtime.slug, runtime)
+    await vi.advanceTimersByTimeAsync(210_000)
+    expect(await first).toMatchObject({ ok: false, error: { code: 'runtime_error' } })
+    expect([...exported.keys()]).toEqual(sources.slice(0, 3).map(({ id }) => `${runtime.slug}/${id}`))
+    expect(mockStorage.reconcileSessions).not.toHaveBeenCalled()
+
+    const freshReader = { ...runtime, listMessages: vi.fn(async (id: string) => {
+      await new Promise((resolve) => setTimeout(resolve, 50_000))
+      return { ok: true as const, data: [message({ sessionId: id })] }
+    }) }
+    vi.resetModules()
+    const retry = (await import('@/lib/harness/legacy-session-archive')).exportLegacySessions(runtime.slug, freshReader)
+    await vi.advanceTimersByTimeAsync(250_000)
+    expect(await retry).toEqual({ ok: true, data: { archived: 2 } })
+    expect(freshReader.listMessages.mock.calls.map(([id]) => id)).toEqual(['session-3', 'session-4'])
+    expect(exported.size).toBe(5)
+    expect(mockStorage.upsertSession).toHaveBeenCalledTimes(5)
+    expect(mockStorage.reconcileSessions).toHaveBeenCalledOnce()
+  })
+
   it.each(['added', 'removed', 'renamed', 'child-added'] as const)('does not reconcile an inventory that was %s during export', async (change) => {
     const root = legacySession('root')
     runtime.listSessions.mockResolvedValueOnce({ ok: true, data: [root] }).mockResolvedValue({
@@ -101,11 +135,11 @@ describe('exportLegacySessions', () => {
 
   it('traverses children even when their parent is already exported', async () => {
     const root = legacySession('root')
-    exported.set(`${runtime.slug}/root`, { title: root.title, parentId: null, createdAt: new Date(root.createdAtRaw!), updatedAt: new Date(root.updatedAtRaw!), messages: [message({ sessionId: 'root', timestampRaw: 1_700_000_050_789 })] })
+    exported.set(`${runtime.slug}/root`, { title: root.title, parentId: null, createdAt: new Date(root.createdAtRaw!), updatedAt: new Date(root.updatedAtRaw!), messages: [message({ sessionId: 'root', timestampRaw: 1_700_000_050_789 })], validatedAt: new Date() })
     runtime.listSessions.mockResolvedValue({ ok: true, data: [root] })
     runtime.listChildren.mockImplementation(async (id) => ({ ok: true, data: id === 'root' ? [legacySession('child', 'root')] : [] }))
     expect(await exportLegacySessions(runtime.slug, runtime)).toEqual({ ok: true, data: { archived: 1 } })
-    expect(runtime.listMessages).toHaveBeenCalledTimes(2)
+    expect(runtime.listMessages).toHaveBeenCalledExactlyOnceWith('child', { signal: expect.any(AbortSignal) })
     expect(mockStorage.upsertSession).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ sessionId: 'child' }), {}, transaction)
   })
 
@@ -117,7 +151,7 @@ describe('exportLegacySessions', () => {
 
     runtime.listMessages.mockClear().mockImplementation(async (id) => ({ ok: true, data: [message({ sessionId: id })] }))
     expect(await exportLegacySessions(runtime.slug, runtime)).toEqual({ ok: true, data: { archived: 1 } })
-    expect(runtime.listMessages).toHaveBeenCalledTimes(2)
+    expect(runtime.listMessages).toHaveBeenCalledExactlyOnceWith('second', { signal: expect.any(AbortSignal) })
     expect(mockStorage.upsertSession).toHaveBeenCalledTimes(2)
     expect(exported.size).toBe(2)
   })
@@ -138,6 +172,7 @@ describe('exportLegacySessions', () => {
     exported.set(`${runtime.slug}/active`, {
       title: source.title, parentId: null, createdAt: new Date(source.createdAtRaw!), updatedAt: new Date(source.updatedAtRaw!),
       messages: [message({ sessionId: 'active', content: 'Partial reply' })],
+      validatedAt: null,
     })
     runtime.listSessions.mockResolvedValue({ ok: true, data: [source] })
     runtime.listMessages.mockResolvedValue({ ok: true, data: [message({ sessionId: 'active', content: 'Complete reply', completedAt: 1_700_000_100_456 })] })
@@ -160,7 +195,7 @@ describe('exportLegacySessions', () => {
     runtime.listSessions.mockResolvedValue({ ok: true, data: [legacySession('active')] })
     runtime.sessionStatus.mockResolvedValueOnce({ ok: true, data: {} }).mockResolvedValueOnce({ ok: true, data: { active: { type } } })
     expect(await exportLegacySessions(runtime.slug, runtime)).toMatchObject({ ok: false, error: { code: 'session_busy' } })
-    expect(runtime.listMessages).toHaveBeenCalledExactlyOnceWith('active')
+    expect(runtime.listMessages).toHaveBeenCalledExactlyOnceWith('active', { signal: expect.any(AbortSignal) })
     expect(mockStorage.upsertSession).not.toHaveBeenCalled()
   })
 
@@ -172,7 +207,7 @@ describe('exportLegacySessions', () => {
     runtime.listSessions.mockResolvedValue({ ok: true, data: [source] })
     runtime.getSession.mockResolvedValue({ ok: true, data: { ...source, ...change } })
     expect(await exportLegacySessions(runtime.slug, runtime)).toMatchObject({ ok: false, error: { code: 'session_busy' } })
-    expect(runtime.listMessages).toHaveBeenCalledExactlyOnceWith('active')
+    expect(runtime.listMessages).toHaveBeenCalledExactlyOnceWith('active', { signal: expect.any(AbortSignal) })
     expect(mockStorage.upsertSession).not.toHaveBeenCalled()
   })
 
@@ -305,12 +340,12 @@ describe('preArchiveRunningV1Instances', () => {
     runtime.sessionStatus.mockResolvedValue({ ok: true, data: { root: { type: 'busy' } } })
 
     expect(await preArchiveRunningV1Instances()).toBe(1)
-    expect(runtime.listMessages).toHaveBeenCalledExactlyOnceWith('child')
+    expect(runtime.listMessages).toHaveBeenCalledExactlyOnceWith('child', { signal: expect.any(AbortSignal) })
     expect(mockStorage.upsertSession).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ sessionId: 'child' }), {}, transaction)
     expect(exported.has(`${runtime.slug}/root`)).toBe(false)
 
     runtime.sessionStatus.mockResolvedValue({ ok: true, data: {} })
-    expect(await exportLegacySessions(runtime.slug, runtime)).toEqual({ ok: true, data: { archived: 1 } })
+    expect(await exportLegacySessions(runtime.slug, runtime)).toEqual({ ok: true, data: { archived: 2 } })
     expect(exported.has(`${runtime.slug}/root`)).toBe(true)
   })
 

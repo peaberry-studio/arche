@@ -107,4 +107,4 @@ export type HarnessRuntime = {
 // Read-only access to an OpenCode 1 workspace, kept only to archive its
 // conversations before the workspace first starts on the current runtime.
 export type LegacySessionReader = Pick<HarnessRuntime,
-  'slug' | 'health' | 'getSession' | 'listSessions' | 'listChildren' | 'listMessages' | 'sessionStatus' | 'abortSession'>
+  'slug' | 'health' | 'getSession' | 'listSessions' | 'listChildren' | 'listMessages' | 'sessionStatus'>

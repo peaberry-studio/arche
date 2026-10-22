@@ -10,16 +10,16 @@ const result = spawnSync('podman', [
   'run', '--rm', '-i', '--network', 'none', '--entrypoint', 'node',
   '-e', `ARCHIVE_SMOKE_MODE=${mode}`,
   '-v', `${volumes[0]}:/workspace${mode === 'archive' ? ':ro' : ''}`,
-  '-v', `${volumes[1]}:/home/workspace/.local/share/opencode`,
-  '-v', `${volumes[2]}:/home/workspace/.local/state/opencode`,
+  '-v', `${volumes[1]}:${mode === 'archive' ? '/tmp/arche-archive-source/share:ro' : '/home/workspace/.local/share/opencode'}`,
+  '-v', `${volumes[2]}:${mode === 'archive' ? '/tmp/arche-archive-source/state:ro' : '/home/workspace/.local/state/opencode'}`,
   'arche-workspace:opencode-v1', '--input-type=module',
 ], {
   encoding: 'utf8', timeout: 90_000,
   input: `
 import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
-import { randomBytes } from 'node:crypto'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { createHash, randomBytes } from 'node:crypto'
+import { lstatSync, readdirSync, readFileSync, readlinkSync, writeFileSync } from 'node:fs'
 import { setTimeout } from 'node:timers/promises'
 
 const password = randomBytes(24).toString('hex')
@@ -30,6 +30,17 @@ const projectConfig = JSON.stringify({
   enabled_providers: ['openai'], plugin: [],
 })
 const archiveMode = process.env.ARCHIVE_SMOKE_MODE === 'archive'
+const sourceRoots = ['/tmp/arche-archive-source/share', '/tmp/arche-archive-source/state']
+function snapshot(path) {
+  const stat = lstatSync(path)
+  return {
+    mode: stat.mode, mtime: stat.mtimeMs,
+    ...(stat.isDirectory() ? { entries: readdirSync(path).sort().map(name => [name, snapshot(path + '/' + name)]) }
+      : stat.isSymbolicLink() ? { link: readlinkSync(path) }
+      : { hash: createHash('sha256').update(readFileSync(path)).digest('hex') }),
+  }
+}
+const before = archiveMode ? sourceRoots.map(snapshot) : undefined
 if (!archiveMode) {
   writeFileSync('/workspace/opencode.json', projectConfig)
   assert.equal(spawnSync('git', ['init'], { cwd: '/workspace' }).status, 0)
@@ -41,7 +52,12 @@ const headers = { Authorization: 'Basic ' + Buffer.from('opencode:' + password).
 const request = (path, init = {}) => fetch('http://127.0.0.1:4096' + path, { headers, signal: AbortSignal.timeout(5000), ...init })
 let server
 async function start(archive) {
-  server = spawn('opencode', ['serve', '--hostname', '127.0.0.1', '--port', '4096'], {
+  const args = ['serve', '--hostname', '127.0.0.1', '--port', '4096']
+  const copyAndServe = 'mkdir -p /home/workspace/.local/share/opencode /home/workspace/.local/state/opencode && ' +
+    'cp -a /tmp/arche-archive-source/share/. /home/workspace/.local/share/opencode/ && ' +
+    'cp -a /tmp/arche-archive-source/state/. /home/workspace/.local/state/opencode/ && ' +
+    'exec opencode "$@"'
+  server = spawn(archive ? 'sh' : 'opencode', archive ? ['-c', copyAndServe, 'arche-archive', ...args] : args, {
     cwd: '/workspace', stdio: 'ignore',
     env: {
       PATH: process.env.PATH, HOME: '/home/workspace',
@@ -102,9 +118,15 @@ try {
   assert.equal(readFileSync('/workspace/opencode.json', 'utf8'), projectConfig)
   assert.equal((await fetch('http://127.0.0.1:4096/global/health')).status, 401)
   assert.throws(() => writeFileSync('/workspace/archive-write-probe', 'must fail'), /EROFS/)
-  console.log('V1 archive: original project/root/child/messages readable on read-only workspace; project config, MCP, plugins and providers disabled; auth required; source unchanged')
+  for (const root of sourceRoots) assert.throws(() => writeFileSync(root + '/archive-write-probe', 'must fail'), /EROFS/)
   }
-} finally { await stop() }
+} finally {
+  await stop()
+  if (archiveMode) {
+    assert.deepEqual(sourceRoots.map(snapshot), before, 'Legacy share/state volumes changed during archive')
+    console.log('V1 archive: root/child/messages readable from disposable state copies; workspace/share/state sources read-only and unchanged; project config, MCP, plugins and providers disabled; auth required')
+  }
+}
 `,
 })
 process.stdout.write(result.stdout ?? '')

@@ -1,3 +1,6 @@
+import { createHash } from 'node:crypto'
+import { win32 } from 'node:path'
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mockExecFileSync = vi.fn()
@@ -38,7 +41,12 @@ describe('desktop workspace dirs', () => {
     delete process.env.ARCHE_OPENCODE_DATA_DIR
   })
 
-  afterEach(() => { process.env = originalEnv })
+  afterEach(() => {
+    process.env = originalEnv
+    vi.doUnmock('os')
+    vi.doUnmock('path')
+    vi.doUnmock('@arche/desktop-runtime/layout')
+  })
 
   it('keeps OpenCode 2 state apart from the legacy OpenCode 1 data directory', async () => {
     const { getArcheOpencodeDataDir, getLegacyOpencodeDataDir } = await import('@/lib/runtime/desktop/workspace-dirs')
@@ -57,6 +65,25 @@ describe('desktop workspace dirs', () => {
     const { tmpdir } = await import('os')
     const { getDesktopScratch } = await import('@/lib/runtime/desktop/workspace-dirs')
     expect(getDesktopScratch('local')).toEqual({ root: expect.stringMatching(new RegExp(`^${tmpdir()}/arche-scratch/[a-f0-9]{64}$`)), workspaceRoot: '/tmp/arche/workspace' })
+  })
+
+  it.each(['C', 'D'])('normalizes Windows scratch and workspace roots on vault drive %s', async (drive) => {
+    process.env.ARCHE_DATA_DIR = `${drive}:\\Users\\Ada\\Vault`
+    process.env.ARCHE_DESKTOP_PLATFORM = 'win32'
+    vi.doMock('os', () => ({ tmpdir: () => String.raw`C:\Users\Ada\AppData\Local\Temp` }))
+    vi.doMock('path', () => win32)
+    vi.doMock('@arche/desktop-runtime/layout', () => ({
+      getDesktopRuntimeDataDir: (vault: string) => win32.join(vault, '.runtime', 'opencode'),
+      getDesktopWorkspaceDir: (vault: string) => win32.join(vault, 'workspace'),
+    }))
+    const { getDesktopScratch } = await import('@/lib/runtime/desktop/workspace-dirs')
+    const hash = createHash('sha256').update(process.env.ARCHE_DATA_DIR).digest('hex')
+
+    expect(getDesktopScratch('local')).toEqual({
+      root: `C:/Users/Ada/AppData/Local/Temp/arche-scratch/${hash}`,
+      workspaceRoot: `${drive}:/Users/Ada/Vault/workspace`,
+    })
+    expect(getDesktopScratch('another-user')).toEqual(getDesktopScratch('local'))
   })
 
   it('detects legacy OpenCode 1 data only when its share directory exists', async () => {

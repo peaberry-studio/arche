@@ -418,6 +418,11 @@ describe('extractAgentCapabilitiesFromTools', () => {
     )
   })
 
+  it.each(['scratch_dir', 'scratch_publish'])('%s is enabled by default unless explicitly disabled', (toolId) => {
+    expect(extractAgentCapabilitiesFromTools({}).tools).toContain(toolId)
+    expect(extractAgentCapabilitiesFromTools({ [toolId]: false }).tools).not.toContain(toolId)
+  })
+
   it('extracts enabled agent tools', () => {
     const result = extractAgentCapabilitiesFromTools({
       ...DEFAULTS_OFF,

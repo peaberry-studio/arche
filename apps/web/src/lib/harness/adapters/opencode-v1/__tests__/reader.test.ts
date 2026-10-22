@@ -17,12 +17,18 @@ function source(id: string, parentID?: string) {
 describe('OpenCode 1 history reader', () => {
   const client = {
     global: { health: vi.fn() },
-    session: { get: vi.fn(), list: vi.fn(), children: vi.fn(), status: vi.fn(), messages: vi.fn(), abort: vi.fn() },
+    session: { get: vi.fn(), list: vi.fn(), children: vi.fn(), status: vi.fn(), messages: vi.fn() },
   }
 
   beforeEach(() => {
     vi.clearAllMocks()
     createClient.mockResolvedValue(client)
+  })
+
+  it('exposes only read operations for legacy history', () => {
+    expect(Object.keys(createOpenCodeV1Reader('alice', connection)).sort()).toEqual([
+      'getSession', 'health', 'listChildren', 'listMessages', 'listSessions', 'sessionStatus', 'slug',
+    ])
   })
 
   it('reads sessions, children and messages through the bound connection', async () => {
@@ -42,7 +48,20 @@ describe('OpenCode 1 history reader', () => {
     const messages = await reader.listMessages('root')
     expect(messages).toMatchObject({ ok: true, data: [{ id: 'm1', sessionId: 'root', role: 'user' }] })
     expect(messages.ok && messages.data).toHaveLength(1)
-    expect(createClient).toHaveBeenCalledWith(connection)
+    expect(createClient).toHaveBeenCalledWith({ ...connection, signal: expect.any(AbortSignal) })
+  })
+
+  it('gives consecutive reads fresh deadlines and forwards message cancellation', async () => {
+    client.session.messages.mockResolvedValue({ data: [] })
+    const reader = createOpenCodeV1Reader('alice', connection)
+    const signal = new AbortController().signal
+    await reader.listMessages('root', { signal })
+    await reader.listMessages('root')
+    expect(client.session.messages).toHaveBeenCalledWith({ sessionID: 'root' }, { throwOnError: true, signal })
+    const signals = createClient.mock.calls.map(([options]) => options.signal)
+    expect(signals).toHaveLength(2)
+    expect(signals[0]).toBeInstanceOf(AbortSignal)
+    expect(signals[1]).not.toBe(signals[0])
   })
 
   it('reports every non-idle status, retries included, as busy', async () => {
@@ -59,8 +78,8 @@ describe('OpenCode 1 history reader', () => {
     [{ status: 409 }, 'session_busy'],
     [new Error('socket hang up'), 'runtime_error'],
   ])('maps a client failure %j to %s', async (error, code) => {
-    client.session.abort.mockRejectedValue(error)
-    expect(await createOpenCodeV1Reader('alice', connection).abortSession('root')).toMatchObject({ ok: false, error: { code } })
+    client.session.get.mockRejectedValue(error)
+    expect(await createOpenCodeV1Reader('alice', connection).getSession('root')).toMatchObject({ ok: false, error: { code } })
   })
 
   it('rejects a session without an id instead of archiving it', async () => {

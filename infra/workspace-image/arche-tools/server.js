@@ -50,7 +50,7 @@ export function createArcheToolsServer() {
         ...(identityTools.has(name) ? {
           caller_agent: z.string().min(1).optional().describe('Your current agent id, supplied by runtime instructions. Never guess.'),
         } : {}),
-        ...(identityTools.has(name) || sessionTools.has(name) ? {
+        ...(identityTools.has(name) ? {
           caller_session_id: z.string().min(1).optional().describe('Your current session id, only when known. Never guess. Not needed when the harness supplies session metadata.'),
         } : {}),
       })),
@@ -82,7 +82,7 @@ export function createArcheToolsServer() {
       if (metadataSession && explicitSession && metadataSession !== explicitSession) {
         return toolResult(JSON.stringify({ ok: false, error: 'caller_identity_unavailable' }))
       }
-      context = { sessionID: metadataSession ?? explicitSession }
+      context = { sessionID: metadataSession }
       if (!context.sessionID) return toolResult(JSON.stringify({ ok: false, error: 'caller_identity_unavailable' }))
       args = toolArgs
     }

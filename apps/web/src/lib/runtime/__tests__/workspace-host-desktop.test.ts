@@ -16,6 +16,11 @@ const mockRm = vi.fn()
 const mockWriteFile = vi.fn()
 const mockArchiveDesktopLegacySessions = vi.fn()
 const mockCleanupDesktopLegacyArchive = vi.fn()
+const mockGetGatewayModelsCatalog = vi.fn()
+
+vi.mock('@/lib/providers/zen-catalog', () => ({
+  getGatewayModelsCatalog: (...args: unknown[]) => mockGetGatewayModelsCatalog(...args),
+}))
 
 vi.mock('@/lib/runtime/desktop/legacy-archive', () => ({
   archiveDesktopLegacySessions: (...args: unknown[]) => mockArchiveDesktopLegacySessions(...args),
@@ -250,6 +255,7 @@ describe('desktopWorkspaceHost', () => {
     process.env.ARCHE_DESKTOP_PLATFORM = 'darwin'
     process.env.ARCHE_DESKTOP_WEB_HOST = '127.0.0.1'
     process.env.ARCHE_DATA_DIR = '/tmp/arche'
+    process.env.ARCHE_GATEWAY_TOKEN_SECRET = 'fixture'
     delete process.env.ARCHE_OPENCODE_BIN
     delete process.env.ARCHE_OPENCODE_V1_BIN
     delete process.env.ARCHE_TOOLS_DIR
@@ -294,6 +300,7 @@ describe('desktopWorkspaceHost', () => {
     mockHealthyFetch()
     mockArchiveDesktopLegacySessions.mockResolvedValue({ ok: true, data: { archived: 2 } })
     mockCleanupDesktopLegacyArchive.mockResolvedValue(undefined)
+    mockGetGatewayModelsCatalog.mockResolvedValue({ ok: true, data: '{"seeded":true}' })
 
     const { instanceService } = await import('@/lib/services')
     vi.mocked(instanceService.findStatusBySlug).mockResolvedValue(null)
@@ -318,6 +325,52 @@ describe('desktopWorkspaceHost', () => {
 
     expect(result).toEqual({ ok: true, status: 'started' })
     expect(mockSpawn).toHaveBeenCalledTimes(2)
+  })
+
+  it('seeds the gateway catalog before spawning, syncing credentials or publishing running on fresh storage', async () => {
+    const catalog = Promise.withResolvers<{ ok: true; data: string }>()
+    mockGetGatewayModelsCatalog.mockReturnValueOnce(catalog.promise)
+    mockSpawn.mockReturnValueOnce(makeChildProcess()).mockReturnValueOnce(makeChildProcess())
+    const { syncRuntimeProviderAccess } = await import('@/lib/harness/registry')
+    const { instanceService } = await import('@/lib/services')
+    const { desktopWorkspaceHost } = await import('@/lib/runtime/workspace-host-desktop')
+    const starting = desktopWorkspaceHost.start('local', 'user-1')
+    await vi.waitFor(() => expect(mockGetGatewayModelsCatalog).toHaveBeenCalledWith('http://127.0.0.1:3000/api/internal/providers'))
+    expect(mockSpawn).not.toHaveBeenCalled()
+    expect(syncRuntimeProviderAccess).not.toHaveBeenCalled()
+    expect(instanceService.setRunningIfCurrentDesktopStart).not.toHaveBeenCalled()
+    catalog.resolve({ ok: true, data: '{"seeded":true}' })
+    expect(await starting).toEqual({ ok: true, status: 'started' })
+    const seedWrite = mockWriteFileSync.mock.calls.findIndex(([path]) => path.endsWith('/models-catalog.json'))
+    expect(seedWrite).toBeGreaterThanOrEqual(0)
+    const [seedPath, content] = mockWriteFileSync.mock.calls[seedWrite]
+    expect(content).toBe('{"seeded":true}')
+    expect(mockSpawn.mock.calls[0][2].env.OPENCODE_MODELS_PATH).toBe(seedPath)
+    expect(mockWriteFileSync.mock.invocationCallOrder[seedWrite]).toBeLessThan(mockSpawn.mock.invocationCallOrder[0])
+    expect(mockSpawn.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(syncRuntimeProviderAccess).mock.invocationCallOrder[0])
+    expect(vi.mocked(syncRuntimeProviderAccess).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(instanceService.setRunningIfCurrentDesktopStart).mock.invocationCallOrder[0])
+  })
+
+  it('fails closed before process startup when the boot catalog is unavailable', async () => {
+    mockGetGatewayModelsCatalog.mockResolvedValueOnce({ ok: false, error: 'catalog_unavailable' })
+    const { syncRuntimeProviderAccess } = await import('@/lib/harness/registry')
+    const { instanceService } = await import('@/lib/services')
+    const { desktopWorkspaceHost } = await import('@/lib/runtime/workspace-host-desktop')
+    expect(await desktopWorkspaceHost.start('local', 'user-1')).toEqual({ ok: false, error: 'start_failed', detail: 'catalog_unavailable' })
+    expect(mockSpawn).not.toHaveBeenCalled()
+    expect(syncRuntimeProviderAccess).not.toHaveBeenCalled()
+    expect(instanceService.setRunningIfCurrentDesktopStart).not.toHaveBeenCalled()
+  })
+
+  it('does not activate credentials or publish running when writing the boot catalog fails', async () => {
+    mockWriteFileSync.mockImplementationOnce(() => { throw new Error('catalog write failed') })
+    const { syncRuntimeProviderAccess } = await import('@/lib/harness/registry')
+    const { instanceService } = await import('@/lib/services')
+    const { desktopWorkspaceHost } = await import('@/lib/runtime/workspace-host-desktop')
+    expect(await desktopWorkspaceHost.start('local', 'user-1')).toEqual({ ok: false, error: 'start_failed', detail: 'catalog write failed' })
+    expect(mockSpawn).not.toHaveBeenCalled()
+    expect(syncRuntimeProviderAccess).not.toHaveBeenCalled()
+    expect(instanceService.setRunningIfCurrentDesktopStart).not.toHaveBeenCalled()
   })
 
   it('skips real process startup in E2E fake mode and returns fake connections', async () => {
@@ -424,7 +477,7 @@ describe('desktopWorkspaceHost', () => {
       XDG_DATA_HOME: '/tmp/arche/.runtime/opencode-v2/.local/share',
       XDG_STATE_HOME: '/tmp/arche/.runtime/opencode-v2/.local/state',
       OPENCODE_PASSWORD: 'gen-pw',
-      OPENCODE_MODELS_URL: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+\/api\/internal\/models$/),
+      OPENCODE_MODELS_URL: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+\/api\/internal\/models\/[A-Za-z0-9_-]{43}$/),
     })
     expect(build).toHaveBeenCalledWith('local', expect.any(Object), expect.not.objectContaining({ runtimeKind: expect.anything() }))
     expect(settleRuntimeMigratedRuns).toHaveBeenCalledWith('local')

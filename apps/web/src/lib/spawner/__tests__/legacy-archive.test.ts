@@ -1,14 +1,35 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { isHistoryMigrationInProgress, withHistoryMigrationProgress } from '@/lib/spawner/legacy-archive'
 
-const mocks = vi.hoisted(() => ({ read: vi.fn(), write: vi.fn(), unlink: vi.fn() }))
-vi.mock('node:fs/promises', () => ({ readFile: mocks.read, writeFile: mocks.write, unlink: mocks.unlink }))
+const mocks = vi.hoisted(() => ({ read: vi.fn(), write: vi.fn(), unlink: vi.fn(), stat: vi.fn(), utimes: vi.fn() }))
+vi.mock('node:fs/promises', () => ({ readFile: mocks.read, writeFile: mocks.write, unlink: mocks.unlink, stat: mocks.stat, utimes: mocks.utimes }))
 vi.mock('@/lib/user-data', () => ({ ensureUserDirectory: async () => '/users/alice', getUserDataHostPath: () => '/users/alice' }))
 vi.mock('@/lib/spawner/config', () => ({ getStartTimeoutMs: () => 120_000 }))
 
 describe('history migration progress', () => {
-  beforeEach(() => { vi.clearAllMocks() })
+  beforeEach(() => { vi.resetAllMocks(); mocks.stat.mockResolvedValue({ mtimeMs: 0 }) })
+  afterEach(() => { vi.useRealTimers() })
+
+  it('keeps active exports visible across processes beyond startup freshness and stops heartbeating after completion', async () => {
+    vi.useFakeTimers()
+    let modifiedAt = Date.now()
+    mocks.write.mockImplementation(async (_path: string, value: string) => { mocks.read.mockResolvedValue(value) })
+    mocks.stat.mockImplementation(async () => ({ mtimeMs: modifiedAt }))
+    mocks.utimes.mockImplementation(async (_path: string, _atime: Date, mtime: Date) => { modifiedAt = mtime.getTime() })
+    await withHistoryMigrationProgress('alice', async () => {
+      await vi.advanceTimersByTimeAsync(480_001)
+      vi.resetModules()
+      const otherProcess = await import('@/lib/spawner/legacy-archive')
+      expect(await otherProcess.isHistoryMigrationInProgress('alice')).toBe(true)
+    })
+    expect(mocks.utimes).toHaveBeenCalled()
+    expect(mocks.unlink).toHaveBeenCalledOnce()
+    const heartbeats = mocks.utimes.mock.calls.length
+    await vi.advanceTimersByTimeAsync(480_001)
+    expect(mocks.utimes).toHaveBeenCalledTimes(heartbeats)
+    expect(await isHistoryMigrationInProgress('alice')).toBe(false)
+  })
 
   it('is visible across processes through the shared user-data marker', async () => {
     mocks.read.mockResolvedValue(JSON.stringify({ startedAt: Date.now(), attempt: 'fixture' }))

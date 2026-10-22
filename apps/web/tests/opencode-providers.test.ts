@@ -1,4 +1,13 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+vi.mock('pg', () => ({
+  Client: class {
+    connect = vi.fn()
+    end = vi.fn()
+    on = vi.fn()
+    query = vi.fn()
+  },
+}))
 
 vi.mock('@/lib/providers/store', () => ({
   getEnabledProviderCredentialsForUser: vi.fn(),
@@ -35,10 +44,12 @@ const fakeInstance = {
 describe('syncRuntimeProviderAccess', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.stubEnv('DATABASE_URL', 'postgresql://localhost/fixture')
     mockFindRuntimeKindBySlug.mockResolvedValue({ runtimeKind: 'opencode-v2' })
     vi.mocked(messageRunService.hasActiveRunForSlug).mockResolvedValue(false)
     vi.mocked(instanceService.setProviderSyncState).mockResolvedValue(undefined)
   })
+  afterEach(() => { vi.unstubAllEnvs() })
 
   it('returns sync_failed when credential lookup throws', async () => {
     mockGetEnabledProviderCredentialsForUser.mockRejectedValue(new Error('db error'))
@@ -49,6 +60,7 @@ describe('syncRuntimeProviderAccess', () => {
     })
 
     expect(result).toEqual({ ok: false, error: { code: 'sync_failed', detail: 'runtime_error' } })
+    expect(mockGetEnabledProviderCredentialsForUser).toHaveBeenCalledWith('user-1')
   })
 
   it.each([null, 'opencode-v1'])('refuses a workspace recorded as %s without reading credentials', async (runtimeKind) => {

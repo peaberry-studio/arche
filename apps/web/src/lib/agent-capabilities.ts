@@ -43,8 +43,8 @@ export type OpenCodeAgentToolId = (typeof OPENCODE_AGENT_TOOLS)[number]
 // configs (a rollback to v1 still renders them) but are not offered for new choices.
 export const LEGACY_ONLY_AGENT_TOOLS: ReadonlySet<string> = new Set<OpenCodeAgentToolId>(['codesearch', 'lsp', 'todoread', 'todowrite'])
 
-// Built-in tools every agent had before they became configurable: a stored
-// tool map without the key keeps them enabled; only an explicit false disables them.
+// Legacy built-in tools plus scratch tools, intentionally enabled by default:
+// a stored tool map without the key keeps them enabled; only an explicit false disables them.
 export const DEFAULT_ENABLED_AGENT_TOOLS: ReadonlySet<string> = new Set<OpenCodeAgentToolId>([
   'chart_create',
   'diagram_create',

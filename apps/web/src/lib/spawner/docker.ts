@@ -13,7 +13,6 @@ import {
   getDefaultWebRuntimeConfigContent,
   parseRuntimeConfigContent,
   serializeRuntimeConfig,
-  WEB_INTERNAL_API_ROOT,
   WEB_SCRATCH,
 } from '@/lib/spawner/runtime-config';
 import { ensureUserDirectory, getUserDataHostPath } from '@/lib/user-data';
@@ -161,6 +160,10 @@ export async function createContainer(
   gitAuthor?: { name: string; email?: string },
 ) {
   const docker = await getContainerClient();
+  const { getRuntimeInternalApiRoot, getRuntimeModelsCatalogUrl } = await import('@/lib/runtime/internal-api')
+  const { getGatewayModelsCatalog } = await import('@/lib/providers/zen-catalog')
+  const catalog = await getGatewayModelsCatalog(`${getRuntimeInternalApiRoot()}/providers`)
+  if (!catalog.ok) throw new Error(catalog.error)
   const containerName = `opencode-${slug}`;
   const volumeName = `arche-workspace-${slug}`;
   // OpenCode 2 state lives apart from the OpenCode 1 volumes (`arche-opencode-*`),
@@ -206,6 +209,10 @@ export async function createContainer(
   const { join } = await importRuntimeModule<typeof import("path")>("path");
   const userDataPath = getUserDataHostPath(slug);
   await ensureUserDirectory(slug);
+
+  const modelsCatalogPath = join(userDataPath, 'models-catalog.json')
+  await writeFile(modelsCatalogPath, catalog.data, 'utf-8')
+  await chmod(modelsCatalogPath, 0o644)
 
   // Write OpenCode config as a file instead of env var to avoid
   // Docker API URI length limits with large agent prompts.
@@ -253,7 +260,8 @@ export async function createContainer(
     `WORKSPACE_AGENT_PORT=${getWorkspaceAgentPort()}`,
     `WORKSPACE_GIT_AUTHOR_NAME=${gitAuthor?.name ?? slug}`,
     `WORKSPACE_GIT_AUTHOR_EMAIL=${gitAuthor?.email ?? `${slug}@arche.local`}`,
-    `OPENCODE_MODELS_URL=${WEB_INTERNAL_API_ROOT}/models`,
+    `OPENCODE_MODELS_URL=${getRuntimeModelsCatalogUrl()}`,
+    'OPENCODE_MODELS_PATH=/tmp/arche-user-data/models-catalog.json',
     `ARCHE_SCRATCH_DIR=${WEB_SCRATCH.root}`,
   ];
 
@@ -268,7 +276,7 @@ export async function createContainer(
       NetworkMode: getOpencodeNetwork(),
       RestartPolicy: { Name: "on-failure", MaximumRetryCount: 5 },
       Binds: binds,
-      Tmpfs: { [WEB_SCRATCH.root]: `rw,nosuid,nodev,size=${getScratchSizeMb()}m,mode=1777` },
+      Tmpfs: { [WEB_SCRATCH.root]: `rw,nosuid,nodev,size=${getScratchSizeMb()}m,mode=0700` },
     },
     Labels: {
       "arche.managed": "true",
@@ -318,7 +326,11 @@ export async function createArchiveContainer(slug: string, password: string): Pr
     Image: image,
     name,
     WorkingDir: '/workspace',
-    Entrypoint: ['opencode'],
+    Entrypoint: ['sh', '-c',
+      'mkdir -p /home/workspace/.local/share/opencode /home/workspace/.local/state/opencode && ' +
+      'cp -a /tmp/arche-archive-source/share/. /home/workspace/.local/share/opencode/ && ' +
+      'cp -a /tmp/arche-archive-source/state/. /home/workspace/.local/state/opencode/ && ' +
+      'exec opencode "$@"', 'arche-archive'],
     Cmd: ['serve', '--hostname', '0.0.0.0', '--port', '4096'],
     Env: [
       `OPENCODE_SERVER_PASSWORD=${password}`,
@@ -339,8 +351,8 @@ export async function createArchiveContainer(slug: string, password: string): Pr
       RestartPolicy: { Name: 'no' },
       Binds: [
         `arche-workspace-${slug}:/workspace:ro`,
-        `arche-opencode-share-${slug}:/home/workspace/.local/share/opencode`,
-        `arche-opencode-state-${slug}:/home/workspace/.local/state/opencode`,
+        `arche-opencode-share-${slug}:/tmp/arche-archive-source/share:ro`,
+        `arche-opencode-state-${slug}:/tmp/arche-archive-source/state:ro`,
       ],
     },
     Labels: { 'arche.managed': 'true', 'arche.user.slug': slug, 'arche.runtime.kind': 'opencode-v1', 'arche.archive': 'true' },

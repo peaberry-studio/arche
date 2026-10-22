@@ -41,6 +41,77 @@ test('scratch_dir creates the session folder and prunes stale ones', async (t) =
   assert.deepEqual((await fs.readdir(scratch)).sort(), ['ses_current', 'ses_recent'])
 })
 
+for (const tool of ['dir', 'publish']) {
+  test(`scratch_${tool} refreshes an old session before another session prunes`, async (t) => {
+    const { scratch } = await setup(t)
+    const activeDir = path.join(scratch, 'ses_active')
+    const marker = path.join(activeDir, '.last-used')
+    const old = new Date(Date.now() - 25 * 60 * 60 * 1000)
+    await fs.mkdir(path.join(activeDir, 'out'), { recursive: true })
+    await fs.writeFile(marker, '')
+    await fs.utimes(marker, old, old)
+    await fs.utimes(activeDir, old, old)
+    await fs.writeFile(path.join(activeDir, 'out', 'report.txt'), 'keep me')
+
+    const output = JSON.parse(await (tool === 'dir'
+      ? scratchDir.execute({}, session('ses_active'))
+      : scratchPublish.execute({ path: 'out/report.txt' }, session('ses_active'))))
+    assert.equal(output.ok, true)
+    assert.equal(await fs.readFile(path.join(activeDir, 'out', 'report.txt'), 'utf8'), 'keep me')
+
+    const staleDir = path.join(scratch, 'ses_stale')
+    await fs.mkdir(staleDir)
+    await fs.utimes(staleDir, old, old)
+    assert.equal(JSON.parse(await scratchDir.execute({}, session('ses_other'))).ok, true)
+
+    assert.equal(await fs.readFile(path.join(activeDir, 'out', 'report.txt'), 'utf8'), 'keep me')
+    assert.ok((await fs.stat(marker)).mtimeMs > old.getTime())
+    await assert.rejects(fs.stat(staleDir), { code: 'ENOENT' })
+  })
+}
+
+test('scratch pruning expires the last-used marker even when the directory mtime is recent', async (t) => {
+  const { scratch } = await setup(t)
+  const staleDir = path.join(scratch, 'ses_stale')
+  await scratchDir.execute({}, session('ses_stale'))
+  const marker = path.join(staleDir, '.last-used')
+  await fs.writeFile(marker, '')
+  const old = new Date(Date.now() - 25 * 60 * 60 * 1000)
+  await fs.utimes(marker, old, old)
+
+  await scratchDir.execute({}, session('ses_other'))
+
+  await assert.rejects(fs.stat(staleDir), { code: 'ENOENT' })
+})
+
+for (const tool of ['dir', 'publish']) {
+  for (const link of ['symlink', 'link']) {
+    test(`scratch_${tool} replaces a ${link} marker without modifying its target`, async (t) => {
+      const { root, scratch } = await setup(t)
+      const activeDir = path.join(scratch, 'ses_active')
+      const sentinel = path.join(root, 'sentinel.txt')
+      const marker = path.join(activeDir, '.last-used')
+      await fs.mkdir(activeDir, { recursive: true })
+      await fs.writeFile(path.join(activeDir, 'report.txt'), 'keep me')
+      await fs.writeFile(sentinel, 'untouched')
+      const old = new Date(Date.now() - 25 * 60 * 60 * 1000)
+      await fs.utimes(sentinel, old, old)
+      await fs[link](sentinel, marker)
+      await fs.utimes(activeDir, old, old)
+
+      const output = JSON.parse(await (tool === 'dir'
+        ? scratchDir.execute({}, session('ses_active'))
+        : scratchPublish.execute({ path: 'report.txt' }, session('ses_active'))))
+
+      assert.equal(output.ok, true)
+      assert.equal(await fs.readFile(sentinel, 'utf8'), 'untouched')
+      assert.equal((await fs.lstat(marker)).isFile(), true)
+      await scratchDir.execute({}, session('ses_other'))
+      assert.equal(await fs.readFile(path.join(activeDir, 'report.txt'), 'utf8'), 'keep me')
+    })
+  }
+}
+
 test('scratch tools require a well-formed session id', async (t) => {
   await setup(t)
   assert.deepEqual(JSON.parse(await scratchDir.execute({})), { ok: false, error: 'caller_identity_unavailable' })
@@ -104,3 +175,56 @@ test('scratch tools take the session from harness metadata and reject a conflict
   const conflicting = await client.callTool({ name: 'scratch_dir', arguments: { caller_session_id: 'ses_other' }, _meta: { 'ai.opencode/sessionID': 'ses_meta' } })
   assert.deepEqual(conflicting.structuredContent, { ok: false, error: 'caller_identity_unavailable' })
 })
+
+test('scratch tools reject agent-supplied session identities without harness metadata', async (t) => {
+  const { scratch } = await setup(t)
+  const { client } = await import('./mcp-client.js')
+  const victim = path.join(scratch, 'ses_victim')
+  await fs.mkdir(victim, { recursive: true })
+  await fs.writeFile(path.join(victim, 'private.txt'), 'private')
+
+  for (const name of ['scratch_dir', 'scratch_publish']) {
+    for (const identity of [
+      { caller_session_id: 'ses_victim' },
+      { _meta: { 'ai.opencode/sessionID': 'ses_victim' } },
+    ]) {
+      const result = await client.callTool({ name, arguments: { path: 'private.txt', ...identity } })
+      assert.deepEqual(result.structuredContent, { ok: false, error: 'caller_identity_unavailable' })
+    }
+  }
+  assert.deepEqual(await fs.readdir(victim), ['private.txt'])
+})
+
+test('scratch_publish cannot read another session with trusted caller metadata', async (t) => {
+  const { scratch, attachments } = await setup(t)
+  const { client } = await import('./mcp-client.js')
+  await fs.mkdir(path.join(scratch, 'ses_victim'), { recursive: true })
+  await fs.writeFile(path.join(scratch, 'ses_victim', 'private.txt'), 'private')
+  const _meta = { 'ai.opencode/sessionID': 'ses_caller' }
+
+  const own = await client.callTool({ name: 'scratch_dir', arguments: {}, _meta })
+  assert.equal(own.structuredContent.path, path.join(scratch, 'ses_caller'))
+  const forged = await client.callTool({ name: 'scratch_publish', arguments: { path: 'private.txt', caller_session_id: 'ses_victim' }, _meta })
+  assert.deepEqual(forged.structuredContent, { ok: false, error: 'caller_identity_unavailable' })
+  for (const target of ['../ses_victim/private.txt', path.join(scratch, 'ses_victim', 'private.txt')]) {
+    const escaped = await client.callTool({ name: 'scratch_publish', arguments: { path: target }, _meta })
+    assert.deepEqual(escaped.structuredContent, { ok: false, error: 'path_outside_scratch' })
+  }
+  await assert.rejects(fs.stat(attachments), { code: 'ENOENT' })
+})
+
+for (const tool of ['dir', 'publish']) {
+  test(`scratch_${tool} rejects a session base redirected to another session`, async (t) => {
+    const { scratch } = await setup(t)
+    const victim = path.join(scratch, 'ses_victim')
+    await fs.mkdir(victim, { recursive: true })
+    await fs.writeFile(path.join(victim, 'private.txt'), 'private')
+    await fs.symlink(victim, path.join(scratch, 'ses_caller'), process.platform === 'win32' ? 'junction' : 'dir')
+
+    const output = JSON.parse(await (tool === 'dir'
+      ? scratchDir.execute({}, session('ses_caller'))
+      : scratchPublish.execute({ path: 'private.txt' }, session('ses_caller'))))
+    assert.deepEqual(output, { ok: false, error: 'path_outside_scratch' })
+    assert.deepEqual(await fs.readdir(victim), ['private.txt'])
+  })
+}

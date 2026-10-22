@@ -30,6 +30,7 @@ import {
 const record: LegacySessionArchive = {
   id: 'archive-1', slug: 'alice', sessionId: 'session-1', parentId: 'parent-1', title: 'History',
   createdAt: new Date(1_700_000_000_123), updatedAt: new Date(1_700_000_100_456), archivedAt: new Date(),
+  validatedAt: null,
   messages: [{ id: 'message-1', sessionId: 'session-1', role: 'assistant', content: 'Hello', timestamp: 'then', timestampRaw: 1_700_000_010_789, parts: [{ type: 'text', text: 'Hello' }] }],
 }
 
@@ -111,7 +112,7 @@ describe('export storage', () => {
     })
     expect(work).toHaveBeenCalledWith(mockTransaction)
     expect(mockTransaction.instance.updateMany.mock.invocationCallOrder[0]).toBeLessThan(work.mock.invocationCallOrder[0])
-    expect(mockPrisma.$transaction).toHaveBeenCalledWith(expect.any(Function), { maxWait: 10_000, timeout: 60_000 })
+    expect(mockPrisma.$transaction).toHaveBeenCalledWith(expect.any(Function), { maxWait: 5_000, timeout: 5_000 })
   })
 
   it('does not invoke fenced work without a matching owner/V1 row', async () => {
@@ -238,7 +239,7 @@ describe('export storage', () => {
     expect(mockPrisma.instance.findUnique).not.toHaveBeenCalled()
     expect(mockPrisma.legacySessionArchive.findUnique).toHaveBeenCalledWith({
       where: { slug_sessionId: { slug: 'alice', sessionId: 'session-1' } },
-      select: { title: true, parentId: true, createdAt: true, updatedAt: true, messages: true },
+      select: { title: true, parentId: true, createdAt: true, updatedAt: true, messages: true, validatedAt: true },
     })
   })
 
@@ -252,11 +253,25 @@ describe('export storage', () => {
     const data = {
       title: input.title, parentId: null, createdAt: input.createdAt, updatedAt: input.updatedAt,
       messages: JSON.parse(JSON.stringify(input.messages)), archivedAt: expect.any(Date),
+      validatedAt: null,
     }
     expect(mockPrisma.legacySessionArchive.upsert).toHaveBeenCalledWith({
       where: { slug_sessionId: { slug: 'alice', sessionId: 'session-1' } },
       create: { slug: 'alice', sessionId: 'session-1', ...data }, update: data,
     })
+  })
+
+  it('persists the validated checkpoint atomically with its snapshot and clears it for unvalidated writes', async () => {
+    const validatedAt = new Date()
+    await upsertSession({ ...snapshot, validatedAt })
+    expect(mockPrisma.legacySessionArchive.upsert).toHaveBeenLastCalledWith(expect.objectContaining({
+      create: expect.objectContaining({ messages: snapshot.messages, validatedAt }),
+      update: expect.objectContaining({ messages: snapshot.messages, validatedAt }),
+    }))
+    await upsertSession(snapshot)
+    expect(mockPrisma.legacySessionArchive.upsert).toHaveBeenLastCalledWith(expect.objectContaining({
+      update: expect.objectContaining({ validatedAt: null }),
+    }))
   })
 
   it('selects only running null/v1 instances and rotates through workspaces', async () => {

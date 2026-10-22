@@ -22,6 +22,19 @@ function rewriteEndpoint(value: unknown, gatewayBase: string): unknown {
     : value
 }
 
+function isZenCatalog(catalog: Record<string, unknown>): boolean {
+  return ZEN_PROVIDER_IDS.every((id) => {
+    const provider = catalog[id]
+    if (!isRecord(provider) || provider.id !== id || typeof provider.api !== 'string' || !provider.api.startsWith(ZEN_INFERENCE_PREFIX) || !isRecord(provider.models)) return false
+    const models = Object.values(provider.models)
+    return models.length > 0 && models.every((model) => isRecord(model) && (
+      model.provider === undefined || (isRecord(model.provider) && (
+        model.provider.api === undefined || (typeof model.provider.api === 'string' && model.provider.api.startsWith(ZEN_INFERENCE_PREFIX))
+      ))
+    ))
+  })
+}
+
 export function rewriteZenCatalog(catalog: Record<string, unknown>, gatewayRoot: string): Record<string, unknown> {
   const root = gatewayRoot.replace(/\/$/, '')
   const next = { ...catalog }
@@ -45,7 +58,7 @@ async function fetchUpstreamCatalog(): Promise<Record<string, unknown> | null> {
     const response = await fetch(UPSTREAM_CATALOG_URL, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
     if (!response.ok) return null
     const catalog: unknown = await response.json()
-    return isRecord(catalog) ? catalog : null
+    return isRecord(catalog) && isZenCatalog(catalog) ? catalog : null
   } catch {
     return null
   }

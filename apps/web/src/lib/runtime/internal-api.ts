@@ -1,3 +1,4 @@
+import { getModelsCatalogToken } from '@/lib/providers/models-catalog-token'
 import { getDesktopInternalApiRoot } from '@/lib/runtime/desktop/config'
 import { isDesktop } from '@/lib/runtime/mode'
 import { WEB_INTERNAL_API_ROOT } from '@/lib/spawner/runtime-config'
@@ -8,7 +9,7 @@ export function getRuntimeInternalApiRoot(): string {
 }
 
 export function getRuntimeModelsCatalogUrl(): string {
-  return `${getRuntimeInternalApiRoot()}/models`
+  return `${getRuntimeInternalApiRoot()}/models/${getModelsCatalogToken()}`
 }
 
 // No route serves this path: OpenCode 2 reads the 404 as "no Console config",

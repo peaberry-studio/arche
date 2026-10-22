@@ -34,7 +34,7 @@ async function createWebClient(): Promise<PrismaClient> {
   const { PrismaPg } = await importRuntimeModule<typeof import('@prisma/adapter-pg')>('@prisma/adapter-pg')
   const { Pool } = await importRuntimeModule<typeof import('pg')>('pg')
 
-  const pool = globalThis.prismaPool ?? new Pool({ connectionString })
+  const pool = globalThis.prismaPool ?? new Pool({ connectionString, connectionTimeoutMillis: 5_000 })
   if (process.env.NODE_ENV !== 'production') globalThis.prismaPool = pool
 
   const adapter = new PrismaPg(pool)

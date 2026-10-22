@@ -13,11 +13,11 @@ vi.mock('@/lib/services', async () => ({
   auditService: { createEvent: vi.fn() },
   messageRunService: {}, rateLimitService: {}, providerService: {}, userService: {},
 }))
-vi.mock('@/lib/harness/registry', () => ({}))
+vi.mock('@/lib/harness/registry', () => ({ isCurrentRuntimeKind: (kind: string | null) => kind === 'opencode-v2' }))
 vi.mock('@/lib/harness/execution', () => ({}))
 vi.mock('@/lib/harness/legacy-session-archive', () => ({}))
 vi.mock('@/lib/spawner/runtime-artifacts', () => ({}))
-vi.mock('@/lib/spawner/docker', () => ({ stopContainer: vi.fn(), removeContainer: vi.fn() }))
+vi.mock('@/lib/spawner/docker', () => ({ stopContainer: vi.fn(), removeContainer: vi.fn(), findLegacyArchiveSource: vi.fn() }))
 // The reaper only stops instances under host memory pressure; pin it so these
 // shutdown-ownership checks do not depend on the machine running the tests.
 vi.mock('@/lib/spawner/host-resources', async (importOriginal) => ({
@@ -50,6 +50,7 @@ beforeEach(() => {
   })
   vi.mocked(docker.stopContainer).mockRejectedValueOnce(new Error('stop failed')).mockResolvedValue(undefined)
   vi.mocked(docker.removeContainer).mockRejectedValueOnce(new Error('removal failed')).mockResolvedValue(undefined)
+  vi.mocked(docker.findLegacyArchiveSource).mockResolvedValue({ id: 'source', name: 'opencode-alice', running: true })
 })
 
 describe.each([

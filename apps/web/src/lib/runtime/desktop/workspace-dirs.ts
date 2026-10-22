@@ -2,7 +2,7 @@ import { execFileSync } from 'child_process'
 import { createHash } from 'crypto'
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
-import { dirname, join } from 'path'
+import { dirname, join, sep } from 'path'
 
 import {
   getDesktopRuntimeDataDir,
@@ -103,7 +103,10 @@ export function hasLegacyOpencodeData(): boolean {
 export function getDesktopScratch(slug: string): { root: string; workspaceRoot: string } {
   const workspaceRoot = getWorkspaceDir(slug)
   const vaultHash = createHash('sha256').update(realpathSync(getRequiredVaultRoot())).digest('hex')
-  return { root: join(tmpdir(), 'arche-scratch', vaultHash), workspaceRoot }
+  return {
+    root: join(tmpdir(), 'arche-scratch', vaultHash).split(sep).join('/'),
+    workspaceRoot: workspaceRoot.split(sep).join('/'),
+  }
 }
 
 export function getWorkspaceDir(slug: string): string {

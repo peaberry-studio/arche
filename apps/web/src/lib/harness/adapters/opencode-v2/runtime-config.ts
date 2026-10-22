@@ -1,4 +1,4 @@
-import { posix } from 'node:path'
+import { posix, win32 } from 'node:path'
 
 import { LEGACY_ONLY_AGENT_TOOLS } from '@/lib/agent-capabilities'
 import type { RuntimeAgentModel, RuntimeConfigModel, RuntimeConfigRenderResult } from '@/lib/harness/runtime-config'
@@ -64,11 +64,21 @@ function matches(pattern: string, value: string): boolean {
   return new RegExp(`^${pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`).test(value)
 }
 
-// OpenCode 2 matches `edit` against the path relative to the workspace and
-// `external_directory` against the absolute path.
-function scratchPatterns(scratch: NonNullable<RuntimeConfigModel['scratch']>): { absolute: string; relative: string } {
-  const root = posix.normalize(scratch.root).replace(/\/+$/, '')
-  return { absolute: `${root}/*`, relative: `${posix.relative(posix.normalize(scratch.workspaceRoot), root)}/*` }
+// Keep POSIX's workspace-relative edit patterns. Windows also needs the absolute
+// form for scratch outside the Git worktree (and for paths on another drive).
+// OpenCode 2 always matches external_directory against the absolute path.
+function scratchPatterns(scratch: NonNullable<RuntimeConfigModel['scratch']>): { absolute: string; edits: string[]; outsideWorkspace: boolean } {
+  const windows = /^[a-z]:[\\/]/i.test(scratch.root)
+  const paths = windows ? win32 : posix
+  const slash = (value: string) => windows ? value.replaceAll('\\', '/') : value
+  const root = slash(paths.normalize(scratch.root)).replace(/\/+$/, '')
+  const relative = slash(paths.relative(paths.normalize(scratch.workspaceRoot), root))
+  const absolute = `${root}/*`
+  return {
+    absolute,
+    edits: [...new Set([`${relative}/*`, ...(windows ? [absolute] : [])])],
+    outsideWorkspace: relative.startsWith('..') || (windows && win32.isAbsolute(relative)),
+  }
 }
 
 function orderedEntries(value: Record<string, unknown>): [string, unknown][] {
@@ -173,7 +183,9 @@ function renderAgent(agent: RuntimeAgentModel, model: RuntimeConfigModel, global
   if (model.scratch) {
     const patterns = scratchPatterns(model.scratch)
     permissions.push({ action: 'external_directory', resource: patterns.absolute, effect: 'allow' })
-    if (canEdit) permissions.push({ action: 'edit', resource: patterns.relative, effect: 'allow' })
+    if (canEdit) {
+      for (const resource of patterns.edits) permissions.push({ action: 'edit', resource, effect: 'allow' })
+    }
   }
   const body = settings.options === undefined ? {} : { ...record(settings.options, `${path}.options`) }
   for (const key of ['temperature', 'top_p']) {
@@ -290,9 +302,9 @@ export function renderRuntimeConfig(model: RuntimeConfigModel): RuntimeConfigRen
     if (settings.instructions !== undefined && (!Array.isArray(settings.instructions) || !settings.instructions.every((entry) => typeof entry === 'string'))) unsupported('instructions')
     if (model.scratch) {
       for (const [key, value] of Object.entries(model.scratch)) {
-        if (!value.startsWith('/') || /[*?]/.test(value)) unsupported(`scratch.${key}`, 'Expected an absolute directory without wildcards')
+        if ((!value.startsWith('/') && !/^[a-z]:[\\/]/i.test(value)) || /[*?]/.test(value)) unsupported(`scratch.${key}`, 'Expected an absolute directory without wildcards')
       }
-      if (!posix.relative(posix.normalize(model.scratch.workspaceRoot), posix.normalize(model.scratch.root)).startsWith('..')) {
+      if (!scratchPatterns(model.scratch).outsideWorkspace) {
         unsupported('scratch.root', 'The scratch directory must be outside the workspace')
       }
     }
@@ -311,7 +323,9 @@ export function renderRuntimeConfig(model: RuntimeConfigModel): RuntimeConfigRen
       }
     }
     if (model.guards.knowledgeWrites) policies.push({ action: 'tool.use', resource: 'edit:*', effect: 'deny' })
-    if (model.scratch) policies.push({ action: 'tool.use', resource: `edit:${scratchPatterns(model.scratch).relative}`, effect: 'allow' })
+    if (model.scratch) {
+      for (const resource of scratchPatterns(model.scratch).edits) policies.push({ action: 'tool.use', resource: `edit:${resource}`, effect: 'allow' })
+    }
     const config: Record<string, unknown> = {
       ...settings,
       $schema: 'https://opencode.ai/config.json',

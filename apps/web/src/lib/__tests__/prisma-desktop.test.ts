@@ -201,6 +201,7 @@ describe('desktop prisma context isolation', () => {
       .mockResolvedValueOnce([{ name: 'provider_sync_hash' }, { name: 'provider_synced_at' }])
       .mockResolvedValueOnce([{ name: 'regeneration_change_id' }])
       .mockResolvedValueOnce([{ name: 'runtime_kind' }])
+      .mockResolvedValueOnce([{ name: 'validated_at' }])
 
     mockGeneratedPrismaClient.mockImplementationOnce(({ adapter }: { adapter: { url: string } }) => ({
       adapterUrl: adapter.url,
@@ -226,6 +227,7 @@ describe('desktop prisma context isolation', () => {
       .mockResolvedValueOnce([{ name: 'provider_sync_hash' }, { name: 'provider_synced_at' }])
       .mockResolvedValueOnce([{ name: 'id' }])
       .mockResolvedValueOnce([{ name: 'runtime_kind' }])
+      .mockResolvedValueOnce([{ name: 'validated_at' }])
 
     mockGeneratedPrismaClient.mockImplementationOnce(({ adapter }: { adapter: { url: string } }) => ({
       adapterUrl: adapter.url,
@@ -265,11 +267,20 @@ describe('desktop prisma context isolation', () => {
             CONSTRAINT "instances_slug_fkey" FOREIGN KEY ("slug") REFERENCES "users" ("slug") ON DELETE RESTRICT ON UPDATE CASCADE
           );
           CREATE TABLE "_arche_schema_meta" ("key" TEXT NOT NULL PRIMARY KEY, "value" TEXT);
-          INSERT INTO "_arche_schema_meta" VALUES ('schema_version', '12');
+          INSERT INTO "_arche_schema_meta" VALUES ('schema_version', '13');
+          CREATE TABLE "legacy_session_archives" (
+            "id" TEXT NOT NULL PRIMARY KEY, "slug" TEXT NOT NULL, "session_id" TEXT NOT NULL,
+            "parent_id" TEXT, "title" TEXT NOT NULL, "created_at" DATETIME NOT NULL,
+            "updated_at" DATETIME NOT NULL, "messages" JSONB NOT NULL,
+            "archived_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY ("slug") REFERENCES "users" ("slug") ON DELETE CASCADE ON UPDATE CASCADE
+          );
         `)
         database.pragma('foreign_keys = OFF')
         database.prepare('INSERT INTO instances (id, slug, status, container_id, server_password) VALUES (?, ?, ?, ?, ?)')
           .run('instance-1', 'alice', 'running', 'container-1', 'enc-pw')
+        database.prepare('INSERT INTO legacy_session_archives (id, slug, session_id, title, created_at, updated_at, messages) VALUES (?, ?, ?, ?, ?, ?, ?)')
+          .run('old-archive', 'alice', 'old-session', 'Old title', '2026-10-19', '2026-10-20', '[{"id":"old-message"}]')
         database.pragma('foreign_keys = ON')
       }
 
@@ -294,7 +305,12 @@ describe('desktop prisma context isolation', () => {
       expect(database.prepare('SELECT id, slug, status, container_id, server_password, runtime_kind FROM instances').all()).toEqual([
         { id: 'instance-1', slug: 'alice', status: 'running', container_id: 'container-1', server_password: 'enc-pw', runtime_kind: null },
       ])
-      expect(database.prepare("SELECT value FROM _arche_schema_meta WHERE key = 'schema_version'").get()).toEqual({ value: '13' })
+      expect(database.prepare("SELECT value FROM _arche_schema_meta WHERE key = 'schema_version'").get()).toEqual({ value: '14' })
+      if (mode === 'upgrade') {
+        expect(database.prepare('SELECT messages, validated_at FROM legacy_session_archives WHERE id = ?').get('old-archive')).toEqual({
+          messages: '[{"id":"old-message"}]', validated_at: null,
+        })
+      }
 
       const insertArchive = database.prepare(`INSERT INTO legacy_session_archives
         (id, slug, session_id, parent_id, title, created_at, updated_at, messages)
@@ -304,9 +320,10 @@ describe('desktop prisma context isolation', () => {
       insertArchive.run('archive-2', 'bob', 'session-1', 'parent-1', 'Other title', '2026-10-19', '2026-10-20', '[]')
       expect(() => insertArchive.run('duplicate', 'alice', 'session-1', null, 'Title', '2026-10-19', '2026-10-20', '[]')).toThrow(/UNIQUE constraint failed/)
       expect(() => insertArchive.run('orphan', 'missing-owner', 'session-2', null, 'Title', '2026-10-19', '2026-10-20', '[]')).toThrow(/FOREIGN KEY constraint failed/)
-      expect(database.prepare('SELECT messages, archived_at FROM legacy_session_archives WHERE id = ?').get('archive-1')).toEqual({
+      expect(database.prepare('SELECT messages, archived_at, validated_at FROM legacy_session_archives WHERE id = ?').get('archive-1')).toEqual({
         messages,
         archived_at: expect.any(String),
+        validated_at: null,
       })
 
       await initDesktopDatabase()

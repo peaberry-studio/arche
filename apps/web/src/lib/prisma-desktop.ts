@@ -84,6 +84,7 @@ const SCHEMA_DDL = [
     "updated_at" DATETIME NOT NULL,
     "messages" JSONB NOT NULL,
     "archived_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "validated_at" DATETIME,
     CONSTRAINT "legacy_session_archives_slug_fkey" FOREIGN KEY ("slug") REFERENCES "users" ("slug") ON DELETE CASCADE ON UPDATE CASCADE
   )`,
   `CREATE TABLE IF NOT EXISTS "sessions" (
@@ -486,7 +487,7 @@ const SCHEMA_DDL = [
   `CREATE INDEX IF NOT EXISTS "two_factor_recovery_user_id_idx" ON "two_factor_recovery"("user_id")`,
 ]
 
-const SCHEMA_VERSION = '13'
+const SCHEMA_VERSION = '14'
 
 function isCreateIndexStatement(ddl: string): boolean {
   return /^CREATE (UNIQUE )?INDEX\b/.test(ddl.trim())
@@ -516,6 +517,7 @@ async function ensureDesktopSchemaColumns(client: DesktopPrismaClient): Promise<
   await ensureColumn(client, 'instances', 'provider_synced_at', 'ALTER TABLE "instances" ADD COLUMN "provider_synced_at" DATETIME')
   await ensureColumn(client, 'knowledge_learning_runs', 'regeneration_change_id', 'ALTER TABLE "knowledge_learning_runs" ADD COLUMN "regeneration_change_id" TEXT')
   await ensureColumn(client, 'instances', 'runtime_kind', 'ALTER TABLE "instances" ADD COLUMN "runtime_kind" TEXT')
+  await ensureColumn(client, 'legacy_session_archives', 'validated_at', 'ALTER TABLE "legacy_session_archives" ADD COLUMN "validated_at" DATETIME')
 }
 
 function getDesktopDatabasePath(): string {

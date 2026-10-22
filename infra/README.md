@@ -28,7 +28,7 @@ validation, `infra/deploy/deploy.sh --local-dev` builds
 `arche-workspace:opencode-v1-1.18.18` next to `arche-workspace:latest`.
 
 V1 and V2 keep separate state: `arche-opencode-share-*` / `arche-opencode-state-*`
-for V1 (read only by the archive helper) and `arche-opencode2-share-*` /
+for V1 (mounted read-only as archive sources) and `arche-opencode2-share-*` /
 `arche-opencode2-state-*` for V2. Desktop bundles the OpenCode 1 binary for the
 same one-time archive and keeps V2 data in `.runtime/opencode-v2`.
 
@@ -41,12 +41,17 @@ next open or flow starts it:
 1. The workspace shows "migrating history" while its V1 conversations (roots and
    subagent children) are exported to `legacy_session_archives`, through the
    still-running V1 container or a temporary pinned V1 helper with project config,
-   plugins, MCP and providers disabled and a read-only workspace mount. The
-   helper and the old container are removed before V2 serves.
+   plugins, MCP and providers disabled. After the old source is stopped and
+   removed, the helper mounts workspace/share/state read-only and copies the
+   share/state contents (including SQLite WAL/SHM) into its disposable writable
+   container layer. The pinned V1 server requires writable SQLite/log storage;
+   it never opens the original volumes for writing. The helper and its copies
+   are removed before V2 serves.
 2. V2 starts on the V2 volumes. Archived conversations are listed with an
    "Archived" marker and open read-only.
 3. If the export fails, the start fails with `legacy_archive_failed` and the next
-   start retries it. Nothing is lost: the V1 volumes are never written. In-flight
+   start retries it. Archive helpers cannot write the original V1 volumes;
+   an existing live V1 server still owns its own state until stopped. In-flight
    V1 message and flow runs are settled with `runtime_migrated` only after a
    successful export; Slack bindings to archived sessions rebind to a new session
    on the next message.

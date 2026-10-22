@@ -278,7 +278,7 @@ describe('startInstance', () => {
         runtimeKind: 'opencode-v2',
       })
       mockInstance.upsertStarting.mockResolvedValue({} as never)
-      mockInstance.setContainerId.mockResolvedValue({} as never)
+      mockInstance.setContainerId.mockResolvedValue({ count: 1 })
       mockInstance.setRunningIfCurrentContainer.mockResolvedValue({ count: 1 })
       mockUser.findIdentityBySlug.mockResolvedValue(null)
       mockDocker.removeContainer.mockResolvedValue(undefined)
@@ -304,7 +304,7 @@ describe('startInstance', () => {
     })
     mockInstance.findBySlug.mockResolvedValue(null)
     mockInstance.upsertStarting.mockResolvedValue({} as never)
-    mockInstance.setContainerId.mockResolvedValue({} as never)
+    mockInstance.setContainerId.mockResolvedValue({ count: 1 })
     mockInstance.setRunningIfCurrentContainer.mockResolvedValue({ count: 1 })
     mockUser.findIdentityBySlug.mockResolvedValue({ id: 'owner-1', slug: 'alice', email: 'alice@example.com' })
     mockDocker.createContainer.mockResolvedValue({ id: 'container-123' } as never)
@@ -315,7 +315,9 @@ describe('startInstance', () => {
 
     expect(result).toEqual({ ok: true, status: 'running' })
     const [slug, password, configContent, agentsMd, skills, gitAuthor] = mockDocker.createContainer.mock.calls[0] ?? []
-    expect(mockInstance.setContainerId).toHaveBeenCalledWith('alice', 'container-123', 'opencode-v2')
+    const startedAt = mockInstance.upsertStarting.mock.calls[0][2]
+    expect(startedAt).toBeInstanceOf(Date)
+    expect(mockInstance.setContainerId).toHaveBeenCalledWith('alice', 'container-123', 'opencode-v2', startedAt)
     expect(mockInstance.setContainerId.mock.invocationCallOrder[0]).toBeLessThan(mockHealth.mock.invocationCallOrder[0])
     expect(mockInstance.setRunningIfCurrentContainer).toHaveBeenCalledWith('alice', 'container-123', expect.any(String), 'opencode-v2')
     expect(slug).toBe('alice')
@@ -353,7 +355,7 @@ describe('startInstance', () => {
       runtimeKind: 'opencode-v2',
     })
     mockInstance.upsertStarting.mockResolvedValue({} as never)
-    mockInstance.setContainerId.mockResolvedValue({} as never)
+    mockInstance.setContainerId.mockResolvedValue({ count: 1 })
     mockInstance.setRunningIfCurrentContainer.mockResolvedValue({ count: 1 })
     mockDocker.removeContainer.mockResolvedValue(undefined)
     mockDocker.createContainer.mockResolvedValue({ id: 'container-123' } as never)
@@ -370,7 +372,7 @@ describe('startInstance', () => {
   it('checks for stale managed container names before creating a container', async () => {
     mockInstance.findBySlug.mockResolvedValue(null)
     mockInstance.upsertStarting.mockResolvedValue({} as never)
-    mockInstance.setContainerId.mockResolvedValue({} as never)
+    mockInstance.setContainerId.mockResolvedValue({ count: 1 })
     mockInstance.setRunningIfCurrentContainer.mockResolvedValue({ count: 1 })
     mockDocker.createContainer.mockResolvedValue({ id: 'container-123' } as never)
     mockDocker.startContainer.mockResolvedValue(undefined)
@@ -394,7 +396,7 @@ describe('startInstance', () => {
       runtimeKind: 'opencode-v2',
     })
     mockInstance.upsertStarting.mockResolvedValue({} as never)
-    mockInstance.setContainerId.mockResolvedValue({} as never)
+    mockInstance.setContainerId.mockResolvedValue({ count: 1 })
     mockInstance.setRunningIfCurrentContainer.mockResolvedValue({ count: 1 })
     mockDocker.removeContainer.mockRejectedValueOnce(new Error('not found'))
     mockDocker.createContainer.mockResolvedValue({ id: 'container-123' } as never)
@@ -410,7 +412,7 @@ describe('startInstance', () => {
   it('syncs providers before marking instance as running', async () => {
     mockInstance.findBySlug.mockResolvedValue(null)
     mockInstance.upsertStarting.mockResolvedValue({} as never)
-    mockInstance.setContainerId.mockResolvedValue({} as never)
+    mockInstance.setContainerId.mockResolvedValue({ count: 1 })
     mockInstance.setRunningIfCurrentContainer.mockResolvedValue({ count: 1 })
     mockUser.findIdentityBySlug.mockResolvedValue({ id: 'owner-1', slug: 'alice', email: 'alice@example.com' })
     mockDocker.createContainer.mockResolvedValue({ id: 'container-123' } as never)
@@ -432,7 +434,7 @@ describe('startInstance', () => {
   it('does not suppress dispose when syncing providers', async () => {
     mockInstance.findBySlug.mockResolvedValue(null)
     mockInstance.upsertStarting.mockResolvedValue({} as never)
-    mockInstance.setContainerId.mockResolvedValue({} as never)
+    mockInstance.setContainerId.mockResolvedValue({ count: 1 })
     mockInstance.setRunningIfCurrentContainer.mockResolvedValue({ count: 1 })
     mockUser.findIdentityBySlug.mockResolvedValue({ id: 'owner-1', slug: 'alice', email: 'alice@example.com' })
     mockDocker.createContainer.mockResolvedValue({ id: 'container-123' } as never)
@@ -452,7 +454,7 @@ describe('startInstance', () => {
     try {
       mockInstance.findBySlug.mockResolvedValue(null)
       mockInstance.upsertStarting.mockResolvedValue({} as never)
-      mockInstance.setContainerId.mockResolvedValue({} as never)
+      mockInstance.setContainerId.mockResolvedValue({ count: 1 })
       mockInstance.setRunningIfCurrentContainer.mockResolvedValue({ count: 1 })
       mockUser.findIdentityBySlug.mockResolvedValue(null)
       mockDocker.createContainer.mockResolvedValue({ id: 'container-123' } as never)
@@ -484,7 +486,7 @@ describe('startInstance', () => {
   it('succeeds through DNS when the direct-IP probe hangs, and cancels the losing probe', async () => {
     mockInstance.findBySlug.mockResolvedValue(null)
     mockInstance.upsertStarting.mockResolvedValue({} as never)
-    mockInstance.setContainerId.mockResolvedValue({} as never)
+    mockInstance.setContainerId.mockResolvedValue({ count: 1 })
     mockInstance.setRunningIfCurrentContainer.mockResolvedValue({ count: 1 })
     mockUser.findIdentityBySlug.mockResolvedValue(null)
     mockDocker.createContainer.mockResolvedValue({ id: 'container-123' } as never)
@@ -525,7 +527,7 @@ describe('startInstance', () => {
   it('bounds each health probe to the remaining startup budget', async () => {
     mockInstance.findBySlug.mockResolvedValue(null)
     mockInstance.upsertStarting.mockResolvedValue({} as never)
-    mockInstance.setContainerId.mockResolvedValue({} as never)
+    mockInstance.setContainerId.mockResolvedValue({ count: 1 })
     mockInstance.setErrorIfCurrentContainer.mockResolvedValue({ count: 1 })
     mockUser.findIdentityBySlug.mockResolvedValue(null)
     mockDocker.createContainer.mockResolvedValue({ id: 'container-123' } as never)
@@ -558,7 +560,7 @@ describe('startInstance', () => {
   it('marks the workspace for restart and fails the start when provider sync fails', async () => {
     mockInstance.findBySlug.mockResolvedValue(null)
     mockInstance.upsertStarting.mockResolvedValue({} as never)
-    mockInstance.setContainerId.mockResolvedValue({} as never)
+    mockInstance.setContainerId.mockResolvedValue({ count: 1 })
     mockInstance.setRunningIfCurrentContainer.mockResolvedValue({ count: 1 })
     mockUser.findIdentityBySlug.mockResolvedValue({ id: 'owner-1', slug: 'alice', email: 'alice@example.com' })
     mockDocker.createContainer.mockResolvedValue({ id: 'container-123' } as never)
@@ -578,7 +580,7 @@ describe('startInstance', () => {
   it('returns timeout when container never becomes healthy', async () => {
     mockInstance.findBySlug.mockResolvedValue(null)
     mockInstance.upsertStarting.mockResolvedValue({} as never)
-    mockInstance.setContainerId.mockResolvedValue({} as never)
+    mockInstance.setContainerId.mockResolvedValue({ count: 1 })
     mockInstance.setErrorIfCurrentContainer.mockResolvedValue({ count: 1 })
     mockDocker.createContainer.mockResolvedValue({ id: 'container-123' } as never)
     mockDocker.startContainer.mockResolvedValue(undefined)
@@ -602,7 +604,7 @@ describe('startInstance', () => {
   it('does not tear down a container when another flow already confirmed it running', async () => {
     mockInstance.findBySlug.mockResolvedValue(null)
     mockInstance.upsertStarting.mockResolvedValue({} as never)
-    mockInstance.setContainerId.mockResolvedValue({} as never)
+    mockInstance.setContainerId.mockResolvedValue({ count: 1 })
     mockUser.findIdentityBySlug.mockResolvedValue(null)
     mockDocker.createContainer.mockResolvedValue({ id: 'container-123' } as never)
     mockDocker.startContainer.mockResolvedValue(undefined)
@@ -631,7 +633,7 @@ describe('startInstance', () => {
   it('removes only its own orphaned container when a newer attempt owns the instance', async () => {
     mockInstance.findBySlug.mockResolvedValue(null)
     mockInstance.upsertStarting.mockResolvedValue({} as never)
-    mockInstance.setContainerId.mockResolvedValue({} as never)
+    mockInstance.setContainerId.mockResolvedValue({ count: 1 })
     mockUser.findIdentityBySlug.mockResolvedValue(null)
     mockDocker.createContainer.mockResolvedValue({ id: 'container-123' } as never)
     mockDocker.startContainer.mockResolvedValue(undefined)
@@ -658,7 +660,7 @@ describe('startInstance', () => {
   it('does not duplicate the audit event when a concurrent flow already published running', async () => {
     mockInstance.findBySlug.mockResolvedValue(null)
     mockInstance.upsertStarting.mockResolvedValue({} as never)
-    mockInstance.setContainerId.mockResolvedValue({} as never)
+    mockInstance.setContainerId.mockResolvedValue({ count: 1 })
     mockUser.findIdentityBySlug.mockResolvedValue(null)
     mockDocker.createContainer.mockResolvedValue({ id: 'container-123' } as never)
     mockDocker.startContainer.mockResolvedValue(undefined)
@@ -690,7 +692,7 @@ describe('startInstance', () => {
   it('cleans up a created container when startup fails without a detail message', async () => {
     mockInstance.findBySlug.mockResolvedValue(null)
     mockInstance.upsertStarting.mockResolvedValue({} as never)
-    mockInstance.setContainerId.mockResolvedValue({} as never)
+    mockInstance.setContainerId.mockResolvedValue({ count: 1 })
     mockInstance.setError.mockResolvedValue({} as never)
     mockDocker.createContainer.mockResolvedValue({ id: 'container-123' } as never)
     mockDocker.startContainer.mockRejectedValue({})
@@ -1000,7 +1002,7 @@ describe('startInstance - agent config transforms', () => {
 
     mockInstance.findBySlug.mockResolvedValue(null)
     mockInstance.upsertStarting.mockResolvedValue({} as never)
-    mockInstance.setContainerId.mockResolvedValue({} as never)
+    mockInstance.setContainerId.mockResolvedValue({ count: 1 })
     mockInstance.setRunningIfCurrentContainer.mockResolvedValue({ count: 1 })
     mockUser.findIdentityBySlug.mockResolvedValue({ id: 'owner-1', slug: 'bob', email: 'bob@example.com' })
     mockDocker.createContainer.mockResolvedValue({ id: 'container-456' } as never)

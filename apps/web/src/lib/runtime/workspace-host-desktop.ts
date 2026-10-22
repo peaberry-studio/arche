@@ -6,6 +6,7 @@ import { findAvailablePort } from '@arche/desktop-runtime/network'
 
 import { isE2eFakeRuntimeEnabled } from '@/lib/e2e/runtime'
 import { CURRENT_RUNTIME_KIND, isCurrentRuntimeKind, syncRuntimeProviderAccess } from '@/lib/harness/registry'
+import { getGatewayModelsCatalog } from '@/lib/providers/zen-catalog'
 import {
   DEFAULT_USERNAME,
   LOOPBACK_HOST,
@@ -13,7 +14,6 @@ import {
   createSafeEnv,
   generateDesktopPassword,
   getDesktopArcheToolsCommand,
-  getDesktopInternalApiRoot,
   getDesktopProviderGatewayConfig,
   getOpencodeBinary,
   getWorkspaceAgentBinary,
@@ -27,6 +27,7 @@ import {
 import { archiveDesktopLegacySessions, cleanupDesktopLegacyArchive } from '@/lib/runtime/desktop/legacy-archive'
 import { waitForProcessExit } from '@/lib/runtime/desktop/process'
 import { getArcheOpencodeDataDir, getDesktopScratch, getLegacyOpencodeDataDir, getWorkspaceDir, hasLegacyOpencodeData } from '@/lib/runtime/desktop/workspace-dirs'
+import { getRuntimeInternalApiRoot, getRuntimeModelsCatalogUrl } from '@/lib/runtime/internal-api'
 import { getKbContentRoot } from '@/lib/runtime/paths'
 import type { WorkspaceHost, WorkspaceHostConnection, WorkspaceHostStatus } from '@/lib/runtime/types'
 import { desktopWorkspaceHostE2e } from '@/lib/runtime/workspace-host-desktop-e2e'
@@ -402,6 +403,10 @@ async function startDesktopWorkspace(
       logDesktopRuntime(slug, 'archive', 'completed', `archived=${archived.data.archived}`)
     }
     const archeDataDir = getArcheOpencodeDataDir()
+    const catalog = await getGatewayModelsCatalog(`${getRuntimeInternalApiRoot()}/providers`)
+    if (!catalog.ok) throw new Error(catalog.error)
+    const modelsCatalogPath = join(archeDataDir, 'models-catalog.json')
+    writeFileSync(modelsCatalogPath, catalog.data, 'utf-8')
     const artifacts = await buildDesktopRuntimeArtifacts(slug)
     const appliedConfigSha = hashWorkspaceRuntimeArtifacts(artifacts)
     const opencodeConfigContent = artifacts.opencodeConfigContent
@@ -431,7 +436,8 @@ async function startDesktopWorkspace(
           OPENCODE_SERVER_PASSWORD: password,
           OPENCODE_SERVER_USERNAME: DEFAULT_USERNAME,
           OPENCODE_PASSWORD: password,
-          OPENCODE_MODELS_URL: `${getDesktopInternalApiRoot()}/models`,
+          OPENCODE_MODELS_URL: getRuntimeModelsCatalogUrl(),
+          OPENCODE_MODELS_PATH: modelsCatalogPath,
           ARCHE_WORKSPACE_SLUG: slug,
           ARCHE_INTERNAL_API_BASE_URL: process.env.ARCHE_INTERNAL_API_BASE_URL ?? `http://${LOOPBACK_HOST}:3000`,
           WORKSPACE_DIR: workspaceDir,

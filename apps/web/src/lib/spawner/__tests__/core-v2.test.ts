@@ -39,13 +39,16 @@ describe('V2 startup attempt', () => {
     vi.mocked(instanceService.findBySlug).mockResolvedValue(null)
     mocks.runtime.mockReturnValue({ ...fakeRuntime(), kind: 'opencode-v2', syncProviderAccess: mocks.sync })
     mocks.sync.mockResolvedValue({ ok: true, data: undefined })
+    vi.mocked(instanceService.setContainerId).mockResolvedValue({ count: 1 })
     vi.mocked(instanceService.setRunningIfCurrentContainer).mockResolvedValue({ count: 1 })
   })
 
   it('records the current runtime kind on both container-keyed state writes', async () => {
     expect(await startInstance('alice', 'admin')).toEqual({ ok: true, status: 'running' })
     expect(createContainer).toHaveBeenCalledWith('alice', 'test', '{}', '', [], { name: 'alice', email: undefined })
-    expect(instanceService.setContainerId).toHaveBeenCalledWith('alice', 'v2-container', 'opencode-v2')
+    const startedAt = vi.mocked(instanceService.upsertStarting).mock.calls[0][2]
+    expect(startedAt).toBeInstanceOf(Date)
+    expect(instanceService.setContainerId).toHaveBeenCalledWith('alice', 'v2-container', 'opencode-v2', startedAt)
     expect(instanceService.setRunningIfCurrentContainer).toHaveBeenCalledWith('alice', 'v2-container', 'hash', 'opencode-v2')
   })
 

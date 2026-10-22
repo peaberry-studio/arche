@@ -16,7 +16,7 @@ export type ExportedSessionMetadata = {
   updatedAt: Date
 }
 
-function toSession(record: Omit<LegacySessionArchive, 'messages'>): ArchivedSession['session'] {
+function toSession(record: Omit<LegacySessionArchive, 'messages' | 'validatedAt'>): ArchivedSession['session'] {
   return {
     id: record.sessionId,
     title: record.title,
@@ -66,10 +66,10 @@ export async function isArchivedSession(slug: string, sessionId: string): Promis
   }) !== null
 }
 
-export async function findExportedSession(slug: string, sessionId: string, client: Prisma.TransactionClient = prisma): Promise<(ExportedSessionMetadata & { messages: WorkspaceMessage[] }) | null> {
+export async function findExportedSession(slug: string, sessionId: string, client: Prisma.TransactionClient = prisma): Promise<(ExportedSessionMetadata & { messages: WorkspaceMessage[]; validatedAt: Date | null }) | null> {
   const record = await client.legacySessionArchive.findUnique({
     where: { slug_sessionId: { slug, sessionId } },
-    select: { parentId: true, title: true, createdAt: true, updatedAt: true, messages: true },
+    select: { parentId: true, title: true, createdAt: true, updatedAt: true, messages: true, validatedAt: true },
   })
   return record ? { ...record, messages: record.messages as WorkspaceMessage[] } : null
 }
@@ -78,6 +78,7 @@ export async function upsertSession(input: ExportedSessionMetadata & {
   slug: string
   sessionId: string
   messages: WorkspaceMessage[]
+  validatedAt?: Date | null
 }, options: { onlyWhileRunning?: boolean } = {}, client: Prisma.TransactionClient = prisma): Promise<boolean> {
   const data = {
     parentId: input.parentId,
@@ -86,6 +87,7 @@ export async function upsertSession(input: ExportedSessionMetadata & {
     updatedAt: input.updatedAt,
     messages: JSON.parse(JSON.stringify(input.messages)) as Prisma.InputJsonValue,
     archivedAt: new Date(),
+    validatedAt: input.validatedAt ?? null,
   }
   const args = {
     where: { slug_sessionId: { slug: input.slug, sessionId: input.sessionId } },
@@ -123,7 +125,7 @@ export async function withArchiveWriteFence<T>(slug: string, work: (tx: Prisma.T
     })
     if (instance.count === 0) return null
     return work(tx)
-  }, { maxWait: 10_000, timeout: 60_000 })
+  }, { maxWait: 5_000, timeout: 5_000 })
 }
 
 export async function reconcileSessions(slug: string, sessionIds: string[], client: Prisma.TransactionClient): Promise<void> {

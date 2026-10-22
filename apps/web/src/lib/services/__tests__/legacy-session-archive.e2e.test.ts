@@ -7,12 +7,38 @@ import type { HarnessSession } from '@/lib/harness/contract'
 import { exportLegacySessions } from '@/lib/harness/legacy-session-archive'
 import * as archive from '@/lib/services/legacy-session-archive'
 
+const locks = vi.hoisted(() => ({
+  desktop: true,
+  owners: new Map<string, object>(),
+  connections: [] as { lose: () => void; end: ReturnType<typeof vi.fn> }[],
+}))
+vi.mock('pg', () => ({ Client: class {
+  private onError?: (error: Error) => void
+  async connect() {}
+  async query(sql: string, [key]: string[]) {
+    expect(sql).toBe('SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS locked')
+    expect(key).toBe(JSON.stringify(['harness-archive', 'alice']))
+    const locked = !locks.owners.has(key)
+    if (locked) locks.owners.set(key, this)
+    return { rows: [{ locked }] }
+  }
+  end = vi.fn(async () => {
+    for (const [key, owner] of locks.owners) if (owner === this) locks.owners.delete(key)
+  })
+  on(_event: string, callback: (error: Error) => void) { this.onError = callback }
+  constructor() {
+    locks.connections.push({ end: this.end, lose: () => { void this.end(); this.onError?.(new Error('lock_lost')) } })
+  }
+} }))
+
 vi.mock('@/lib/prisma', () => ({ prisma: {
   get instance() { return client.instance },
   get legacySessionArchive() { return client.legacySessionArchive },
   $transaction: (callback: Parameters<PrismaClient['$transaction']>[0], options: object) => client.$transaction(callback, options),
 } }))
 vi.mock('@/lib/harness/registry', () => ({ getRuntimeForSlug: vi.fn() }))
+vi.mock('@/lib/runtime/mode', () => ({ isDesktop: () => locks.desktop }))
+vi.mock('@/lib/runtime/desktop/context-store', () => ({ getDesktopVaultRuntimeContext: () => ({ vaultRoot: process.cwd() }) }))
 
 let client: PrismaClient
 
@@ -46,6 +72,10 @@ function sourceRuntime(sessions: HarnessSession[]) {
 
 describe('legacy archive export and SQLite storage', () => {
   beforeEach(async () => {
+    locks.desktop = true
+    locks.owners.clear()
+    locks.connections.length = 0
+    vi.stubEnv('DATABASE_URL', 'postgresql://localhost/test')
     client = new PrismaClient({ adapter: new PrismaBetterSqlite3({ url: ':memory:' }) })
     for (const sql of [
       'PRAGMA foreign_keys = ON',
@@ -56,6 +86,7 @@ describe('legacy archive export and SQLite storage', () => {
         id TEXT PRIMARY KEY, slug TEXT NOT NULL, session_id TEXT NOT NULL, parent_id TEXT, title TEXT NOT NULL,
         created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL, messages JSONB NOT NULL,
         archived_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        validated_at DATETIME,
         UNIQUE (slug, session_id), FOREIGN KEY (slug) REFERENCES users(slug) ON DELETE CASCADE ON UPDATE CASCADE
       )`,
       "INSERT INTO users VALUES ('alice-id', 'alice'), ('bob-id', 'bob')",
@@ -63,7 +94,7 @@ describe('legacy archive export and SQLite storage', () => {
     ]) await client.$executeRawUnsafe(sql)
   })
 
-  afterEach(async () => { await client.$disconnect() })
+  afterEach(async () => { await client.$disconnect(); vi.unstubAllEnvs(); vi.restoreAllMocks(); vi.useRealTimers() })
 
   it('preserves all 40 root/child conversations and parts across export, switch, repeat export and rollback', async () => {
     const sources = Array.from({ length: 20 }, (_, index) => [
@@ -107,7 +138,14 @@ describe('legacy archive export and SQLite storage', () => {
     expect(await client.legacySessionArchive.count()).toBe(1)
     expect(await archive.listSessions('alice')).toEqual([])
 
-    expect(await exportLegacySessions('alice', runtime)).toEqual({ ok: true, data: { archived: 1 } })
+    const checkpoint = await client.legacySessionArchive.findUniqueOrThrow({ where: { slug_sessionId: { slug: 'alice', sessionId: 'root' } } })
+    expect(checkpoint.validatedAt).toBeInstanceOf(Date)
+    const freshReader = sourceRuntime([sourceSession('root'), sourceSession('child', 'root')])
+    vi.resetModules()
+    const retry = await import('@/lib/harness/legacy-session-archive')
+    expect(await retry.exportLegacySessions('alice', freshReader)).toEqual({ ok: true, data: { archived: 1 } })
+    expect(freshReader.listMessages).toHaveBeenCalledExactlyOnceWith('child', { signal: expect.any(AbortSignal) })
+    expect(await client.legacySessionArchive.findUniqueOrThrow({ where: { slug_sessionId: { slug: 'alice', sessionId: 'root' } } })).toEqual(checkpoint)
     const sharedId = await client.legacySessionArchive.findUniqueOrThrow({ where: { slug_sessionId: { slug: 'alice', sessionId: 'root' } } })
     await archive.upsertSession({ ...sharedId, slug: 'bob', messages: [sourceMessage('root')] })
     expect(await client.legacySessionArchive.count()).toBe(3)
@@ -129,5 +167,120 @@ describe('legacy archive export and SQLite storage', () => {
     runtime.listSessions.mockResolvedValue({ ok: true, data: [] })
     expect(await exportLegacySessions('alice', runtime)).toEqual({ ok: true, data: { archived: 0 } })
     expect(await client.legacySessionArchive.count()).toBe(0)
+  })
+
+  it('releases the SQLite connection during runtime reads while serializing overlapping archive exports', async () => {
+    const runtime = sourceRuntime([sourceSession('root')])
+    const started = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    runtime.listMessages.mockImplementationOnce(async (id) => {
+      started.resolve()
+      await release.promise
+      return { ok: true, data: [sourceMessage(id)] }
+    })
+    const exporting = exportLegacySessions('alice', runtime)
+    await started.promise
+    const newer = sourceRuntime([{ ...sourceSession('root'), updatedAtRaw: 1_700_000_100_457 }])
+    try {
+      expect(await client.$transaction(async (tx) => tx.instance.count())).toBe(2)
+      expect(await exportLegacySessions('alice', newer)).toMatchObject({ ok: false, error: { code: 'session_busy' } })
+    } finally {
+      release.resolve()
+      await exporting
+    }
+    expect(await exporting).toMatchObject({ ok: true })
+    expect(await exportLegacySessions('alice', newer)).toEqual({ ok: true, data: { archived: 1 } })
+    expect(await archive.findExportedSession('alice', 'root')).toMatchObject({ updatedAt: new Date(1_700_000_100_457) })
+  })
+
+  it('keeps final inventory HTTP reads outside the reconciliation transaction', async () => {
+    const runtime = sourceRuntime([])
+    const started = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    runtime.listSessions.mockResolvedValueOnce({ ok: true, data: [] }).mockImplementationOnce(async () => {
+      started.resolve()
+      await release.promise
+      return { ok: true, data: [] }
+    })
+    const exporting = exportLegacySessions('alice', runtime)
+    await started.promise
+    try {
+      expect(await client.$transaction(async (tx) => tx.instance.count())).toBe(2)
+    } finally {
+      release.resolve()
+      await exporting
+    }
+    expect(await exporting).toEqual({ ok: true, data: { archived: 0 } })
+  })
+
+  it('never writes or prunes after losing the archive lock while an independent export completes', async () => {
+    locks.desktop = false
+    vi.resetModules()
+    const other = await import('@/lib/harness/legacy-session-archive')
+    const older = sourceRuntime([sourceSession('root')])
+    const started = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    older.listMessages.mockImplementationOnce(async (id) => {
+      started.resolve()
+      await release.promise
+      return { ok: true, data: [sourceMessage(id)] }
+    })
+    const first = exportLegacySessions('alice', older)
+    await started.promise
+    const newer = sourceRuntime([{ ...sourceSession('root'), updatedAtRaw: 1_700_000_100_457 }, sourceSession('new')])
+    try {
+      expect(await other.exportLegacySessions('alice', newer)).toMatchObject({ ok: false, error: { code: 'session_busy' } })
+      expect(newer.listSessions).not.toHaveBeenCalled()
+      locks.connections[0].lose()
+      expect(await other.exportLegacySessions('alice', newer)).toEqual({ ok: true, data: { archived: 2 } })
+    } finally {
+      release.resolve()
+      await first
+    }
+    expect(await first).toMatchObject({ ok: false, error: { code: 'runtime_error', detail: expect.stringContaining('lock_lost') } })
+    expect(await client.legacySessionArchive.count()).toBe(2)
+    expect(await archive.findExportedSession('alice', 'root')).toMatchObject({ updatedAt: new Date(1_700_000_100_457) })
+    expect(locks.owners.size).toBe(0)
+    expect(await other.exportLegacySessions('alice', newer)).toEqual({ ok: true, data: { archived: 0 } })
+  })
+
+  it.each(['initial inventory', 'children', 'final inventory'])('releases a stalled %s read lock and discards late results after a retry', async (stage) => {
+    locks.desktop = false
+    vi.useFakeTimers()
+    const timeout = vi.spyOn(AbortSignal, 'timeout').mockImplementation((ms) => {
+      const controller = new AbortController()
+      setTimeout(() => controller.abort(new Error('archive_read_timeout')), ms)
+      return controller.signal
+    })
+    const older = sourceRuntime(stage === 'final inventory' ? [] : [sourceSession('root')])
+    const started = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    const stalled = async () => {
+      started.resolve()
+      await release.promise
+      return { ok: true as const, data: stage === 'initial inventory' ? [sourceSession('root')] : [] }
+    }
+    if (stage === 'children') older.listChildren.mockImplementationOnce(stalled)
+    else if (stage === 'final inventory') older.listSessions.mockResolvedValueOnce({ ok: true, data: [] }).mockImplementationOnce(stalled)
+    else older.listSessions.mockImplementationOnce(stalled)
+
+    let settled = false
+    const first = exportLegacySessions('alice', older).then((result) => { settled = true; return result })
+    await started.promise
+    try {
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(settled).toBe(true)
+      expect(await first).toMatchObject({ ok: false, error: { code: 'runtime_error', detail: expect.stringContaining('archive_read_timeout') } })
+      expect(locks.owners.size).toBe(0)
+      timeout.mockRestore()
+      vi.useRealTimers()
+      const newer = sourceRuntime([{ ...sourceSession('root'), updatedAtRaw: 1_700_000_100_457 }, sourceSession('new')])
+      expect(await exportLegacySessions('alice', newer)).toEqual({ ok: true, data: { archived: 2 } })
+    } finally {
+      release.resolve()
+      await first
+    }
+    expect(await client.legacySessionArchive.count()).toBe(2)
+    expect(await archive.findExportedSession('alice', 'root')).toMatchObject({ updatedAt: new Date(1_700_000_100_457) })
   })
 })

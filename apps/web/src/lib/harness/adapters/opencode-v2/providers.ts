@@ -1,5 +1,7 @@
 import crypto from 'node:crypto'
 
+import { Client } from 'pg'
+
 import {
   createConnectionClient,
   getInstanceBasicAuth,
@@ -14,7 +16,8 @@ import { getEnabledProviderCredentialsForUser, type EnabledProviderCredentials }
 import { issueGatewayToken } from '@/lib/providers/tokens'
 import { PROVIDERS } from '@/lib/providers/types'
 import { getRuntimeOpencodeConsoleUrl } from '@/lib/runtime/internal-api'
-import { instanceService, messageRunService } from '@/lib/services'
+import { isDesktop } from '@/lib/runtime/mode'
+import { auditService, instanceService, messageRunService } from '@/lib/services'
 
 type Connection = { baseUrl: string; authHeader: string }
 
@@ -58,7 +61,7 @@ function shouldRefreshProviderAccess(args: {
   return Date.now() - args.providerSyncedAt.getTime() >= refreshAgeMs
 }
 
-async function withProviderSyncLock<T>(slug: string, work: () => Promise<T>): Promise<T> {
+async function withProviderSyncLock<T>(slug: string, work: (signal: AbortSignal) => Promise<T>): Promise<T> {
   const previous = providerSyncLocks.get(slug) ?? Promise.resolve()
   let releaseCurrent!: () => void
   const current = new Promise<void>((resolve) => {
@@ -68,11 +71,27 @@ async function withProviderSyncLock<T>(slug: string, work: () => Promise<T>): Pr
   providerSyncLocks.set(slug, current)
   await previous.catch(() => undefined)
 
+  const controller = new AbortController()
+  let lockClient: Client | undefined
   try {
-    return await work()
+    if (!isDesktop()) {
+      const connectionString = process.env.DATABASE_URL
+      if (!connectionString) throw new Error('v2_provider_sync_database_unavailable')
+      lockClient = new Client({ connectionString, connectionTimeoutMillis: 5_000, lock_timeout: 65_000, query_timeout: 70_000 })
+      lockClient.on('error', () => controller.abort())
+      await lockClient.connect()
+      await lockClient.query('SELECT pg_advisory_lock(hashtextextended($1, 0))', [JSON.stringify(['harness-provider-sync', slug])])
+    }
+    controller.signal.throwIfAborted()
+    return await work(controller.signal)
   } finally {
-    releaseCurrent()
-    if (providerSyncLocks.get(slug) === current) providerSyncLocks.delete(slug)
+    controller.abort()
+    try {
+      await lockClient?.end()
+    } finally {
+      releaseCurrent()
+      if (providerSyncLocks.get(slug) === current) providerSyncLocks.delete(slug)
+    }
   }
 }
 
@@ -116,9 +135,10 @@ function buildDesiredCredentials(input: {
 // before anything is removed: a new active entry deactivates its predecessor,
 // and no in-flight request sees an empty slot. Stale entries are then removed
 // inactive-first, so removing an active entry can never reactivate an older one.
-async function replaceManagedCredentials(client: OpenCodeV2Client, desired: Map<string, string>): Promise<void> {
+async function replaceManagedCredentials(client: OpenCodeV2Client, desired: Map<string, string>, input: { slug: string; userId: string; signal: AbortSignal }): Promise<void> {
   const installed = new Set<string>()
   for (const [integrationID, key] of desired) {
+    input.signal.throwIfAborted()
     const entry = await client.credential.create({
       integrationID,
       label: `${ARCHE_CREDENTIAL_LABEL_PREFIX}${integrationID}`,
@@ -126,28 +146,42 @@ async function replaceManagedCredentials(client: OpenCodeV2Client, desired: Map<
       // polls the Console with it; point that at Arche so the gateway token stays here.
       value: { type: 'key', key, ...(integrationID === 'opencode' && { metadata: { server: getRuntimeOpencodeConsoleUrl() } }) },
       activate: true,
-    })
+    }, { signal: input.signal })
     installed.add(entry.id)
   }
 
-  const stale = (await client.credential.list())
+  input.signal.throwIfAborted()
+  const stale = (await client.credential.list({ signal: input.signal }))
     .filter((entry) => isManagedCredential(entry) && !installed.has(entry.id))
     .sort((left, right) => Number(left.active) - Number(right.active))
-  for (const entry of stale) await client.credential.remove({ credentialID: entry.id })
+  for (const entry of stale) {
+    input.signal.throwIfAborted()
+    await client.credential.remove({ credentialID: entry.id }, { signal: input.signal })
+    if (!entry.label.startsWith(ARCHE_CREDENTIAL_LABEL_PREFIX)) {
+      await auditService.createEvent({
+        actorUserId: input.userId,
+        action: 'provider.unlabelled_credential_purged',
+        metadata: { slug: input.slug, credentialId: entry.id, integrationId: entry.integrationID },
+      })
+    }
+  }
 
-  const remaining = (await client.credential.list()).filter(isManagedCredential)
+  input.signal.throwIfAborted()
+  const remaining = (await client.credential.list({ signal: input.signal })).filter(isManagedCredential)
   const consistent = remaining.length === installed.size &&
     remaining.every((entry) => installed.has(entry.id) && entry.active && desired.has(entry.integrationID))
   if (!consistent) throw new Error('v2_managed_credential_state_unconfirmed')
 }
 
-async function waitForRecoveryAfterReload(client: OpenCodeV2Client): Promise<boolean> {
+async function waitForRecoveryAfterReload(client: OpenCodeV2Client, signal: AbortSignal): Promise<boolean> {
   const deadline = Date.now() + RECOVERY_TIMEOUT_MS
   while (Date.now() < deadline) {
+    signal.throwIfAborted()
     try {
-      const info = await client.server.info({ signal: AbortSignal.timeout(RECOVERY_PROBE_TIMEOUT_MS) })
+      const info = await client.server.info({ signal: AbortSignal.any([signal, AbortSignal.timeout(RECOVERY_PROBE_TIMEOUT_MS)]) })
       if (info.version.startsWith('2.')) {
-        await client.model.list(undefined, { signal: AbortSignal.timeout(RECOVERY_PROBE_TIMEOUT_MS) })
+        signal.throwIfAborted()
+        await client.model.list(undefined, { signal: AbortSignal.any([signal, AbortSignal.timeout(RECOVERY_PROBE_TIMEOUT_MS)]) })
         return true
       }
     } catch {
@@ -163,13 +197,14 @@ async function syncProviderAccessForInstance(input: {
   slug: string
   userId: string
   reload: boolean
+  signal: AbortSignal
 }): Promise<HarnessResult<void>> {
   try {
     const enabledByProvider = await getEnabledProviderCredentialsForUser(input.userId)
     const providerSyncHash = buildProviderSyncHash(enabledByProvider)
     const client = createConnectionClient(input.connection)
 
-    await replaceManagedCredentials(client, buildDesiredCredentials({ enabledByProvider, slug: input.slug, userId: input.userId }))
+    await replaceManagedCredentials(client, buildDesiredCredentials({ enabledByProvider, slug: input.slug, userId: input.userId }), input)
 
     if (input.reload) {
       // Reload rebuilds provider discovery and cancels pending permissions, so
@@ -180,13 +215,15 @@ async function syncProviderAccessForInstance(input: {
         return { ok: true, data: undefined }
       }
 
-      await client.location.reload({ signal: AbortSignal.timeout(RELOAD_TIMEOUT_MS) })
-      if (!(await waitForRecoveryAfterReload(client))) {
+      input.signal.throwIfAborted()
+      await client.location.reload({ signal: AbortSignal.any([input.signal, AbortSignal.timeout(RELOAD_TIMEOUT_MS)]) })
+      if (!(await waitForRecoveryAfterReload(client, input.signal))) {
         console.warn('[opencode-v2/providers] Location did not recover after reload', { slug: input.slug })
         return harnessFailure('sync_failed', 'v2_reload_recovery_unconfirmed')
       }
     }
 
+    input.signal.throwIfAborted()
     try {
       await instanceService.setProviderSyncState(input.slug, providerSyncHash, new Date())
     } catch (error) {
@@ -202,7 +239,7 @@ async function syncProviderAccessForInstance(input: {
   }
 }
 
-async function ensureProviderAccessFreshForExecution(slug: string, input: HarnessProviderAccessInput): Promise<HarnessResult<void>> {
+async function ensureProviderAccessFreshForExecution(slug: string, input: HarnessProviderAccessInput, signal: AbortSignal): Promise<HarnessResult<void>> {
   try {
     const expectedHash = buildProviderSyncHash(await getEnabledProviderCredentialsForUser(input.userId))
     const current = await instanceService.findProviderSyncBySlug(slug)
@@ -221,22 +258,26 @@ async function ensureProviderAccessFreshForExecution(slug: string, input: Harnes
 
     const connection = await getInstanceBasicAuth(slug)
     if (!connection) return harnessFailure('instance_unavailable')
-    return syncProviderAccessForInstance({ connection, slug, userId: input.userId, reload: true })
+    return syncProviderAccessForInstance({ connection, slug, userId: input.userId, reload: true, signal })
   } catch (error) {
     return harnessFailure('sync_failed', error instanceof Error ? error.message : undefined)
   }
 }
 
 export async function syncProviderAccess(slug: string, input: HarnessProviderAccessInput): Promise<HarnessResult<void>> {
-  return withProviderSyncLock(slug, async () => {
-    if (!input.connection && input.disposeInstance === undefined) return ensureProviderAccessFreshForExecution(slug, input)
-    let connection: Connection | null
-    try {
-      connection = input.connection ?? await getInstanceBasicAuth(slug)
-    } catch {
-      return harnessFailure('instance_unavailable')
-    }
-    if (!connection) return harnessFailure('instance_unavailable')
-    return syncProviderAccessForInstance({ connection, slug, userId: input.userId, reload: input.disposeInstance !== false })
-  })
+  try {
+    return await withProviderSyncLock(slug, async (signal) => {
+      if (!input.connection && input.disposeInstance === undefined) return ensureProviderAccessFreshForExecution(slug, input, signal)
+      let connection: Connection | null
+      try {
+        connection = input.connection ?? await getInstanceBasicAuth(slug)
+      } catch {
+        return harnessFailure('instance_unavailable')
+      }
+      if (!connection) return harnessFailure('instance_unavailable')
+      return syncProviderAccessForInstance({ connection, slug, userId: input.userId, reload: input.disposeInstance !== false, signal })
+    })
+  } catch {
+    return harnessFailure('sync_failed', 'v2_provider_sync_lock_failed')
+  }
 }

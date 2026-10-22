@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { constants as fsConstants } from 'node:fs'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -9,6 +10,7 @@ import { getWorkspaceRoot, MAX_ATTACHMENT_FILE_BYTES, toToolOutput } from '../sh
 const DEFAULT_SCRATCH_ROOT = '/tmp/arche-scratch'
 const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{1,200}$/
 const SCRATCH_RETENTION_MS = 24 * 60 * 60 * 1000
+const LAST_USED_MARKER = '.last-used'
 
 function getScratchRoot() {
   return path.resolve(process.env.ARCHE_SCRATCH_DIR?.trim() || DEFAULT_SCRATCH_ROOT)
@@ -43,7 +45,7 @@ async function removeStaleSessionDirs(root, keep) {
   const cutoff = Date.now() - SCRATCH_RETENTION_MS
   await Promise.all(entries.filter((entry) => entry.isDirectory() && entry.name !== keep).map(async (entry) => {
     const target = path.join(root, entry.name)
-    const stat = await fs.stat(target).catch(() => null)
+    const stat = await fs.stat(path.join(target, LAST_USED_MARKER)).catch(() => fs.stat(target).catch(() => null))
     if (stat && stat.mtimeMs < cutoff) await fs.rm(target, { recursive: true, force: true }).catch(() => {})
   }))
 }
@@ -53,6 +55,14 @@ async function ensureSessionDir(sessionID) {
   const root = getScratchRoot()
   const dir = path.join(root, sessionID)
   await fs.mkdir(dir, { recursive: true, mode: 0o700 })
+  if ((await fs.lstat(dir)).isSymbolicLink()) return { ok: false, error: 'path_outside_scratch' }
+  const temporaryMarker = path.join(dir, `${LAST_USED_MARKER}-${randomUUID()}`)
+  await fs.writeFile(temporaryMarker, '', { flag: 'wx', mode: 0o600 })
+  try {
+    await fs.rename(temporaryMarker, path.join(dir, LAST_USED_MARKER))
+  } finally {
+    await fs.rm(temporaryMarker, { force: true })
+  }
   await removeStaleSessionDirs(root, sessionID)
   return { ok: true, dir }
 }
