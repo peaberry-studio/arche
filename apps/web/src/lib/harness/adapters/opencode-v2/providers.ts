@@ -1,7 +1,5 @@
 import crypto from 'node:crypto'
 
-import { Client } from 'pg'
-
 import {
   createConnectionClient,
   getInstanceBasicAuth,
@@ -10,13 +8,13 @@ import {
 } from '@/lib/harness/adapters/opencode-v2/client'
 import type { HarnessProviderAccessInput } from '@/lib/harness/contract'
 import { harnessFailure, type HarnessResult } from '@/lib/harness/errors'
+import { withRuntimeOperationLock } from '@/lib/harness/operation-lock'
 import { getCanonicalProviderId, toRuntimeProviderId } from '@/lib/providers/catalog'
 import { getGatewayTokenTtlSeconds } from '@/lib/providers/config'
 import { getEnabledProviderCredentialsForUser, type EnabledProviderCredentials } from '@/lib/providers/store'
 import { issueGatewayToken } from '@/lib/providers/tokens'
 import { PROVIDERS } from '@/lib/providers/types'
 import { getRuntimeOpencodeConsoleUrl } from '@/lib/runtime/internal-api'
-import { isDesktop } from '@/lib/runtime/mode'
 import { auditService, instanceService, messageRunService } from '@/lib/services'
 
 type Connection = { baseUrl: string; authHeader: string }
@@ -32,7 +30,8 @@ const RELOAD_TIMEOUT_MS = 30_000
 const RECOVERY_TIMEOUT_MS = 30_000
 const RECOVERY_POLL_INTERVAL_MS = 1_000
 const RECOVERY_PROBE_TIMEOUT_MS = 3_000
-const providerSyncLocks = new Map<string, Promise<void>>()
+// A waiting sync outlasts one full replacement, reload and recovery.
+const PROVIDER_SYNC_LOCK_WAIT_MS = 65_000
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -59,40 +58,6 @@ function shouldRefreshProviderAccess(args: {
   if (args.providerSyncHash !== args.expectedHash || !args.providerSyncedAt) return true
   const refreshAgeMs = Math.max(0, getGatewayTokenTtlSeconds() * 1000 - PROVIDER_SYNC_REFRESH_SKEW_MS)
   return Date.now() - args.providerSyncedAt.getTime() >= refreshAgeMs
-}
-
-async function withProviderSyncLock<T>(slug: string, work: (signal: AbortSignal) => Promise<T>): Promise<T> {
-  const previous = providerSyncLocks.get(slug) ?? Promise.resolve()
-  let releaseCurrent!: () => void
-  const current = new Promise<void>((resolve) => {
-    releaseCurrent = resolve
-  })
-
-  providerSyncLocks.set(slug, current)
-  await previous.catch(() => undefined)
-
-  const controller = new AbortController()
-  let lockClient: Client | undefined
-  try {
-    if (!isDesktop()) {
-      const connectionString = process.env.DATABASE_URL
-      if (!connectionString) throw new Error('v2_provider_sync_database_unavailable')
-      lockClient = new Client({ connectionString, connectionTimeoutMillis: 5_000, lock_timeout: 65_000, query_timeout: 70_000 })
-      lockClient.on('error', () => controller.abort())
-      await lockClient.connect()
-      await lockClient.query('SELECT pg_advisory_lock(hashtextextended($1, 0))', [JSON.stringify(['harness-provider-sync', slug])])
-    }
-    controller.signal.throwIfAborted()
-    return await work(controller.signal)
-  } finally {
-    controller.abort()
-    try {
-      await lockClient?.end()
-    } finally {
-      releaseCurrent()
-      if (providerSyncLocks.get(slug) === current) providerSyncLocks.delete(slug)
-    }
-  }
 }
 
 // Entries for any provider Arche manages are purged even without the label:
@@ -239,17 +204,18 @@ async function syncProviderAccessForInstance(input: {
   }
 }
 
+async function isProviderAccessFresh(slug: string, input: HarnessProviderAccessInput): Promise<boolean> {
+  if (input.force) return false
+  const expectedHash = buildProviderSyncHash(await getEnabledProviderCredentialsForUser(input.userId))
+  const current = await instanceService.findProviderSyncBySlug(slug)
+  return current?.status === 'running' &&
+    !shouldRefreshProviderAccess({ expectedHash, providerSyncHash: current.providerSyncHash, providerSyncedAt: current.providerSyncedAt })
+}
+
 async function ensureProviderAccessFreshForExecution(slug: string, input: HarnessProviderAccessInput, signal: AbortSignal): Promise<HarnessResult<void>> {
   try {
-    const expectedHash = buildProviderSyncHash(await getEnabledProviderCredentialsForUser(input.userId))
-    const current = await instanceService.findProviderSyncBySlug(slug)
-    if (
-      !input.force &&
-      current?.status === 'running' &&
-      !shouldRefreshProviderAccess({ expectedHash, providerSyncHash: current.providerSyncHash, providerSyncedAt: current.providerSyncedAt })
-    ) {
-      return { ok: true, data: undefined }
-    }
+    // Re-checked under the lock: the previous holder may have just refreshed.
+    if (await isProviderAccessFresh(slug, input)) return { ok: true, data: undefined }
 
     if (await messageRunService.hasActiveRunForSlug(slug, { ignoreRunId: input.ignoreActiveRunId })) {
       console.warn('[opencode-v2/providers] Deferred provider sync while workspace runs are active', { slug })
@@ -265,9 +231,16 @@ async function ensureProviderAccessFreshForExecution(slug: string, input: Harnes
 }
 
 export async function syncProviderAccess(slug: string, input: HarnessProviderAccessInput): Promise<HarnessResult<void>> {
+  const executionCheck = !input.connection && input.disposeInstance === undefined
   try {
-    return await withProviderSyncLock(slug, async (signal) => {
-      if (!input.connection && input.disposeInstance === undefined) return ensureProviderAccessFreshForExecution(slug, input, signal)
+    // Most execution checks find access fresh; they need no lock connection.
+    if (executionCheck && await isProviderAccessFresh(slug, input)) return { ok: true, data: undefined }
+  } catch {
+    // The locked path below reports the failure.
+  }
+  try {
+    const result = await withRuntimeOperationLock(JSON.stringify(['harness-provider-sync', slug]), async (signal) => {
+      if (executionCheck) return ensureProviderAccessFreshForExecution(slug, input, signal)
       let connection: Connection | null
       try {
         connection = input.connection ?? await getInstanceBasicAuth(slug)
@@ -276,7 +249,12 @@ export async function syncProviderAccess(slug: string, input: HarnessProviderAcc
       }
       if (!connection) return harnessFailure('instance_unavailable')
       return syncProviderAccessForInstance({ connection, slug, userId: input.userId, reload: input.disposeInstance !== false, signal })
-    })
+    }, { waitMs: PROVIDER_SYNC_LOCK_WAIT_MS })
+    // Provider sync never reports a busy session itself: busy is the lock timing out.
+    if (!result.ok && result.error.code === 'session_busy') {
+      return harnessFailure('sync_failed', result.error.detail === 'runtime_lock_capacity' ? 'v2_provider_sync_lock_capacity' : 'v2_provider_sync_lock_busy')
+    }
+    return result
   } catch {
     return harnessFailure('sync_failed', 'v2_provider_sync_lock_failed')
   }

@@ -1,3 +1,5 @@
+import { tmpdir } from 'node:os'
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createOpenCodeV2Runtime } from '@/lib/harness/adapters/opencode-v2/runtime'
@@ -6,7 +8,7 @@ import type { ProviderId } from '@/lib/providers/types'
 import { auditService, instanceService, messageRunService } from '@/lib/services'
 
 const mocks = vi.hoisted(() => {
-  const locks = new Map<string, Promise<void>>()
+  const locks = new Map<string, object>()
   const failures: { connect?: Error; query?: Error } = {}
   const clients: Array<{
     connect: ReturnType<typeof vi.fn>
@@ -17,22 +19,22 @@ const mocks = vi.hoisted(() => {
   const lockAttempt = vi.fn()
   return {
     auth: vi.fn(), desktop: vi.fn(() => false), findSync: vi.fn(), freshness: vi.fn(), clients, failures, locks, lockAttempt,
+    // Session-level advisory locks shared by every fake connection, as in PostgreSQL.
     Client: vi.fn(function () {
-      let release: (() => void) | undefined
       const client = {
         connect: vi.fn(async () => { if (failures.connect) throw failures.connect }),
         on: vi.fn(),
         query: vi.fn(async (_sql: string, values: string[]) => {
           if (failures.query) throw failures.query
           const key = values[0]
-          const previous = locks.get(key)
-          const current = new Promise<void>((resolve) => { release = resolve })
-          locks.set(key, current)
           lockAttempt(key)
-          await previous
-          return { rows: [] }
+          const locked = !locks.has(key)
+          if (locked) locks.set(key, client)
+          return { rows: [{ locked }] }
         }),
-        end: vi.fn(async () => { release?.() }),
+        end: vi.fn(async () => {
+          for (const [key, owner] of locks) if (owner === client) locks.delete(key)
+        }),
       }
       clients.push(client)
       return client
@@ -183,6 +185,8 @@ describe('V2 provider access sync through the real adapter and client', () => {
     expect(await createOpenCodeV2Runtime('alice').syncProviderAccess({ userId: 'user-1' })).toEqual({ ok: true, data: undefined })
     expect(server.calls).toEqual([])
     expect(instanceService.setProviderSyncState).not.toHaveBeenCalled()
+    // A fresh execution check answers without opening a lock connection.
+    expect(mocks.Client).not.toHaveBeenCalled()
   })
 
   it('defers an execution refresh while another run is active, without touching the store', async () => {
@@ -230,6 +234,7 @@ describe('V2 provider access sync through the real adapter and client', () => {
 
   it('keeps desktop refreshes serialized without a PostgreSQL connection', async () => {
     mocks.desktop.mockReturnValue(true)
+    vi.stubEnv('ARCHE_DATA_DIR', tmpdir())
     const server = credentialServer()
     const runtime = createOpenCodeV2Runtime('alice')
     const results = await Promise.all([runtime.syncProviderAccess({ userId: 'user-1', force: true }), runtime.syncProviderAccess({ userId: 'user-1', force: true })])
@@ -282,11 +287,12 @@ describe('V2 provider access sync through the real adapter and client', () => {
     expect(server.calls.slice(0, firstFreshness).slice(-3)).toEqual(['POST /api/location/reload', 'GET /api/info', 'GET /api/model'])
     expect(server.calls.filter((call) => call === 'POST /api/credential')).toHaveLength(force ? 4 : 2)
     expect(mocks.clients).toHaveLength(2)
-    expect(mocks.Client).toHaveBeenCalledWith({ connectionString: 'postgresql://localhost/fixture', connectionTimeoutMillis: 5_000, lock_timeout: 65_000, query_timeout: 70_000 })
+    expect(mocks.Client).toHaveBeenCalledWith({ connectionString: 'postgresql://localhost/fixture', connectionTimeoutMillis: 5_000, query_timeout: 5_000 })
     for (const client of mocks.clients) {
-      expect(client.query).toHaveBeenCalledWith('SELECT pg_advisory_lock(hashtextextended($1, 0))', [JSON.stringify(['harness-provider-sync', 'alice'])])
+      expect(client.query).toHaveBeenCalledWith('SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS locked', [JSON.stringify(['harness-provider-sync', 'alice'])])
       expect(client.end).toHaveBeenCalledOnce()
     }
+    expect(mocks.locks.size).toBe(0)
   })
 
   it.each(['connect', 'query'] as const)('fails closed and releases the local queue after a PostgreSQL %s failure', async (phase) => {

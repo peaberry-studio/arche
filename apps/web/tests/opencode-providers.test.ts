@@ -5,7 +5,7 @@ vi.mock('pg', () => ({
     connect = vi.fn()
     end = vi.fn()
     on = vi.fn()
-    query = vi.fn()
+    query = vi.fn(async () => ({ rows: [{ locked: true }] }))
   },
 }))
 
