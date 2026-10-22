@@ -113,6 +113,24 @@ describe('V2 event transport using the installed client', () => {
     await iterator.return?.()
   })
 
+  it('drops a malformed known event and keeps streaming the next ones', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const source = stream()
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => String(url).endsWith('/api/event') ? source.response : snapshotResponse(url)))
+    const controller = new AbortController()
+    const subscription = await subscribeOpenCodeEvents('alice', controller.signal)
+    if (!subscription.ok) throw new Error(subscription.error.code)
+    const iterator = subscription.data[Symbol.asyncIterator]()
+    const next = iterator.next()
+    source.send({ id: 'evt_bad_permission', created: 1, type: 'permission.asked', location: { directory: '/workspace' }, data: { sessionID: SESSION_ID } })
+    source.send(textEvents[2])
+    expect((await next).value).toMatchObject({ type: 'part.delta', delta: 'Hello fixture' })
+    expect(warn).toHaveBeenCalledWith('[opencode-v2] Dropped untranslatable event', expect.objectContaining({ type: 'permission.asked', id: 'evt_bad_permission' }))
+    controller.abort()
+    await iterator.return?.()
+    warn.mockRestore()
+  })
+
   it('returns on SSE headers without waiting for a first payload and keeps a quiet stream alive', async () => {
     vi.useFakeTimers()
     const source = stream()

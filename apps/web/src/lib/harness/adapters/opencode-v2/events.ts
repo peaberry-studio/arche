@@ -218,8 +218,9 @@ export async function subscribeOpenCodeEvents(slug: string, signal: AbortSignal)
           }
           if (inLocation || (!event.location && sessionId && sessionIds.has(sessionId))) {
             const translated = translateOpenCodeEvent(event)
-            if (!translated.ok) throw new Error(translated.error.detail)
-            yield* translated.data
+            // One untranslatable payload must not end every subscriber's stream.
+            if (translated.ok) yield* translated.data
+            else console.warn('[opencode-v2] Dropped untranslatable event', { type: event.type, id: event.id, detail: translated.error.detail })
           }
           if (event.type === 'session.deleted') sessionIds.delete(event.data.sessionID)
           current = await source.next()
