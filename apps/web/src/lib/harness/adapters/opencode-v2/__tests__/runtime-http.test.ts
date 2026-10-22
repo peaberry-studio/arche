@@ -18,9 +18,15 @@ type Request = { method?: string; path: string; query: URLSearchParams; body: un
 
 function transport(responses: Response[], prompt = false) {
   const requests: Request[] = []
+  let rootResolved = false
   const fetch = vi.fn(async (input: string | URL, options: RequestInit = {}) => {
     const url = new URL(input)
     if (prompt && url.pathname === '/api/session/active') return Response.json({ data: {} })
+    // Prompt admission first resolves the session tree root; the fixture session has no parent.
+    if (prompt && !rootResolved && (options.method ?? 'GET') === 'GET' && url.pathname === `/api/session/${SESSION_ID}`) {
+      rootResolved = true
+      return Response.json({ data: nativeSession() })
+    }
     expect(new Headers(options.headers).get('Authorization')).toBe('Basic fixture-only')
     requests.push({ method: options.method, path: url.pathname, query: url.searchParams, body: typeof options.body === 'string' ? JSON.parse(options.body) : undefined, signal: options.signal })
     const response = responses.shift()

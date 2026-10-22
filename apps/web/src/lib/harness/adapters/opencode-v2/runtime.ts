@@ -22,6 +22,8 @@ type PromptFile = NonNullable<SessionPromptInput['files']>[number]
 const INLINE_IMAGE_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp'])
 const SYNC_FAMILY_IDLE_TIMEOUT_MS = 60_000
 const SYNC_FAMILY_IDLE_POLL_MS = 1_000
+// Bounds the parent walk to the root, in case a runtime ever reports a cycle.
+const MAX_SESSION_DEPTH = 32
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -83,6 +85,31 @@ export function createOpenCodeV2Runtime(slug: string): HarnessRuntime {
     return sessions.map(requireSession)
   }
 
+  async function resolveRootSessionId(client: OpenCodeV2Client, sessionId: string, options?: HarnessOperationOptions): Promise<string> {
+    const visited = new Set<string>()
+    let current = sessionId
+    while (!visited.has(current) && visited.size < MAX_SESSION_DEPTH) {
+      visited.add(current)
+      const parentId = (await client.session.get({ sessionID: current }, options)).parentID
+      if (!parentId) break
+      current = parentId
+    }
+    return current
+  }
+
+  // A tree is busy while any active session belongs to it. An active session
+  // that cannot be placed counts as busy, so admission fails closed.
+  async function isSessionTreeActive(client: OpenCodeV2Client, rootSessionId: string, options?: HarnessOperationOptions): Promise<boolean> {
+    for (const sessionId of Object.keys(await client.session.active(options))) {
+      try {
+        if (await resolveRootSessionId(client, sessionId, options) === rootSessionId) return true
+      } catch {
+        return true
+      }
+    }
+    return false
+  }
+
   // No native no-reply exists on 2.0.32: `resume:false` keeps the input in the
   // inbox, idle and undelivered, and the next prompt delivers it ahead of its
   // own text, so the model sees it exactly once, as with V1 `noReply`.
@@ -90,7 +117,10 @@ export function createOpenCodeV2Runtime(slug: string): HarnessRuntime {
     try {
       const client = await createInstanceClient(slug)
       if (!client) return harnessFailure('instance_unavailable')
-      return await withSessionSubmissionLock(slug, input.sessionId, options, async (operationOptions) => {
+      // One generation per session tree: admission is keyed on the tree's root
+      // and the whole tree is re-checked under that lock.
+      const rootSessionId = await resolveRootSessionId(client, input.sessionId, options)
+      return await withSessionSubmissionLock(slug, rootSessionId, options, async (operationOptions) => {
         const session = await client.session.get({ sessionID: input.sessionId }, operationOptions)
         const files: PromptFile[] = []
         for (const part of input.parts) {
@@ -99,7 +129,7 @@ export function createOpenCodeV2Runtime(slug: string): HarnessRuntime {
           if (!file) return harnessFailure('runtime_unsupported', 'v2_prompt_file_uri_unsupported')
           files.push(file)
         }
-        if ((await client.session.active(operationOptions))[input.sessionId]) return harnessFailure('session_busy')
+        if (await isSessionTreeActive(client, rootSessionId, operationOptions)) return harnessFailure('session_busy')
         if (input.agent && input.agent !== session.agent) await client.session.switchAgent({ sessionID: input.sessionId, agent: input.agent }, operationOptions)
         const model = input.model ? { providerID: resolveRuntimeProviderId(input.model.providerId), id: input.model.modelId } : undefined
         if (model && (model.providerID !== session.model?.providerID || model.id !== session.model.id)) {
