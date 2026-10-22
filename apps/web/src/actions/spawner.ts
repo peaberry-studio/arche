@@ -91,6 +91,20 @@ export async function listActiveInstancesAction() {
   return listActiveInstances()
 }
 
+// Start failures a later attempt clears on its own: a busy legacy session, an
+// upstream catalog outage, an unavailable container inventory, or a concurrent
+// attempt that took over. The client keeps polling within its startup timeout.
+const RETRYABLE_START_DETAILS = new Set([
+  'catalog_unavailable',
+  'legacy_archive_busy',
+  'runtime_upgrade_check_failed',
+  'startup superseded by another attempt',
+])
+
+function isRetryableStartFailure(detail: string | undefined): boolean {
+  return detail !== undefined && RETRYABLE_START_DETAILS.has(detail)
+}
+
 /**
  * Ensures the instance is running. If not, it starts it.
  * Returns the current instance status.
@@ -157,7 +171,7 @@ export async function ensureInstanceRunningAction(slug: string): Promise<{
     console.log('[ensureInstanceRunning] Start result:', result)
 
     if (!result.ok) {
-      if (result.error === 'runtime_upgrade_pending') return { status: 'starting' }
+      if (result.error === 'runtime_upgrade_pending' || isRetryableStartFailure(result.detail)) return { status: 'starting' }
       return { status: 'error', error: result.detail ?? result.error }
     }
 

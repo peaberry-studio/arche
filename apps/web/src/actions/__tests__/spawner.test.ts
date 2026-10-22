@@ -279,6 +279,25 @@ describe('ensureInstanceRunningAction', () => {
     expect(await ensureInstanceRunningAction('alice')).toEqual({ status: 'starting' })
   })
 
+  it.each([
+    'catalog_unavailable',
+    'legacy_archive_busy',
+    'runtime_upgrade_check_failed',
+    'startup superseded by another attempt',
+  ])('keeps polling after a transient %s start failure', async (detail) => {
+    mockGetSession.mockResolvedValue(fakeSession)
+    mockStatus.mockResolvedValue({ status: 'stopped' } as never)
+    mockStart.mockResolvedValue({ ok: false, error: 'start_failed', detail } as never)
+    expect(await ensureInstanceRunningAction('alice')).toEqual({ status: 'starting' })
+  })
+
+  it.each(['legacy_archive_failed', 'sync_failed', 'healthcheck timeout'])('reports a %s start failure as final', async (detail) => {
+    mockGetSession.mockResolvedValue(fakeSession)
+    mockStatus.mockResolvedValue({ status: 'stopped' } as never)
+    mockStart.mockResolvedValue({ ok: false, error: 'start_failed', detail } as never)
+    expect(await ensureInstanceRunningAction('alice')).toEqual({ status: 'error', error: detail })
+  })
+
   it('returns unauthorized without session', async () => {
     mockGetSession.mockResolvedValue(null)
     const result = await ensureInstanceRunningAction('alice')
