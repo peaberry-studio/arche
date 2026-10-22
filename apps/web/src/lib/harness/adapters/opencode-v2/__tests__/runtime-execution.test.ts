@@ -246,7 +246,7 @@ describe('V2 primitives in shared execution (real adapter and matched HTTP clien
     if (stage === 'messages') vi.spyOn(runtime, 'listMessages').mockResolvedValueOnce({ ok: true, data: [] }).mockResolvedValue(failure)
 
     await expect(runtime.sendMessage({ sessionId: SESSION_ID, parts: [{ type: 'text', text: 'Question' }] }))
-      .resolves.toEqual({ ok: false, error: { code: 'runtime_error', detail: 'fetch_failed' } })
+      .resolves.toEqual(failure)
     expect(calls.filter((call) => call.path.endsWith('/prompt'))).toHaveLength(stage === 'cursor' ? 0 : 1)
   })
 

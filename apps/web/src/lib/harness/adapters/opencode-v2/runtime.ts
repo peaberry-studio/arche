@@ -166,7 +166,7 @@ export function createOpenCodeV2Runtime(slug: string): HarnessRuntime {
       const execution = await import('@/lib/harness/execution')
       try {
         const cursor = await execution.captureSessionMessageCursor(runtime, input.sessionId)
-        if (!cursor.ok) return harnessFailure('runtime_error', cursor.error.code)
+        if (!cursor.ok) return cursor
         const submitted = await submitPrompt(input)
         if (!submitted.ok) return submitted
         if (input.noReply) {
@@ -174,7 +174,7 @@ export function createOpenCodeV2Runtime(slug: string): HarnessRuntime {
           return message ? { ok: true, data: message } : harnessFailure('runtime_error', 'Invalid V2 inbox response')
         }
         const completion = await execution.waitForSessionToComplete({ client: runtime, cursor: cursor.data, sessionId: input.sessionId, slug })
-        if (completion.status === 'error') return harnessFailure('runtime_error', completion.error.code)
+        if (completion.status === 'error') return { ok: false, error: completion.error }
         if (completion.status === 'termination_unconfirmed') return harnessFailure('execution_termination_unconfirmed', completion.cause)
         const familyDeadline = Date.now() + SYNC_FAMILY_IDLE_TIMEOUT_MS
         while (await execution.readSessionFamilyRuntimeState(runtime, input.sessionId) !== 'idle') {
