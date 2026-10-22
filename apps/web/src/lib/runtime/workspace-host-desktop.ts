@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from 'child_process'
-import { writeFileSync } from 'fs'
+import { readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 
 import { findAvailablePort } from '@arche/desktop-runtime/network'
@@ -403,9 +403,15 @@ async function startDesktopWorkspace(
       logDesktopRuntime(slug, 'archive', 'completed', `archived=${archived.data.archived}`)
     }
     const archeDataDir = getArcheOpencodeDataDir()
-    const catalog = await getGatewayModelsCatalog(`${getRuntimeInternalApiRoot()}/providers`)
-    if (!catalog.ok) throw new Error(catalog.error)
     const modelsCatalogPath = join(archeDataDir, 'models-catalog.json')
+    let lastRendered: string | null = null
+    try {
+      lastRendered = readFileSync(modelsCatalogPath, 'utf-8')
+    } catch {
+      // First start on this vault: nothing to fall back to.
+    }
+    const catalog = await getGatewayModelsCatalog(`${getRuntimeInternalApiRoot()}/providers`, lastRendered)
+    if (!catalog.ok) throw new Error(catalog.error)
     writeFileSync(modelsCatalogPath, catalog.data, 'utf-8')
     const artifacts = await buildDesktopRuntimeArtifacts(slug)
     const appliedConfigSha = hashWorkspaceRuntimeArtifacts(artifacts)

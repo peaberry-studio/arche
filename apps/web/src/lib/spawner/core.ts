@@ -128,6 +128,11 @@ export async function startInstance(
     return { ok: false, error: 'start_failed', detail: 'runtime_upgrade_check_failed' }
   }
 
+  // Resolved before anything is claimed or removed: without a gateway-safe
+  // catalog the new runtime cannot start, so the current state must survive.
+  const modelsCatalog = await docker.prepareModelsCatalog(slug)
+  if (!modelsCatalog.ok) return { ok: false, error: 'start_failed', detail: modelsCatalog.error }
+
   const password = generatePassword()
   const encryptedPassword = encryptPassword(password)
   let ownedStartedAt = new Date()
@@ -207,7 +212,7 @@ export async function startInstance(
     const container = await docker.createContainer(slug, password, opencodeConfigContent, agentsMd, skills, {
       name: owner?.slug ?? slug,
       email: owner?.email ?? undefined,
-    })
+    }, modelsCatalog.data)
     containerId = container.id
     await docker.startContainer(container.id)
 

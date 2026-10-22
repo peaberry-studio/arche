@@ -33,6 +33,7 @@ vi.mock('@/lib/harness/registry', () => ({
 }))
 vi.mock('@/lib/spawner/docker', () => ({
   hasLegacyBackendWriters: vi.fn().mockResolvedValue(false),
+  prepareModelsCatalog: vi.fn().mockResolvedValue({ ok: true, data: '{}' }),
   removeOrphanedV2ContainerForSlug: vi.fn().mockResolvedValue(undefined),
   createArchiveContainer: vi.fn(), createContainer: vi.fn(), startContainer: vi.fn(), removeContainer: vi.fn(),
   removeManagedContainerForSlug: vi.fn(), isContainerRunning: vi.fn(), inspectContainer: vi.fn(),
@@ -94,7 +95,7 @@ describe('archive-on-start', () => {
     expect(getLegacySessionReader).toHaveBeenCalledWith('alice', expect.objectContaining({ baseUrl: 'http://opencode-alice:4096' }))
     expect(vi.mocked(exportLegacySessions).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(docker.createContainer).mock.invocationCallOrder[0])
     expect(vi.mocked(settleRuntimeMigratedRuns).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(docker.createContainer).mock.invocationCallOrder[0])
-    expect(docker.createContainer).toHaveBeenCalledWith('alice', 'test-only', '{}', '', [], expect.anything())
+    expect(docker.createContainer).toHaveBeenCalledWith('alice', 'test-only', '{}', '', [], expect.anything(), '{}')
     expect(instanceService.setContainerId).toHaveBeenCalledWith('alice', 'next', 'opencode-v2', vi.mocked(instanceService.continueStartingTransition).mock.calls[0][3])
   })
 
@@ -362,6 +363,18 @@ describe('archive-on-start', () => {
     expect(getLegacySessionReader).not.toHaveBeenCalled()
     expect(exportLegacySessions).not.toHaveBeenCalled()
     expect(settleRuntimeMigratedRuns).not.toHaveBeenCalled()
-    expect(docker.createContainer).toHaveBeenCalledWith('alice', 'test-only', '{}', '', [], expect.anything())
+    expect(docker.createContainer).toHaveBeenCalledWith('alice', 'test-only', '{}', '', [], expect.anything(), '{}')
+  })
+
+  it.each(['opencode-v1', 'opencode-v2'])('keeps the current %s state untouched when no gateway-safe catalog is available', async (runtimeKind) => {
+    vi.mocked(instanceService.findBySlug).mockResolvedValue(legacyInstance(runtimeKind))
+    vi.mocked(docker.prepareModelsCatalog).mockResolvedValueOnce({ ok: false, error: 'catalog_unavailable' })
+    expect(await startInstance('alice', 'owner')).toEqual({ ok: false, error: 'start_failed', detail: 'catalog_unavailable' })
+    expect(instanceService.claimStartingTransition).not.toHaveBeenCalled()
+    expect(docker.removeManagedArchiveContainerForSlug).not.toHaveBeenCalled()
+    expect(docker.removeContainer).not.toHaveBeenCalled()
+    expect(docker.removeManagedContainerForSlug).not.toHaveBeenCalled()
+    expect(exportLegacySessions).not.toHaveBeenCalled()
+    expect(docker.createContainer).not.toHaveBeenCalled()
   })
 })

@@ -87,12 +87,50 @@ describe('Zen model catalog for OpenCode 2', () => {
     fetchMock.mockResolvedValueOnce(new Response('down', { status: 503 }))
     expect(await getGatewayModelsCatalog(GATEWAY)).toEqual({ ok: false, error: 'catalog_unavailable' })
 
+    vi.advanceTimersByTime(15_000)
     const fresh = await getGatewayModelsCatalog(GATEWAY)
     expect(fresh.ok).toBe(true)
 
     vi.advanceTimersByTime(5 * 60_000)
     fetchMock.mockRejectedValueOnce(new Error('network down'))
     expect(await getGatewayModelsCatalog(GATEWAY)).toEqual(fresh)
+  })
+
+  it('does not wait on upstream again for every start right after a failure', async () => {
+    const { getGatewayModelsCatalog } = await loadModule()
+    fetchMock.mockRejectedValue(new Error('network down'))
+    expect(await getGatewayModelsCatalog(GATEWAY)).toEqual({ ok: false, error: 'catalog_unavailable' })
+    expect(await getGatewayModelsCatalog(GATEWAY)).toEqual({ ok: false, error: 'catalog_unavailable' })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    vi.advanceTimersByTime(15_000)
+    fetchMock.mockResolvedValue(Response.json(upstreamCatalog()))
+    expect((await getGatewayModelsCatalog(GATEWAY)).ok).toBe(true)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('falls back to a previously rendered gateway-safe catalog when this process has none', async () => {
+    const { getGatewayModelsCatalog, rewriteZenCatalog } = await loadModule()
+    const previous = JSON.stringify(rewriteZenCatalog(upstreamCatalog(), GATEWAY))
+    fetchMock.mockRejectedValue(new Error('network down'))
+    expect(await getGatewayModelsCatalog(GATEWAY, previous)).toEqual({ ok: true, data: previous })
+  })
+
+  type Rewrite = (catalog: Record<string, unknown>, gatewayRoot: string) => Record<string, unknown>
+  it.each([
+    ['an unrewritten catalog', () => JSON.stringify(upstreamCatalog())],
+    ['a catalog rendered for another gateway', (rewrite: Rewrite) => JSON.stringify(rewrite(upstreamCatalog(), 'http://other:3000/api/internal/providers'))],
+    ['a catalog without the Go provider', (rewrite: Rewrite) => JSON.stringify({ ...rewrite(upstreamCatalog(), GATEWAY), 'opencode-go': undefined })],
+    ['a catalog with one model left on opencode.ai', (rewrite: Rewrite) => {
+      const rendered = rewrite(upstreamCatalog(), GATEWAY) as { opencode: { models: Record<string, unknown> } }
+      rendered.opencode.models.leak = { id: 'leak', provider: { api: 'https://opencode.ai/inference/openai/v1' } }
+      return JSON.stringify(rendered)
+    }],
+    ['invalid JSON', () => '{'],
+  ])('never falls back to %s', async (_label, previous) => {
+    const { getGatewayModelsCatalog, rewriteZenCatalog } = await loadModule()
+    fetchMock.mockRejectedValue(new Error('network down'))
+    expect(await getGatewayModelsCatalog(GATEWAY, previous(rewriteZenCatalog))).toEqual({ ok: false, error: 'catalog_unavailable' })
   })
 
   it.each([

@@ -151,6 +151,18 @@ async function removeManagedContainerForSlugWithClient(docker: DockerClient, slu
   }
 }
 
+// Resolves the boot model catalog for a workspace, falling back to the one its
+// previous start wrote when upstream is unavailable. Callers resolve it before
+// tearing anything down, so an outage leaves the old container in place.
+export async function prepareModelsCatalog(slug: string): Promise<{ ok: true; data: string } | { ok: false; error: 'catalog_unavailable' }> {
+  const { getRuntimeInternalApiRoot } = await import('@/lib/runtime/internal-api')
+  const { getGatewayModelsCatalog } = await import('@/lib/providers/zen-catalog')
+  const { readFile } = await importRuntimeModule<typeof import("fs/promises")>("fs/promises");
+  const { join } = await importRuntimeModule<typeof import("path")>("path");
+  const lastRendered = await readFile(join(getUserDataHostPath(slug), 'models-catalog.json'), 'utf-8').catch(() => null)
+  return getGatewayModelsCatalog(`${getRuntimeInternalApiRoot()}/providers`, lastRendered)
+}
+
 export async function createContainer(
   slug: string,
   password: string,
@@ -158,11 +170,11 @@ export async function createContainer(
   agentsMd?: string,
   skills?: SkillBundle[],
   gitAuthor?: { name: string; email?: string },
+  modelsCatalog?: string,
 ) {
   const docker = await getContainerClient();
-  const { getRuntimeInternalApiRoot, getRuntimeModelsCatalogUrl } = await import('@/lib/runtime/internal-api')
-  const { getGatewayModelsCatalog } = await import('@/lib/providers/zen-catalog')
-  const catalog = await getGatewayModelsCatalog(`${getRuntimeInternalApiRoot()}/providers`)
+  const { getRuntimeModelsCatalogUrl } = await import('@/lib/runtime/internal-api')
+  const catalog = modelsCatalog === undefined ? await prepareModelsCatalog(slug) : { ok: true as const, data: modelsCatalog }
   if (!catalog.ok) throw new Error(catalog.error)
   const containerName = `opencode-${slug}`;
   const volumeName = `arche-workspace-${slug}`;

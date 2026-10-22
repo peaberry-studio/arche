@@ -335,7 +335,7 @@ describe('desktopWorkspaceHost', () => {
     const { instanceService } = await import('@/lib/services')
     const { desktopWorkspaceHost } = await import('@/lib/runtime/workspace-host-desktop')
     const starting = desktopWorkspaceHost.start('local', 'user-1')
-    await vi.waitFor(() => expect(mockGetGatewayModelsCatalog).toHaveBeenCalledWith('http://127.0.0.1:3000/api/internal/providers'))
+    await vi.waitFor(() => expect(mockGetGatewayModelsCatalog).toHaveBeenCalledWith('http://127.0.0.1:3000/api/internal/providers', expect.anything()))
     expect(mockSpawn).not.toHaveBeenCalled()
     expect(syncRuntimeProviderAccess).not.toHaveBeenCalled()
     expect(instanceService.setRunningIfCurrentDesktopStart).not.toHaveBeenCalled()
@@ -349,6 +349,14 @@ describe('desktopWorkspaceHost', () => {
     expect(mockWriteFileSync.mock.invocationCallOrder[seedWrite]).toBeLessThan(mockSpawn.mock.invocationCallOrder[0])
     expect(mockSpawn.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(syncRuntimeProviderAccess).mock.invocationCallOrder[0])
     expect(vi.mocked(syncRuntimeProviderAccess).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(instanceService.setRunningIfCurrentDesktopStart).mock.invocationCallOrder[0])
+  })
+
+  it('offers the catalog written by the previous start as the outage fallback', async () => {
+    mockReadFileSync.mockImplementation((path: string) => path.endsWith('/models-catalog.json') ? '{"previous":true}' : '')
+    mockSpawn.mockReturnValueOnce(makeChildProcess()).mockReturnValueOnce(makeChildProcess())
+    const { desktopWorkspaceHost } = await import('@/lib/runtime/workspace-host-desktop')
+    expect(await desktopWorkspaceHost.start('local', 'user-1')).toEqual({ ok: true, status: 'started' })
+    expect(mockGetGatewayModelsCatalog).toHaveBeenCalledWith('http://127.0.0.1:3000/api/internal/providers', '{"previous":true}')
   })
 
   it('fails closed before process startup when the boot catalog is unavailable', async () => {

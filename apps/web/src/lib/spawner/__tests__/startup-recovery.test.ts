@@ -50,6 +50,7 @@ vi.mock('@/lib/harness/registry', () => ({
 }))
 vi.mock('@/lib/spawner/docker', () => ({
   hasLegacyBackendWriters: async () => false,
+  prepareModelsCatalog: async () => ({ ok: true, data: '{}' }),
   removeOrphanedV2ContainerForSlug: async () => {}, removeManagedArchiveContainerForSlug: async () => {},
   findLegacyArchiveSource: mocks.findLegacyArchiveSource,
   stopContainer: mocks.stopContainer, createArchiveContainer: mocks.createArchiveContainer,

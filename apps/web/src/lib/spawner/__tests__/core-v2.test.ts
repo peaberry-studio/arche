@@ -22,6 +22,7 @@ vi.mock('@/lib/harness/registry', () => ({
 vi.mock('@/lib/spawner/crypto', () => ({ generatePassword: () => 'test', encryptPassword: () => 'encrypted' }))
 vi.mock('@/lib/spawner/docker', () => ({
   hasLegacyBackendWriters: vi.fn().mockResolvedValue(false),
+  prepareModelsCatalog: vi.fn().mockResolvedValue({ ok: true, data: '{}' }),
   removeOrphanedV2ContainerForSlug: vi.fn().mockResolvedValue(undefined),
   createContainer: vi.fn().mockResolvedValue({ id: 'v2-container' }), startContainer: vi.fn(),
   removeManagedContainerForSlug: vi.fn().mockResolvedValue(false), removeContainer: vi.fn().mockResolvedValue(undefined), stopContainer: vi.fn().mockResolvedValue(undefined),
@@ -45,7 +46,7 @@ describe('V2 startup attempt', () => {
 
   it('records the current runtime kind on both container-keyed state writes', async () => {
     expect(await startInstance('alice', 'admin')).toEqual({ ok: true, status: 'running' })
-    expect(createContainer).toHaveBeenCalledWith('alice', 'test', '{}', '', [], { name: 'alice', email: undefined })
+    expect(createContainer).toHaveBeenCalledWith('alice', 'test', '{}', '', [], { name: 'alice', email: undefined }, '{}')
     const startedAt = vi.mocked(instanceService.upsertStarting).mock.calls[0][2]
     expect(startedAt).toBeInstanceOf(Date)
     expect(instanceService.setContainerId).toHaveBeenCalledWith('alice', 'v2-container', 'opencode-v2', startedAt)

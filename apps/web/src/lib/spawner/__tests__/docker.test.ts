@@ -37,8 +37,10 @@ const mockWriteFile = vi.fn().mockResolvedValue(undefined)
 const mockChmod = vi.fn().mockResolvedValue(undefined)
 const mockMkdir = vi.fn().mockResolvedValue(undefined)
 const mockRm = vi.fn().mockResolvedValue(undefined)
+const mockReadFile = vi.fn()
 vi.mock('fs/promises', () => ({
   mkdir: (...args: unknown[]) => mockMkdir(...args),
+  readFile: (...args: unknown[]) => mockReadFile(...args),
   rm: (...args: unknown[]) => mockRm(...args),
   writeFile: (...args: unknown[]) => mockWriteFile(...args),
   chmod: (...args: unknown[]) => mockChmod(...args),
@@ -46,6 +48,7 @@ vi.mock('fs/promises', () => ({
 
 vi.mock('node:fs/promises', () => ({
   mkdir: (...args: unknown[]) => mockMkdir(...args),
+  readFile: (...args: unknown[]) => mockReadFile(...args),
   rm: (...args: unknown[]) => mockRm(...args),
   writeFile: (...args: unknown[]) => mockWriteFile(...args),
   chmod: (...args: unknown[]) => mockChmod(...args),
@@ -69,6 +72,7 @@ import {
   removeManagedContainerForSlug,
   inspectContainer,
   isContainerRunning,
+  prepareModelsCatalog,
 } from '@/lib/spawner/docker'
 
 describe('docker', () => {
@@ -85,6 +89,7 @@ describe('docker', () => {
     process.env.ARCHE_GATEWAY_TOKEN_SECRET = 'fixture'
     process.env.KB_CONTENT_HOST_PATH = '/opt/arche/kb-content'
     vi.mocked(getGatewayModelsCatalog).mockResolvedValue({ ok: true, data: '{"seeded":true}' })
+    mockReadFile.mockReset().mockRejectedValue(Object.assign(new Error('missing'), { code: 'ENOENT' }))
     mockDockerInstance.listContainers.mockResolvedValue([])
     mockDockerInstance.getContainer.mockReturnValue(mockContainer)
     mockContainer.inspect.mockRejectedValue({ statusCode: 404 })
@@ -162,7 +167,7 @@ describe('docker', () => {
       const catalog = Promise.withResolvers<Awaited<ReturnType<typeof getGatewayModelsCatalog>>>()
       vi.mocked(getGatewayModelsCatalog).mockReturnValueOnce(catalog.promise)
       const creating = createContainer('user-slug', 'fixture')
-      await vi.waitFor(() => expect(getGatewayModelsCatalog).toHaveBeenCalledWith('http://web:3000/api/internal/providers'))
+      await vi.waitFor(() => expect(getGatewayModelsCatalog).toHaveBeenCalledWith('http://web:3000/api/internal/providers', null))
       expect(mockDockerInstance.createContainer).not.toHaveBeenCalled()
       catalog.resolve({ ok: true, data: '{"seeded":true}' })
       await creating
@@ -180,6 +185,19 @@ describe('docker', () => {
       mockWriteFile.mockImplementationOnce(async () => { throw new Error('write failed') })
       await expect(createContainer('user-slug', 'fixture')).rejects.toThrow('write failed')
       expect(mockDockerInstance.createContainer).not.toHaveBeenCalled()
+    })
+
+    it('offers the catalog written by the previous start as the outage fallback', async () => {
+      mockReadFile.mockResolvedValueOnce('{"previous":true}')
+      expect(await prepareModelsCatalog('user-slug')).toEqual({ ok: true, data: '{"seeded":true}' })
+      expect(mockReadFile).toHaveBeenCalledWith('/opt/arche/users/user-slug/models-catalog.json', 'utf-8')
+      expect(getGatewayModelsCatalog).toHaveBeenCalledWith('http://web:3000/api/internal/providers', '{"previous":true}')
+    })
+
+    it('boots with a catalog resolved before the call without resolving it again', async () => {
+      await createContainer('user-slug', 'fixture', undefined, undefined, undefined, undefined, '{"prepared":true}')
+      expect(getGatewayModelsCatalog).not.toHaveBeenCalled()
+      expect(mockWriteFile).toHaveBeenCalledWith('/opt/arche/users/user-slug/models-catalog.json', '{"prepared":true}', 'utf-8')
     })
 
     const ownedSource = {
