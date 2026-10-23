@@ -499,3 +499,62 @@ describe('V2 runtime config renderer: session scratch folders', () => {
     expect(result).toMatchObject({ ok: false, error: { code: 'runtime_config_unsupported', path } })
   })
 })
+
+describe('V2 runtime config renderer: spilled tool output', () => {
+  const toolOutputDirectory = '/home/workspace/.local/share/opencode/tool-output'
+  const source = {
+    default_agent: 'writer',
+    agent: {
+      writer: { tools: { read: true, write: true, edit: true } },
+      reader: { mode: 'subagent', tools: { read: true } },
+    },
+  }
+  const externalDirectoryRules = (value: unknown) => rules(value).filter((rule) => rule.action === 'external_directory')
+
+  it('allows only the tool-output directory after the ask, globally and per agent', () => {
+    const rendered = config({ ...createRuntimeConfigModel(source), toolOutputDirectory })
+    const scopes = [rendered.permissions, agentConfig(rendered, 'writer').permissions, agentConfig(rendered, 'reader').permissions]
+
+    for (const permissions of scopes) {
+      expect(externalDirectoryRules(permissions)).toEqual([
+        { action: 'external_directory', resource: '*', effect: 'ask' },
+        { action: 'external_directory', resource: `${toolOutputDirectory}/*`, effect: 'allow' },
+      ])
+      expect(decision(permissions, 'external_directory', `${toolOutputDirectory}/*`)).toBe('allow')
+      expect(decision(permissions, 'external_directory', `${toolOutputDirectory}/tool_1`)).toBe('allow')
+      expect(decision(permissions, 'external_directory', '/home/workspace/.local/share/opencode/auth.json')).toBe('ask')
+      expect(decision(permissions, 'external_directory', '/etc/hosts')).toBe('ask')
+    }
+  })
+
+  it('normalizes the directory like the scratch absolute pattern', () => {
+    const posixRendered = config({ ...createRuntimeConfigModel(source), toolOutputDirectory: `${toolOutputDirectory}/` })
+    const windowsRendered = config({ ...createRuntimeConfigModel(source), toolOutputDirectory: String.raw`C:\Users\Ada\data\opencode\tool-output` })
+
+    expect(decision(posixRendered.permissions, 'external_directory', `${toolOutputDirectory}/*`)).toBe('allow')
+    expect(externalDirectoryRules(posixRendered.permissions).at(-1)?.resource).toBe(`${toolOutputDirectory}/*`)
+    expect(externalDirectoryRules(windowsRendered.permissions).at(-1)).toEqual({
+      action: 'external_directory', resource: 'C:/Users/Ada/data/opencode/tool-output/*', effect: 'allow',
+    })
+  })
+
+  it('renders nothing extra without a tool-output directory', () => {
+    const rendered = config(createRuntimeConfigModel(source))
+
+    for (const permissions of [rendered.permissions, agentConfig(rendered, 'writer').permissions, agentConfig(rendered, 'reader').permissions]) {
+      expect(externalDirectoryRules(permissions)).toEqual([{ action: 'external_directory', resource: '*', effect: 'ask' }])
+    }
+  })
+
+  it.each([
+    'opencode/tool-output',
+    '',
+    '/home/*/tool-output',
+    '/home/workspace/tool-output?',
+    'C:opencode/tool-output',
+    'C:/Users/*/tool-output',
+  ])('rejects tool-output directory %j', (invalid) => {
+    const result = renderRuntimeConfig({ ...createRuntimeConfigModel(source), toolOutputDirectory: invalid })
+    expect(result).toMatchObject({ ok: false, error: { code: 'runtime_config_unsupported', path: 'toolOutputDirectory' } })
+  })
+})
