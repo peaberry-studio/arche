@@ -527,6 +527,35 @@ describe('V2 runtime config renderer: spilled tool output', () => {
     }
   })
 
+  it('keeps the ask and the tool-output allow last when an agent authors its own external directory rules', () => {
+    const rendered = config({
+      ...createRuntimeConfigModel({
+        default_agent: 'writer',
+        permission: { external_directory: { '/srv/*': 'deny', [`${toolOutputDirectory}/private/*`]: 'deny' } },
+        agent: {
+          writer: {
+            tools: { read: true, external_directory: true },
+            permission: { external_directory: { '/data/*': 'deny', [`${toolOutputDirectory}/*`]: 'deny' } },
+          },
+        },
+      }),
+      toolOutputDirectory,
+    })
+    const writer = agentConfig(rendered, 'writer').permissions
+
+    for (const permissions of [rendered.permissions, writer]) {
+      expect(externalDirectoryRules(permissions).slice(-2)).toEqual([
+        { action: 'external_directory', resource: '*', effect: 'ask' },
+        { action: 'external_directory', resource: `${toolOutputDirectory}/*`, effect: 'allow' },
+      ])
+      expect(decision(permissions, 'external_directory', `${toolOutputDirectory}/tool_1`)).toBe('allow')
+      expect(decision(permissions, 'external_directory', '/etc/hosts')).toBe('ask')
+    }
+    expect(externalDirectoryRules(writer)).toContainEqual({ action: 'external_directory', resource: '/data/*', effect: 'deny' })
+    expect(externalDirectoryRules(writer)).toContainEqual({ action: 'external_directory', resource: `${toolOutputDirectory}/*`, effect: 'deny' })
+    expect(externalDirectoryRules(writer)).toContainEqual({ action: 'external_directory', resource: '/srv/*', effect: 'deny' })
+  })
+
   it('normalizes the directory like the scratch absolute pattern', () => {
     const posixRendered = config({ ...createRuntimeConfigModel(source), toolOutputDirectory: `${toolOutputDirectory}/` })
     const windowsRendered = config({ ...createRuntimeConfigModel(source), toolOutputDirectory: String.raw`C:\Users\Ada\data\opencode\tool-output` })
