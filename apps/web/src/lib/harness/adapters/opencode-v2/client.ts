@@ -1,4 +1,4 @@
-import { OpenCode } from '@opencode/client'
+import type { OpenCode } from '@opencode/client'
 
 import { getInstanceBasicAuth, getInstanceUrl } from '@/lib/harness/runtime-connection'
 import type { HarnessHealthOptions } from '@/lib/harness/contract'
@@ -28,28 +28,43 @@ export function normalizeOpenCodeError(error: unknown): ReturnType<typeof harnes
   return harnessFailure('runtime_error', detail)
 }
 
-export function createConnectionClient(connection: { baseUrl: string; authHeader: string }): OpenCodeV2Client {
-  return OpenCode.make({ baseUrl: connection.baseUrl, headers: { Authorization: connection.authHeader } })
+// `@opencode/client` is ESM-only (its `exports` declare no `require` condition). The flow and reaper
+// daemons run under tsx as CommonJS, where a static import compiles to a `require()` that cannot resolve it.
+// A literal `import()` stays a native ESM import under tsx, and webpack and file tracing still see the
+// package, so the Next server and the desktop standalone build bundle it; do not hide it behind Function().
+async function loadOpenCode(): Promise<typeof OpenCode> {
+  return (await import('@opencode/client')).OpenCode
+}
+
+export async function createConnectionClient(
+  connection: { baseUrl: string; authHeader: string },
+  options?: { fetch?: OpenCode.ClientOptions['fetch'] },
+): Promise<OpenCodeV2Client> {
+  const OpenCode = await loadOpenCode()
+  return OpenCode.make({ baseUrl: connection.baseUrl, headers: { Authorization: connection.authHeader }, fetch: options?.fetch })
 }
 
 export async function createInstanceClient(slug: string): Promise<OpenCodeV2Client | null> {
   const connection = await getInstanceBasicAuth(slug)
-  return connection ? createConnectionClient(connection) : null
+  return connection ? await createConnectionClient(connection) : null
 }
 
 export async function checkHealth(slug: string, options?: HarnessHealthOptions): Promise<HarnessResult<{ version?: string }>> {
+  if (options?.signal?.aborted) return harnessFailure('healthcheck_timeout')
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), options?.timeoutMs ?? 5000)
   const abort = () => controller.abort()
   options?.signal?.addEventListener('abort', abort, { once: true })
-  if (options?.signal?.aborted) controller.abort()
+  let timer: ReturnType<typeof setTimeout> | undefined
   try {
+    // The one-time ESM module load is not part of the health budget; everything after it is.
+    await loadOpenCode()
+    timer = setTimeout(() => controller.abort(), options?.timeoutMs ?? 5000)
     const connection = options?.password !== undefined ? {
       baseUrl: getInstanceUrl(slug, options.baseUrl),
       authHeader: `Basic ${Buffer.from(`opencode:${options.password}`).toString('base64')}`,
     } : await getInstanceBasicAuth(slug)
     if (!connection) return harnessFailure('instance_unavailable')
-    const client = createConnectionClient(connection)
+    const client = await createConnectionClient(connection)
     const info = await client.server.info({ signal: controller.signal })
     if (controller.signal.aborted) return harnessFailure('healthcheck_timeout')
     if (!info.version.startsWith('2.') || !Number.isFinite(info.pid) || !Array.isArray(info.urls)) return harnessFailure('unhealthy_response')
@@ -57,7 +72,7 @@ export async function checkHealth(slug: string, options?: HarnessHealthOptions):
   } catch (error) {
     return controller.signal.aborted ? harnessFailure('healthcheck_timeout') : normalizeOpenCodeError(error)
   } finally {
-    clearTimeout(timer)
+    if (timer) clearTimeout(timer)
     options?.signal?.removeEventListener('abort', abort)
   }
 }
