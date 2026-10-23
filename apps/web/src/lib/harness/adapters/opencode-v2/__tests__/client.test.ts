@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { checkHealth, createInstanceClient, normalizeOpenCodeError } from '@/lib/harness/adapters/opencode-v2/client'
 
@@ -9,6 +9,8 @@ vi.mock('@/lib/harness/runtime-connection', () => ({
 }))
 
 describe('V2 client', () => {
+  // The first import of the ESM client is slow; keep it out of the fake-timer tests.
+  beforeAll(async () => { await import('@opencode/client') })
   beforeEach(() => {
     auth.mockResolvedValue({ baseUrl: 'http://runtime', authHeader: 'Basic test' })
   })
@@ -45,13 +47,12 @@ describe('V2 client', () => {
 
   it('propagates losing-probe cancellation', async () => {
     const controller = new AbortController()
-    vi.stubGlobal('fetch', vi.fn((_url: string, options: RequestInit) => new Promise((_resolve, reject) => {
-      // Like real fetch, reject immediately when the signal is already aborted.
-      if (options.signal?.aborted) reject(new Error('aborted'))
+    const fetch = vi.fn((_url: string, options: RequestInit) => new Promise((_resolve, reject) => {
       options.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true })
-    })))
+    }))
+    vi.stubGlobal('fetch', fetch)
     const pending = checkHealth('alice', { signal: controller.signal })
-    await Promise.resolve()
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalled())
     controller.abort()
     expect(await pending).toEqual({ ok: false, error: { code: 'healthcheck_timeout' } })
   })

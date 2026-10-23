@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { assistantSnapshot, SESSION_ID, userSnapshot } from '@/lib/harness/adapters/opencode-v2/__tests__/fixtures'
 import { createOpenCodeV2Runtime } from '@/lib/harness/adapters/opencode-v2/runtime'
@@ -101,6 +101,8 @@ function nativeTransport(overrides: Partial<NativeState> = {}) {
 const interrupts = (calls: Array<{ path: string }>) => calls.filter((call) => call.path.endsWith('/interrupt')).map((call) => call.path.split('/')[3])
 
 describe('V2 primitives in shared execution (real adapter and matched HTTP client)', () => {
+  // The first import of the ESM client is slow; keep it out of the fake-timer tests.
+  beforeAll(async () => { await import('@opencode/client') })
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.auth.mockResolvedValue({ baseUrl: 'http://runtime', authHeader: 'Basic fixture-only' })
