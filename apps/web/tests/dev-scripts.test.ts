@@ -126,6 +126,22 @@ describe('web dev scripts', () => {
     expect(deployScript).toContain('ARCHE_USERS_PATH')
   })
 
+  it('builds the remote web image from the apps context without AppleDouble files', () => {
+    const repoRoot = resolve(process.cwd(), '..', '..')
+    const deployScript = readFileSync(resolve(repoRoot, 'infra', 'deploy', 'deploy.sh'), 'utf8')
+    const remoteTarCommands = deployScript.match(/^\s*(?:COPYFILE_DISABLE=1 )?tar (?:--no-xattrs )?-C "\$repo_root" -czf - .*$/gm) ?? []
+
+    expect(remoteTarCommands).toHaveLength(2)
+    for (const command of remoteTarCommands) {
+      expect(command).toContain('COPYFILE_DISABLE=1 tar --no-xattrs')
+    }
+
+    expect(deployScript).toContain('-czf - apps/web apps/desktop-runtime apps/.dockerignore')
+    expect(deployScript).toContain('tar -xzf - -C /tmp/arche-web-src --strip-components=1')
+    expect(deployScript).toContain('podman build -f web/Containerfile -t arche-web:latest .')
+    expect(deployScript).not.toContain('podman build -t arche-web:latest .')
+  })
+
   it('keeps Cloudflare Tunnel exposure mode wired through deploy templates', () => {
     const repoRoot = resolve(process.cwd(), '..', '..')
     const composeTemplate = readFileSync(
