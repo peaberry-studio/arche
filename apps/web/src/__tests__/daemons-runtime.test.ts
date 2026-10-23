@@ -1,4 +1,5 @@
 import { execFile as execFileCallback } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -15,7 +16,8 @@ type DaemonRun = {
   stderr: string
 }
 
-const missingKbConfigRoot = path.join(os.tmpdir(), 'arche-daemons-runtime-missing-kb-config')
+// Unique per run and never created, so a leftover path on the machine cannot make the daemon start.
+const missingKbConfigRoot = path.join(os.tmpdir(), `arche-daemons-runtime-missing-kb-config-${process.pid}-${randomUUID()}`)
 
 // Same invocation as the `start:flows` / `start:reaper` scripts and the compose
 // services: tsx compiles the module graph to CommonJS require() calls. The
