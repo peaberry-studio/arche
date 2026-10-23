@@ -108,7 +108,7 @@ prepare_remote_workspace_image() {
   fi
 
   log "Syncing workspace image sources to remote host..."
-  COPYFILE_DISABLE=1 tar -C "$repo_root" -czf - infra/workspace-image | \
+  COPYFILE_DISABLE=1 tar --no-xattrs -C "$repo_root" -czf - infra/workspace-image | \
     ssh "${ssh_opts[@]}" "${SSH_USER}@${DEPLOY_IP}" \
       "rm -rf /tmp/arche-workspace-image-src && mkdir -p /tmp/arche-workspace-image-src && tar -xzf - -C /tmp/arche-workspace-image-src --strip-components=2"
 
@@ -147,7 +147,7 @@ prepare_remote_web_image() {
   # The Containerfile builds from the apps/ context, like CI and check-podman-images.sh.
   # apps/.dockerignore keeps host node_modules and .next out of that context.
   # COPYFILE_DISABLE stops macOS tar from adding AppleDouble ._* files the build would parse.
-  COPYFILE_DISABLE=1 tar -C "$repo_root" -czf - apps/web apps/desktop-runtime apps/.dockerignore | \
+  COPYFILE_DISABLE=1 tar --no-xattrs -C "$repo_root" -czf - apps/web apps/desktop-runtime apps/.dockerignore | \
     ssh "${ssh_opts[@]}" "${SSH_USER}@${DEPLOY_IP}" \
       "rm -rf /tmp/arche-web-src && mkdir -p /tmp/arche-web-src && tar -xzf - -C /tmp/arche-web-src --strip-components=1"
 

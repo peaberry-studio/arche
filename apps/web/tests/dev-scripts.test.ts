@@ -129,14 +129,15 @@ describe('web dev scripts', () => {
   it('builds the remote web image from the apps context without AppleDouble files', () => {
     const repoRoot = resolve(process.cwd(), '..', '..')
     const deployScript = readFileSync(resolve(repoRoot, 'infra', 'deploy', 'deploy.sh'), 'utf8')
-    const remoteTarCommands = deployScript.match(/^\s*(?:COPYFILE_DISABLE=1 )?tar -C "\$repo_root" -czf - .*$/gm) ?? []
+    const remoteTarCommands = deployScript.match(/^\s*(?:COPYFILE_DISABLE=1 )?tar (?:--no-xattrs )?-C "\$repo_root" -czf - .*$/gm) ?? []
 
     expect(remoteTarCommands).toHaveLength(2)
     for (const command of remoteTarCommands) {
-      expect(command).toContain('COPYFILE_DISABLE=1 tar')
+      expect(command).toContain('COPYFILE_DISABLE=1 tar --no-xattrs')
     }
 
     expect(deployScript).toContain('-czf - apps/web apps/desktop-runtime apps/.dockerignore')
+    expect(deployScript).toContain('tar -xzf - -C /tmp/arche-web-src --strip-components=1')
     expect(deployScript).toContain('podman build -f web/Containerfile -t arche-web:latest .')
     expect(deployScript).not.toContain('podman build -t arche-web:latest .')
   })
