@@ -56,14 +56,15 @@ export async function checkHealth(slug: string, options?: HarnessHealthOptions):
   options?.signal?.addEventListener('abort', abort, { once: true })
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
+    // The one-time ESM module load is not part of the health budget; everything after it is.
+    await loadOpenCode()
+    timer = setTimeout(() => controller.abort(), options?.timeoutMs ?? 5000)
     const connection = options?.password !== undefined ? {
       baseUrl: getInstanceUrl(slug, options.baseUrl),
       authHeader: `Basic ${Buffer.from(`opencode:${options.password}`).toString('base64')}`,
     } : await getInstanceBasicAuth(slug)
     if (!connection) return harnessFailure('instance_unavailable')
-    // The first client construction loads the ESM package; arm the deadline only once it is done.
     const client = await createConnectionClient(connection)
-    timer = setTimeout(() => controller.abort(), options?.timeoutMs ?? 5000)
     const info = await client.server.info({ signal: controller.signal })
     if (controller.signal.aborted) return harnessFailure('healthcheck_timeout')
     if (!info.version.startsWith('2.') || !Number.isFinite(info.pid) || !Array.isArray(info.urls)) return harnessFailure('unhealthy_response')
