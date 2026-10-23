@@ -79,6 +79,28 @@ function scratchPatterns(scratch: NonNullable<RuntimeConfigModel['scratch']>): {
   }
 }
 
+function isAbsoluteDirectory(value: string): boolean {
+  return (value.startsWith('/') || /^[a-z]:[\\/]/i.test(value)) && !/[*?]/.test(value)
+}
+
+function normalizedDirectory(directory: string): string {
+  const windows = /^[a-z]:[\\/]/i.test(directory)
+  const normalized = windows ? win32.normalize(directory).replaceAll('\\', '/') : posix.normalize(directory)
+  return normalized.replace(/\/+$/, '')
+}
+
+function isFilesystemRoot(directory: string): boolean {
+  const normalized = normalizedDirectory(directory)
+  return normalized === '' || /^[a-z]:$/i.test(normalized)
+}
+
+function externalDirectoryRules(toolOutputDirectory: string | undefined): Rule[] {
+  const rules: Rule[] = [{ action: 'external_directory', resource: '*', effect: 'ask' }]
+  if (toolOutputDirectory === undefined) return rules
+  rules.push({ action: 'external_directory', resource: `${normalizedDirectory(toolOutputDirectory)}/*`, effect: 'allow' })
+  return rules
+}
+
 function orderedEntries(value: Record<string, unknown>): [string, unknown][] {
   return Object.entries(value).sort(([left], [right]) => {
     const specificity = (key: string) => key === '*' ? -1 : /[*?]/.test(key) ? 0 : 1
@@ -173,7 +195,7 @@ function renderAgent(agent: RuntimeAgentModel, model: RuntimeConfigModel, global
   // The scratch allowance never widens an agent's tools: an agent that cannot
   // edit anywhere cannot edit in its scratch folder either.
   const canEdit = permissions.findLast((rule) => rule.resource === '*' && matches(rule.action, 'edit'))?.effect !== 'deny'
-  permissions.push({ action: 'external_directory', resource: '*', effect: 'ask' })
+  permissions.push(...externalDirectoryRules(model.toolOutputDirectory))
   if (model.guards.execution) permissions.push({ action: 'doom_loop', resource: '*', effect: 'deny' })
   if (model.guards.execution && !primary) permissions.push({ action: 'subagent', resource: '*', effect: 'deny' })
   if (model.guards.knowledgeWrites) permissions.push({ action: 'edit', resource: '*', effect: 'deny' })
@@ -299,14 +321,20 @@ export function renderRuntimeConfig(model: RuntimeConfigModel): RuntimeConfigRen
     if (settings.instructions !== undefined && (!Array.isArray(settings.instructions) || !settings.instructions.every((entry) => typeof entry === 'string'))) unsupported('instructions')
     if (model.scratch) {
       for (const [key, value] of Object.entries(model.scratch)) {
-        if ((!value.startsWith('/') && !/^[a-z]:[\\/]/i.test(value)) || /[*?]/.test(value)) unsupported(`scratch.${key}`, 'Expected an absolute directory without wildcards')
+        if (!isAbsoluteDirectory(value)) unsupported(`scratch.${key}`, 'Expected an absolute directory without wildcards')
       }
       if (!scratchPatterns(model.scratch).outsideWorkspace) {
         unsupported('scratch.root', 'The scratch directory must be outside the workspace')
       }
     }
+    if (model.toolOutputDirectory !== undefined && !isAbsoluteDirectory(model.toolOutputDirectory)) {
+      unsupported('toolOutputDirectory', 'Expected an absolute directory without wildcards')
+    }
+    if (model.toolOutputDirectory !== undefined && isFilesystemRoot(model.toolOutputDirectory)) {
+      unsupported('toolOutputDirectory', 'The tool-output directory cannot be a filesystem root')
+    }
     const globalRules = toolRules(model.tools, permissionRules(model.access, 'access'), 'tools', false)
-    globalRules.push({ action: 'external_directory', resource: '*', effect: 'ask' })
+    globalRules.push(...externalDirectoryRules(model.toolOutputDirectory))
     const policies = renderPolicies(authoredPolicies)
     const prompts = agentPrompts(model)
     if (model.guards.workspace) {

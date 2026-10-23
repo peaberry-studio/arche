@@ -36,6 +36,8 @@ export const WEB_INTERNAL_API_ROOT = 'http://web:3000/api/internal'
 // Session scratch folders in the workspace container: a size-capped tmpfs
 // outside the Knowledge Base mount, wiped when the container restarts.
 export const WEB_SCRATCH = { root: '/tmp/arche-scratch', workspaceRoot: '/workspace' } as const
+export const WEB_XDG_DATA_HOME = '/home/workspace/.local/share'
+export const WEB_TOOL_OUTPUT_DIRECTORY = `${WEB_XDG_DATA_HOME}/opencode/tool-output`
 
 export function getWebProviderGatewayConfig(): Record<string, unknown> {
   return buildProviderGatewayConfig(`${WEB_INTERNAL_API_ROOT}/providers`)

@@ -300,6 +300,16 @@ describe('runtime artifacts', () => {
     expect(config.mcp).toMatchObject({ servers: { arche_tools: { command: options.archeToolsCommand } } })
   })
 
+  it('allows the tool-output directory passed by the runtime host instead of the container default', async () => {
+    await createRuntimeRepo({ 'CommonWorkspaceConfig.json': createWorkspaceConfig() })
+    const { buildWorkspaceRuntimeArtifacts } = await loadRuntimeArtifactsModule()
+    const toolOutputDirectory = '/Users/ada/.arche/.local/share/opencode/tool-output'
+    const v2 = parseConfig((await buildWorkspaceRuntimeArtifacts('alice', {}, { toolOutputDirectory })).opencodeConfigContent)
+
+    expect(decision(v2.permissions, 'external_directory', `${toolOutputDirectory}/tool_1`)).toBe('allow')
+    expect(decision(v2.permissions, 'external_directory', '/home/workspace/.local/share/opencode/tool-output/tool_1')).toBe('ask')
+  })
+
   it('renders protected artifacts with agent prompts, self-delegation denies, and guard policies', async () => {
     await createRuntimeRepo({
       'AGENTS.md': '# Workspace',
@@ -322,7 +332,10 @@ describe('runtime artifacts', () => {
       expect(agent.permissions?.findLast((rule) => rule.action === 'subagent')).toEqual({ action: 'subagent', resource: id, effect: 'deny' })
       expect(decision(agent.permissions, 'external_directory', '/tmp/arche-scratch/ses_1/draft.md'), id).toBe('ask')
       expect(decision(agent.permissions, 'external_directory', '/etc/passwd'), id).toBe('ask')
+      expect(decision(agent.permissions, 'external_directory', '/home/workspace/.local/share/opencode/tool-output/tool_1'), id).toBe('allow')
+      expect(decision(agent.permissions, 'external_directory', '/home/workspace/.local/share/opencode/auth.json'), id).toBe('ask')
     }
+    expect(decision(v2.permissions, 'external_directory', '/home/workspace/.local/share/opencode/tool-output/tool_1')).toBe('allow')
     // No write tool, no scratch writes: the allowance never widens an agent's tools.
     expect(decision(agentOf(v2, 'analyst').permissions, 'edit', '../tmp/arche-scratch/ses_1/draft.md')).toBe('deny')
     expect(v2.policies).toEqual(expect.arrayContaining([

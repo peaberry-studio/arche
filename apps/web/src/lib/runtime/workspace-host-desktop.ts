@@ -26,7 +26,15 @@ import {
 } from '@/lib/runtime/desktop/health'
 import { archiveDesktopLegacySessions, cleanupDesktopLegacyArchive } from '@/lib/runtime/desktop/legacy-archive'
 import { waitForProcessExit } from '@/lib/runtime/desktop/process'
-import { getArcheOpencodeDataDir, getDesktopScratch, getLegacyOpencodeDataDir, getWorkspaceDir, hasLegacyOpencodeData } from '@/lib/runtime/desktop/workspace-dirs'
+import {
+  getArcheOpencodeDataDir,
+  getDesktopScratch,
+  getDesktopToolOutputDirectory,
+  getDesktopXdgDataHome,
+  getLegacyOpencodeDataDir,
+  getWorkspaceDir,
+  hasLegacyOpencodeData,
+} from '@/lib/runtime/desktop/workspace-dirs'
 import { getRuntimeInternalApiRoot, getRuntimeModelsCatalogUrl } from '@/lib/runtime/internal-api'
 import { getKbContentRoot } from '@/lib/runtime/paths'
 import type { WorkspaceHost, WorkspaceHostConnection, WorkspaceHostStatus } from '@/lib/runtime/types'
@@ -196,6 +204,7 @@ async function buildDesktopRuntimeArtifacts(slug: string, connectorProxyPort: nu
     archeToolsCommand: getDesktopArcheToolsCommand(),
     connectorProxyPort,
     scratch: getDesktopScratch(slug),
+    toolOutputDirectory: getDesktopToolOutputDirectory(),
   })
 }
 
@@ -450,7 +459,7 @@ async function startDesktopWorkspace(
           WORKSPACE_DIR: workspaceDir,
           ARCHE_SCRATCH_DIR: getDesktopScratch(slug).root,
           HOME: archeDataDir,
-          XDG_DATA_HOME: join(archeDataDir, '.local', 'share'),
+          XDG_DATA_HOME: getDesktopXdgDataHome(),
           XDG_STATE_HOME: join(archeDataDir, '.local', 'state'),
           XDG_CONFIG_HOME: join(archeDataDir, '.config'),
         },
