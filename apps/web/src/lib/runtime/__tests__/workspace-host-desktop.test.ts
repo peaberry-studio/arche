@@ -689,6 +689,11 @@ describe('desktopWorkspaceHost', () => {
       resource: '*',
       effect: 'ask',
     })
+    expect(JSON.parse(String(configCall?.[1])).permissions).toContainEqual({
+      action: 'external_directory',
+      resource: '/tmp/arche/.runtime/opencode-v2/.local/share/opencode/tool-output/*',
+      effect: 'allow',
+    })
     expect(JSON.parse(String(configCall?.[1]))).toMatchObject({
       plugins: [{ package: '/bundle/arche-tools/shared/scratch-isolation', options: { root: expect.stringMatching(/\/arche-scratch\/[a-f0-9]{64}$/) } }],
       mcp: {

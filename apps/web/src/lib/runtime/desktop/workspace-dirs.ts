@@ -109,6 +109,14 @@ export function getDesktopScratch(slug: string): { root: string; workspaceRoot: 
   }
 }
 
+export function getDesktopXdgDataHome(): string {
+  return join(getArcheOpencodeDataDir(), '.local', 'share')
+}
+
+export function getDesktopToolOutputDirectory(): string {
+  return join(getDesktopXdgDataHome(), 'opencode', 'tool-output').split(sep).join('/')
+}
+
 export function getWorkspaceDir(slug: string): string {
   assertValidSlug(slug)
 

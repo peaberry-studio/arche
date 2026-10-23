@@ -38,6 +38,7 @@ import {
   parseRuntimeConfigContent,
   serializeRuntimeConfig,
   WEB_SCRATCH,
+  WEB_TOOL_OUTPUT_DIRECTORY,
 } from '@/lib/spawner/runtime-config'
 
 export {
@@ -65,6 +66,8 @@ type WorkspaceRuntimeOptions = {
   connectorProxyPort?: number
   // Defaults to the workspace container layout (WEB_SCRATCH).
   scratch?: { root: string; workspaceRoot: string }
+  // Defaults to the workspace container layout (WEB_TOOL_OUTPUT_DIRECTORY).
+  toolOutputDirectory?: string
 }
 
 const COMMON_WORKSPACE_CONFIG_FILE = 'CommonWorkspaceConfig.json'
@@ -374,6 +377,7 @@ export async function buildWorkspaceRuntimeConfigModel(
       ...scopedProviderGatewayConfig,
     }),
     scratch: options?.scratch ?? WEB_SCRATCH,
+    toolOutputDirectory: options?.toolOutputDirectory ?? WEB_TOOL_OUTPUT_DIRECTORY,
   }
 }
 
