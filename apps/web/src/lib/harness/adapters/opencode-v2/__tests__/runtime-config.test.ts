@@ -582,6 +582,12 @@ describe('V2 runtime config renderer: spilled tool output', () => {
     '/home/workspace/tool-output?',
     'C:opencode/tool-output',
     'C:/Users/*/tool-output',
+    '/',
+    '//',
+    '/home/..',
+    'C:\\',
+    'C:/',
+    String.raw`C:\Users\..`,
   ])('rejects tool-output directory %j', (invalid) => {
     const result = renderRuntimeConfig({ ...createRuntimeConfigModel(source), toolOutputDirectory: invalid })
     expect(result).toMatchObject({ ok: false, error: { code: 'runtime_config_unsupported', path: 'toolOutputDirectory' } })

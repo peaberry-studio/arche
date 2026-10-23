@@ -83,12 +83,21 @@ function isAbsoluteDirectory(value: string): boolean {
   return (value.startsWith('/') || /^[a-z]:[\\/]/i.test(value)) && !/[*?]/.test(value)
 }
 
+function normalizedDirectory(directory: string): string {
+  const windows = /^[a-z]:[\\/]/i.test(directory)
+  const normalized = windows ? win32.normalize(directory).replaceAll('\\', '/') : posix.normalize(directory)
+  return normalized.replace(/\/+$/, '')
+}
+
+function isFilesystemRoot(directory: string): boolean {
+  const normalized = normalizedDirectory(directory)
+  return normalized === '' || /^[a-z]:$/i.test(normalized)
+}
+
 function externalDirectoryRules(toolOutputDirectory: string | undefined): Rule[] {
   const rules: Rule[] = [{ action: 'external_directory', resource: '*', effect: 'ask' }]
   if (toolOutputDirectory === undefined) return rules
-  const windows = /^[a-z]:[\\/]/i.test(toolOutputDirectory)
-  const normalized = windows ? win32.normalize(toolOutputDirectory).replaceAll('\\', '/') : posix.normalize(toolOutputDirectory)
-  rules.push({ action: 'external_directory', resource: `${normalized.replace(/\/+$/, '')}/*`, effect: 'allow' })
+  rules.push({ action: 'external_directory', resource: `${normalizedDirectory(toolOutputDirectory)}/*`, effect: 'allow' })
   return rules
 }
 
@@ -320,6 +329,9 @@ export function renderRuntimeConfig(model: RuntimeConfigModel): RuntimeConfigRen
     }
     if (model.toolOutputDirectory !== undefined && !isAbsoluteDirectory(model.toolOutputDirectory)) {
       unsupported('toolOutputDirectory', 'Expected an absolute directory without wildcards')
+    }
+    if (model.toolOutputDirectory !== undefined && isFilesystemRoot(model.toolOutputDirectory)) {
+      unsupported('toolOutputDirectory', 'The tool-output directory cannot be a filesystem root')
     }
     const globalRules = toolRules(model.tools, permissionRules(model.access, 'access'), 'tools', false)
     globalRules.push(...externalDirectoryRules(model.toolOutputDirectory))
