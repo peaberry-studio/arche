@@ -47,6 +47,26 @@ jobs:
       - run: go test -race ./...
         working-directory: infra/workspace-image/workspace-agent
 
+  go-vulnerability-check:
+    name: Go Vulnerability Check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: infra/workspace-image/workspace-agent/go.mod
+          cache: false
+      - name: Check Go modules
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+          for module in infra/one-click infra/workspace-image/workspace-agent; do
+            (cd "$module" && govulncheck ./...)
+          done
+      - name: Test deployment and workflow scripts
+        run: node --test scripts/__tests__/web-start.test.mjs .github/workflows/pr-workflows.test.mjs
+
   web-lint-test:
     name: Web - Lint & Test
     needs: detect-changes
@@ -92,7 +112,7 @@ jobs:
       contents: read
     services:
       postgres:
-        image: postgres:16
+        image: postgres:16@sha256:9e2cf6287f25c3151f4c9421ccce2b17f3e60061c111a29165e0d2cdd9ff0a97
         env:
           POSTGRES_DB: arche_ci
           POSTGRES_PASSWORD: postgres

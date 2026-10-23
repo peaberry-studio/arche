@@ -13,8 +13,9 @@ async function signIn(page: Page, email: string, password: string, slug: string)
   await expect(page.getByTestId('empty-composer-heading')).toBeVisible({ timeout: 120_000 })
 }
 
-test('logs out from settings', async ({ page }) => {
+test('logs out from settings', async ({ page, baseURL }) => {
   const response = await page.request.post('/auth/login', {
+    headers: { origin: new URL(baseURL!).origin },
     data: { email: adminEmail, password: adminPassword },
   })
   expect(response.ok()).toBeTruthy()
@@ -29,7 +30,7 @@ test('logs out from settings', async ({ page }) => {
   await expect(page).toHaveURL(/\/login$/, { timeout: 120_000 })
 })
 
-test('admin resets a team member password and revokes existing sessions', async ({ browser, page }, testInfo) => {
+test('admin resets a team member password and revokes existing sessions', async ({ browser, page, baseURL }, testInfo) => {
   testInfo.setTimeout(120_000)
 
   const userSlug = uniqueName('reset-user')
@@ -67,6 +68,7 @@ test('admin resets a team member password and revokes existing sessions', async 
   const loginPage = await loginContext.newPage()
 
   const oldPasswordResponse = await loginPage.request.post('/auth/login', {
+    headers: { origin: new URL(baseURL!).origin },
     data: { email: userEmail, password: oldPassword },
   })
   expect(oldPasswordResponse.status()).toBe(401)

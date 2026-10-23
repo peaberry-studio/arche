@@ -8,6 +8,8 @@ on:
 permissions:
   contents: read
   packages: write
+  id-token: write
+  attestations: write
   pull-requests: write
 
 concurrency:
@@ -51,6 +53,29 @@ jobs:
           printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/deploy_key
           printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
 
+      - name: Verify image provenance and resolve immutable digests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          SHA_TAG="$(git rev-parse --short HEAD)"
+          for component in web workspace; do
+            IMAGE="ghcr.io/${GITHUB_REPOSITORY}/${component}:${SHA_TAG}"
+            docker pull "$IMAGE"
+            PINNED="$(docker image inspect --format '{{index .RepoDigests 0}}' "$IMAGE")"
+            [[ "$PINNED" =~ @sha256:[a-f0-9]{64}$ ]] || exit 1
+            WORKFLOW=build-push.yml
+            VARIABLE=WEB_IMAGE
+            if [[ "$component" == workspace ]]; then
+              WORKFLOW=build-push-workspace.yml
+              VARIABLE=OPENCODE_IMAGE
+            fi
+            gh attestation verify "oci://$PINNED" --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/$WORKFLOW" \
+              --source-digest "$GITHUB_SHA" --deny-self-hosted-runners
+            printf '%s=%s\n' "$VARIABLE" "$PINNED" >> "$GITHUB_ENV"
+          done
+
       - name: Deploy
         env:
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
@@ -67,7 +92,6 @@ jobs:
           ACME_EMAIL: ${{ secrets.ACME_EMAIL }}
           VPS_USER: ${{ secrets.VPS_USER }}
         run: |
-          export OPENCODE_IMAGE="ghcr.io/peaberry-studio/arche/workspace:$(git rev-parse --short HEAD)"
           USER_FLAG=()
           if [[ -n "${VPS_USER}" ]]; then
             USER_FLAG=(--user "${VPS_USER}")

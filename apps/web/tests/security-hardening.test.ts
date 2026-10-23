@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 
@@ -65,12 +65,13 @@ describe('security deployment invariants', () => {
     expect(workflow).toContain('pip install --require-hashes')
   })
 
+  describe.each(['build-push.yml', 'build-push-workspace.yml'])('%s dispatch validation', (file) => {
   it.each([
     ['owner/repo', 'a'.repeat(40), true],
     ['attacker/fork', 'a'.repeat(40), false],
     ['owner/repo', 'b'.repeat(40), false],
   ])('validates dispatched build repository %s and immutable head %s', async (repository, ref, allowed) => {
-    const workflow = parse(read('.github/workflows/build-push-workspace.yml'))
+    const workflow = parse(read(`.github/workflows/${file}`))
     const script = workflow.jobs['build-and-push'].steps[0].with.script
     const permission = vi.fn()
     const output = vi.fn()
@@ -85,6 +86,8 @@ describe('security deployment invariants', () => {
       expect(output).toHaveBeenCalledWith('ref', 'a'.repeat(40))
       expect(permission).not.toHaveBeenCalled()
     } else await expect(result).rejects.toThrow()
+  })
+
   })
 
   it.each([
@@ -107,4 +110,50 @@ describe('security deployment invariants', () => {
     if (allowed) expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ client_payload: { pr_number: 1, ref: 'a'.repeat(40) } }))
     else expect(failed).toHaveBeenCalledOnce()
   })
+})
+
+
+describe('supply chain and ingress regressions', () => {
+  it('pins every external workflow action to a complete commit', () => {
+    for (const file of readdirSync(resolve(root, '.github/workflows')).filter((name) => name.endsWith('.yml'))) {
+      for (const match of read(`.github/workflows/${file}`).matchAll(/uses:\s+([^\s#]+)/g)) {
+        if (match[1].startsWith('./')) continue
+        expect(match[1], file).toMatch(/@[a-f0-9]{40}$/)
+      }
+    }
+  })
+  it('fails installation before copying a binary when provenance verification rejects it', () => {
+    const script = read('install.sh')
+    const block = script.slice(script.indexOf('  gh attestation verify'), script.indexOf('  note "Installing'))
+    const result = spawnSync('bash', ['-c', `fail() { exit 73; }; gh() { return 1; }; tmp_bin=fixture; ${block}\nexit 0`])
+    expect(result.status).toBe(73)
+    expect(block).toContain('--signer-workflow peaberry-studio/arche/.github/workflows/release-archectl.yml')
+    expect(block).toContain('--deny-self-hosted-runners')
+  })
+  it('configures an authenticated ingress and excludes internal APIs on the production router', () => {
+    const tasks = read('infra/deploy/ansible/roles/app/tasks/main.yml')
+    expect(tasks).toContain('!PathPrefix(`/api/internal`)')
+    expect(tasks).toContain('customrequestheaders.X-Arche-Ingress=')
+    expect(tasks).toContain('ratelimit.average=100')
+    expect(read('infra/deploy/ansible/roles/app/templates/.env.j2')).toContain('ARCHE_INGRESS_SECRET=')
+  })
+})
+
+
+it('retains OCI child manifests and signatures when cleaning registry versions', () => {
+  const source = read('.github/workflows/ghcr-retention.yml')
+  const start = source.indexOf('            # Keep content-addressed')
+  const end = source.indexOf('            sort -u "$keep_ids_file"', start)
+  const directory = mkdtempSync(resolve(tmpdir(), 'arche-retention-'))
+  try {
+    writeFileSync(resolve(directory, 'versions.json'), JSON.stringify([
+      { id: 1, tags: [], updated_at: '2026-01-01' },
+      { id: 2, tags: ['sha256-abc.sig'], updated_at: '2026-01-01' },
+      { id: 3, tags: ['latest-arm64'], updated_at: '2026-01-01' },
+      { id: 4, tags: ['v1.2.3-arm64'], updated_at: '2026-01-01' },
+      { id: 5, tags: ['pr-1'], updated_at: '2026-01-01' },
+    ]))
+    const result = execFileSync('bash', ['-e', '-c', `versions_json="$1/versions.json"; keep_ids_file="$1/keep"; open_prs_json='[]'; ${source.slice(start, end)}\ncat "$keep_ids_file"`, 'test', directory], { encoding: 'utf8' })
+    expect(new Set(result.trim().split('\n'))).toEqual(new Set(['1', '2', '3', '4']))
+  } finally { rmSync(directory, { recursive: true, force: true }) }
 })

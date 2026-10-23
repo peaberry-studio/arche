@@ -196,16 +196,20 @@ describe('workspace-agent actions', () => {
   // -----------------------------------------------------------------------
 
   describe('applyWorkspacePatchAction', () => {
+    it('rejects malformed patches before contacting the agent', async () => {
+      expect(await applyWorkspacePatchAction('alice', 'invalid')).toEqual({ ok: false, error: 'protected_or_invalid_patch' })
+      expect(mockCreateWorkspaceAgentClient).not.toHaveBeenCalled()
+    })
     it('applies patch on success', async () => {
       const spy = mockFetchResponse({ ok: true })
-      const result = await applyWorkspacePatchAction('alice', 'diff --git ...')
+      const result = await applyWorkspacePatchAction('alice', 'diff --git a/note.md b/note.md\n--- a/note.md\n+++ b/note.md\n@@ -1 +1 @@\n-old\n+new\n')
       expect(result).toEqual({ ok: true })
       spy.mockRestore()
     })
 
     it('handles agent errors', async () => {
       const spy = mockFetchResponse({ ok: false, error: 'patch_conflict' }, 409)
-      const result = await applyWorkspacePatchAction('alice', 'bad patch')
+      const result = await applyWorkspacePatchAction('alice', 'diff --git a/note.md b/note.md\n--- a/note.md\n+++ b/note.md\n@@ -1 +1 @@\n-old\n+new\n')
       expect(result.ok).toBe(false)
       spy.mockRestore()
     })

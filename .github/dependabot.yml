@@ -1,0 +1,26 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: npm
+    directories:
+      - /apps/web
+      - /apps/desktop
+      - /infra/workspace-image/arche-tools
+    schedule:
+      interval: weekly
+    versioning-strategy: increase
+  - package-ecosystem: gomod
+    directories:
+      - /infra/one-click
+      - /infra/workspace-image/workspace-agent
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker-compose
+    directories:
+      - /infra/compose
+      - /infra/coolify
+    schedule:
+      interval: weekly

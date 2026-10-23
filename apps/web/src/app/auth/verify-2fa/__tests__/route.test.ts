@@ -86,7 +86,7 @@ function seedChallenge(token = 'tok-123', userId = 'u-1', ttlMs = 5 * 60 * 1000)
 function makeRequest(body: unknown) {
   return new Request('http://localhost/auth/verify-2fa', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', origin: 'http://localhost' },
     body: JSON.stringify(body),
   })
 }
@@ -94,7 +94,7 @@ function makeRequest(body: unknown) {
 function makeRawRequest(rawBody: string) {
   return new Request('http://localhost/auth/verify-2fa', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', origin: 'http://localhost' },
     body: rawBody,
   })
 }
@@ -411,4 +411,11 @@ describe('POST /auth/verify-2fa', () => {
       expect(mocks.verifyTotp).not.toHaveBeenCalled()
     })
   })
+})
+
+it.each([null, 'null', 'https://attacker.example'])('rejects untrusted login Origin %s', async (origin) => {
+  const request = makeRequest({})
+  if (origin === null) request.headers.delete('origin')
+  else request.headers.set('origin', origin)
+  expect((await POST(request)).status).toBe(403)
 })

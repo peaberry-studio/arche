@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { firstHeaderValue, getClientIp, getPublicBaseUrl, shouldTrustProxyHeaders, stripPort } from '../http'
 
@@ -158,5 +158,28 @@ describe('getPublicBaseUrl', () => {
   it('defaults protocol to http when no fallback has a scheme', () => {
     const headers = new Headers({ host: 'localhost' })
     expect(getPublicBaseUrl(headers, 'bad-value')).toBe('http://localhost')
+  })
+})
+
+
+describe('authenticated ingress boundary', () => {
+  afterEach(() => vi.unstubAllEnvs())
+  it('ignores forged forwarded headers in production even with the old opt-in', () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    vi.stubEnv('ARCHE_TRUST_PROXY_HEADERS', '1')
+    vi.stubEnv('ARCHE_INGRESS_SECRET', '')
+    expect(getClientIp(new Headers({ 'x-forwarded-for': '8.8.8.8' }))).toBeNull()
+  })
+  it('requires proxy authentication and uses the last hop, never a prepended address', () => {
+    const ingress = 'i'.repeat(32)
+    vi.stubEnv('ARCHE_INGRESS_SECRET', ingress)
+    const headers = new Headers({ 'x-forwarded-for': '1.1.1.1, 8.8.8.8' })
+    expect(getClientIp(headers)).toBeNull()
+    headers.set('x-arche-ingress', 'forged')
+    expect(getClientIp(headers)).toBeNull()
+    headers.set('x-arche-ingress', ingress)
+    expect(getClientIp(headers)).toBe('8.8.8.8')
+    headers.set('x-forwarded-for', 'not-an-ip')
+    expect(getClientIp(headers)).toBeNull()
   })
 })

@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 
+import { validateSameOrigin } from '@/lib/csrf'
+
 import { verifyArgon2 } from '@/lib/argon2'
 import { auditEvent, createSession, getCookieDomain, SESSION_COOKIE_NAME, shouldUseSecureCookies } from '@/lib/auth'
 import { checkRateLimit, resetRateLimit } from '@/lib/rate-limit'
@@ -9,6 +11,9 @@ import { decryptSecret, verifyTotp } from '@/lib/totp'
 import { pending2FAMap } from '../login/route'
 
 export async function POST(request: Request) {
+  if (!validateSameOrigin(request).ok) {
+    return NextResponse.json({ ok: false, error: 'invalid_origin' }, { status: 403 })
+  }
   const body = await request.json().catch(() => null)
   const challengeToken = typeof body?.challengeToken === 'string' ? body.challengeToken : ''
   const code = typeof body?.code === 'string' ? body.code.trim() : ''

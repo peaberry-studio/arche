@@ -1,6 +1,7 @@
 'use server'
 
 import { getSession } from '@/lib/runtime/session'
+import { isSafeWorkspacePatch } from '@/lib/workspace-patch'
 import { isProtectedWorkspacePath, normalizeWorkspacePath } from '@/lib/workspace-paths'
 import { createWorkspaceAgentClient } from '@/lib/workspace-agent/client'
 import type { WorkspaceFileContent } from '@/types/workspace'
@@ -189,6 +190,7 @@ export async function applyWorkspacePatchAction(
 ): Promise<{ ok: boolean; error?: string }> {
   const auth = await authorizeWorkspace(slug)
   if (!auth.ok) return { ok: false, error: auth.error }
+  if (!await isSafeWorkspacePatch(patch)) return { ok: false, error: 'protected_or_invalid_patch' }
 
   const agent = await createWorkspaceAgentClient(slug)
   if (!agent) return { ok: false, error: 'instance_unavailable' }

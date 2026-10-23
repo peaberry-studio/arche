@@ -81,6 +81,7 @@ main() {
   }
 
   require_command curl
+  require_command gh
   require_tty
 
   local os arch artifact release_base_url release_version download_url bin_dir target tmp_dir tmp_bin
@@ -115,6 +116,15 @@ main() {
     actual_hash="$(shasum -a 256 "$tmp_bin" | awk '{print $1}')"
   fi
   [ "$actual_hash" = "$expected_hash" ] || fail "Binary checksum mismatch"
+
+  release_version="$(resolve_release_version "$release_base_url" "$artifact" "$download_url")" \
+    || fail "Could not resolve the release tag for provenance verification"
+  gh attestation verify "$tmp_bin" \
+    --repo peaberry-studio/arche \
+    --signer-workflow peaberry-studio/arche/.github/workflows/release-archectl.yml \
+    --source-ref "refs/tags/$release_version" \
+    --deny-self-hosted-runners \
+    || fail "Binary provenance verification failed; refusing to install"
 
   note "Installing ${TOOL_NAME} to ${target}"
   mkdir -p "$bin_dir" || fail "Could not create ${bin_dir}"

@@ -1,6 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 class FakeNextRequest {
+  headers = new Headers()
   nextUrl: URL
   constructor(url: string) {
     this.nextUrl = new URL(url)
@@ -30,12 +31,22 @@ vi.mock('@/lib/services', () => ({
 }))
 
 function makeRequest(url = 'http://localhost/api/health') {
-  return new FakeNextRequest(url) as never
+  const request = new FakeNextRequest(url)
+  request.headers.set('authorization', `Bearer ${process.env.ARCHE_INTERNAL_TOKEN}`)
+  return request as never
 }
 
 describe('GET /api/health', () => {
+  afterEach(() => vi.unstubAllEnvs())
+  it('rejects unauthenticated deep checks before accessing services', async () => {
+    const { GET } = await import('./route')
+    const request = new FakeNextRequest('http://localhost/api/health?deep=true')
+    expect((await GET(request as never)).status).toBe(401)
+    expect(mockHealthService.checkContainerProxy).not.toHaveBeenCalled()
+  })
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.stubEnv('ARCHE_INTERNAL_TOKEN', 't'.repeat(32))
     process.env.ARCHE_GIT_SHA = 'abc123'
   })
 
@@ -49,7 +60,6 @@ describe('GET /api/health', () => {
     expect(res.status).toBe(503)
     expect(body).toEqual({
       status: 'error',
-      version: 'abc123',
       checks: { database: false },
     })
   })
@@ -64,7 +74,6 @@ describe('GET /api/health', () => {
     expect(res.status).toBe(200)
     expect(body).toEqual({
       status: 'ok',
-      version: 'abc123',
       checks: { database: true },
     })
     expect(mockHealthService.checkContainerProxy).not.toHaveBeenCalled()
@@ -81,7 +90,6 @@ describe('GET /api/health', () => {
     expect(res.status).toBe(200)
     expect(body).toEqual({
       status: 'ok',
-      version: 'abc123',
       checks: { database: true, containerProxy: true },
     })
   })
@@ -97,12 +105,11 @@ describe('GET /api/health', () => {
     expect(res.status).toBe(503)
     expect(body).toEqual({
       status: 'degraded',
-      version: 'abc123',
       checks: { database: true, containerProxy: false },
     })
   })
 
-  it('returns dev version when ARCHE_GIT_SHA is not set', async () => {
+  it('does not disclose the build version', async () => {
     delete process.env.ARCHE_GIT_SHA
     mockHealthService.pingDatabase.mockResolvedValue(true)
 
@@ -110,7 +117,7 @@ describe('GET /api/health', () => {
     const res = await GET(makeRequest())
     const body = await res.json()
 
-    expect(body.version).toBe('dev')
+    expect(body.version).toBeUndefined()
   })
 
   it('sets Cache-Control: no-store header', async () => {

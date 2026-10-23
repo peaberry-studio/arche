@@ -237,7 +237,7 @@ async function handleProxy(
   headers.delete('authorization')
   headers.delete('x-api-key')
   headers.delete('x-goog-api-key')
-  for (const name of ['cookie', 'x-arche-desktop-token', 'origin', 'referer', 'forwarded', 'x-forwarded-for', 'x-forwarded-host', 'x-forwarded-proto']) {
+  for (const name of ['cookie', 'x-arche-ingress', 'x-arche-desktop-token', 'origin', 'referer', 'forwarded', 'x-forwarded-for', 'x-forwarded-host', 'x-forwarded-proto']) {
     headers.delete(name)
   }
 

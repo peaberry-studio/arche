@@ -26,7 +26,7 @@ services:
       - arche-control
 
   traefik:
-    image: traefik:v3.6.7
+    image: traefik:v3.6.7@sha256:a9890c898f379c1905ee5b28342f6b408dc863f08db2dab20e46c267d1ff463a
     depends_on:
       - docker-socket-proxy
     command:
@@ -48,7 +48,7 @@ services:
       - arche-control
 
   postgres:
-    image: postgres:16
+    image: postgres:16@sha256:9e2cf6287f25c3151f4c9421ccce2b17f3e60061c111a29165e0d2cdd9ff0a97
     environment:
       POSTGRES_DB: arche
       POSTGRES_USER: postgres
@@ -80,7 +80,7 @@ services:
       - arche_postgres:/var/lib/postgresql/data
 
   web:
-    image: node:24.14.0-bookworm-slim
+    image: node:24.14.0-bookworm-slim@sha256:d8e448a56fc63242f70026718378bd4b00f8c82e78d20eefb199224a4d8e33d8
     working_dir: /app
     environment:
       # Base host

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -288,12 +289,26 @@ func main() {
 	}
 }
 
+var authenticatedRequestSlots = make(chan struct{}, 32)
+
 func (s *server) withAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		username, password, ok := r.BasicAuth()
-		if !ok || username != s.username || password != s.password {
+		actualUser, expectedUser := sha256.Sum256([]byte(username)), sha256.Sum256([]byte(s.username))
+		actualPassword, expectedPassword := sha256.Sum256([]byte(password)), sha256.Sum256([]byte(s.password))
+		validUser := subtle.ConstantTimeCompare(actualUser[:], expectedUser[:])
+		validPassword := subtle.ConstantTimeCompare(actualPassword[:], expectedPassword[:])
+		if !ok || validUser&validPassword != 1 {
 			w.Header().Set("WWW-Authenticate", "Basic")
 			writeError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		select {
+		case authenticatedRequestSlots <- struct{}{}:
+			defer func() { <-authenticatedRequestSlots }()
+		default:
+			w.Header().Set("Retry-After", "1")
+			writeError(w, http.StatusTooManyRequests, "busy")
 			return
 		}
 		next(w, r)

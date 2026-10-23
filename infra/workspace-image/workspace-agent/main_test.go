@@ -1445,3 +1445,40 @@ func TestKbGithubIncomingUsesOnlyLocalBrokerRefs(t *testing.T) {
 		t.Fatalf("unexpected GitHub credential configuration: %s", config)
 	}
 }
+
+func TestAuthenticatedRequestBoundary(t *testing.T) {
+	s := &server{username: "agent", password: strings.Repeat("p", 32)}
+	handler := s.withAuth(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	for _, valid := range []bool{false, true} {
+		req := httptest.NewRequest(http.MethodGet, "/health", nil)
+		credential := strings.Repeat("x", 32)
+		if valid {
+			credential = s.password
+		}
+		req.SetBasicAuth(s.username, credential)
+		res := httptest.NewRecorder()
+		handler(res, req)
+		expected := http.StatusUnauthorized
+		if valid {
+			expected = http.StatusNoContent
+		}
+		if res.Code != expected {
+			t.Fatalf("got %d, want %d", res.Code, expected)
+		}
+	}
+	for i := 0; i < cap(authenticatedRequestSlots); i++ {
+		authenticatedRequestSlots <- struct{}{}
+	}
+	defer func() {
+		for i := 0; i < cap(authenticatedRequestSlots); i++ {
+			<-authenticatedRequestSlots
+		}
+	}()
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req.SetBasicAuth(s.username, s.password)
+	res := httptest.NewRecorder()
+	handler(res, req)
+	if res.Code != http.StatusTooManyRequests {
+		t.Fatalf("unbounded authenticated request: %d", res.Code)
+	}
+}

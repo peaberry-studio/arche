@@ -1414,6 +1414,7 @@ fi
 log "Pulling ${OPENCODE_IMAGE}"
 docker pull "${OPENCODE_IMAGE}"
 log 'Recreating web, flows, and reaper services'
+docker compose run --rm --no-deps web ./start.sh init
 docker compose up -d web flows reaper docker-socket-proxy traefik
 docker compose ps
 log 'Update complete'
@@ -1948,7 +1949,7 @@ name: %s
 
 services:
   traefik:
-    image: docker.io/traefik:v3.6.7
+    image: docker.io/traefik:v3.6.7@sha256:a9890c898f379c1905ee5b28342f6b408dc863f08db2dab20e46c267d1ff463a
     restart: unless-stopped
     command:
       - --providers.docker=true
@@ -1999,7 +2000,7 @@ services:
       retries: 5
 
   postgres:
-    image: docker.io/postgres:16
+    image: docker.io/postgres:16@sha256:9e2cf6287f25c3151f4c9421ccce2b17f3e60061c111a29165e0d2cdd9ff0a97
     restart: unless-stopped
     environment:
       POSTGRES_DB: %s
@@ -2032,7 +2033,7 @@ services:
     labels:
       - traefik.enable=true
       - traefik.docker.network=arche-internal
-      - traefik.http.routers.arche.rule=Host("${ARCHE_DOMAIN}")
+      - traefik.http.routers.arche.rule=Host("${ARCHE_DOMAIN}") && !PathPrefix("/api/internal")
       - traefik.http.routers.arche.entrypoints=websecure
       - traefik.http.routers.arche.service=arche-web
       - traefik.http.routers.arche.tls=true
@@ -2152,7 +2153,7 @@ apt-get install -y ca-certificates curl git sudo
 log 'Installed ca-certificates, curl, git, and sudo'
 
 step 'Installing Docker'
-curl -fsSL https://get.docker.com | sh
+apt-get install -y docker.io docker-compose-v2
 systemctl enable --now docker
 log "$(docker --version)"
 log "$(docker compose version)"
@@ -2238,6 +2239,8 @@ docker pull "${OPENCODE_IMAGE}"
 
 step 'Starting Arche stack'
 cd /opt/%s
+docker compose up -d postgres
+docker compose run --rm --no-deps web ./start.sh init
 docker compose up -d
 docker compose ps
 log 'Compose stack started'

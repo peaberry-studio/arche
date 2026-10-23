@@ -17,7 +17,7 @@ describe('publicFetch', () => {
   })
   afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs() })
 
-  it.each(['https://127.0.0.1/', 'https://169.254.169.254/', 'http://8.8.8.8/', 'https://user:password@example.com/'])('rejects %s before sending credentials', async (url) => {
+  it.each(['https://127.0.0.1/', 'https://[::127.0.0.1]/', 'https://[::ffff:0:127.0.0.1]/', 'https://[::ffff:7f00:1]/', 'https://[0:0:0:0:0:ffff:7f00:1]/', 'https://169.254.169.254/', 'http://8.8.8.8/', 'https://user:password@example.com/'])('rejects %s before sending credentials', async (url) => {
     await expect(publicFetch(url)).rejects.toThrow()
     expect(fetch).not.toHaveBeenCalled()
   })

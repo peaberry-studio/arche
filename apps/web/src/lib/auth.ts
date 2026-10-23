@@ -10,11 +10,13 @@ export function shouldUseSecureCookies(headers?: Headers): boolean {
   if (raw === 'true') return true
   if (raw === 'false') return false
 
+  if (process.env.NODE_ENV === 'production') return true
+
   const proto = headers?.get('x-forwarded-proto')?.split(',')[0]?.trim().toLowerCase()
   if (proto === 'https') return true
   if (proto === 'http') return false
 
-  return process.env.NODE_ENV === 'production'
+  return false
 }
 
 export function getCookieDomain(): string | undefined {

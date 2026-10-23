@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { NextRequest } from 'next/server'
 
 const mocks = vi.hoisted(() => ({
+  checkRateLimit: vi.fn(() => ({ allowed: true })),
   getSession: vi.fn(),
   auditEvent: vi.fn(),
   decryptConfig: vi.fn(),
@@ -21,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   },
 }))
 
+vi.mock('@/lib/rate-limit', () => ({ checkRateLimit: mocks.checkRateLimit }))
 vi.mock('@/lib/runtime/session', () => ({ getSession: mocks.getSession }))
 vi.mock('@/lib/auth', () => ({ auditEvent: mocks.auditEvent }))
 vi.mock('@/lib/connectors/crypto', () => ({
@@ -214,4 +216,12 @@ describe('GET /api/connectors/oauth/callback', () => {
     expect(mocks.exchangeConnectorOAuthCode).not.toHaveBeenCalled()
   })
 
+})
+
+
+it('limits callbacks before OAuth exchange', async () => {
+  mocks.checkRateLimit.mockReturnValueOnce({ allowed: false })
+  mocks.exchangeConnectorOAuthCode.mockClear()
+  expect((await GET(makeRequest({ code: 'code', state: 'encoded-state' }))).status).toBe(429)
+  expect(mocks.exchangeConnectorOAuthCode).not.toHaveBeenCalled()
 })

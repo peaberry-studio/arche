@@ -24,11 +24,16 @@ until node -e "
 done
 echo "[arche] Database is ready"
 
-echo "[arche] Running database migrations..."
-timeout 60 ./node_modules/.bin/prisma migrate deploy 2>&1
-
-echo "[arche] Running database seed..."
-./node_modules/.bin/prisma db seed 2>&1 || echo "[arche] Seed skipped (may already be seeded)"
+if [ "${1:-start}" = "init" ]; then
+  echo "[arche] Running explicit database initialization..."
+  timeout 60 ./node_modules/.bin/prisma migrate deploy
+  ./node_modules/.bin/prisma db seed
+  exit 0
+fi
+if [ "${1:-start}" != "start" ]; then
+  echo "Usage: ./start.sh [start|init]" >&2
+  exit 64
+fi
 
 echo "[arche] Starting application (version: ${ARCHE_GIT_SHA:-dev})..."
 exec ./node_modules/.bin/next start

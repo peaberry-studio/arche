@@ -87,6 +87,11 @@ describe('shouldUseSecureCookies', () => {
     expect(shouldUseSecureCookies(headers)).toBe(true)
   })
 
+  it('ignores an insecure forwarded protocol in production', () => {
+    process.env.NODE_ENV = 'production'
+    expect(shouldUseSecureCookies(new Headers({ 'x-forwarded-proto': 'http' }))).toBe(true)
+  })
+
   it('returns true in production when no env or header', () => {
     process.env.NODE_ENV = 'production'
     expect(shouldUseSecureCookies()).toBe(true)

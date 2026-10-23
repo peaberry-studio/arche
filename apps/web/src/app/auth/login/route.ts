@@ -1,11 +1,15 @@
 import { NextResponse } from 'next/server'
 
+import { validateSameOrigin } from '@/lib/csrf'
+
 import { auditEvent, createSession, getCookieDomain, SESSION_COOKIE_NAME, shouldUseSecureCookies, verifyPassword } from '@/lib/auth'
 import { isE2eHooksEnabled } from '@/lib/e2e/runtime'
 import { getClientIp } from '@/lib/http'
 import { checkRateLimit } from '@/lib/rate-limit'
 import { hashSessionToken, newSessionToken } from '@/lib/security'
 import { userService } from '@/lib/services'
+
+const DUMMY_PASSWORD_HASH = '$argon2id$v=19$m=65536,t=3,p=4$/J+hk5YbuHbvY7gqG0IN7Q$98bhv7R56mmMrs7/n6pZLqCpLZ8x0dpEebX+6d7VBh8'
 
 // Pending 2FA challenges: hashedToken -> { userId, expiresAt }
 // NOTE: In-memory storage — only works in single-process deployments (Docker/Podman).
@@ -21,6 +25,9 @@ setInterval(() => {
 }, 5 * 60 * 1000).unref()
 
 export async function POST(request: Request) {
+  if (!validateSameOrigin(request).ok) {
+    return NextResponse.json({ ok: false, error: 'invalid_origin' }, { status: 403 })
+  }
   const body = await request.json().catch(() => null)
   const email = typeof body?.email === 'string' ? body.email.trim().toLowerCase() : ''
   const password = typeof body?.password === 'string' ? body.password : ''
@@ -33,7 +40,12 @@ export async function POST(request: Request) {
   // E2E suites run many successful logins from a single IP against one dev
   // server; skip the throttle only in that non-production, opted-in mode.
   if (!isE2eHooksEnabled()) {
-    const limit = checkRateLimit(`login:${ip}:${email}`, 5, 15 * 60 * 1000)
+    const limits = [
+      checkRateLimit('login:global', 300, 60_000),
+      checkRateLimit(`login:ip:${ip}`, 30, 60_000),
+      checkRateLimit(`login:${ip}:${email}`, 5, 15 * 60 * 1000),
+    ]
+    const limit = limits.find((entry) => !entry.allowed) ?? limits[2]
     if (!limit.allowed) {
       return NextResponse.json(
         { ok: false, error: 'rate_limited', retryAfter: Math.ceil((limit.resetAt - Date.now()) / 1000) },
@@ -43,12 +55,12 @@ export async function POST(request: Request) {
   }
 
   const user = await userService.findLoginByEmail(email)
+  const ok = await verifyPassword(password, user?.passwordHash ?? DUMMY_PASSWORD_HASH)
   if (!user) {
     await auditEvent({ action: 'auth.login.failed', metadata: { email } })
     return NextResponse.json({ ok: false, error: 'invalid_credentials' }, { status: 401 })
   }
 
-  const ok = await verifyPassword(password, user.passwordHash)
   if (!ok) {
     await auditEvent({ actorUserId: user.id, action: 'auth.login.failed' })
     return NextResponse.json({ ok: false, error: 'invalid_credentials' }, { status: 401 })

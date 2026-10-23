@@ -7,6 +7,8 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 jobs:
   build:
@@ -27,7 +29,7 @@ jobs:
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
-          go-version: '1.24.x'
+          go-version-file: infra/workspace-image/workspace-agent/go.mod
 
       - name: Build archectl
         working-directory: infra/one-click
@@ -36,6 +38,11 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: go build -trimpath -ldflags="-s -w" -o "../../archectl_${GOOS}_${GOARCH}" .
+
+      - name: Attest binary provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: archectl_${{ matrix.goos }}_${{ matrix.goarch }}
 
       - name: Upload release asset
         if: github.event_name == 'release'

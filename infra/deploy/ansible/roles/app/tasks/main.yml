@@ -414,10 +414,18 @@
     msg: "Old container(s): {{ old_web_containers | default(['none']) | join(', ') }} → New container: {{ new_web_container }}"
 
 # 5c. Start the new web container
+- name: Initialize database explicitly before starting the new web container
+  ansible.builtin.command:
+    cmd: >
+      podman run --rm --network {{ compose_default_network }}
+      --env-file {{ app_dir }}/.env {{ web_image }} ./start.sh init
+  changed_when: true
+  no_log: true
+
 - name: Build podman run command
   ansible.builtin.set_fact:
     kb_volumes: "{% if kb_content_host_path is defined and kb_content_host_path and kb_config_host_path is defined and kb_config_host_path %}-v {{ kb_content_host_path }}:/kb-content -v {{ kb_config_host_path }}:/kb-config{% endif %}"
-    traefik_labels: "{% if deploy_mode == 'remote' and exposure_mode == 'direct' %}--label 'traefik.http.routers.arche-base.rule=Host(`{{ domain }}`)' --label traefik.http.routers.arche-base.entrypoints=websecure --label traefik.http.routers.arche-base.tls=true --label traefik.http.routers.arche-base.tls.certresolver=letsencrypt --label traefik.http.routers.arche-base.service=arche-web{% else %}--label 'traefik.http.routers.arche-base.rule=Host(`{{ domain }}`)' --label traefik.http.routers.arche-base.entrypoints=web --label traefik.http.routers.arche-base.service=arche-web{% endif %}"
+    traefik_labels: "{% if deploy_mode == 'remote' and exposure_mode == 'direct' %}--label 'traefik.http.routers.arche-base.rule=Host(`{{ domain }}`) && !PathPrefix(`/api/internal`)' --label traefik.http.routers.arche-base.entrypoints=websecure --label traefik.http.routers.arche-base.tls=true --label traefik.http.routers.arche-base.tls.certresolver=letsencrypt --label traefik.http.routers.arche-base.service=arche-web{% else %}--label 'traefik.http.routers.arche-base.rule=Host(`{{ domain }}`) && !PathPrefix(`/api/internal`)' --label traefik.http.routers.arche-base.entrypoints=web --label traefik.http.routers.arche-base.service=arche-web{% endif %}"
 
 - name: Start new web container
   ansible.builtin.shell:
@@ -435,6 +443,10 @@
       {{ kb_volumes | trim }} \
       --label traefik.enable=true \
       {{ traefik_labels | trim }} \
+      --label traefik.http.routers.arche-base.middlewares=arche-ingress,arche-rate-limit \
+      --label 'traefik.http.middlewares.arche-ingress.headers.customrequestheaders.X-Arche-Ingress={{ (arche_internal_token ~ ":ingress:v1") | hash("sha256") }}' \
+      --label traefik.http.middlewares.arche-rate-limit.ratelimit.average=100 \
+      --label traefik.http.middlewares.arche-rate-limit.ratelimit.burst=200 \
       --label traefik.http.services.arche-web.loadbalancer.server.port=3000 \
       --label traefik.http.services.arche-web.loadbalancer.healthcheck.path=/api/health \
       --label traefik.http.services.arche-web.loadbalancer.healthcheck.interval=5s \
