@@ -175,7 +175,7 @@ export async function subscribeOpenCodeEvents(slug: string, signal: AbortSignal)
     const connection = await getInstanceBasicAuth(slug)
     if (!connection) return harnessFailure('instance_unavailable')
     const ready = Promise.withResolvers<void>()
-    const client = await createConnectionClient({ ...connection,
+    const client = await createConnectionClient(connection, {
       fetch: async (input, options) => {
         const response = await fetch(input, options)
         if (new URL(String(input)).pathname === '/api/event') {

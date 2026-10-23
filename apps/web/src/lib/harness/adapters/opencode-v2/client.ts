@@ -36,13 +36,12 @@ async function loadOpenCode(): Promise<typeof OpenCode> {
   return (await import('@opencode/client')).OpenCode
 }
 
-type OpenCodeV2Options = NonNullable<Parameters<typeof OpenCode.make>[0]>
-
 export async function createConnectionClient(
-  connection: { baseUrl: string; authHeader: string; fetch?: OpenCodeV2Options['fetch'] },
+  connection: { baseUrl: string; authHeader: string },
+  options?: { fetch?: OpenCode.ClientOptions['fetch'] },
 ): Promise<OpenCodeV2Client> {
   const OpenCode = await loadOpenCode()
-  return OpenCode.make({ baseUrl: connection.baseUrl, headers: { Authorization: connection.authHeader }, fetch: connection.fetch })
+  return OpenCode.make({ baseUrl: connection.baseUrl, headers: { Authorization: connection.authHeader }, fetch: options?.fetch })
 }
 
 export async function createInstanceClient(slug: string): Promise<OpenCodeV2Client | null> {
