@@ -11,6 +11,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { KnowledgeReviewList } from "@/components/workspace/knowledge-review-list";
 import { MarkdownEditor } from "@/components/workspace/markdown-editor";
 import { MarkdownPreview } from "@/components/workspace/markdown-preview";
+import { KbPublicationReview } from "@/components/workspace/kb-publication-review";
 import { PublishKbButton } from "@/components/workspace/publish-kb-button";
 import { ReviewPanel } from "@/components/workspace/review-panel";
 import { SegmentedControl, type SegmentedControlOption } from "@/components/workspace/segmented-control";
@@ -193,6 +194,7 @@ export function CuratorDialog({
           </div>
 
           <div className="ml-auto flex items-center justify-end gap-2">
+            <KbPublicationReview slug={slug} onComplete={onPublish} />
             {tab === "manual-edits" && workspaceAgentEnabled && diffs.length > 0 ? (
               <PublishKbButton
                 slug={slug}

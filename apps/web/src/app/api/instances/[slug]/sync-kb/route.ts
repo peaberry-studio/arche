@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 
 import { isWorkspaceReachable } from '@/lib/runtime/workspace-host'
 import { withAuth } from '@/lib/runtime/with-auth'
-import { kbGithubRemoteService } from '@/lib/services'
+import { syncKbGithub } from '@/lib/git/kb-github-broker'
 import { createWorkspaceAgentClient } from '@/lib/workspace-agent/client'
 
 export interface SyncKbResult {
@@ -32,7 +32,7 @@ export interface SyncKbResult {
  */
 export const POST = withAuth<SyncKbResult | { error: string }>(
   { csrf: true },
-  async (_request, { slug }) => {
+  async (_request, { slug, user }) => {
     const reachable = await isWorkspaceReachable(slug)
 
     if (!reachable) {
@@ -45,7 +45,7 @@ export const POST = withAuth<SyncKbResult | { error: string }>(
         return NextResponse.json({ error: 'instance_unavailable' }, { status: 409 })
       }
 
-      const githubRemote = await kbGithubRemoteService.createWorkspaceRemoteConfig()
+      const githubRemote = await syncKbGithub('fetch', user.id)
       if (!githubRemote.ok) {
         return NextResponse.json({
           ok: false,
@@ -54,7 +54,7 @@ export const POST = withAuth<SyncKbResult | { error: string }>(
         })
       }
 
-      const body = githubRemote.remote ? JSON.stringify({ github: githubRemote.remote }) : undefined
+      const body = JSON.stringify({ incomingGithub: githubRemote.incoming })
 
       const response = await fetch(`${agent.baseUrl}/kb/sync`, {
         method: 'POST',
@@ -70,9 +70,6 @@ export const POST = withAuth<SyncKbResult | { error: string }>(
       const data = await response.json().catch(() => null) as SyncKbResult | null
       if (!response.ok || !data) {
         const errorText = data?.message ?? `workspace_agent_http_${response.status}`
-        if (githubRemote.remote) {
-          await markGithubSync('error', errorText)
-        }
         return NextResponse.json({
           ok: false,
           status: 'error',
@@ -80,9 +77,6 @@ export const POST = withAuth<SyncKbResult | { error: string }>(
         })
       }
 
-      if (githubRemote.remote) {
-        await markGithubSyncFromSync(data)
-      }
 
       return NextResponse.json(data)
     } catch (error) {
@@ -95,34 +89,6 @@ export const POST = withAuth<SyncKbResult | { error: string }>(
     }
   }
 )
-
-async function markGithubSyncFromSync(result: SyncKbResult): Promise<void> {
-  const status = result.githubStatus ?? result.status
-  if (result.status === 'conflicts' || status === 'conflicts') {
-    await markGithubSync('conflicts', result.message ?? result.githubMessage ?? null)
-    return
-  }
-
-  if (result.ok && result.status === 'synced') {
-    await markGithubSync('success', null)
-    return
-  }
-
-  await markGithubSync('error', result.message ?? result.githubMessage ?? null)
-}
-
-async function markGithubSync(
-  status: 'success' | 'error' | 'conflicts',
-  lastError: string | null,
-): Promise<void> {
-  await kbGithubRemoteService.updateSyncState({
-    lastError,
-    lastSyncAt: new Date().toISOString(),
-    lastSyncStatus: status,
-  }).catch((error) => {
-    console.error('[kb-github-remote] Failed to update sync state', error)
-  })
-}
 
 /**
  * GET /api/instances/[slug]/sync-kb

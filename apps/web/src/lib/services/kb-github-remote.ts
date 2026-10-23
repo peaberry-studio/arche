@@ -3,7 +3,7 @@ import { getInstallationToken } from '@/lib/git/github-app-auth'
 import type {
   KbGithubRemoteIntegrationSummary,
   KbGithubRemoteSyncStatus,
-  KbGithubRemoteWorkspaceConfig,
+  KbGithubRemoteBrokerConfig,
 } from '@/lib/kb-github-remote/types'
 import { findByKey, updateStateByKey, upsertByKey } from '@/lib/services/external-integrations'
 
@@ -172,8 +172,8 @@ export function toSummary(
   }
 }
 
-export async function createWorkspaceRemoteConfig(): Promise<
-  | { ok: true; remote: KbGithubRemoteWorkspaceConfig | null }
+export async function createBrokerRemoteConfig(): Promise<
+  | { ok: true; remote: KbGithubRemoteBrokerConfig | null }
   | { ok: false; error: string }
 > {
   const record = await findIntegration()
@@ -183,6 +183,10 @@ export async function createWorkspaceRemoteConfig(): Promise<
   if (!config?.appId || !config.privateKey || !record.state.installationId || !record.state.repoCloneUrl || !record.state.repoFullName) {
     return { ok: true, remote: null }
   }
+
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(record.state.repoFullName)) return { ok: false, error: 'Invalid GitHub repository.' }
+  const canonicalUrl = `https://github.com/${record.state.repoFullName}.git`
+  if (record.state.repoCloneUrl !== canonicalUrl) return { ok: false, error: 'Invalid GitHub clone URL.' }
 
   const tokenResult = await getInstallationToken(config.appId, config.privateKey, record.state.installationId, record.state.repoFullName.split('/')[1])
   if (!tokenResult.ok) {

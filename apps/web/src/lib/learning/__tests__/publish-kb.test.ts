@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   auditEvent: vi.fn(),
   createWorkspaceAgentClient: vi.fn(),
-  createWorkspaceRemoteConfig: vi.fn(),
+  createBrokerRemoteConfig: vi.fn(),
   findIdBySlug: vi.fn(),
   listAppliedKnowledgeReviewChanges: vi.fn(),
   markKnowledgeReviewChangesPublished: vi.fn(),
@@ -19,7 +19,7 @@ vi.mock('@/lib/learning/service', () => ({
 }))
 vi.mock('@/lib/services', () => ({
   kbGithubRemoteService: {
-    createWorkspaceRemoteConfig: mocks.createWorkspaceRemoteConfig,
+    createBrokerRemoteConfig: mocks.createBrokerRemoteConfig,
     updateSyncState: mocks.updateSyncState,
   },
 }))
@@ -36,7 +36,7 @@ function mockFetch(options: {
   publish?: object
 } = {}) {
   const diffs = options.diffs ?? [{ path: 'Notes/A.md' }, { path: 'Notes/B.md' }]
-  const publish = options.publish ?? { ok: true, status: 'published', commitHash: 'abc123' }
+  const publish = options.publish ?? { ok: true, status: 'proposed', commitHash: 'abc123' }
   const fileReads = options.fileReads ?? {}
   return vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
     const url = typeof input === 'string' ? input : input instanceof Request ? input.url : input.toString()
@@ -65,7 +65,7 @@ describe('publishKnowledgeBasePaths', () => {
     vi.clearAllMocks()
     mocks.createWorkspaceAgentClient.mockResolvedValue(AGENT)
     mocks.findIdBySlug.mockResolvedValue({ id: 'owner-1' })
-    mocks.createWorkspaceRemoteConfig.mockResolvedValue({ ok: true, remote: null })
+    mocks.createBrokerRemoteConfig.mockResolvedValue({ ok: true, remote: null })
     mocks.updateSyncState.mockResolvedValue(undefined)
     mocks.listAppliedKnowledgeReviewChanges.mockResolvedValue([])
     mocks.markKnowledgeReviewChangesPublished.mockResolvedValue([])
@@ -88,9 +88,10 @@ describe('publishKnowledgeBasePaths', () => {
 
     const result = await publishKnowledgeBasePaths({ slug: 'alice', actorUserId: 'u1' })
 
-    expect(result).toEqual({ ok: true, status: 'published', commitHash: 'abc123' })
+    expect(result).toEqual({ ok: true, status: 'proposed', commitHash: 'abc123' })
     expect(spy).toHaveBeenLastCalledWith('http://agent:8080/kb/publish', expect.objectContaining({
       body: JSON.stringify({
+        proposalRef: 'refs/heads/proposals/alice/pending',
         paths: ['Notes/A.md', 'Notes/B.md'],
         pathHashes: {},
       }),
@@ -107,9 +108,10 @@ describe('publishKnowledgeBasePaths', () => {
 
     const result = await publishKnowledgeBasePaths({ slug: 'alice', actorUserId: 'u1', paths: ['Notes/B.md'] })
 
-    expect(result).toEqual({ ok: true, status: 'published', commitHash: 'abc123' })
+    expect(result).toEqual({ ok: true, status: 'proposed', commitHash: 'abc123' })
     expect(spy).toHaveBeenLastCalledWith('http://agent:8080/kb/publish', expect.objectContaining({
       body: JSON.stringify({
+        proposalRef: 'refs/heads/proposals/alice/pending',
         paths: ['Notes/B.md'],
         pathHashes: {},
       }),
@@ -156,9 +158,10 @@ describe('publishKnowledgeBasePaths', () => {
     expect(spy).toHaveBeenCalledTimes(1)
 
     const allowed = await publishKnowledgeBasePaths({ slug: 'alice', actorUserId: 'u1', paths: ['Notes/Clean.md'] })
-    expect(allowed).toEqual({ ok: true, status: 'published', commitHash: 'abc123' })
+    expect(allowed).toEqual({ ok: true, status: 'proposed', commitHash: 'abc123' })
     expect(spy).toHaveBeenLastCalledWith('http://agent:8080/kb/publish', expect.objectContaining({
       body: JSON.stringify({
+        proposalRef: 'refs/heads/proposals/alice/pending',
         paths: ['Notes/Clean.md'],
         pathHashes: {},
       }),
@@ -174,7 +177,7 @@ describe('publishKnowledgeBasePaths', () => {
     expect(result.message).toBe('Resolve the conflicted files before publishing other changes.')
   })
 
-  it('marks applied changes published only for the published paths', async () => {
+  it('does not mark proposed changes published before administrator approval', async () => {
     mocks.listAppliedKnowledgeReviewChanges.mockResolvedValue([
       { kbPath: 'Notes/A.md', operation: 'update', appliedHash: 'sha256:a' },
       { kbPath: 'Notes/B.md', operation: 'update', appliedHash: 'sha256:b' },
@@ -184,30 +187,14 @@ describe('publishKnowledgeBasePaths', () => {
         'Notes/A.md': { body: { ok: true, hash: 'sha256:a' } },
         'Notes/B.md': { body: { ok: true, hash: 'sha256:b' } },
       },
-      publish: { ok: true, status: 'published', commitHash: 'abc123', files: ['Notes/A.md'] },
+      publish: { ok: true, status: 'proposed', commitHash: 'abc123', files: ['Notes/A.md'] },
     })
 
     const result = await publishKnowledgeBasePaths({ slug: 'alice', actorUserId: 'u1' })
 
     expect(result.ok).toBe(true)
-    expect(mocks.markKnowledgeReviewChangesPublished).toHaveBeenCalledTimes(1)
-    expect(mocks.markKnowledgeReviewChangesPublished).toHaveBeenCalledWith(expect.objectContaining({
-      paths: ['Notes/A.md'],
-      commitSha: 'abc123',
-      userId: 'owner-1',
-    }))
-    expect(mocks.auditEvent).toHaveBeenCalledWith(expect.objectContaining({
-      action: 'knowledge.review_published',
-      metadata: expect.objectContaining({ paths: ['Notes/A.md'] }),
-    }))
-    // B has an applied row but was never shipped by the agent, so it is
-    // neither marked published nor audited.
-    expect(mocks.markKnowledgeReviewChangesPublished).not.toHaveBeenCalledWith(expect.objectContaining({
-      paths: expect.arrayContaining(['Notes/B.md']),
-    }))
-    expect(mocks.auditEvent).not.toHaveBeenCalledWith(expect.objectContaining({
-      action: 'knowledge.user_published',
-    }))
+    expect(mocks.markKnowledgeReviewChangesPublished).not.toHaveBeenCalled()
+    expect(mocks.auditEvent).not.toHaveBeenCalled()
     spy.mockRestore()
   })
 })

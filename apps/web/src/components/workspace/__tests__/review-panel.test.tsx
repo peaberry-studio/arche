@@ -63,7 +63,7 @@ describe('ReviewPanel', () => {
 
     rerender(<ReviewPanel diffs={[]} onOpenFile={onOpenFile} slug="alice" />)
     expect(screen.getByText('No manual edits to publish')).toBeDefined()
-    expect(screen.getByText('Edits you make in the Knowledge Base show up here. Applied proposals publish immediately.')).toBeDefined()
+    expect(screen.getByText('Edits you make in the Knowledge Base show up here. Submit changes, then ask an administrator to review the publication.')).toBeDefined()
   })
 
   it('renders a per-file publish button for non-conflicted diffs', async () => {
@@ -79,7 +79,7 @@ describe('ReviewPanel', () => {
       />
     )
 
-    const publish = screen.getByRole('button', { name: 'Publish' })
+    const publish = screen.getByRole('button', { name: 'Submit' })
     expect(publish).toBeDefined()
 
     fireEvent.click(publish)
@@ -100,7 +100,7 @@ describe('ReviewPanel', () => {
       />
     )
 
-    expect(screen.queryByRole('button', { name: 'Publish' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Submit' })).toBeNull()
   })
 
   it('opens diffs, toggles long previews, and discards changes', async () => {

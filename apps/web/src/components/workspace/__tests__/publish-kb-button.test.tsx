@@ -25,40 +25,40 @@ afterEach(() => {
 })
 
 describe('PublishKbButton', () => {
-  it('labels the button Publish all when no paths are provided', () => {
+  it('labels the button Submit all when no paths are provided', () => {
     render(<PublishKbButton slug="alice" />)
 
-    expect(screen.getByRole('button', { name: 'Publish all' })).toBeDefined()
+    expect(screen.getByRole('button', { name: 'Submit all' })).toBeDefined()
   })
 
   it('renders disabled state with the disabled reason as title', () => {
     render(<PublishKbButton slug="alice" disabled disabledReason="Workspace is stopped" />)
 
-    const button = screen.getByRole('button', { name: 'Publish all' })
+    const button = screen.getByRole('button', { name: 'Submit all' })
     expect(button.hasAttribute('disabled')).toBe(true)
     expect(button.getAttribute('title')).toBe('Workspace is stopped')
   })
 
   it('publishes KB changes and calls onComplete', async () => {
     const onComplete = vi.fn()
-    fetchMock.mockResolvedValueOnce(jsonResponse({ status: 'published' }))
+    fetchMock.mockResolvedValueOnce(jsonResponse({ status: 'proposed' }))
 
     render(<PublishKbButton slug="alice" onComplete={onComplete} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Publish all' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Submit all' }))
 
-    await screen.findByRole('button', { name: 'Published' })
+    await screen.findByRole('button', { name: 'Awaiting approval' })
     expect(fetchMock).toHaveBeenCalledWith('/api/instances/alice/publish-kb', { method: 'POST' })
     expect(onComplete).toHaveBeenCalledTimes(1)
   })
 
   it('posts the requested paths in the body when paths are provided', async () => {
     const onComplete = vi.fn()
-    fetchMock.mockResolvedValueOnce(jsonResponse({ status: 'published' }))
+    fetchMock.mockResolvedValueOnce(jsonResponse({ status: 'proposed' }))
 
     render(<PublishKbButton slug="alice" paths={['Notes/A.md']} onComplete={onComplete} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Publish' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Submit' }))
 
-    await screen.findByRole('button', { name: 'Published' })
+    await screen.findByRole('button', { name: 'Awaiting approval' })
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(fetchMock).toHaveBeenCalledWith('/api/instances/alice/publish-kb', {
       method: 'POST',
@@ -73,7 +73,7 @@ describe('PublishKbButton', () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ status: 'nothing_to_publish' }))
 
     render(<PublishKbButton slug="alice" onComplete={onComplete} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Publish all' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Submit all' }))
 
     await screen.findByRole('button', { name: 'No changes' })
     expect(onComplete).toHaveBeenCalledTimes(1)
@@ -89,7 +89,7 @@ describe('PublishKbButton', () => {
     )
 
     render(<PublishKbButton slug="alice" />)
-    fireEvent.click(screen.getByRole('button', { name: 'Publish all' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Submit all' }))
 
     expect(await screen.findByText('KB sync required')).toBeDefined()
     expect(screen.getByText('Sync first')).toBeDefined()
@@ -104,12 +104,12 @@ describe('PublishKbButton', () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ status: 'conflicts', files: ['Conflict.md'] }))
 
     render(<PublishKbButton slug="alice" onComplete={onComplete} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Publish all' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Submit all' }))
 
     await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1))
     expect(screen.queryByText('Pending conflicts')).toBeNull()
     expect(screen.queryByText('Conflict.md')).toBeNull()
-    expect(screen.getByRole('button', { name: 'Publish all' })).toBeDefined()
+    expect(screen.getByRole('button', { name: 'Submit all' })).toBeDefined()
   })
 
   it('shows missing remote details', async () => {
@@ -117,7 +117,7 @@ describe('PublishKbButton', () => {
       .mockResolvedValueOnce(jsonResponse({ status: 'no_remote', message: 'No origin' }))
 
     render(<PublishKbButton slug="alice" />)
-    fireEvent.click(screen.getByRole('button', { name: 'Publish all' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Submit all' }))
 
     expect(await screen.findByText('KB remote unavailable')).toBeDefined()
     expect(screen.getByText('No origin')).toBeDefined()
@@ -129,14 +129,14 @@ describe('PublishKbButton', () => {
       .mockResolvedValueOnce(jsonResponse({ status: 'failed', message: 'Server rejected publish' }))
 
     const { rerender } = render(<PublishKbButton slug="alice" />)
-    fireEvent.click(screen.getByRole('button', { name: 'Publish all' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Submit all' }))
 
     expect(await screen.findByText('Publishing failed')).toBeDefined()
     expect(screen.getByText('boom')).toBeDefined()
 
     fireEvent.click(screen.getByRole('button', { name: 'Close' }))
     rerender(<PublishKbButton slug="alice" />)
-    fireEvent.click(screen.getByRole('button', { name: 'Publish all' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Submit all' }))
 
     expect(await screen.findByText('Server rejected publish')).toBeDefined()
   })

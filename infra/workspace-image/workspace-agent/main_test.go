@@ -97,68 +97,6 @@ func TestIsInternalWorkspacePath(t *testing.T) {
 	}
 }
 
-func TestNormalizeGithubRemote(t *testing.T) {
-	valid, ok, errMsg := normalizeGithubRemote(&kbGithubRemoteRequest{
-		Branch:       "main",
-		RepoCloneUrl: "https://github.com/acme/kb.git",
-		Token:        "secret-token",
-	})
-	if !ok || errMsg != "" {
-		t.Fatalf("expected valid remote, ok=%v err=%q", ok, errMsg)
-	}
-	if valid.Branch != "main" || valid.RepoCloneUrl != "https://github.com/acme/kb.git" {
-		t.Fatalf("unexpected normalized remote: %+v", valid)
-	}
-
-	_, ok, errMsg = normalizeGithubRemote(&kbGithubRemoteRequest{
-		Branch:       "../main",
-		RepoCloneUrl: "https://github.com/acme/kb.git",
-		Token:        "secret-token",
-	})
-	if ok || errMsg != "github_branch_invalid" {
-		t.Fatalf("expected invalid branch, ok=%v err=%q", ok, errMsg)
-	}
-
-	_, ok, errMsg = normalizeGithubRemote(&kbGithubRemoteRequest{
-		RepoCloneUrl: "https://example.com/acme/kb.git",
-		Token:        "secret-token",
-	})
-	if ok || errMsg != "github_remote_invalid_url" {
-		t.Fatalf("expected invalid url, ok=%v err=%q", ok, errMsg)
-	}
-}
-
-func TestSanitizeGithubMessageRedactsToken(t *testing.T) {
-	token := "github-token"
-	encoded := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + token))
-	message := "fatal: authentication failed for " + token + " header " + encoded
-
-	sanitized := sanitizeGithubMessage(message, token)
-	if strings.Contains(sanitized, token) || strings.Contains(sanitized, encoded) {
-		t.Fatalf("expected token redacted, got %q", sanitized)
-	}
-	if !strings.Contains(sanitized, "***") {
-		t.Fatalf("expected redaction marker, got %q", sanitized)
-	}
-}
-
-func TestGithubGitEnvStoresCredentialOutsideArguments(t *testing.T) {
-	token := "github-token"
-	encoded := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + token))
-	env := strings.Join(githubGitEnv(token), "\n")
-	args := strings.Join([]string{"git", "fetch", "github", "main"}, " ")
-
-	if strings.Contains(args, token) || strings.Contains(args, encoded) {
-		t.Fatalf("expected git arguments not to contain credentials, got %q", args)
-	}
-	if !strings.Contains(env, "GIT_CONFIG_KEY_0=http.extraheader") || !strings.Contains(env, encoded) {
-		t.Fatalf("expected GitHub credential in git config environment, got %q", env)
-	}
-	if strings.Contains(env, token) {
-		t.Fatalf("expected raw token not to appear in environment, got %q", env)
-	}
-}
-
 func TestFileHandlersHappyPath(t *testing.T) {
 	workspace := t.TempDir()
 	s := &server{workspace: workspace}
@@ -423,7 +361,7 @@ func TestHandleKbPublishCommitsResolvedMergeWithNoFileDiff(t *testing.T) {
 	if err := json.Unmarshal(publishRecorder.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode publish response: %v", err)
 	}
-	if response.Status != "published" {
+	if response.Status != "proposed" {
 		t.Fatalf("publish status = %q, body = %s", response.Status, publishRecorder.Body.String())
 	}
 	if s.mergeInProgress(ctx) {
@@ -592,11 +530,11 @@ func TestHandleKbPublishAllowsPathWithoutHash(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode publish response: %v", err)
 	}
-	if response.Status != "published" || len(response.Files) != 1 || response.Files[0] != "Knowledge/User.md" {
+	if response.Status != "proposed" || len(response.Files) != 1 || response.Files[0] != "Knowledge/User.md" {
 		t.Fatalf("unexpected publish response: %+v", response)
 	}
 
-	runGit(t, ctx, root, "clone", remote, remoteWork)
+	runGit(t, ctx, root, "clone", "-b", "proposals/local/pending", remote, remoteWork)
 	userEdit, err := os.ReadFile(filepath.Join(remoteWork, "Knowledge", "User.md"))
 	if err != nil || string(userEdit) != "user edit\n" {
 		t.Fatalf("user edit content = %q, err = %v", string(userEdit), err)
@@ -643,11 +581,11 @@ func TestHandleKbPublishOverrideOmitsStaleHash(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode publish response: %v", err)
 	}
-	if !response.Ok || response.Status != "published" {
+	if !response.Ok || response.Status != "proposed" {
 		t.Fatalf("unexpected publish response: %+v", response)
 	}
 
-	runGit(t, ctx, root, "clone", remote, remoteWork)
+	runGit(t, ctx, root, "clone", "-b", "proposals/local/pending", remote, remoteWork)
 	content, err := os.ReadFile(filepath.Join(remoteWork, "Knowledge", "Reviewed.md"))
 	if err != nil || string(content) != "user override\n" {
 		t.Fatalf("published override = %q, err = %v", string(content), err)
@@ -766,7 +704,7 @@ func TestHandleKbPublishPartialCommitLeavesSiblingDirty(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode publish response: %v", err)
 	}
-	if !response.Ok || response.Status != "published" {
+	if !response.Ok || response.Status != "proposed" {
 		t.Fatalf("unexpected publish response: %+v", response)
 	}
 
@@ -790,7 +728,7 @@ func TestHandleKbPublishPartialCommitLeavesSiblingDirty(t *testing.T) {
 	}
 
 	// The requested file is on the remote; the sibling is not.
-	runGit(t, ctx, root, "clone", remote, remoteWork)
+	runGit(t, ctx, root, "clone", "-b", "proposals/local/pending", remote, remoteWork)
 	reviewed, err := os.ReadFile(filepath.Join(remoteWork, "Knowledge", "Reviewed.md"))
 	if err != nil || string(reviewed) != "reviewed\n" {
 		t.Fatalf("published content = %q, err = %v", string(reviewed), err)
@@ -840,12 +778,12 @@ func TestHandleKbPublishPartialAfterPriorPendingCommit(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode publish response: %v", err)
 	}
-	if !response.Ok || response.Status != "published" {
+	if !response.Ok || response.Status != "proposed" {
 		t.Fatalf("unexpected publish response: %+v", response)
 	}
 
 	// Both A (already committed) and B (just published) are pushed.
-	runGit(t, ctx, root, "clone", remote, remoteWork)
+	runGit(t, ctx, root, "clone", "-b", "proposals/local/pending", remote, remoteWork)
 	contentA, err := os.ReadFile(filepath.Join(remoteWork, "Knowledge", "Reviewed.md"))
 	if err != nil || string(contentA) != "committed A\n" {
 		t.Fatalf("committed A content = %q, err = %v", string(contentA), err)
@@ -1357,7 +1295,7 @@ func TestHandleKbPublishUnicodePath(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode publish response: %v", err)
 	}
-	if response.Status != "published" {
+	if response.Status != "proposed" {
 		t.Fatalf("unexpected publish response: %+v", response)
 	}
 	found := false
@@ -1370,7 +1308,7 @@ func TestHandleKbPublishUnicodePath(t *testing.T) {
 		t.Fatalf("unicode path missing from published files: %v", response.Files)
 	}
 
-	runGit(t, ctx, root, "clone", remote, remoteWork)
+	runGit(t, ctx, root, "clone", "-b", "proposals/local/pending", remote, remoteWork)
 	content, err := os.ReadFile(filepath.Join(remoteWork, "Notes", "Café.md"))
 	if err != nil || string(content) != "reviewed unicode\n" {
 		t.Fatalf("unicode content = %q, err = %v", string(content), err)
@@ -1436,5 +1374,74 @@ func TestResolvePathRejectsSymlinkAncestors(t *testing.T) {
 	}
 	if _, err := s.resolvePath("new/file.txt"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestKbRejectsLegacyGithubCredentials(t *testing.T) {
+	s := &server{workspace: t.TempDir()}
+	for _, handler := range []http.HandlerFunc{s.handleKbSync, s.handleKbPublish} {
+		request := httptest.NewRequest(http.MethodPost, "/kb", strings.NewReader(`{"github":{"token":"must-not-be-used","repoCloneUrl":"https://github.com/acme/kb.git"}}`))
+		recorder := httptest.NewRecorder()
+		handler(recorder, request)
+		if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "github_credentials_forbidden") || strings.Contains(recorder.Body.String(), "must-not-be-used") {
+			t.Fatalf("legacy credentials accepted or leaked: %d %s", recorder.Code, recorder.Body.String())
+		}
+	}
+}
+
+func TestKbGithubIncomingUsesOnlyLocalBrokerRefs(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	remote := filepath.Join(root, "kb.git")
+	upstream := filepath.Join(root, "upstream")
+	ctx := context.Background()
+	readGit := func(dir string, args ...string) string {
+		t.Helper()
+		out, stderr, code, err := runCmd(ctx, dir, append([]string{"git"}, args...))
+		if err != nil || code != 0 {
+			t.Fatalf("git read failed: %s %v", stderr, err)
+		}
+		return out
+	}
+	runGit(t, ctx, root, "init", "--bare", "-b", "main", remote)
+	runGit(t, ctx, root, "init", "-b", "main", workspace)
+	runGit(t, ctx, workspace, "config", "user.email", "tests@example.com")
+	runGit(t, ctx, workspace, "config", "user.name", "Test")
+	writeWorkspaceTestFile(t, workspace, "note.md", "shared\n")
+	runGit(t, ctx, workspace, "add", "note.md")
+	runGit(t, ctx, workspace, "commit", "-m", "base")
+	runGit(t, ctx, workspace, "remote", "add", "kb", remote)
+	runGit(t, ctx, workspace, "push", "kb", "main")
+	base := readGit(remote, "rev-parse", "main")
+	runGit(t, ctx, root, "clone", remote, upstream)
+	runGit(t, ctx, upstream, "config", "user.email", "tests@example.com")
+	runGit(t, ctx, upstream, "config", "user.name", "Test")
+	writeWorkspaceTestFile(t, upstream, "incoming.md", "from GitHub via broker\n")
+	runGit(t, ctx, upstream, "add", "incoming.md")
+	runGit(t, ctx, upstream, "commit", "-m", "incoming")
+	runGit(t, ctx, upstream, "push", "origin", "HEAD:refs/heads/arche-github")
+	s := &server{workspace: workspace, workspaceSlug: "alice"}
+	recorder := httptest.NewRecorder()
+	s.handleKbSync(recorder, httptest.NewRequest(http.MethodPost, "/kb/sync", strings.NewReader(`{"incomingGithub":true}`)))
+	var result syncKbResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &result); err != nil || result.Status != "synced" {
+		t.Fatalf("sync failed: %s", recorder.Body.String())
+	}
+	if data, err := os.ReadFile(filepath.Join(workspace, "incoming.md")); err != nil || string(data) != "from GitHub via broker\n" {
+		t.Fatalf("incoming content unavailable: %q %v", data, err)
+	}
+	published := publishTestRequest(t, s, `{"proposalRef":"refs/heads/proposals/alice/pending"}`)
+	if published.Status != "proposed" {
+		t.Fatalf("proposal failed: %+v", published)
+	}
+	if got := readGit(remote, "rev-parse", "main"); got != base {
+		t.Fatal("workspace modified shared main")
+	}
+	if got := strings.TrimSpace(readGit(remote, "rev-parse", "refs/heads/proposals/alice/pending")); got != published.CommitHash {
+		t.Fatal("proposal commit mismatch")
+	}
+	config := readGit(workspace, "config", "--local", "--list")
+	if strings.Contains(config, "github.com") || strings.Contains(config, "extraheader") {
+		t.Fatalf("unexpected GitHub credential configuration: %s", config)
 	}
 }

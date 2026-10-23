@@ -1,17 +1,17 @@
 # Security hardening and rollout
 
-This branch addresses the verified security findings against the OpenCode v2 runtime migration. The initial hardening was merged in PR #511 (`fbacc98a`); the architectural follow-up is local on `fix/security-architecture`. Production has not been changed and credentials have not been rotated.
+This branch addresses the verified security findings against the OpenCode v2 runtime migration. The initial hardening was merged in PR #511 (`fbacc98a`); the architectural follow-up was merged in PR #515 (`1601048a`). Production has not been changed and credentials have not been rotated.
 
 ## Implemented protections
 
 - The container socket proxy is pinned by digest and isolated on `arche-control`. Workspaces remain on `arche-internal`; existing blue-green web containers join the control network before the proxy is replaced. The one-click installer generates the same isolation and updates proxy and Traefik alongside the backend.
-- Workspace KB mounts are read-only. Git pushes use an authenticated, bounded BFF broker with Git hooks disabled, an audit event, and rejection of deletes and non-fast-forward updates. Workspace Git commands also disable hooks.
+- Workspace KB mounts are read-only. The BFF receives Git objects in quarantine and permits only `refs/heads/proposals/<authenticated-slug>/pending`. Publication to shared `main` requires explicit administrator approval of the exact proposal commit and current main commit, enforced with a Git ref transaction. Workspace and broker Git commands disable hooks.
 - Workspaces run as UID/GID 1000 with no capabilities, `no-new-privileges`, a read-only root filesystem and bounded private tmpfs mounts. Persistent volumes are migrated before startup by a temporary root helper with no network, credentials or KB mount. Migration refuses volumes mounted by running containers, preserves file contents, avoids following symlinks and removes special permission bits. A failed migration prevents startup. The legacy archive helper remains root with only `DAC_OVERRIDE`, read-only source mounts and bounded disposable storage.
 - User-configurable remote connector requests require public HTTPS destinations, reject redirects and validate DNS answers at socket connection time. This includes Umami login/API requests and remote tool discovery. Linear and Notion MCP URLs come from their canonical server configuration. Outbound MCP and provider headers exclude browser credentials. The loopback OAuth fixture is available only with explicit E2E hooks outside production.
 - Connector gateway credentials expire after five minutes and are scoped to the connector, workspace and current instance credentials. A workspace-agent proxy obtains a fresh credential before each request in both web and Desktop; generated config contains only a connector-specific local capability. Stop, restart, disable and deletion are checked before new upstream requests. Existing streams may continue until their five-minute deadline. Legacy permanent tokens are rejected.
 - Shared flows require an administrator to approve the exact definition before another user can run them. Definition changes invalidate approval; the runner checks permission again before starting a workspace or accessing its credentials. Approval uses conditional database updates to reject concurrent edits and records an audit event. Owners retain access to their own flows.
 - OAuth state is bound to the initiating session and consumed atomically before exchange. Administrators cannot complete another user's authorization. Manual connector secrets are redacted from responses and preserved when omitted from edits.
-- GitHub KB installation tokens are restricted to the configured repository and contents write permission. The token is still delivered to the workspace for the existing sync protocol.
+- GitHub KB installation tokens stay in the BFF and its Git child process, scoped to the configured repository and contents write permission. They are revoked after each operation; failures to revoke are audited. Workspace sync receives only a boolean indicating an incoming local Git ref, and legacy credential-bearing agent requests are rejected.
 - `/build` checks repository permissions and rejects forks, then dispatches an immutable commit through the GitHub API. The workspace image workflow independently validates the source; the separate web image receiver still needs equivalent validation. Repository dispatch is already authenticated by GitHub and requires [contents write permission](https://docs.github.com/en/rest/repos/repos#create-a-repository-dispatch-event); it must not treat the Actions bot as a human collaborator. Changed privileged workflows use pinned action commits.
 - SSH host verification is enabled. Ansible dependencies are pinned with Python package hashes; Galaxy collections have exact versions. Both the shell deployer and the one-click installer parse `.env` assignments as data. Binary installers require checksums.
 - Next.js, image and SVG handling, editor dependencies and vulnerable transitive dependencies are upgraded. CI audits production dependencies. The editor retains blank paragraphs, display math and Vega blocks after the Tiptap upgrade.
@@ -29,9 +29,9 @@ The existing production deployment is not hardened until these steps are applied
 
 ## Review reconciliation (23 October 2026)
 
-The external review examined `f1490272`, before architecture commit `f2897319`. PR #511 is merged; the architectural work and the following SSRF correction remain local. Merge status does not establish what is deployed.
+The external review examined `f1490272`, before architecture commit `f2897319`. PRs #511 and #515 are merged. This table describes their historical scope; the KB follow-up below closes H2 integrity and M2 credential transport. Merge status does not establish what is deployed.
 
-| Finding | Merged #511 | Local architecture plus this review correction |
+| Finding | Merged #511 | Merged #515 |
 | --- | --- | --- |
 | C1 dependencies; C4 comment injection; H1 SSH; H4 OAuth; H5 Ansible; M3 browser secrets; M9 outbound cookies; M10 env execution | Corrected | Protections retained |
 | C2 control network | Direct access isolated, but BFF SSRF still bypassed that isolation | Network isolation retained; the two reported BFF SSRF paths corrected |
@@ -50,11 +50,26 @@ The redirect regressions use real Undici redirect processing with MockAgent tran
 
 ESLint rejects direct fetch in connector/provider modules outside six reviewed transport exceptions: Ahrefs, Meta Ads and Zendesk clients, the fixed model catalog, the provider gateway, and Ollama local discovery. These exceptions reject redirects; remote Ollama uses publicFetch. This lint rule prevents routine regressions, but is not a network sandbox or a proof covering every possible HTTP client.
 
-Prioritize KB publication authorization and server-side GitHub credentials next. The web image workflow still checks out `client_payload.ref` without independent same-repository/immutable-SHA validation. Repository dispatch requires repository write permission, so this is not the former unauthenticated `/build` injection path. Privileged action tags, especially Apple signing releases, still warrant pinning.
+KB publication authorization and server-side GitHub credentials are implemented in this follow-up. The web image workflow still checks out `client_payload.ref` without independent same-repository/immutable-SHA validation. Repository dispatch requires repository write permission, so this is not the former unauthenticated `/build` injection path. Privileged action tags, especially Apple signing releases, still warrant pinning.
+
+## KB publication and GitHub broker follow-up
+
+P0.1 and P0.2 are implemented together. Submitting changes now creates or advances the workspace owner's proposal; it does not publish to the shared KB. In Curator, **Review publication** shows the BFF-generated diff and full commit ID. Only an administrator can **Approve and publish**. An administrator can review another workspace through its existing workspace access. Each changed file can also be downloaded at the exact reviewed commit, including binary content. Editing the proposal or advancing main invalidates an outstanding approval. Applied review rows are marked published only when their recorded content hash matches the approved Git content.
+
+The broker accepts one ref update per request and no ref deletion, force push, tag, replacement ref, protected ref or other tenant's proposal. Validation checks all commits introduced since main, including intermediate commits: no deleted files, dot paths, protected runtime files, hooks directories, symlinks or submodules. Bounds are 64 MiB request/pack, 8 MiB per changed blob, 32 MiB of distinct changed blob content, 256 changed paths, 128 new commits and 2 MiB review diff. Proposal refs remain readable through the shared read-only KB mount; tenant separation protects writes, not proposal confidentiality. These are structural checks, not a guarantee that prose contains no malicious instructions; the administrator reviews the content.
+
+A filesystem lock in the shared bare repository limits publication/transport mutations to one operation across BFF replicas. Busy operations fail for retry instead of queuing unbounded data. Git processing has a 60-second abort deadline. Git ref transactions compare both the proposal and main OIDs. The `kb.workspace_push` audit contains the authenticated slug, ref, full commit and paths, and is emitted only for an accepted update; an audit failure rolls that proposal ref back using compare-and-swap. Approval intent and successful publication are audited separately. No database migration is required.
+
+GitHub fetch writes only the protected `arche-github` incoming branch. Sync merges it in the workspace, where conflicts remain resolvable; importing those changes into shared main still requires a proposal and review. GitHub export pushes only shared main and never runs inside the workspace. An empty GitHub branch is supported. Divergent GitHub history is not force-pushed: sync, resolve and submit a new proposal. **Export approved KB to GitHub** retries an export independently after local publication. Tokens are never placed in workspace requests/configuration or command arguments; the BFF Git child receives a repository-specific authorization header in its own environment. Provider expiry remains the upper bound if immediate revocation fails.
+
+Rollout: back up the bare KB; deploy web and workspace images together and recreate existing workspaces before reopening publication. Old agents attempting main writes are deliberately rejected. Existing approved main content is preserved, and existing worktree edits remain available to submit. Desktop uses the same proposal/review UX and no GitHub token transport; its vault and agent run as the same OS user, so this is not a filesystem isolation boundary against that local user. Existing Desktop GitHub integration capability remains disabled.
+
+Recovery: the lock fails closed after a process/host crash. Stop all BFF replicas and broker operations, confirm no Git operation is running, then remove only the empty `arche-publication.lock` directory from the bare KB before restarting. Never clear an active lock. Reverting web to the old unrestricted broker reopens the vulnerability: disable publication before an operational rollback. GitHub export and audit/bookkeeping failures after main was committed are reported as follow-up failures, not as a rejected publication.
+
+Verification includes actual Git smart-HTTP push/approval, malformed trees/path traversal, cross-tenant refs, tags, deletion, non-fast-forward, symlink history, submodules, size limits, stale approvals, lock contention, session/Origin/admin authorization, token-free workspace calls, token revocation, Go sync/proposal behavior, and browser review of an actual Git proposal. No live GitHub installation credentials or production deployment are used in these checks.
 
 ## Remaining architectural work
 
-- Bind KB writes to approved changes and permitted refs/paths; current Git receive-pack accepts fast-forward writes without review authorization. Keep GitHub installation tokens out of workspace processes.
 - The daemon still runs rootful. Non-root workspace processes do not provide user namespaces or host-level rootless isolation. Moving the daemon and applying persistent-volume disk quotas requires a host migration. Volume ownership changes are intentionally persistent; back up volumes before rollout. The ownership helper has a two-minute deadline; larger volumes may require an operator-managed migration.
 - Approved shared flows still execute with the runner's credentials. Approval is a review gate, not a restricted execution sandbox. Administrators must inspect prompts, tools and routing; arbitrary runtime inputs remain untrusted.
 - Proxy-aware rate limiting still requires a trusted ingress boundary. Globally trusting forwarded headers while workspaces can reach the BFF would allow spoofing; this branch only removes the rotatable User-Agent fallback from MCP rate limiting.
@@ -68,18 +83,15 @@ Validation on 23 October 2026 used Node 24.14.0 and the repository pnpm lockfile
 
 | Check | Result |
 | --- | --- |
-| `pnpm test` | 6,288 passed; 32 conditional tests skipped |
-| PostgreSQL concurrency and approval suites | 8 passed; upgrade from the previous branch preserved a seeded legacy Slack row and added only the nullable approval column |
-| `pnpm test:e2e --retries=0` | 26 passed; fake upstream runtime and OAuth provider |
+| Full suite through `pnpm coverage:refresh` | 6,333 passed; 32 conditional tests skipped |
+| PostgreSQL concurrency and approval suites | 8 passed |
+| `pnpm test:e2e --retries=0` | 27 passed, including actual KB proposal review and approval; fake upstream runtime and OAuth provider |
 | `pnpm lint` | No errors; 19 existing warnings |
-| `pnpm audit --prod` | No reported vulnerabilities |
-| `pnpm coverage:refresh` | Passed; line coverage 92.23% overall, 90.98% unit, 95.17% integration; badges refreshed |
+| `pnpm coverage:refresh` | Passed; line coverage 92.21% overall, 91.04% unit, 95.14% integration; badges refreshed |
 | Workspace agent `go test -race ./...` | Passed with Go 1.27.3, including actual HTTP proxy renewal and credential stripping |
 | Desktop unit/build and workspace smoke | 60 unit tests, one startup/authenticated-POST smoke and 3 Electron E2E tests passed without retries |
-| Script, workflow and runtime infrastructure tests | 39 passed |
-| Pinned Ansible installation and playbook syntax | Passed; syntax validation without a deployment inventory |
 | `bash scripts/check-podman-images.sh` | Web, OpenCode v1 and v2 images built; runtime and archive smoke checks passed |
-| Production web image startup | Health endpoint returned database healthy; KB broker rejected unauthenticated access |
-| Control network isolation | Workspace could not reach the mock control service, including by IP; control client could |
+
+The prior #515 validation also covered dependency audit, infrastructure scripts, Ansible syntax, production-image startup and control-network isolation; those unchanged checks are not counted as new local runs above.
 
 CI now runs Go race tests, PostgreSQL approval tests, and Desktop checks for changes to shared runtime code. Production source types pass in the image build. General test-fixture type debt is described above. No live production deployment, secret rotation, external-provider credential test or unrestricted penetration test was performed.

@@ -26,7 +26,7 @@ vi.mock('@/lib/git/github-app-auth', () => ({
 import {
   KB_GITHUB_REMOTE_INTEGRATION_KEY,
   clearIntegration,
-  createWorkspaceRemoteConfig,
+  createBrokerRemoteConfig,
   decryptIntegrationConfig,
   findIntegration,
   saveAppConfig,
@@ -214,7 +214,7 @@ describe('kbGithubRemoteService', () => {
     })
   })
 
-  it('creates transient workspace remote config with an installation token', async () => {
+  it('creates transient broker remote config with an installation token', async () => {
     mockPrisma.externalIntegration.findUnique.mockResolvedValue(makeRow(
       { appId: '123', privateKey: 'pem' },
       {
@@ -226,7 +226,7 @@ describe('kbGithubRemoteService', () => {
     ))
     mocks.getInstallationToken.mockResolvedValue({ ok: true, token: 'token-1', expiresAt: 'later' })
 
-    await expect(createWorkspaceRemoteConfig()).resolves.toEqual({
+    await expect(createBrokerRemoteConfig()).resolves.toEqual({
       ok: true,
       remote: {
         branch: 'main',
@@ -236,16 +236,16 @@ describe('kbGithubRemoteService', () => {
     })
   })
 
-  it('returns no workspace remote config when setup is incomplete', async () => {
+  it('returns no broker remote config when setup is incomplete', async () => {
     mockPrisma.externalIntegration.findUnique
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(makeRow({ appId: '123', privateKey: 'pem' }, { installationId: 456 }))
 
-    await expect(createWorkspaceRemoteConfig()).resolves.toEqual({ ok: true, remote: null })
-    await expect(createWorkspaceRemoteConfig()).resolves.toEqual({ ok: true, remote: null })
+    await expect(createBrokerRemoteConfig()).resolves.toEqual({ ok: true, remote: null })
+    await expect(createBrokerRemoteConfig()).resolves.toEqual({ ok: true, remote: null })
   })
 
-  it('records token failures while creating workspace remote config', async () => {
+  it('records token failures while creating broker remote config', async () => {
     mockPrisma.externalIntegration.findUnique.mockResolvedValue(makeRow(
       { appId: '123', privateKey: 'pem' },
       {
@@ -258,7 +258,7 @@ describe('kbGithubRemoteService', () => {
     mockPrisma.externalIntegration.updateMany.mockResolvedValue({ count: 1 })
     mocks.getInstallationToken.mockResolvedValue({ ok: false, message: 'bad token' })
 
-    await expect(createWorkspaceRemoteConfig()).resolves.toEqual({ ok: false, error: 'bad token' })
+    await expect(createBrokerRemoteConfig()).resolves.toEqual({ ok: false, error: 'bad token' })
     expect(mockPrisma.externalIntegration.updateMany).toHaveBeenCalledWith({
       where: { key: KB_GITHUB_REMOTE_INTEGRATION_KEY },
       data: {
