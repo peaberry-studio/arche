@@ -60,6 +60,7 @@ export async function requestAhrefsJson(input: {
         'User-Agent': 'Arche Ahrefs Connector',
       },
       cache: 'no-store',
+      redirect: 'error',
       signal: controller.signal,
     })
 

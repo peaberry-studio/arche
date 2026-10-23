@@ -62,6 +62,7 @@ export type WorkspaceRuntimeArtifacts = {
 
 type WorkspaceRuntimeOptions = {
   archeToolsCommand?: string[]
+  connectorProxyPort?: number
   // Defaults to the workspace container layout (WEB_SCRATCH).
   scratch?: { root: string; workspaceRoot: string }
 }
@@ -94,7 +95,7 @@ function normalizeRuntimeConfigForHash(configContent: string): string {
         const authorization = normalizedHeaders?.Authorization
         if (
           typeof url !== 'string' ||
-          !url.startsWith(`${connectorGatewayBaseUrl}/`) ||
+          !(url.startsWith(`${connectorGatewayBaseUrl}/`) || /^http:\/\/127\.0\.0\.1:\d+\/mcp\/connectors\/[a-zA-Z0-9_-]+$/.test(url)) ||
           typeof authorization !== 'string' ||
           !authorization.startsWith('Bearer ')
         ) {
@@ -106,6 +107,7 @@ function normalizeRuntimeConfigForHash(configContent: string): string {
           key,
           {
             ...value,
+            url: url.replace(/^http:\/\/127\.0\.0\.1:\d+(\/mcp\/connectors\/)/, 'http://127.0.0.1:4097$1'),
             headers: {
               ...normalizedHeaders,
               Authorization: 'Bearer <connector-gateway-token>',
@@ -219,7 +221,9 @@ async function buildBaseWorkspaceConfig(
   if (!validated.ok) throw new RuntimeConfigRenderError(validated.error)
 
   try {
-    const mcpResult = await buildMcpConfigForSlug(slug)
+    const mcpResult = options?.connectorProxyPort === undefined
+      ? await buildMcpConfigForSlug(slug)
+      : await buildMcpConfigForSlug(slug, options.connectorProxyPort)
     if (mcpResult && Object.keys(mcpResult.mcpConfig.mcp).length > 0) {
       const userMcpKeys = new Set(Object.keys(mcpResult.mcpConfig.mcp))
       baseConfig = remapAgentConnectorTools(

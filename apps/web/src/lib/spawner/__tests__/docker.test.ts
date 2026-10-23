@@ -2,8 +2,10 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 
 import { getModelsCatalogToken } from '@/lib/providers/models-catalog-token'
 import { getGatewayModelsCatalog } from '@/lib/providers/zen-catalog'
+import { prepareWorkspaceVolumes } from '@/lib/spawner/volume-init'
 
 vi.mock('@/lib/providers/zen-catalog', () => ({ getGatewayModelsCatalog: vi.fn() }))
+vi.mock('@/lib/spawner/volume-init', () => ({ prepareWorkspaceVolumes: vi.fn().mockResolvedValue(undefined) }))
 
 const mockContainer = {
   id: 'container-123',
@@ -163,6 +165,20 @@ describe('docker', () => {
   })
 
   describe('createContainer', () => {
+    it('prepares existing volumes before starting the unprivileged runtime', async () => {
+      await createContainer('user-slug', 'fixture')
+      expect(prepareWorkspaceVolumes).toHaveBeenCalledWith(mockDockerInstance, 'user-slug', 'test-image:latest', [
+        'arche-workspace-user-slug', 'arche-opencode2-share-user-slug', 'arche-opencode2-state-user-slug',
+      ])
+      expect(vi.mocked(prepareWorkspaceVolumes).mock.invocationCallOrder[0]).toBeLessThan(mockDockerInstance.createContainer.mock.invocationCallOrder[0])
+    })
+
+    it('does not create a runtime if volume preparation fails', async () => {
+      vi.mocked(prepareWorkspaceVolumes).mockRejectedValueOnce(new Error('workspace_volume_in_use'))
+      await expect(createContainer('user-slug', 'fixture')).rejects.toThrow('workspace_volume_in_use')
+      expect(mockDockerInstance.createContainer).not.toHaveBeenCalled()
+    })
+
     it('awaits the gateway catalog and writes its boot file before creating a fresh runtime', async () => {
       const catalog = Promise.withResolvers<Awaited<ReturnType<typeof getGatewayModelsCatalog>>>()
       vi.mocked(getGatewayModelsCatalog).mockReturnValueOnce(catalog.promise)
@@ -256,8 +272,8 @@ describe('docker', () => {
         Image: 'test-image:opencode-v1',
         Entrypoint: ['sh', '-c',
           'mkdir -p /home/workspace/.local/share/opencode /home/workspace/.local/state/opencode && ' +
-          'cp -a /tmp/arche-archive-source/share/. /home/workspace/.local/share/opencode/ && ' +
-          'cp -a /tmp/arche-archive-source/state/. /home/workspace/.local/state/opencode/ && ' +
+          'cp -R /tmp/arche-archive-source/share/. /home/workspace/.local/share/opencode/ && ' +
+          'cp -R /tmp/arche-archive-source/state/. /home/workspace/.local/state/opencode/ && ' +
           'exec opencode "$@"', 'arche-archive'],
         Cmd: ['serve', '--hostname', '0.0.0.0', '--port', '4096'],
         Env: expect.arrayContaining([
@@ -271,6 +287,18 @@ describe('docker', () => {
         HostConfig: {
           NetworkMode: 'test-network',
           RestartPolicy: { Name: 'no' },
+          ReadonlyRootfs: true,
+          CapDrop: ['ALL'],
+          CapAdd: ['DAC_OVERRIDE'],
+          SecurityOpt: ['no-new-privileges'],
+          PidsLimit: 128,
+          Memory: 2 * 1024 * 1024 * 1024,
+          MemorySwap: 2 * 1024 * 1024 * 1024,
+          NanoCpus: 2_000_000_000,
+          Tmpfs: {
+            '/tmp': 'rw,nosuid,nodev,size=256m,mode=1777',
+            '/home/workspace': 'rw,nosuid,nodev,size=2048m,mode=0700',
+          },
           Binds: [
             'arche-workspace-user-slug:/workspace:ro',
             'arche-opencode-share-user-slug:/tmp/arche-archive-source/share:ro',
@@ -432,6 +460,7 @@ describe('docker', () => {
 
       expect(mockDockerInstance.createContainer).toHaveBeenCalledWith({
         Image: 'test-image:latest',
+        User: '1000:1000',
         name: 'opencode-user-slug',
         WorkingDir: '/workspace',
         Cmd: ['serve', '--hostname', '0.0.0.0', '--port', '4096'],
@@ -451,7 +480,7 @@ describe('docker', () => {
         HostConfig: {
           NetworkMode: 'test-network',
           CapDrop: ['ALL'],
-          CapAdd: ['DAC_OVERRIDE'],
+          ReadonlyRootfs: true,
           SecurityOpt: ['no-new-privileges'],
           PidsLimit: 512,
           Memory: 2 * 1024 * 1024 * 1024,
@@ -463,9 +492,14 @@ describe('docker', () => {
             'arche-opencode2-share-user-slug:/home/workspace/.local/share/opencode',
             'arche-opencode2-state-user-slug:/home/workspace/.local/state/opencode',
             '/opt/arche/kb-content:/kb-content:ro',
-            '/opt/arche/users/user-slug:/tmp/arche-user-data:ro',
+            '/opt/arche/users/user-slug/models-catalog.json:/tmp/arche-user-data/models-catalog.json:ro',
+            '/opt/arche/users/user-slug/opencode-config.json:/tmp/arche-user-data/opencode-config.json:ro',
           ],
-          Tmpfs: { '/tmp/arche-scratch': 'rw,nosuid,nodev,size=512m,mode=0700' },
+          Tmpfs: {
+            '/tmp': 'rw,nosuid,nodev,size=512m,mode=1777',
+            '/home/workspace': 'rw,nosuid,nodev,size=256m,mode=1777',
+            '/tmp/arche-scratch': 'rw,nosuid,nodev,size=512m,mode=1777',
+          },
         },
         Labels: {
           'arche.managed': 'true',
@@ -529,7 +563,7 @@ describe('docker', () => {
         expect.objectContaining({
           HostConfig: expect.objectContaining({
             Binds: expect.arrayContaining([
-              '/opt/arche/users/user-slug:/tmp/arche-user-data:ro',
+              '/opt/arche/users/user-slug/AGENTS.md:/tmp/arche-user-data/AGENTS.md:ro',
             ]),
           }),
         })

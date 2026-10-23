@@ -360,7 +360,7 @@ func TestHandleKbPublishCommitsResolvedMergeWithNoFileDiff(t *testing.T) {
 	runGit(t, ctx, workspace, "add", path)
 	runGit(t, ctx, workspace, "commit", "-m", "base")
 
-	runGit(t, ctx, root, "init", "--bare", remote)
+	runGit(t, ctx, root, "init", "--bare", "-b", "main", remote)
 	runGit(t, ctx, workspace, "remote", "add", "kb", remote)
 	runGit(t, ctx, workspace, "push", "-u", "kb", "main")
 
@@ -449,7 +449,7 @@ func TestHandleKbSyncTurnsLocalChangesIntoResolvableConflicts(t *testing.T) {
 	runGit(t, ctx, workspace, "add", path)
 	runGit(t, ctx, workspace, "commit", "-m", "base")
 
-	runGit(t, ctx, root, "init", "--bare", remote)
+	runGit(t, ctx, root, "init", "--bare", "-b", "main", remote)
 	runGit(t, ctx, workspace, "remote", "add", "kb", remote)
 	runGit(t, ctx, workspace, "push", "-u", "kb", "main")
 
@@ -495,7 +495,7 @@ func TestHandleKbSyncPreservesUncommittedChanges(t *testing.T) {
 	runGit(t, ctx, workspace, "add", "Notes/Existing.md")
 	runGit(t, ctx, workspace, "commit", "-m", "initial")
 
-	runGit(t, ctx, root, "init", "--bare", remote)
+	runGit(t, ctx, root, "init", "--bare", "-b", "main", remote)
 	runGit(t, ctx, workspace, "remote", "add", "kb", remote)
 	runGit(t, ctx, workspace, "push", "-u", "kb", "main")
 
@@ -573,7 +573,7 @@ func TestHandleKbPublishAllowsPathWithoutHash(t *testing.T) {
 	writeWorkspaceTestFile(t, workspace, "README.md", "base\n")
 	runGit(t, ctx, workspace, "add", "README.md")
 	runGit(t, ctx, workspace, "commit", "-m", "initial")
-	runGit(t, ctx, root, "init", "--bare", remote)
+	runGit(t, ctx, root, "init", "--bare", "-b", "main", remote)
 	runGit(t, ctx, workspace, "remote", "add", "kb", remote)
 	runGit(t, ctx, workspace, "push", "-u", "kb", "main")
 
@@ -623,7 +623,7 @@ func TestHandleKbPublishOverrideOmitsStaleHash(t *testing.T) {
 	writeWorkspaceTestFile(t, workspace, "Knowledge/Reviewed.md", "applied bytes\n")
 	runGit(t, ctx, workspace, "add", "README.md", "Knowledge/Reviewed.md")
 	runGit(t, ctx, workspace, "commit", "-m", "initial")
-	runGit(t, ctx, root, "init", "--bare", remote)
+	runGit(t, ctx, root, "init", "--bare", "-b", "main", remote)
 	runGit(t, ctx, workspace, "remote", "add", "kb", remote)
 	runGit(t, ctx, workspace, "push", "-u", "kb", "main")
 
@@ -669,7 +669,7 @@ func TestHandleKbPublishRequiresManifestWithPendingChanges(t *testing.T) {
 	writeWorkspaceTestFile(t, workspace, "README.md", "base\n")
 	runGit(t, ctx, workspace, "add", "README.md")
 	runGit(t, ctx, workspace, "commit", "-m", "initial")
-	runGit(t, ctx, root, "init", "--bare", remote)
+	runGit(t, ctx, root, "init", "--bare", "-b", "main", remote)
 	runGit(t, ctx, workspace, "remote", "add", "kb", remote)
 	runGit(t, ctx, workspace, "push", "-u", "kb", "main")
 
@@ -707,7 +707,7 @@ func TestHandleKbPublishWithoutManifestOnCleanTree(t *testing.T) {
 	writeWorkspaceTestFile(t, workspace, "README.md", "base\n")
 	runGit(t, ctx, workspace, "add", "README.md")
 	runGit(t, ctx, workspace, "commit", "-m", "initial")
-	runGit(t, ctx, root, "init", "--bare", remote)
+	runGit(t, ctx, root, "init", "--bare", "-b", "main", remote)
 	runGit(t, ctx, workspace, "remote", "add", "kb", remote)
 	runGit(t, ctx, workspace, "push", "-u", "kb", "main")
 
@@ -744,7 +744,7 @@ func TestHandleKbPublishPartialCommitLeavesSiblingDirty(t *testing.T) {
 	writeWorkspaceTestFile(t, workspace, "README.md", "base\n")
 	runGit(t, ctx, workspace, "add", "README.md")
 	runGit(t, ctx, workspace, "commit", "-m", "initial")
-	runGit(t, ctx, root, "init", "--bare", remote)
+	runGit(t, ctx, root, "init", "--bare", "-b", "main", remote)
 	runGit(t, ctx, workspace, "remote", "add", "kb", remote)
 	runGit(t, ctx, workspace, "push", "-u", "kb", "main")
 
@@ -816,7 +816,7 @@ func TestHandleKbPublishPartialAfterPriorPendingCommit(t *testing.T) {
 	writeWorkspaceTestFile(t, workspace, "README.md", "base\n")
 	runGit(t, ctx, workspace, "add", "README.md")
 	runGit(t, ctx, workspace, "commit", "-m", "initial")
-	runGit(t, ctx, root, "init", "--bare", remote)
+	runGit(t, ctx, root, "init", "--bare", "-b", "main", remote)
 	runGit(t, ctx, workspace, "remote", "add", "kb", remote)
 	runGit(t, ctx, workspace, "push", "-u", "kb", "main")
 
@@ -879,7 +879,7 @@ func setupConflictedMergeWorkspace(t *testing.T) *server {
 	runGit(t, ctx, workspace, "add", ".")
 	runGit(t, ctx, workspace, "commit", "-m", "base")
 
-	runGit(t, ctx, root, "init", "--bare", remote)
+	runGit(t, ctx, root, "init", "--bare", "-b", "main", remote)
 	runGit(t, ctx, workspace, "remote", "add", "kb", remote)
 	runGit(t, ctx, workspace, "push", "-u", "kb", "main")
 
@@ -1243,7 +1243,7 @@ func TestHandleKbPublishRejectsChangedReviewedContent(t *testing.T) {
 	writeWorkspaceTestFile(t, workspace, "README.md", "base\n")
 	runGit(t, ctx, workspace, "add", "README.md")
 	runGit(t, ctx, workspace, "commit", "-m", "initial")
-	runGit(t, ctx, root, "init", "--bare", remote)
+	runGit(t, ctx, root, "init", "--bare", "-b", "main", remote)
 	runGit(t, ctx, workspace, "remote", "add", "kb", remote)
 	runGit(t, ctx, workspace, "push", "-u", "kb", "main")
 
@@ -1294,7 +1294,7 @@ func TestHandleKbPublishDeletesRequireAbsentFile(t *testing.T) {
 	writeWorkspaceTestFile(t, workspace, "README.md", "base\n")
 	runGit(t, ctx, workspace, "add", "README.md")
 	runGit(t, ctx, workspace, "commit", "-m", "initial")
-	runGit(t, ctx, root, "init", "--bare", remote)
+	runGit(t, ctx, root, "init", "--bare", "-b", "main", remote)
 	runGit(t, ctx, workspace, "remote", "add", "kb", remote)
 	runGit(t, ctx, workspace, "push", "-u", "kb", "main")
 
@@ -1335,7 +1335,7 @@ func TestHandleKbPublishUnicodePath(t *testing.T) {
 	writeWorkspaceTestFile(t, workspace, "README.md", "base\n")
 	runGit(t, ctx, workspace, "add", "README.md")
 	runGit(t, ctx, workspace, "commit", "-m", "initial")
-	runGit(t, ctx, root, "init", "--bare", remote)
+	runGit(t, ctx, root, "init", "--bare", "-b", "main", remote)
 	runGit(t, ctx, workspace, "remote", "add", "kb", remote)
 	runGit(t, ctx, workspace, "push", "-u", "kb", "main")
 

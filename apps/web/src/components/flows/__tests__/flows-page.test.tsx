@@ -338,6 +338,7 @@ describe('FlowsPage', () => {
             id: 'team',
             name: 'Team flow',
             organizationCanRun: true,
+            sharingApproval: { approved: true, revision: 'reviewed' },
             owner: { slug: 'bob' },
             permissions: { canCopy: false, canEdit: false, canManage: false, canRun: false, canView: true, isOwner: false },
             visibility: 'team',

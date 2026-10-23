@@ -23,12 +23,15 @@ describe('connectors/gateway-tokens', () => {
     const payload: ConnectorGatewayTokenPayload = {
       userId: 'user-1',
       workspaceSlug: 'inaki',
+      credentialEpoch: 'epoch',
       connectorId: 'connector-1',
+      iat: 1735689600, exp: 1735689900, aud: 'connector-gateway',
     }
 
     const token = issueConnectorGatewayToken({
       userId: 'user-1',
       workspaceSlug: 'inaki',
+      credentialEpoch: 'epoch',
       connectorId: 'connector-1',
     })
     const [payloadPart, sigPart] = token.split('.')
@@ -43,6 +46,7 @@ describe('connectors/gateway-tokens', () => {
     const token = issueConnectorGatewayToken({
       userId: 'user-2',
       workspaceSlug: 'inaki',
+      credentialEpoch: 'epoch',
       connectorId: 'connector-2',
     })
     const [payloadPart] = token.split('.')
@@ -57,20 +61,19 @@ describe('connectors/gateway-tokens', () => {
     expect(() => verifyConnectorGatewayToken('no-dot')).toThrow('invalid_token')
   })
 
-  it('keeps tokens stable across time because runtime reload is restart-bound', async () => {
+  it('rejects expired tokens and accepts a newly issued credential', async () => {
     const { issueConnectorGatewayToken, verifyConnectorGatewayToken } = await import('@/lib/connectors/gateway-tokens')
     const token = issueConnectorGatewayToken({
       userId: 'user-3',
       workspaceSlug: 'inaki',
+      credentialEpoch: 'epoch',
       connectorId: 'connector-3',
     })
 
     vi.setSystemTime(new Date('2025-01-07T00:00:00Z'))
 
-    expect(verifyConnectorGatewayToken(token)).toEqual(expect.objectContaining({
-      userId: 'user-3',
-      workspaceSlug: 'inaki',
-      connectorId: 'connector-3',
-    }))
+    expect(() => verifyConnectorGatewayToken(token)).toThrow('invalid_token')
+    const renewed = issueConnectorGatewayToken({ userId: 'user-3', workspaceSlug: 'inaki', connectorId: 'connector-3', credentialEpoch: 'epoch' })
+    expect(verifyConnectorGatewayToken(renewed).exp).toBe(Math.floor(Date.now() / 1000) + 300)
   })
 })

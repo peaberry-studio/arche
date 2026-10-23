@@ -191,9 +191,10 @@ type DesktopRuntimeArtifacts = {
   agentsMd?: string
 }
 
-async function buildDesktopRuntimeArtifacts(slug: string): Promise<DesktopRuntimeArtifacts> {
+async function buildDesktopRuntimeArtifacts(slug: string, connectorProxyPort: number): Promise<DesktopRuntimeArtifacts> {
   return buildWorkspaceRuntimeArtifacts(slug, getDesktopProviderGatewayConfig(), {
     archeToolsCommand: getDesktopArcheToolsCommand(),
+    connectorProxyPort,
     scratch: getDesktopScratch(slug),
   })
 }
@@ -413,7 +414,7 @@ async function startDesktopWorkspace(
     const catalog = await getGatewayModelsCatalog(`${getRuntimeInternalApiRoot()}/providers`, lastRendered)
     if (!catalog.ok) throw new Error(catalog.error)
     writeFileSync(modelsCatalogPath, catalog.data, 'utf-8')
-    const artifacts = await buildDesktopRuntimeArtifacts(slug)
+    const artifacts = await buildDesktopRuntimeArtifacts(slug, agentPort)
     const appliedConfigSha = hashWorkspaceRuntimeArtifacts(artifacts)
     const opencodeConfigContent = artifacts.opencodeConfigContent
     const runtimeSkillDir = join(workspaceDir, '.opencode', 'skills')
@@ -473,6 +474,8 @@ async function startDesktopWorkspace(
               WORKSPACE_AGENT_USERNAME: DEFAULT_USERNAME,
               WORKSPACE_AGENT_PORT: String(agentPort),
               WORKSPACE_AGENT_ADDR: `${LOOPBACK_HOST}:${agentPort}`,
+              ARCHE_WORKSPACE_SLUG: slug,
+              ARCHE_CONNECTOR_GATEWAY_BASE_URL: `${getRuntimeInternalApiRoot()}/mcp/connectors`,
             },
             stdio: 'pipe',
             detached: false,
