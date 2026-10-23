@@ -46,6 +46,8 @@ describe('V2 client', () => {
   it('propagates losing-probe cancellation', async () => {
     const controller = new AbortController()
     vi.stubGlobal('fetch', vi.fn((_url: string, options: RequestInit) => new Promise((_resolve, reject) => {
+      // Like real fetch, reject immediately when the signal is already aborted.
+      if (options.signal?.aborted) reject(new Error('aborted'))
       options.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true })
     })))
     const pending = checkHealth('alice', { signal: controller.signal })
