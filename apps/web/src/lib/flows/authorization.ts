@@ -6,6 +6,8 @@ export type FlowPermissionActor = {
 }
 
 export type FlowPermissionRecord = {
+  definition?: unknown
+  organizationApprovedHash?: string | null
   organizationCanRun: boolean
   userId: string
   visibility: FlowVisibility

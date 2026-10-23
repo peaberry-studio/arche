@@ -139,6 +139,7 @@ const SCHEMA_DDL = [
     "enabled" BOOLEAN NOT NULL DEFAULT false,
     "visibility" TEXT NOT NULL DEFAULT 'private',
     "organization_can_run" BOOLEAN NOT NULL DEFAULT false,
+    "organization_approved_hash" TEXT,
     "next_run_at" DATETIME,
     "last_run_at" DATETIME,
     "lease_owner" TEXT,
@@ -487,7 +488,7 @@ const SCHEMA_DDL = [
   `CREATE INDEX IF NOT EXISTS "two_factor_recovery_user_id_idx" ON "two_factor_recovery"("user_id")`,
 ]
 
-const SCHEMA_VERSION = '14'
+const SCHEMA_VERSION = '15'
 
 function isCreateIndexStatement(ddl: string): boolean {
   return /^CREATE (UNIQUE )?INDEX\b/.test(ddl.trim())
@@ -518,6 +519,7 @@ async function ensureDesktopSchemaColumns(client: DesktopPrismaClient): Promise<
   await ensureColumn(client, 'knowledge_learning_runs', 'regeneration_change_id', 'ALTER TABLE "knowledge_learning_runs" ADD COLUMN "regeneration_change_id" TEXT')
   await ensureColumn(client, 'instances', 'runtime_kind', 'ALTER TABLE "instances" ADD COLUMN "runtime_kind" TEXT')
   await ensureColumn(client, 'legacy_session_archives', 'validated_at', 'ALTER TABLE "legacy_session_archives" ADD COLUMN "validated_at" DATETIME')
+  await ensureColumn(client, 'flows', 'organization_approved_hash', 'ALTER TABLE "flows" ADD COLUMN "organization_approved_hash" TEXT')
 }
 
 function getDesktopDatabasePath(): string {

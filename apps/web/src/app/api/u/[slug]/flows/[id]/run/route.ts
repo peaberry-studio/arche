@@ -32,7 +32,7 @@ export const POST = withAuth<{ ok: true; runId: string } | { error: string }, Fl
 
     const flow = await flowService.findFlowByIdForScope(id, scope)
     if (!flow) return NextResponse.json({ error: 'not_found' }, { status: 404 })
-    if (!canRunFlow(user, flow)) return NextResponse.json({ error: 'forbidden' }, { status: 403 })
+    if (!canRunFlow(user, flow)) return NextResponse.json({ error: flow.visibility === 'team' && flow.organizationCanRun ? 'flow_approval_required' : 'forbidden' }, { status: 403 })
 
     const definition = validateFlowDefinition(flow.definition)
     if (!definition.ok) return NextResponse.json({ error: definition.error }, { status: 400 })
@@ -60,7 +60,7 @@ export const POST = withAuth<{ ok: true; runId: string } | { error: string }, Fl
 
     const result = await triggerFlowNow({ executionUserId: user.id, flowId: id, trigger: 'manual' })
     if (!result.ok) {
-      return NextResponse.json({ error: result.error }, { status: result.error === 'flow_busy' ? 409 : 404 })
+      return NextResponse.json({ error: result.error }, { status: result.error === 'flow_busy' ? 409 : result.error === 'flow_approval_required' ? 403 : 404 })
     }
 
     await auditEvent({

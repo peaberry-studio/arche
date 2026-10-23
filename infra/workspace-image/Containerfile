@@ -3,11 +3,13 @@
 
 ARG OPENCODE_VERSION
 
-FROM docker.io/golang:1.22-alpine AS workspace-agent
+FROM docker.io/golang:1.27.3-alpine AS workspace-agent
 WORKDIR /src
 COPY workspace-agent/go.mod ./
-COPY workspace-agent/main.go ./
+COPY workspace-agent/main.go workspace-agent/connector-proxy.go ./
+COPY workspace-agent/cmd/ ./cmd/
 RUN CGO_ENABLED=0 go build -o /workspace-agent
+RUN CGO_ENABLED=0 go build -o /prepare-workspace-volumes ./cmd/prepare-workspace-volumes
 
 FROM docker.io/node:24.14.0-alpine AS arche-tools
 WORKDIR /opt/arche/arche-tools
@@ -33,11 +35,12 @@ COPY --from=arche-tools /opt/arche/arche-tools /opt/arche/arche-tools
 # Create non-root user for running the workspace
 RUN addgroup -g 1000 workspace && \
     adduser -u 1000 -G workspace -h /home/workspace -s /bin/sh -D workspace && \
-    mkdir -p /workspace /kb /user-data && \
+    mkdir -p /workspace /kb /kb-content /user-data /tmp/arche-user-data /volumes/0 /volumes/1 /volumes/2 && \
     chown -R workspace:workspace /workspace /kb /user-data
 
 # Workspace agent (HTTP API for git/file ops)
 COPY --from=workspace-agent /workspace-agent /usr/local/bin/workspace-agent
+COPY --from=workspace-agent /prepare-workspace-volumes /usr/local/bin/prepare-workspace-volumes
 
 # Workspace initialization script
 COPY init-workspace.sh /usr/local/bin/init-workspace.sh
@@ -47,9 +50,7 @@ RUN chmod +x /usr/local/bin/init-workspace.sh
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
-# Keep root user for compatibility with Podman named volumes created as root.
-# OpenCode still binds to an internal network and uses HTTP basic auth.
-USER root
+USER 1000:1000
 WORKDIR /workspace
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

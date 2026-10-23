@@ -32,9 +32,11 @@ const (
 )
 
 type server struct {
-	workspace string
-	username  string
-	password  string
+	workspace        string
+	username         string
+	password         string
+	workspaceSlug    string
+	connectorGateway string
 }
 
 type errorResponse struct {
@@ -263,12 +265,15 @@ func main() {
 	}
 
 	s := &server{
-		workspace: *workspace,
-		username:  username,
-		password:  password,
+		workspace:        *workspace,
+		username:         username,
+		password:         password,
+		workspaceSlug:    os.Getenv("ARCHE_WORKSPACE_SLUG"),
+		connectorGateway: os.Getenv("ARCHE_CONNECTOR_GATEWAY_BASE_URL"),
 	}
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("/mcp/connectors/", s.handleConnectorProxy)
 	mux.HandleFunc("/health", s.withAuth(s.handleHealth))
 	mux.HandleFunc("/git/diffs", s.withAuth(s.handleGitDiffs))
 	mux.HandleFunc("/git/conflict", s.withAuth(s.handleGitConflict))

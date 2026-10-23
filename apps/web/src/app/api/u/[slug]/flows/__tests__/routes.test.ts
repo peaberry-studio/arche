@@ -3,6 +3,7 @@ import { NextRequest } from 'next/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createDefaultFlowDefinition } from '@/lib/flows/validation'
+import { getFlowDefinitionRevision } from '@/lib/flows/sharing-approval'
 
 const mocks = vi.hoisted(() => ({
   auditEvent: vi.fn(),
@@ -24,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   listFlowAgentOptions: vi.fn(),
   listFlowsForScope: vi.fn(),
   resumeFlowRun: vi.fn(),
+  setFlowSharingApproval: vi.fn(),
   triggerFlowNow: vi.fn(),
   updateFlowByIdAndOwnerId: vi.fn(),
   validateDesktopToken: vi.fn(),
@@ -61,6 +63,7 @@ vi.mock('@/lib/services', () => ({
     findFlowByIdForScope: mocks.findFlowByIdForScope,
     findRunByIdForScope: mocks.findRunByIdForScope,
     listFlowsForScope: mocks.listFlowsForScope,
+    setFlowSharingApproval: mocks.setFlowSharingApproval,
     updateFlowByIdAndOwnerId: mocks.updateFlowByIdAndOwnerId,
   },
   slackService: {
@@ -74,6 +77,7 @@ vi.mock('@/lib/services', () => ({
 }))
 
 import { GET as GET_FLOWS, POST as POST_FLOW } from '../route'
+import { POST as POST_APPROVAL } from '@/app/api/u/[slug]/flows/[id]/approval/route'
 import { DELETE as DELETE_FLOW, GET as GET_FLOW, PATCH as PATCH_FLOW } from '../[id]/route'
 import { POST as POST_COPY_FLOW } from '../[id]/copy/route'
 import { GET as GET_FLOW_EXPORT } from '../[id]/export/route'
@@ -233,6 +237,46 @@ describe('Flow API routes', () => {
 
     expect(body.flows).toHaveLength(1)
     expect(mocks.listFlowsForScope).toHaveBeenCalledWith(expect.objectContaining({ workspaceUserId: 'user-1' }))
+  })
+
+  it('does not let an owner approve their own flow for teammates', async () => {
+    const response = await POST_APPROVAL(request('/api/u/alice/flows/flow-1/approval', 'POST', { revision: 'reviewed', approved: true }), params({ slug: 'alice', id: 'flow-1' }))
+    expect(response.status).toBe(403)
+    expect(mocks.setFlowSharingApproval).not.toHaveBeenCalled()
+  })
+
+  it.each([true, false])('requires an admin and the reviewed revision to change sharing approval to %s', async (approved) => {
+    const flow = createFlowRecord({ visibility: 'team', organizationCanRun: true })
+    const revision = getFlowDefinitionRevision(flow.definition)
+    mocks.getSession.mockResolvedValue({ ...SESSION, user: { ...SESSION.user, role: 'ADMIN' } })
+    mocks.findFlowByIdForScope.mockResolvedValue(flow)
+    mocks.setFlowSharingApproval.mockResolvedValue(true)
+    const response = await POST_APPROVAL(request('/api/u/alice/flows/flow-1/approval', 'POST', { revision, approved }), params({ slug: 'alice', id: 'flow-1' }))
+    expect(response.status).toBe(200)
+    expect(mocks.setFlowSharingApproval).toHaveBeenCalledWith('flow-1', now, flow.definition, approved ? revision : null)
+    expect(mocks.auditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'flows.sharing_approval_updated', metadata: { flowId: 'flow-1', revision, approved } }))
+  })
+
+  it('rejects approval if the flow changed before or during approval', async () => {
+    const flow = createFlowRecord({ visibility: 'team', organizationCanRun: true })
+    mocks.getSession.mockResolvedValue({ ...SESSION, user: { ...SESSION.user, role: 'ADMIN' } })
+    mocks.findFlowByIdForScope.mockResolvedValue(flow)
+    const stale = await POST_APPROVAL(request('/api/u/alice/flows/flow-1/approval', 'POST', { revision: 'old', approved: true }), params({ slug: 'alice', id: 'flow-1' }))
+    expect(stale.status).toBe(409)
+    expect(mocks.setFlowSharingApproval).not.toHaveBeenCalled()
+    mocks.setFlowSharingApproval.mockResolvedValueOnce(false)
+    const raced = await POST_APPROVAL(request('/api/u/alice/flows/flow-1/approval', 'POST', { revision: getFlowDefinitionRevision(flow.definition), approved: true }), params({ slug: 'alice', id: 'flow-1' }))
+    expect(raced.status).toBe(409)
+    expect(mocks.auditEvent).not.toHaveBeenCalled()
+  })
+
+  it('rejects unapproved shared execution before accessing runner credentials', async () => {
+    mocks.findFlowByIdForScope.mockResolvedValue(createFlowRecord({ visibility: 'team', organizationCanRun: true, userId: 'other' }))
+    const response = await POST_RUN_FLOW(request('/api/u/alice/flows/flow-1/run', 'POST'), params({ slug: 'alice', id: 'flow-1' }))
+    expect(response.status).toBe(403)
+    await expect(response.json()).resolves.toEqual({ error: 'flow_approval_required' })
+    expect(mocks.getFlowConnectorRequirements).not.toHaveBeenCalled()
+    expect(mocks.triggerFlowNow).not.toHaveBeenCalled()
   })
 
   it('blocks non-admin actors from another user flow workspace', async () => {
@@ -574,6 +618,7 @@ describe('Flow API routes', () => {
     mocks.findFlowByIdForScope.mockResolvedValue({
       ...createFlowRecord(),
       organizationCanRun: true,
+      organizationApprovedHash: getFlowDefinitionRevision(createFlowRecord().definition),
       userId: 'user-2',
       visibility: 'team',
     })
@@ -634,6 +679,7 @@ describe('Flow API routes', () => {
     mocks.findFlowByIdForScope.mockResolvedValue({
       ...createFlowRecord(),
       organizationCanRun: true,
+      organizationApprovedHash: getFlowDefinitionRevision(createFlowRecord().definition),
       userId: 'user-2',
       visibility: 'team',
     })
@@ -657,6 +703,9 @@ describe('Flow API routes', () => {
     mocks.findFlowByIdForScope.mockResolvedValue({
       ...createFlowRecord(),
       userId: 'owner-1',
+      visibility: 'team',
+      organizationCanRun: true,
+      organizationApprovedHash: getFlowDefinitionRevision(createFlowRecord().definition),
     })
     mocks.getFlowConnectorRequirements.mockResolvedValue({ ok: true, requirements: [{ capabilityId: 'globalzendesk' }] })
     mocks.checkMissingConnectorRequirements.mockResolvedValue([])
@@ -681,6 +730,7 @@ describe('Flow API routes', () => {
     mocks.findFlowByIdForScope.mockResolvedValue({
       ...createFlowRecord(),
       organizationCanRun: true,
+      organizationApprovedHash: getFlowDefinitionRevision(createFlowRecord().definition),
       userId: 'user-2',
       visibility: 'team',
     })
@@ -711,6 +761,7 @@ describe('Flow API routes', () => {
     mocks.findFlowByIdForScope.mockResolvedValue({
       ...createFlowRecord(),
       organizationCanRun: true,
+      organizationApprovedHash: getFlowDefinitionRevision(createFlowRecord().definition),
       userId: 'user-2',
       visibility: 'team',
     })
@@ -729,6 +780,7 @@ describe('Flow API routes', () => {
     const source = {
       ...createFlowRecord(),
       organizationCanRun: true,
+      organizationApprovedHash: getFlowDefinitionRevision(createFlowRecord().definition),
       userId: 'user-2',
       visibility: 'team',
     }

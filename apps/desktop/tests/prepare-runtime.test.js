@@ -110,7 +110,7 @@ case "$url" in
   */cli-linux-x64-2.0.32.tgz) cp "$CURRENT_ARCHIVE" "$output" ;;
   */cli-linux-x64/2.0.32) cp "$CURRENT_METADATA" "$output" ;;
   */opencode-linux-x64.tar.gz) cp "$LEGACY_ARCHIVE" "$output" ;;
-  *.sha256) exit 22 ;;
+  *.sha256) printf '%s  opencode-linux-x64.tar.gz\\n' "$LEGACY_CHECKSUM" > "$output" ;;
   *) exit 1 ;;
 esac
 `, { mode: 0o755 })
@@ -128,6 +128,7 @@ esac
         CURRENT_ARCHIVE: currentArchive,
         CURRENT_METADATA: metadataPath,
         LEGACY_ARCHIVE: legacyArchive,
+        LEGACY_CHECKSUM: createHash('sha256').update(readFileSync(legacyArchive)).digest('hex'),
       },
     })
 

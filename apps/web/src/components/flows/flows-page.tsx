@@ -198,7 +198,7 @@ export function FlowsPage({ buildCreateHref, buildEditHref, buildHistoryHref, hi
                     <Badge variant={flow.visibility === 'team' ? 'default' : 'secondary'} className="shrink-0">
                       {flow.visibility === 'team' ? 'Team' : 'Private'}
                     </Badge>
-                    {flow.visibility === 'team' && flow.organizationCanRun ? <Badge variant="success" className="shrink-0">Runnable</Badge> : null}
+                    {flow.visibility === 'team' && flow.organizationCanRun && flow.sharingApproval?.approved ? <Badge variant="success" className="shrink-0">Runnable</Badge> : null}
                   </div>
                   <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">
                     {flow.description ?? `${flow.definition.nodes.length} nodes, ${flow.definition.edges.length} edges`}
