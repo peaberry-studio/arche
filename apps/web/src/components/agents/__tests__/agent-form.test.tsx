@@ -189,7 +189,7 @@ describe('AgentForm', () => {
             prompt: 'Be helpful.',
             isPrimary: false,
             capabilities: {
-              tools: ['edit', 'read', 'write'],
+              tools: ['edit', 'read', 'todowrite', 'write'],
               mcpConnectorIds: ['custom-crm'],
               skillIds: ['seo-audit'],
             },
@@ -222,7 +222,7 @@ describe('AgentForm', () => {
       prompt: 'Be helpful.',
       expectedHash: 'hash-existing',
       capabilities: {
-        tools: [],
+        tools: ['todowrite'],
         mcpConnectorIds: ['globalzendesk'],
         skillIds: [],
       },
@@ -238,6 +238,17 @@ describe('AgentForm', () => {
     expect(await screen.findByText('Knowledge Base writes go through Knowledge Review proposals. File write and edit tools are disabled at spawn and cannot be enabled here.')).toBeDefined()
     expect(screen.queryByLabelText('Write files')).toBeNull()
     expect(screen.queryByLabelText('Edit files')).toBeNull()
+  })
+
+  it('does not offer OpenCode 1 tools that OpenCode 2 does not ship', async () => {
+    mockSharedEndpoints()
+
+    render(<AgentForm slug="alice" mode="create" />)
+
+    expect(await screen.findByLabelText('Read files')).toBeDefined()
+    for (const label of ['Code search', 'Language server queries', 'Read todo list', 'Update todo list']) {
+      expect(screen.queryByLabelText(label)).toBeNull()
+    }
   })
 
   it('promotes an existing agent to primary', async () => {

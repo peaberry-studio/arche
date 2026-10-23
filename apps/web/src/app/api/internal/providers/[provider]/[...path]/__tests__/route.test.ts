@@ -493,6 +493,28 @@ describe('/api/internal/providers/[provider]/[...path]', () => {
     })
   })
 
+  it('proxies OpenCode 2 Zen inference paths without forwarding the gateway token', async () => {
+    mocks.verifyGatewayToken.mockReturnValue({ ...GATEWAY_PAYLOAD, providerId: 'opencode', version: 0 })
+    mocks.getEffectiveCredentialForUser.mockResolvedValue(null)
+    fetchMock.mockResolvedValue(new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }))
+    const path = ['inference', 'google', 'v1beta', 'models', 'gemini:streamGenerateContent']
+
+    const res = await POST(
+      makeRequest('POST', `http://localhost/api/internal/providers/opencode/${path.join('/')}?alt=sse`, {
+        headers: { 'x-goog-api-key': 'gateway-token', 'content-type': 'application/json' },
+        body: '{}',
+      }),
+      { params: Promise.resolve({ provider: 'opencode', path }) },
+    )
+
+    expect(res.status).toBe(200)
+    expect(mocks.verifyGatewayToken).toHaveBeenCalledWith('gateway-token')
+    expect(fetchMock.mock.calls[0][0]).toBe('https://opencode.ai/inference/google/v1beta/models/gemini:streamGenerateContent?alt=sse')
+    const sentHeaders = fetchMock.mock.calls[0][1].headers as Headers
+    expect(sentHeaders.get('x-goog-api-key')).toBeNull()
+    expect(sentHeaders.get('authorization')).toBeNull()
+  })
+
   it('handles opencode expired token fallback (authorization deleted)', async () => {
     mocks.verifyGatewayToken.mockImplementation(() => {
       throw Object.assign(new Error('token_expired'), { message: 'token_expired' })

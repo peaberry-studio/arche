@@ -63,4 +63,30 @@ describe('workspace-tool-display', () => {
       groupLabel: 'read',
     })
   })
+
+  it('uses the delegation display for native subagent calls', () => {
+    expect(getWorkspaceToolDisplay('subagent')).toEqual(getWorkspaceToolDisplay('task'))
+  })
+
+  it.each([
+    'chart_create',
+    'diagram_create',
+    'document_inspect',
+    'email_draft',
+    'flow_propose',
+    'learning_propose',
+    'presentation_inspect',
+    'session_history_query',
+    'spreadsheet_inspect',
+    'spreadsheet_query',
+    'spreadsheet_sample',
+    'spreadsheet_stats',
+  ])('uses the legacy display name for arche_tools_%s', (toolName) => {
+    expect(getWorkspaceToolDisplay(`arche_tools_${toolName}`)).toEqual({
+      isConnectorTool: false,
+      groupLabel: toolName,
+    })
+    expect(getWorkspaceToolDisplay(toolName)).toEqual(getWorkspaceToolDisplay(`arche_tools_${toolName}`))
+    expect(parseConnectorToolName(`arche_tools_${toolName}`)).toBeNull()
+  })
 })

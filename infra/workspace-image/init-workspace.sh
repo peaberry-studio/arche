@@ -54,6 +54,10 @@ ensure_workspace_excludes() {
     echo "AGENTS.md" >> "$exclude_file"
   fi
 
+  if ! grep -qxF ".opencode/skills/" "$exclude_file"; then
+    echo ".opencode/skills/" >> "$exclude_file"
+  fi
+
   if ! grep -qx "node_modules/" "$exclude_file"; then
     echo "node_modules/" >> "$exclude_file"
   fi

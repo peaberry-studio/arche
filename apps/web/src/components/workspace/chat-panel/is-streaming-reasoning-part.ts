@@ -1,5 +1,5 @@
-import type { MessagePart } from "@/lib/opencode/types";
 import type { ChatMessage } from "@/types/workspace";
+import type { MessagePart } from "@/types/workspace-runtime";
 
 type IsStreamingReasoningPartArgs = {
   isSessionBusy: boolean;

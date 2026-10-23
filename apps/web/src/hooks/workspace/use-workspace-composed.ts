@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 import {
   isSending as isSessionSending,
   overlaySessionRuntimeStatus,
-} from "@/lib/opencode/event-reducer";
+} from "@/lib/workspace-events/reducer";
 import { useWorkspaceRuntime } from "@/contexts/workspace-runtime-context";
 import { useWorkspaceDiffs } from "@/hooks/use-workspace-diffs";
 import { useWorkspaceFiles } from "@/hooks/use-workspace-files";
@@ -115,7 +115,7 @@ export function useWorkspace({
   const sessions = useMemo(
     () =>
       listedSessions.map((session) =>
-        overlaySessionRuntimeStatus(session, store.sessionStatus[session.id]),
+        session.archived ? session : overlaySessionRuntimeStatus(session, store.sessionStatus[session.id]),
       ),
     [listedSessions, store.sessionStatus],
   );
@@ -124,7 +124,8 @@ export function useWorkspace({
   // (session.parentId → active). The bus store is the single source; no
   // permission cards are grafted into message parts.
   const permissions = useMemo(
-    () => selectVisiblePermissions(store.permissions, sessions, activeSessionId),
+    () => sessions.find((session) => session.id === activeSessionId)?.archived
+      ? [] : selectVisiblePermissions(store.permissions, sessions, activeSessionId),
     [activeSessionId, sessions, store.permissions],
   );
 
@@ -144,6 +145,7 @@ export function useWorkspace({
     useWorkspaceMessageActions({
       slug,
       activeSessionIdRef,
+      getSessions,
       agentDefaultModel,
       createSession,
       models,
@@ -175,6 +177,7 @@ export function useWorkspace({
   });
   useWorkspaceActiveSessionEffects({
     activeSessionId,
+    isArchived: Boolean(derived.activeSession?.archived),
     enabled,
     isConnected,
     ensureSessionFamilyLoaded,
@@ -226,7 +229,7 @@ export function useWorkspace({
     renameSession: sessionsHook.renameSession,
     messages,
     isLoadingMessages,
-    isSending: isSessionSending(store, activeSessionId ?? ""),
+    isSending: !derived.activeSession?.archived && isSessionSending(store, activeSessionId ?? ""),
     isStartingNewSession,
     sendMessage,
     answerPermission,

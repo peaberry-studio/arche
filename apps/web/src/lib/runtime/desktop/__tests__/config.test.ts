@@ -25,6 +25,10 @@ describe('desktop runtime config', () => {
   beforeEach(() => {
     vi.resetModules()
     process.env = { ...originalEnv }
+    delete process.env.ARCHE_NODE_BIN
+    delete process.env.ARCHE_OPENCODE_BIN
+    delete process.env.ARCHE_OPENCODE_V1_BIN
+    delete process.env.ARCHE_TOOLS_DIR
     setResourcesPath(undefined)
   })
 
@@ -32,45 +36,86 @@ describe('desktop runtime config', () => {
     process.env = originalEnv
     setResourcesPath(originalResourcesPath)
     vi.doUnmock('fs')
-    vi.doUnmock('@/lib/spawner/runtime-artifacts')
     vi.resetModules()
   })
 
-  it('uses a bundled opencode config directory from resourcesPath', async () => {
+  it('uses bundled Arche tools and Node from resourcesPath', async () => {
     setResourcesPath('/Applications/Arche.app/Contents/Resources')
-    mockExistsSync((path) => path === '/Applications/Arche.app/Contents/Resources/opencode-config')
+    mockExistsSync((path) => path === '/Applications/Arche.app/Contents/Resources/bin/node')
 
-    const { getDesktopOpencodeConfigDir } = await import('@/lib/runtime/desktop/config')
+    const { getDesktopArcheToolsCommand } = await import('@/lib/runtime/desktop/config')
 
-    expect(getDesktopOpencodeConfigDir()).toBe('/Applications/Arche.app/Contents/Resources/opencode-config')
+    expect(getDesktopArcheToolsCommand()).toEqual([
+      '/Applications/Arche.app/Contents/Resources/bin/node',
+      '/Applications/Arche.app/Contents/Resources/bin/arche-tools/server.js',
+    ])
   })
 
-  it('falls back to repository opencode config candidates', async () => {
+  it('selects the bundled current and legacy OpenCode binaries', async () => {
+    setResourcesPath('/Applications/Arche.app/Contents/Resources')
+    mockExistsSync(() => true)
+
+    const { getLegacyOpencodeBinary, getOpencodeBinary } = await import('@/lib/runtime/desktop/config')
+
+    expect(getOpencodeBinary()).toBe('/Applications/Arche.app/Contents/Resources/bin/opencode')
+    expect(getLegacyOpencodeBinary()).toBe('/Applications/Arche.app/Contents/Resources/bin/opencode-v1')
+  })
+
+  it('uses separate explicit overrides for legacy and current OpenCode', async () => {
+    process.env.ARCHE_OPENCODE_BIN = '/custom runtime/opencode'
+    process.env.ARCHE_OPENCODE_V1_BIN = '/custom runtime/opencode-v1'
+    mockExistsSync(() => true)
+
+    const { getLegacyOpencodeBinary, getOpencodeBinary } = await import('@/lib/runtime/desktop/config')
+
+    expect(getOpencodeBinary()).toBe('/custom runtime/opencode')
+    expect(getLegacyOpencodeBinary()).toBe('/custom runtime/opencode-v1')
+  })
+
+  it('never falls back to the other runtime binary or its override', async () => {
+    setResourcesPath('/Applications/Arche.app/Contents/Resources')
+    const existsSync = mockExistsSync((path) => path.endsWith('/bin/opencode'))
+    process.env.ARCHE_OPENCODE_BIN = '/custom/opencode'
+
+    const { getLegacyOpencodeBinary, getOpencodeBinary } = await import('@/lib/runtime/desktop/config')
+
+    expect(getLegacyOpencodeBinary()).toBe('opencode-v1')
+    delete process.env.ARCHE_OPENCODE_BIN
+    process.env.ARCHE_OPENCODE_V1_BIN = '/custom/opencode-v1'
+    existsSync.mockImplementation((path) => path.endsWith('/bin/opencode-v1'))
+    expect(getOpencodeBinary()).toBe('opencode')
+  })
+
+  it('uses distinct PATH binary names when no bundle or overrides exist', async () => {
+    mockExistsSync(() => false)
+
+    const { getLegacyOpencodeBinary, getOpencodeBinary } = await import('@/lib/runtime/desktop/config')
+
+    expect(getOpencodeBinary()).toBe('opencode')
+    expect(getLegacyOpencodeBinary()).toBe('opencode-v1')
+  })
+
+  it('falls back to repository Arche tools candidates and Node on PATH', async () => {
     const existsSync = mockExistsSync(() => false)
     existsSync.mockReturnValueOnce(false).mockReturnValueOnce(true)
 
-    const { getDesktopOpencodeConfigDir } = await import('@/lib/runtime/desktop/config')
+    const { getDesktopArcheToolsCommand } = await import('@/lib/runtime/desktop/config')
 
-    expect(getDesktopOpencodeConfigDir()).toContain('infra/workspace-image/opencode-config')
+    expect(getDesktopArcheToolsCommand()).toEqual(['node', expect.stringContaining('infra/workspace-image/arche-tools/server.js')])
     expect(existsSync).toHaveBeenCalledTimes(2)
   })
 
-  it('builds desktop opencode config with the desktop provider gateway', async () => {
-    const buildWorkspaceRuntimeConfig = vi.fn((slug: string, providerConfig: Record<string, unknown>) => ({
-      providerConfig,
-      slug,
-    }))
-    vi.doMock('@/lib/spawner/runtime-artifacts', () => ({ buildWorkspaceRuntimeConfig }))
-    process.env.ARCHE_DESKTOP_WEB_PORT = '4123'
+  it('uses explicit tools and Node overrides as separate command arguments', async () => {
+    process.env.ARCHE_NODE_BIN = '/custom runtime/node'
+    process.env.ARCHE_TOOLS_DIR = '/custom runtime/arche-tools'
+    mockExistsSync(() => false)
 
-    const { buildDesktopOpencodeConfig } = await import('@/lib/runtime/desktop/config')
+    const { getDesktopArcheToolsCommand } = await import('@/lib/runtime/desktop/config')
 
-    await expect(buildDesktopOpencodeConfig('alice')).resolves.toMatchObject({ slug: 'alice' })
-    expect(buildWorkspaceRuntimeConfig).toHaveBeenCalledWith(
-      'alice',
-      expect.objectContaining({ provider: expect.any(Object) }),
-    )
-    expect(JSON.stringify(buildWorkspaceRuntimeConfig.mock.calls[0]?.[1])).toContain('127.0.0.1:4123')
+    expect(getDesktopArcheToolsCommand()).toEqual([
+      '/custom runtime/node',
+      '/custom runtime/arche-tools/server.js',
+    ])
   })
 
   it('detects workspace-agent on PATH when no bundled binary exists', async () => {

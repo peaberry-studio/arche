@@ -4,9 +4,9 @@ import { useCallback, useMemo, useState, type MouseEvent } from "react";
 import { File, Plus } from "@phosphor-icons/react";
 
 import { Button } from "@/components/ui/button";
-import type { WorkspaceFileNode } from "@/lib/opencode/types";
 import { cn } from "@/lib/utils";
 import { flattenWorkspaceFileNodes, type WorkspaceFileSearchCandidate } from "@/lib/workspace-file-search";
+import type { WorkspaceFileNode } from "@/types/workspace";
 
 import { FileTreeContextMenu } from "./file-tree-context-menu";
 import { FileTree } from "./file-tree";

@@ -5,7 +5,7 @@ import { forceCollide, forceLink, forceManyBody } from 'd3-force'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { KnowledgeGraphPanel } from '@/components/workspace/knowledge-graph-panel'
-import type { WorkspaceFileNode } from '@/lib/opencode/types'
+import type { WorkspaceFileNode } from '@/types/workspace'
 
 const stopSimulationMock = vi.fn()
 

@@ -2,22 +2,23 @@
 
 import { useCallback, type MutableRefObject, type SetStateAction } from "react";
 
-import { abortSessionAction } from "@/actions/opencode";
+import { abortSessionAction } from "@/actions/workspace-sessions";
 import {
   PRE_SESSION_SELECTION_KEY,
   type SessionSelectionState,
 } from "@/hooks/workspace/workspace-types";
-import { isSending, type ChatStore } from "@/lib/opencode/event-reducer";
+import { isSending, type ChatStore } from "@/lib/workspace-events/reducer";
+import type { MessageAttachmentInput } from "@/types/workspace";
 import type {
   AvailableModel,
   PermissionResponse,
   WorkspaceSession,
-} from "@/lib/opencode/types";
-import type { MessageAttachmentInput } from "@/types/workspace";
+} from "@/types/workspace-runtime";
 
 type UseWorkspaceMessageActionsOptions = {
   slug: string;
   activeSessionIdRef: MutableRefObject<string | null>;
+  getSessions?: () => WorkspaceSession[];
   agentDefaultModel: AvailableModel | null;
   createSession: (title?: string) => Promise<WorkspaceSession | null>;
   models: AvailableModel[];
@@ -49,6 +50,7 @@ function normalizeContextPaths(contextPaths: string[] | undefined): string[] {
 export function useWorkspaceMessageActions({
   slug,
   activeSessionIdRef,
+  getSessions,
   agentDefaultModel,
   createSession,
   models,
@@ -74,6 +76,7 @@ export function useWorkspaceMessageActions({
       const messageContextPaths = normalizeContextPaths(options?.contextPaths);
 
       const forceNewSession = options?.forceNewSession === true;
+      if (!forceNewSession && getSessions?.().find((session) => session.id === targetSessionId)?.archived) return false;
       let sessionId = targetSessionId;
       if (forceNewSession || !sessionId) {
         onStartingNewSessionChange(true);
@@ -149,7 +152,8 @@ export function useWorkspaceMessageActions({
       }
 
       if (!result.ok) {
-        restoreStatus(result.status === 409 ? "busy" : previousStatus);
+        const body = await result.json().catch(() => null);
+        restoreStatus(body?.error === "session_archived" ? "idle" : result.status === 409 ? "busy" : previousStatus);
         return false;
       }
 
@@ -168,6 +172,7 @@ export function useWorkspaceMessageActions({
       commitStore,
       createSession,
       getStore,
+      getSessions,
       models,
       onStartingNewSessionChange,
       primaryAgentId,
@@ -183,6 +188,7 @@ export function useWorkspaceMessageActions({
       permissionId: string,
       response: PermissionResponse,
     ) => {
+      if (getSessions?.().find((session) => session.id === permissionSessionId)?.archived) return false;
       try {
         const reply = await fetch(
           `/api/w/${slug}/chat/permissions/${encodeURIComponent(permissionId)}`,
@@ -198,15 +204,16 @@ export function useWorkspaceMessageActions({
         return false;
       }
     },
-    [slug],
+    [getSessions, slug],
   );
 
   const abortSession = useCallback(async () => {
     const currentActiveSessionId = activeSessionIdRef.current;
     if (!currentActiveSessionId) return;
+    if (getSessions?.().find((session) => session.id === currentActiveSessionId)?.archived) return;
     await abortSessionAction(slug, currentActiveSessionId).catch(() => undefined);
     // The bus applies session.status idle; the store stays coherent on its own.
-  }, [activeSessionIdRef, slug]);
+  }, [activeSessionIdRef, getSessions, slug]);
 
   return {
     sendMessage,

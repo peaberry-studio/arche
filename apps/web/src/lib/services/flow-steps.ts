@@ -1,11 +1,33 @@
 import {
   FlowNodeType,
+  FlowRunStatus,
   FlowRunStepStatus,
   Prisma,
 } from '@prisma/client'
 
 import { prisma } from '@/lib/prisma'
-import type { FlowRunStepRecord } from '@/lib/services/flow-records'
+import { ACTIVE_RUN_STATUSES, type FlowRunStepRecord } from '@/lib/services/flow-records'
+
+async function writeActiveRunStep(
+  runId: string,
+  write: (transaction: Prisma.TransactionClient) => Promise<FlowRunStepRecord>,
+): Promise<FlowRunStepRecord> {
+  return prisma.$transaction(async (transaction) => {
+    const result = await transaction.flowRun.updateMany({
+      data: { updatedAt: new Date() },
+      where: { id: runId, status: { in: ACTIVE_RUN_STATUSES } },
+    })
+    if (result.count !== 1) {
+      const run = await transaction.flowRun.findUnique({
+        select: { error: true, status: true },
+        where: { id: runId },
+      })
+      throw new Error(run?.status === FlowRunStatus.cancelled ? 'flow_run_cancelled' : run?.error ?? 'flow_run_not_active')
+    }
+
+    return write(transaction)
+  })
+}
 
 export async function upsertRunStep(data: {
   error?: string | null
@@ -21,7 +43,7 @@ export async function upsertRunStep(data: {
   startedAt?: Date | null
   status: FlowRunStepStatus
 }): Promise<FlowRunStepRecord> {
-  return prisma.flowRunStep.upsert({
+  return writeActiveRunStep(data.runId, (transaction) => transaction.flowRunStep.upsert({
     create: {
       compactedOutput: data.compactedOutput ?? null,
       error: data.error ?? null,
@@ -54,7 +76,7 @@ export async function upsertRunStep(data: {
         runId: data.runId,
       },
     },
-  })
+  }))
 }
 
 export function updateRunStepByRunIdAndNodeId(
@@ -71,7 +93,7 @@ export function updateRunStepByRunIdAndNodeId(
     status?: FlowRunStepStatus
   },
 ) {
-  return prisma.flowRunStep.update({
+  return writeActiveRunStep(runId, (transaction) => transaction.flowRunStep.update({
     data: {
       compactedOutput: data.compactedOutput,
       error: data.error,
@@ -85,5 +107,5 @@ export function updateRunStepByRunIdAndNodeId(
     where: {
       runId_nodeId: { nodeId, runId },
     },
-  })
+  }))
 }

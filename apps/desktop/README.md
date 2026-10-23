@@ -1,6 +1,6 @@
 # Arche Desktop
 
-Desktop runs Arche locally by embedding the web app inside Electron and supervising local runtime binaries (`node`, `opencode`, `workspace-agent`).
+Desktop runs Arche locally by embedding the web app inside Electron and supervising local runtime binaries (`node`, `opencode`, `opencode-v1`, `workspace-agent`).
 
 ## Vaults
 
@@ -71,9 +71,9 @@ pnpm dev
 `pnpm prepare:runtime` does four things:
 
 1. Downloads a bundled Node.js runtime into `apps/desktop/bin`
-2. Downloads `opencode` into `apps/desktop/bin`
+2. Downloads `opencode` (V2) and pinned `opencode-v1` (1.18.18) into `apps/desktop/bin`, with independent version stamps
 3. Builds `workspace-agent` from `infra/workspace-image/workspace-agent`
-4. Prepares `opencode-config` (custom tools + dependencies) in `apps/desktop/bin/opencode-config`
+4. Prepares the `arche-tools` MCP server and dependencies in `apps/desktop/bin/arche-tools`
 
 Run it manually when you want to prefetch/update binaries:
 
@@ -88,6 +88,29 @@ Force binary re-download:
 cd apps/desktop
 FORCE_DOWNLOAD=1 pnpm prepare:runtime
 ```
+
+### Runtime
+
+Desktop workspaces run the bundled OpenCode 2 binary. The OpenCode 1 binary is
+bundled only to archive the history of vaults created before OpenCode 2: on the
+first start of such a vault, the host copies the legacy `.local` data/state tree
+(including SQLite WAL/SHM files) to a disposable sibling directory and starts
+the helper there on loopback with project config, MCP, plugins and providers
+disabled. It exports history into the vault's SQLite
+archive, and confirms that the helper exited. An export failure fails the start
+and retries on the next one; unconfirmed helper cleanup retains the copy and
+blocks startup until exit is confirmed, then the copy is removed.
+
+Original V1 state stays in `.runtime/opencode`; helper startup/SQLite/log writes
+go only to the disposable copy. V2 uses
+`.runtime/opencode-v2`. An explicit `ARCHE_OPENCODE_DATA_DIR` remains the V1 root,
+with `-v2` appended for V2. Development binary overrides: `ARCHE_OPENCODE_BIN` for
+OpenCode 2 and `ARCHE_OPENCODE_V1_BIN` for the archive helper. Do not point either
+override at the other version.
+
+Manual acceptance: back up an existing vault, then use a copy to verify archive
+counts, parent/child conversations and attachments, the read-only archived view,
+a new V2 conversation, and a restart without re-export.
 
 ## Tests
 

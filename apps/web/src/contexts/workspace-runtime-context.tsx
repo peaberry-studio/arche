@@ -18,15 +18,15 @@ import { useInstanceHeartbeat } from "@/hooks/use-instance-heartbeat";
 import { useInstanceStartup, type UseInstanceStartupReturn } from "@/hooks/use-instance-startup";
 import { useWorkspaceConnection } from "@/hooks/use-workspace-connection";
 import { useWorkspaceSessions } from "@/hooks/workspace/use-workspace-sessions";
-import type { WorkspaceConnectionState } from "@/lib/opencode/types";
 import {
   parseWorkspaceLayoutState,
   persistWorkspacePanelState,
   readWorkspacePanelState,
 } from "@/lib/workspace-panel-state";
+import type { WorkspaceConnectionState } from "@/types/workspace-runtime";
 
 type WorkspaceRuntimeContextValue = Omit<UseInstanceStartupReturn, "instanceStatus"> & {
-  instanceStatus: "starting" | "running" | "error" | null;
+  instanceStatus: UseInstanceStartupReturn["instanceStatus"];
   connection: WorkspaceConnectionState;
   isConnected: boolean;
   sessionsHook: ReturnType<typeof useWorkspaceSessions>;
@@ -71,7 +71,7 @@ type WorkspaceRuntimeStateProviderProps = {
   connection: WorkspaceConnectionState;
   initialSessionId: string | null;
   instanceError: string | null;
-  instanceStatus: "starting" | "running" | "error" | null;
+  instanceStatus: UseInstanceStartupReturn["instanceStatus"];
   isConnected: boolean;
   persistenceScope: string;
   slug: string;
@@ -141,7 +141,6 @@ function WorkspaceRuntimeStateProvider({
   // dedupes into the same in-flight load promise.
   const loadSessions = sessionsHook.loadSessions;
   useEffect(() => {
-    if (!running || !isConnected) return;
     void loadSessions();
   }, [running, isConnected, loadSessions]);
 

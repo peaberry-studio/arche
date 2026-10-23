@@ -445,6 +445,7 @@ describe('flowService', () => {
   })
 
   it('upserts and updates run steps', async () => {
+    prismaMock.flowRun.updateMany.mockResolvedValue({ count: 1 })
     const step = {
       compactedOutput: null,
       createdAt: now,
@@ -469,6 +470,27 @@ describe('flowService', () => {
       .resolves.toEqual(step)
     await expect(flowService.updateRunStepByRunIdAndNodeId('run-1', 'agent-1', { finishedAt: now, status: FlowRunStepStatus.succeeded }))
       .resolves.toMatchObject({ status: FlowRunStepStatus.succeeded })
+    expect(prismaMock.flowRun.updateMany).toHaveBeenCalledWith({
+      data: { updatedAt: expect.any(Date) },
+      where: { id: 'run-1', status: { in: [FlowRunStatus.running, FlowRunStatus.waiting_for_human] } },
+    })
+    expect(prismaMock.flowRun.updateMany.mock.invocationCallOrder[0]).toBeLessThan(prismaMock.flowRunStep.upsert.mock.invocationCallOrder[0])
+  })
+
+  it.each([
+    { status: FlowRunStatus.failed, error: 'runtime_migrated', expected: 'runtime_migrated' },
+    { status: FlowRunStatus.cancelled, error: null, expected: 'flow_run_cancelled' },
+  ])('rejects step writes after $status settlement ($expected)', async ({ status, error, expected }) => {
+    prismaMock.flowRun.updateMany.mockResolvedValue({ count: 0 })
+    prismaMock.flowRun.findUnique.mockResolvedValue({ status, error })
+
+    await expect(flowService.upsertRunStep({ nodeId: 'new-node', nodeType: FlowNodeType.agent, runId: 'run-1', status: FlowRunStepStatus.running }))
+      .rejects.toThrow(expected)
+    await expect(flowService.updateRunStepByRunIdAndNodeId('run-1', 'agent-1', { status: FlowRunStepStatus.succeeded }))
+      .rejects.toThrow(expected)
+
+    expect(prismaMock.flowRunStep.upsert).not.toHaveBeenCalled()
+    expect(prismaMock.flowRunStep.update).not.toHaveBeenCalled()
   })
 
   it('finds runs, marks results seen, and maps session metadata', async () => {

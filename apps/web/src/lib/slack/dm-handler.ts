@@ -1,15 +1,15 @@
-import { createInstanceClient } from '@/lib/opencode/client'
+import type { HarnessRuntime } from '@/lib/harness/contract'
 import {
   captureSessionMessageCursor,
   createSessionPromptRun,
   EXECUTION_TERMINATION_UNCONFIRMED_ERROR,
   ensureWorkspaceRunningForExecution,
-  isOpenCodeSessionNotFoundError,
   readLatestAssistantText,
   waitForSessionToComplete,
-} from '@/lib/opencode/session-execution'
-import { openCodeSessionExists } from '@/lib/opencode/session-utils'
+} from '@/lib/harness/execution'
+import { getRuntimeForSlug } from '@/lib/harness/registry'
 import { auditService, messageRunService, slackService, userService } from '@/lib/services'
+import { isArchivedSession } from '@/lib/services/legacy-session-archive'
 import type { SlackPendingDmDecisionRecord } from '@/lib/services/slack'
 import { buildSlackDmPrompt } from '@/lib/slack/dm-prompt'
 import { formatSlackMessages } from '@/lib/slack/formatter'
@@ -44,12 +44,15 @@ const DM_NEW_SESSION_THRESHOLD_MS = 8 * 60 * 60 * 1000
 const PENDING_DECISION_EXPIRY_MS = 30 * 60 * 1000
 const STALE_DM_SESSION_MESSAGE = 'The previous Slack conversation was no longer available, so I started a new conversation.'
 
+type SlackDmFailure = { ok: false; error: string }
+type SlackDmResult<T> = { ok: true; data: T } | SlackDmFailure
+
 export async function handleSlackDmEvent(args: {
   body: unknown
   client: SlackChatClient
   event: SlackMessageEvent
   eventId: string
-}): Promise<void> {
+}): Promise<void | SlackDmFailure> {
   const channel = args.event.channel
   const slackUserId = args.event.user
   const text = args.event.text?.trim() ?? ''
@@ -78,22 +81,28 @@ export async function handleSlackDmEvent(args: {
 
     const latestSession = await slackService.findLatestDmSession(slackTeamId, slackUserId)
     const now = new Date()
-    if (!latestSession) {
-      await startNewSlackDmConversation({
+    const archivedSession = latestSession && await isArchivedSession(resolution.user.slug, latestSession.openCodeSessionId)
+    if (!latestSession || archivedSession) {
+      const result = await startNewSlackDmConversation({
         channel,
         client: args.client,
+        messagePrefix: archivedSession ? STALE_DM_SESSION_MESSAGE : undefined,
         messageText: text,
         profile,
         slackTeamId,
         slackUserId,
         user: resolution.user,
       })
-      return
+      if (result) {
+        await postSlackDmMessage(args.client, channel, 'I hit an error while preparing the Slack reply. Please try again.').catch(() => undefined)
+        await slackService.markLastError(result.error).catch(() => undefined)
+      }
+      return result
     }
 
     const elapsedMs = now.getTime() - latestSession.lastMessageAt.getTime()
     if (elapsedMs < DM_CONTINUE_THRESHOLD_MS) {
-      await continueSlackDmConversation({
+      const result = await continueSlackDmConversation({
         binding: latestSession,
         channel,
         client: args.client,
@@ -103,7 +112,11 @@ export async function handleSlackDmEvent(args: {
         slackUserId,
         user: resolution.user,
       })
-      return
+      if (result) {
+        await postSlackDmMessage(args.client, channel, 'I hit an error while preparing the Slack reply. Please try again.').catch(() => undefined)
+        await slackService.markLastError(result.error).catch(() => undefined)
+      }
+      return result
     }
 
     if (elapsedMs < DM_NEW_SESSION_THRESHOLD_MS) {
@@ -120,7 +133,7 @@ export async function handleSlackDmEvent(args: {
       return
     }
 
-    await startNewSlackDmConversation({
+    const result = await startNewSlackDmConversation({
       channel,
       client: args.client,
       messagePrefix: 'More than 8 hours have passed, so I started a new conversation.',
@@ -130,6 +143,11 @@ export async function handleSlackDmEvent(args: {
       slackUserId,
       user: resolution.user,
     })
+    if (result) {
+      await postSlackDmMessage(args.client, channel, 'I hit an error while preparing the Slack reply. Please try again.').catch(() => undefined)
+      await slackService.markLastError(result.error).catch(() => undefined)
+    }
+    return result
   } catch (error) {
     const detail = error instanceof Error ? error.message : 'slack_error'
     await postSlackDmMessage(args.client, channel, 'I hit an error while preparing the Slack reply. Please try again.').catch(() => undefined)
@@ -178,13 +196,19 @@ export async function handleNewSlackDmCommand(args: {
     }
 
     const messageText = body.text?.trim() ?? ''
-    const session = await createSlackDmSession({
+    const sessionResult = await createSlackDmSession({
       channelId: body.channel_id,
       profile,
       slackTeamId,
       slackUserId: body.user_id,
       user: resolution.user,
     })
+    if (!sessionResult.ok) {
+      await slackService.markLastError(sessionResult.error).catch(() => undefined)
+      await args.respond({ text: 'I hit an error while preparing the Slack reply. Please try again.' }).catch(() => undefined)
+      return
+    }
+    const session = sessionResult.data
 
     await auditService.createEvent({
       actorUserId: resolution.user.id,
@@ -204,7 +228,7 @@ export async function handleNewSlackDmCommand(args: {
     }
 
     await args.respond({ text: 'New conversation started. Thinking...' })
-    await executeSlackDmPromptAndReply({
+    const result = await executeSlackDmPromptAndReply({
       bindingId: session.binding.id,
       channel: body.channel_id,
       client: args.client,
@@ -221,6 +245,10 @@ export async function handleNewSlackDmCommand(args: {
         user: resolution.user,
       },
     })
+    if (result) {
+      await slackService.markLastError(result.error).catch(() => undefined)
+      await args.respond({ text: 'I hit an error while preparing the Slack reply. Please try again.' }).catch(() => undefined)
+    }
   } catch (error) {
     const detail = error instanceof Error ? error.message : 'slack_error'
     await slackService.markLastError(detail).catch(() => undefined)
@@ -264,12 +292,13 @@ export async function handleSlackDmDecisionAction(args: {
       return
     }
 
-    if (args.action === 'continue') {
-      await continueSlackDmDecision(args.client, actionTarget, decision)
-      return
+    const result = args.action === 'continue'
+      ? await continueSlackDmDecision(args.client, actionTarget, decision)
+      : await startNewSlackDmDecision(args.client, actionTarget, decision)
+    if (result) {
+      await slackService.markLastError(result.error).catch(() => undefined)
+      await updateSlackActionMessage(args.client, actionTarget, 'I hit an error while preparing the Slack reply. Please try again.').catch(() => undefined)
     }
-
-    await startNewSlackDmDecision(args.client, actionTarget, decision)
   } catch (error) {
     const detail = error instanceof Error ? error.message : 'slack_error'
     await slackService.markLastError(detail).catch(() => undefined)
@@ -281,7 +310,7 @@ async function continueSlackDmDecision(
   client: SlackChatClient,
   actionTarget: SlackActionTarget | null,
   decision: SlackPendingDmDecisionRecord,
-): Promise<void> {
+): Promise<void | SlackDmFailure> {
   if (!decision.previousDmSessionBindingId) {
     await slackService.expirePendingDmDecision(decision.id)
     await updateSlackActionMessage(client, actionTarget, 'I could not find the previous conversation. Send your message again to start over.')
@@ -308,7 +337,7 @@ async function continueSlackDmDecision(
   }
 
   const profile = await loadSlackUserProfile(client, decision.slackUserId)
-  const session = await prepareSlackDmContinuation({
+  const sessionResult = await prepareSlackDmContinuation({
     binding,
     channel: decision.channelId,
     profile,
@@ -316,13 +345,15 @@ async function continueSlackDmDecision(
     slackUserId: decision.slackUserId,
     user: { id: binding.executionUserId, slug: owner.slug },
   })
+  if (!sessionResult.ok) return sessionResult
+  const session = sessionResult.data
 
   await updateSlackActionMessage(
     client,
     actionTarget,
     session.messagePrefix ? 'The previous conversation was no longer available. Starting a new one...' : 'Continuing the previous conversation...',
   )
-  await executeSlackDmPromptAndReply({
+  return executeSlackDmPromptAndReply({
     bindingId: session.bindingId,
     channel: decision.channelId,
     client,
@@ -346,7 +377,7 @@ async function startNewSlackDmDecision(
   client: SlackChatClient,
   actionTarget: SlackActionTarget | null,
   decision: SlackPendingDmDecisionRecord,
-): Promise<void> {
+): Promise<void | SlackDmFailure> {
   const claimed = await slackService.markPendingDmDecisionStartedNew(decision.id)
   if (!claimed) {
     await updateSlackActionMessage(client, actionTarget, 'This decision is no longer valid.')
@@ -365,16 +396,18 @@ async function startNewSlackDmDecision(
   }
 
   const profile = await loadSlackUserProfile(client, decision.slackUserId)
-  const session = await createSlackDmSession({
+  const sessionResult = await createSlackDmSession({
     channelId: decision.channelId,
     profile,
     slackTeamId: decision.slackTeamId,
     slackUserId: decision.slackUserId,
     user: resolution.user,
   })
+  if (!sessionResult.ok) return sessionResult
+  const session = sessionResult.data
 
   await updateSlackActionMessage(client, actionTarget, 'Starting a new conversation...')
-  await executeSlackDmPromptAndReply({
+  return executeSlackDmPromptAndReply({
     bindingId: session.binding.id,
     channel: decision.channelId,
     client,
@@ -402,16 +435,18 @@ async function startNewSlackDmConversation(args: {
   slackUserId: string
   user: { id: string; slug: string }
   messagePrefix?: string
-}): Promise<void> {
-  const session = await createSlackDmSession({
+}): Promise<void | SlackDmFailure> {
+  const sessionResult = await createSlackDmSession({
     channelId: args.channel,
     profile: args.profile,
     slackTeamId: args.slackTeamId,
     slackUserId: args.slackUserId,
     user: args.user,
   })
+  if (!sessionResult.ok) return sessionResult
+  const session = sessionResult.data
 
-  await executeSlackDmPromptAndReply({
+  return executeSlackDmPromptAndReply({
     bindingId: session.binding.id,
     channel: args.channel,
     client: args.client,
@@ -440,8 +475,8 @@ async function continueSlackDmConversation(args: {
   slackTeamId: string
   slackUserId: string
   user: { id: string; slug: string }
-}): Promise<void> {
-  const session = await prepareSlackDmContinuation({
+}): Promise<void | SlackDmFailure> {
+  const sessionResult = await prepareSlackDmContinuation({
     binding: args.binding,
     channel: args.channel,
     profile: args.profile,
@@ -449,8 +484,10 @@ async function continueSlackDmConversation(args: {
     slackUserId: args.slackUserId,
     user: args.user,
   })
+  if (!sessionResult.ok) return sessionResult
+  const session = sessionResult.data
 
-  await executeSlackDmPromptAndReply({
+  return executeSlackDmPromptAndReply({
     bindingId: session.bindingId,
     channel: args.channel,
     client: args.client,
@@ -477,46 +514,58 @@ async function prepareSlackDmContinuation(args: {
   slackTeamId: string
   slackUserId: string
   user: { id: string; slug: string }
-}): Promise<{
+}): Promise<SlackDmResult<{
   bindingId: string
-  opencodeClient: NonNullable<Awaited<ReturnType<typeof createInstanceClient>>>
+  opencodeClient: HarnessRuntime
   sessionId: string
   messagePrefix?: string
-}> {
-  await ensureWorkspaceRunningForExecution(args.user.slug, args.user.id)
-  const opencodeClient = await createInstanceClient(args.user.slug)
-  if (!opencodeClient) {
-    throw new Error('instance_unavailable')
-  }
+}>> {
+  const workspace = await ensureWorkspaceRunningForExecution(args.user.slug, args.user.id)
+  if (!workspace.ok) return workspace
+  const runtimeResult = await getRuntimeForSlug(args.user.slug)
+  if (!runtimeResult.ok) return { ok: false, error: runtimeResult.error.code }
+  const opencodeClient = runtimeResult.data
 
-  const sessionExists = await openCodeSessionExists(opencodeClient, args.binding.openCodeSessionId)
-  if (sessionExists) {
-    return {
-      bindingId: args.binding.id,
-      opencodeClient,
-      sessionId: args.binding.openCodeSessionId,
+  const archivedSession = await isArchivedSession(args.user.slug, args.binding.openCodeSessionId)
+  if (!archivedSession) {
+    const sessionResult = await opencodeClient.getSession(args.binding.openCodeSessionId)
+    if (!sessionResult.ok && sessionResult.error.code !== 'session_not_found') return { ok: false, error: sessionResult.error.code }
+    if (sessionResult.ok) {
+      return {
+        ok: true,
+        data: {
+          bindingId: args.binding.id,
+          opencodeClient,
+          sessionId: args.binding.openCodeSessionId,
+        },
+      }
     }
-  }
 
-  await slackService.deleteSessionBindingsByOpenCodeSessionId(args.binding.openCodeSessionId).catch((error) => {
-    console.warn('[slack] Failed to delete stale DM session bindings', {
-      error,
-      openCodeSessionId: args.binding.openCodeSessionId,
+    await slackService.deleteSessionBindingsByOpenCodeSessionId(args.binding.openCodeSessionId).catch((error) => {
+      console.warn('[slack] Failed to delete stale DM session bindings', {
+        error,
+        openCodeSessionId: args.binding.openCodeSessionId,
+      })
     })
-  })
-  const session = await createSlackDmSession({
+  }
+  const sessionResult = await createSlackDmSession({
     channelId: args.channel,
     profile: args.profile,
     slackTeamId: args.slackTeamId,
     slackUserId: args.slackUserId,
     user: args.user,
   })
+  if (!sessionResult.ok) return sessionResult
+  const session = sessionResult.data
 
   return {
-    bindingId: session.binding.id,
-    messagePrefix: STALE_DM_SESSION_MESSAGE,
-    opencodeClient: session.opencodeClient,
-    sessionId: session.sessionId,
+    ok: true,
+    data: {
+      bindingId: session.binding.id,
+      messagePrefix: STALE_DM_SESSION_MESSAGE,
+      opencodeClient: session.opencodeClient,
+      sessionId: session.sessionId,
+    },
   }
 }
 
@@ -526,24 +575,19 @@ async function createSlackDmSession(args: {
   slackTeamId: string
   slackUserId: string
   user: { id: string; slug: string }
-}): Promise<{
+}): Promise<SlackDmResult<{
   binding: { id: string }
-  opencodeClient: NonNullable<Awaited<ReturnType<typeof createInstanceClient>>>
+  opencodeClient: HarnessRuntime
   sessionId: string
-}> {
-  await ensureWorkspaceRunningForExecution(args.user.slug, args.user.id)
-  const opencodeClient = await createInstanceClient(args.user.slug)
-  if (!opencodeClient) {
-    throw new Error('instance_unavailable')
-  }
+}>> {
+  const workspace = await ensureWorkspaceRunningForExecution(args.user.slug, args.user.id)
+  if (!workspace.ok) return workspace
+  const runtimeResult = await getRuntimeForSlug(args.user.slug)
+  if (!runtimeResult.ok) return { ok: false, error: runtimeResult.error.code }
+  const opencodeClient = runtimeResult.data
 
-  const sessionResult = await opencodeClient.session.create(
-    { title: buildSlackDmSessionTitle(args.profile) },
-    { throwOnError: true },
-  )
-  if (!sessionResult.data) {
-    throw new Error('slack_dm_session_create_failed')
-  }
+  const sessionResult = await opencodeClient.createSession({ title: buildSlackDmSessionTitle(args.profile) })
+  if (!sessionResult.ok) return { ok: false, error: sessionResult.error.code }
 
   const binding = await slackService.createDmSessionBinding({
     channelId: args.channelId,
@@ -554,9 +598,12 @@ async function createSlackDmSession(args: {
   })
 
   return {
-    binding,
-    opencodeClient,
-    sessionId: sessionResult.data.id,
+    ok: true,
+    data: {
+      binding,
+      opencodeClient,
+      sessionId: sessionResult.data.id,
+    },
   }
 }
 
@@ -565,7 +612,7 @@ async function executeSlackDmPromptAndReply(args: {
   channel: string
   client: SlackChatClient
   messageText: string
-  opencodeClient: NonNullable<Awaited<ReturnType<typeof createInstanceClient>>>
+  opencodeClient: HarnessRuntime
   sessionId: string
   slackUserId: string
   slug: string
@@ -577,71 +624,96 @@ async function executeSlackDmPromptAndReply(args: {
     slackUserId: string
     user: { id: string; slug: string }
   }
-}): Promise<void> {
+}): Promise<void | SlackDmFailure> {
   const placeholderTs = await postSlackDmPlaceholder(args.client, args.channel)
+  let failure: SlackDmFailure
 
   try {
-    const replyText = await sendSlackDmPromptToSession({
+    const reply = await sendSlackDmPromptToSession({
       messageText: args.messageText,
       opencodeClient: args.opencodeClient,
       sessionId: args.sessionId,
       slug: args.slug,
       userId: args.userId,
     })
-    const messages = formatSlackMessages(
-      formatSlackReply(replyText, [args.messagePrefix]),
-      [`<@${args.slackUserId}>`],
-    )
+    if (reply.ok) {
+      const messages = formatSlackMessages(
+        formatSlackReply(reply.data, [args.messagePrefix]),
+        [`<@${args.slackUserId}>`],
+      )
 
-    await slackService.touchDmSessionBinding(args.bindingId, new Date())
-    await finalizeSlackDmReply(args.client, args.channel, placeholderTs, messages)
-    await slackService.markLastError(null).catch(() => undefined)
+      await slackService.touchDmSessionBinding(args.bindingId, new Date())
+      await finalizeSlackDmReply(args.client, args.channel, placeholderTs, messages)
+      await slackService.markLastError(null).catch(() => undefined)
+      return
+    }
+    failure = reply
   } catch (error) {
-    if (args.staleSessionRecovery && isOpenCodeSessionNotFoundError(error)) {
-      try {
-        const session = await recoverStaleSlackDmSession({
-          channelId: args.channel,
-          profile: args.staleSessionRecovery.profile,
-          slackTeamId: args.staleSessionRecovery.slackTeamId,
-          slackUserId: args.staleSessionRecovery.slackUserId,
-          staleOpenCodeSessionId: args.sessionId,
-          user: args.staleSessionRecovery.user,
-        })
-        const replyText = await sendSlackDmPromptToSession({
+    if (!(args.staleSessionRecovery && error instanceof Error && error.message === 'session_not_found')) {
+      await finalizeSlackDmReply(
+        args.client,
+        args.channel,
+        placeholderTs,
+        'I hit an error while preparing the Slack reply. Please try again.',
+      ).catch(() => undefined)
+      throw error
+    }
+    failure = { ok: false, error: error.message }
+  }
+
+  if (args.staleSessionRecovery && failure.error === 'session_not_found') {
+    try {
+      const sessionResult = await recoverStaleSlackDmSession({
+        channelId: args.channel,
+        profile: args.staleSessionRecovery.profile,
+        slackTeamId: args.staleSessionRecovery.slackTeamId,
+        slackUserId: args.staleSessionRecovery.slackUserId,
+        staleOpenCodeSessionId: args.sessionId,
+        user: args.staleSessionRecovery.user,
+      })
+      if (!sessionResult.ok) {
+        failure = sessionResult
+      } else {
+        const session = sessionResult.data
+        const reply = await sendSlackDmPromptToSession({
           messageText: args.messageText,
           opencodeClient: session.opencodeClient,
           sessionId: session.sessionId,
           slug: args.slug,
           userId: args.userId,
         })
-        const messages = formatSlackMessages(
-          formatSlackReply(replyText, [args.messagePrefix, STALE_DM_SESSION_MESSAGE]),
-          [`<@${args.staleSessionRecovery.slackUserId}>`],
-        )
+        if (!reply.ok) {
+          failure = reply
+        } else {
+          const messages = formatSlackMessages(
+            formatSlackReply(reply.data, [args.messagePrefix, STALE_DM_SESSION_MESSAGE]),
+            [`<@${args.staleSessionRecovery.slackUserId}>`],
+          )
 
-        await slackService.touchDmSessionBinding(session.binding.id, new Date())
-        await finalizeSlackDmReply(args.client, args.channel, placeholderTs, messages)
-        await slackService.markLastError(null).catch(() => undefined)
-        return
-      } catch (retryError) {
-        await finalizeSlackDmReply(
-          args.client,
-          args.channel,
-          placeholderTs,
-          'I hit an error while preparing the Slack reply. Please try again.',
-        ).catch(() => undefined)
-        throw retryError
+          await slackService.touchDmSessionBinding(session.binding.id, new Date())
+          await finalizeSlackDmReply(args.client, args.channel, placeholderTs, messages)
+          await slackService.markLastError(null).catch(() => undefined)
+          return
+        }
       }
+    } catch (retryError) {
+      await finalizeSlackDmReply(
+        args.client,
+        args.channel,
+        placeholderTs,
+        'I hit an error while preparing the Slack reply. Please try again.',
+      ).catch(() => undefined)
+      throw retryError
     }
-
-    await finalizeSlackDmReply(
-      args.client,
-      args.channel,
-      placeholderTs,
-      'I hit an error while preparing the Slack reply. Please try again.',
-    ).catch(() => undefined)
-    throw error
   }
+
+  await finalizeSlackDmReply(
+    args.client,
+    args.channel,
+    placeholderTs,
+    'I hit an error while preparing the Slack reply. Please try again.',
+  ).catch(() => undefined)
+  return failure
 }
 
 async function recoverStaleSlackDmSession(args: {
@@ -670,11 +742,11 @@ function formatSlackReply(replyText: string, prefixes: Array<string | undefined>
 
 async function sendSlackDmPromptToSession(args: {
   messageText: string
-  opencodeClient: NonNullable<Awaited<ReturnType<typeof createInstanceClient>>>
+  opencodeClient: HarnessRuntime
   sessionId: string
   slug: string
   userId: string
-}): Promise<string> {
+}): Promise<SlackDmResult<string>> {
   const agentId = await resolveConfiguredSlackAgentId()
   const runResult = await createSessionPromptRun({
     client: args.opencodeClient,
@@ -683,41 +755,56 @@ async function sendSlackDmPromptToSession(args: {
     source: 'slack_dm',
   })
   if (!runResult.ok) {
-    return mapSlackFailureToMessage('session_busy')
+    return { ok: true, data: mapSlackFailureToMessage('session_busy') }
   }
 
   const runId = runResult.run.id
   try {
     const sessionCursor = await captureSessionMessageCursor(args.opencodeClient, args.sessionId)
-    await args.opencodeClient.session.promptAsync(
-      {
-        agent: agentId ?? undefined,
-        parts: [{ type: 'text', text: buildSlackDmPrompt({ text: args.messageText }) }],
-        sessionID: args.sessionId,
-      },
-      { throwOnError: true },
-    )
+    if (!sessionCursor.ok) {
+      await messageRunService.markRunFailed(runId, sessionCursor.error.code)
+      return { ok: false, error: sessionCursor.error.code }
+    }
+    const submitted = await args.opencodeClient.prompt({
+      agent: agentId ?? undefined,
+      parts: [{ type: 'text', text: buildSlackDmPrompt({ text: args.messageText }) }],
+      sessionId: args.sessionId,
+    })
+    if (!submitted.ok) {
+      await messageRunService.markRunFailed(runId, submitted.error.code)
+      return { ok: false, error: submitted.error.code }
+    }
 
     const completion = await waitForSessionToComplete({
       client: args.opencodeClient,
-      cursor: sessionCursor,
+      cursor: sessionCursor.data,
       sessionId: args.sessionId,
       slug: args.slug,
       usage: { messageRunId: runId, source: 'slack_dm', userId: args.userId },
     })
 
+    if (completion.status === 'error') {
+      await messageRunService.markRunFailed(runId, completion.error.code)
+      return { ok: false, error: completion.error.code }
+    }
+
     if (completion.status === 'termination_unconfirmed') {
       console.warn('[slack] Runtime termination unconfirmed', { cause: completion.cause })
-      return mapSlackFailureToMessage(EXECUTION_TERMINATION_UNCONFIRMED_ERROR)
+      return { ok: true, data: mapSlackFailureToMessage(EXECUTION_TERMINATION_UNCONFIRMED_ERROR) }
     }
 
     if (completion.status === 'failed') {
       await messageRunService.markRunFailed(runId, completion.error)
-      return mapSlackFailureToMessage(completion.error)
+      return { ok: true, data: mapSlackFailureToMessage(completion.error) }
     }
 
     await messageRunService.markRunSucceeded(runId)
-    return (await readLatestAssistantText(args.opencodeClient, args.sessionId, sessionCursor)) ?? 'I could not produce a Slack-ready text response.'
+    const reply = await readLatestAssistantText(args.opencodeClient, args.sessionId, sessionCursor.data)
+    if (!reply.ok) {
+      await messageRunService.markRunFailed(runId, reply.error.code)
+      return { ok: false, error: reply.error.code }
+    }
+    return { ok: true, data: reply.data ?? 'I could not produce a Slack-ready text response.' }
   } catch (error) {
     await messageRunService.markRunFailed(
       runId,

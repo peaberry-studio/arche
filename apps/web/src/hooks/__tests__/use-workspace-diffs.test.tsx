@@ -9,7 +9,7 @@ const opencodeMocks = vi.hoisted(() => ({
   getWorkspaceDiffsAction: vi.fn(),
 }));
 
-vi.mock("@/actions/opencode", () => opencodeMocks);
+vi.mock("@/actions/workspace-sessions", () => opencodeMocks);
 
 const sampleDiff: WorkspaceDiff = {
   path: "src/index.ts",

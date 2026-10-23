@@ -9,20 +9,26 @@ COPY workspace-agent/go.mod ./
 COPY workspace-agent/main.go ./
 RUN CGO_ENABLED=0 go build -o /workspace-agent
 
+FROM docker.io/node:24.14.0-alpine AS arche-tools
+WORKDIR /opt/arche/arche-tools
+RUN corepack enable
+COPY arche-tools/package.json ./package.json
+COPY arche-tools/pnpm-lock.yaml ./pnpm-lock.yaml
+RUN pnpm install --frozen-lockfile --prod --ignore-scripts
+COPY arche-tools/server.js ./server.js
+COPY arche-tools/shared/*.js ./shared/
+COPY arche-tools/shared/scratch-isolation/*.js ./shared/scratch-isolation/
+COPY arche-tools/tools/*.js ./tools/
+
 FROM ghcr.io/anomalyco/opencode:${OPENCODE_VERSION}
 
 # Install git (required for KB sync)
 USER root
-RUN apk add --no-cache ca-certificates git nodejs npm
+RUN apk add --no-cache ca-certificates git nodejs
 
-# Install global OpenCode custom tools configuration.
-WORKDIR /opt/arche/opencode-config
-COPY opencode-config/package.json /opt/arche/opencode-config/package.json
-COPY opencode-config/package-lock.json /opt/arche/opencode-config/package-lock.json
-RUN npm ci --omit=dev --ignore-scripts
-RUN mkdir -p /opt/arche/opencode-config/shared /opt/arche/opencode-config/tools
-COPY opencode-config/shared/*.js /opt/arche/opencode-config/shared/
-COPY opencode-config/tools/*.js /opt/arche/opencode-config/tools/
+# Install the harness-independent stdio MCP tools.
+WORKDIR /opt/arche/arche-tools
+COPY --from=arche-tools /opt/arche/arche-tools /opt/arche/arche-tools
 
 # Create non-root user for running the workspace
 RUN addgroup -g 1000 workspace && \

@@ -1,0 +1,88 @@
+import { z } from 'zod'
+
+import { toToolOutput } from '../shared/attachment-tools.js'
+import { callInternalApi } from '../shared/internal-api.js'
+
+const proposalTypes = ['fact', 'preference', 'process', 'correction', 'other']
+const operations = ['create', 'update', 'delete']
+const triggers = ['manual', 'auto', 'flow', 'agent']
+
+const argsSchema = z.object({
+  runId: z.string().nullable().optional(),
+  title: z.string().min(1).max(200),
+  type: z.enum(proposalTypes).optional(),
+  confidence: z.number().min(0).max(1).optional(),
+  evidence: z.object({
+    sessionId: z.string().optional(),
+    messageId: z.string().optional(),
+    quote: z.string().max(4000).optional(),
+    source: z.string().max(500).optional(),
+  }).optional(),
+  kbPath: z.string().min(1).max(500),
+  operation: z.enum(operations),
+  // A delete removes the target file, so its proposed content may be empty.
+  proposedContent: z.string().max(200000).optional(),
+  currentFileHash: z.string().nullable().optional(),
+  internalSessionId: z.string().nullable().optional(),
+  trigger: z.enum(triggers).optional(),
+  supersedesId: z.string().nullable().optional(),
+  supersedesRevision: z.string().regex(/^[a-f0-9]{64}$/).nullable().optional(),
+}).strict().superRefine((value, ctx) => {
+  if (value.operation !== 'delete' && !value.proposedContent) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'proposedContent is required for create and update operations',
+    })
+  }
+})
+
+export const propose = {
+  description: 'Create a pending Knowledge Base learning proposal in Arche for durable facts, preferences, processes, or corrections. Inspect the existing KB files first (use read/glob/grep or session_history) so you reuse the current structure and naming, and decide between updating an existing file and creating a new one. Check for duplicates and merge when the existing file already covers the fact. Skip transient, task-specific, or sensitive details. Do not propose when nothing durable is worth keeping. This never writes to KB files; a user must review and apply the proposal later. If the path already has a pending proposal, the call fails with pending_proposal_exists and returns it: re-read the current file, write content that keeps the changes of the pending proposal and adds yours, then call again with supersedesId set to pending.id and supersedesRevision set to pending.revision. If it changed meanwhile, merge the new pending content and retry.',
+  args: {
+    runId: z.string().nullable().optional().describe('Learning run id, when known.'),
+    title: z.string().min(1).max(200).describe('Short proposal title.'),
+    type: z.enum(proposalTypes).optional().describe('Learning type.'),
+    confidence: z.number().min(0).max(1).optional().describe('Confidence score from 0 to 1.'),
+    evidence: z.object({
+      sessionId: z.string().optional(),
+      messageId: z.string().optional(),
+      quote: z.string().max(4000).optional(),
+      source: z.string().max(500).optional(),
+    }).optional().describe('Evidence supporting this proposal.'),
+    kbPath: z.string().min(1).max(500).describe('Target KB path.'),
+    operation: z.enum(operations).describe('Whether to create, update, or delete the target KB file.'),
+    proposedContent: z.string().max(200000).optional().describe('Full proposed file content; omit or leave empty when deleting the target file.'),
+    currentFileHash: z.string().nullable().optional().describe('Current file hash for update conflict detection.'),
+    internalSessionId: z.string().nullable().optional().describe('Internal learning session id, when known.'),
+    trigger: z.enum(triggers).optional().describe('Learning trigger source.'),
+    supersedesId: z.string().nullable().optional().describe('Id of the pending proposal for this path that your proposedContent already merges, from a pending_proposal_exists result.'),
+    supersedesRevision: z.string().regex(/^[a-f0-9]{64}$/).nullable().optional().describe('Exact pending.revision returned with the pending proposal you merged.'),
+  },
+  async execute(args, context) {
+    const parsed = argsSchema.safeParse(args)
+    if (!parsed.success) return toToolOutput({ ok: false, error: 'schema_validation_failed' })
+
+    if (!context?.agent || !context?.sessionID) {
+      return toToolOutput({ ok: false, error: 'caller_identity_unavailable' })
+    }
+
+    const body = { ...parsed.data }
+    const callerAgent = typeof context?.agent === 'string' ? context.agent : undefined
+    if (callerAgent) {
+      body.agent = callerAgent
+    }
+
+    const result = await callInternalApi('/api/internal/learning/proposals', body)
+    if (!result.ok && result.pending) {
+      return toToolOutput({
+        ok: false,
+        error: result.error,
+        pending: result.pending,
+        next: 'Re-read the current file, write content that keeps the changes in pending.proposedContent and adds yours, then call again with supersedesId set to pending.id and supersedesRevision set to pending.revision.',
+      })
+    }
+    if (!result.ok) return toToolOutput({ ok: false, error: result.error })
+
+    return toToolOutput({ ok: true, ...result.data })
+  },
+}

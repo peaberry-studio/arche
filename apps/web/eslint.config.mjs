@@ -6,6 +6,40 @@ const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
   {
+    files: ["**/*.{ts,tsx,js,mjs}"],
+    ignores: ["src/lib/harness/adapters/**"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@opencode-ai/*", "@opencode/*"],
+              message: "Use the Arche harness runtime contract instead of a harness SDK or adapter internal.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["**/*.{ts,tsx,js,mjs}"],
+    ignores: ["src/lib/harness/adapters/**", "src/lib/harness/registry.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@opencode-ai/*", "@opencode/*", "@/lib/harness/adapters/**"],
+              message: "Use the Arche harness runtime contract instead of a harness SDK or adapter internal.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     rules: {
       "@typescript-eslint/no-unused-vars": [
         "warn",

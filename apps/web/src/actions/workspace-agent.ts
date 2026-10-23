@@ -1,9 +1,9 @@
 'use server'
 
-import type { WorkspaceFileContent } from '@/lib/opencode/types'
 import { getSession } from '@/lib/runtime/session'
 import { isProtectedWorkspacePath, normalizeWorkspacePath } from '@/lib/workspace-paths'
 import { createWorkspaceAgentClient } from '@/lib/workspace-agent/client'
+import type { WorkspaceFileContent } from '@/types/workspace'
 
 async function authorizeWorkspace(slug: string) {
   const session = await getSession()

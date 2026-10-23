@@ -8,8 +8,8 @@ const mocks = vi.hoisted(() => ({
   validateSameOrigin: vi.fn(() => ({ ok: true })),
   validateDesktopToken: vi.fn(() => true),
 
-  getInstanceUrl: vi.fn(() => 'http://test:3000'),
-  syncProviderAccessForInstance: vi.fn().mockResolvedValue({ ok: true }),
+  getRuntimeBaseUrl: vi.fn(() => 'http://test:3000'),
+  syncRuntimeProviderAccess: vi.fn().mockResolvedValue({ ok: true, data: undefined }),
 
   createOllamaProviderSecret: vi.fn(),
   getActiveCredentialForUser: vi.fn(),
@@ -44,8 +44,10 @@ vi.mock('@/lib/runtime/desktop/token', () => ({
   validateDesktopToken: mocks.validateDesktopToken,
 }))
 
-vi.mock('@/lib/opencode/client', () => ({ getInstanceUrl: mocks.getInstanceUrl }))
-vi.mock('@/lib/opencode/providers', () => ({ syncProviderAccessForInstance: mocks.syncProviderAccessForInstance }))
+vi.mock('@/lib/harness/registry', () => ({
+  getRuntimeBaseUrl: mocks.getRuntimeBaseUrl,
+  syncRuntimeProviderAccess: mocks.syncRuntimeProviderAccess,
+}))
 vi.mock('@/lib/providers/ollama', () => ({
   createOllamaProviderSecret: mocks.createOllamaProviderSecret,
   isOllamaSecret: vi.fn(() => true),
@@ -84,7 +86,7 @@ describe('/api/u/[slug]/providers/[provider]', () => {
     mocks.providerService.disableEnabledForProvider.mockResolvedValue({ count: 1 })
     mocks.providerService.markWorkspaceRestartRequired.mockResolvedValue(undefined)
     mocks.providerService.clearWorkspaceRestartRequired.mockResolvedValue(undefined)
-    mocks.syncProviderAccessForInstance.mockResolvedValue({ ok: true })
+    mocks.syncRuntimeProviderAccess.mockResolvedValue({ ok: true, data: undefined })
     mocks.replaceApiCredential.mockResolvedValue({ id: 'cred-1', type: 'api', version: 1 })
     mocks.replaceProviderCredential.mockResolvedValue({ id: 'cred-ollama', type: 'api', version: 1 })
     mocks.createOllamaProviderSecret.mockResolvedValue({
@@ -189,8 +191,8 @@ describe('/api/u/[slug]/providers/[provider]', () => {
       expect(json.error).toBe('missing_fields')
     })
 
-    it('returns restartRequired true when instance sync fails (not running)', async () => {
-      mocks.syncProviderAccessForInstance.mockResolvedValue({ ok: false, error: 'instance_unavailable' })
+    it('returns restartRequired false when the instance is unavailable', async () => {
+      mocks.syncRuntimeProviderAccess.mockResolvedValue({ ok: false, error: { code: 'instance_unavailable' } })
       const res = await POST(makePostRequest('openai', { apiKey: 'sk-xxx' }), routeParams('admin', 'openai'))
       expect(res.status).toBe(201)
       const json = await res.json()
@@ -198,7 +200,7 @@ describe('/api/u/[slug]/providers/[provider]', () => {
     })
 
     it('returns restartRequired true when sync returns non-instance_unavailable error', async () => {
-      mocks.syncProviderAccessForInstance.mockResolvedValue({ ok: false, error: 'some_error' })
+      mocks.syncRuntimeProviderAccess.mockResolvedValue({ ok: false, error: { code: 'sync_failed', detail: 'some_error' } })
       const res = await POST(makePostRequest('openai', { apiKey: 'sk-xxx' }), routeParams('admin', 'openai'))
       expect(res.status).toBe(201)
       const json = await res.json()

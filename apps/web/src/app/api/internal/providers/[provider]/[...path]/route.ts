@@ -226,7 +226,7 @@ async function handleProxy(
     }
   }
 
-  const upstreamUrl = buildUpstreamUrl(adapter.baseUrl(providerSecret), pathSegments, new URL(request.url))
+  const upstreamUrl = buildUpstreamUrl(adapter.baseUrl(providerSecret, pathSegments), pathSegments, new URL(request.url))
   if (!upstreamUrl) {
     return NextResponse.json({ error: 'invalid_path' }, { status: 400 })
   }
@@ -235,6 +235,7 @@ async function handleProxy(
   stripHopByHopHeaders(headers)
   headers.delete('authorization')
   headers.delete('x-api-key')
+  headers.delete('x-goog-api-key')
 
   // Avoid content-encoding pass-through issues.
   // Node fetch will typically decompress upstream responses, but the upstream

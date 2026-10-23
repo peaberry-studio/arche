@@ -7,7 +7,7 @@ import {
   useWorkspaceRuntime,
   WorkspaceRuntimeProvider,
 } from "@/contexts/workspace-runtime-context";
-import type { WorkspaceConnectionState } from "@/lib/opencode/types";
+import type { WorkspaceConnectionState } from "@/types/workspace-runtime";
 
 const ensureInstanceRunningActionMock = vi.hoisted(() => vi.fn());
 
@@ -119,6 +119,19 @@ describe("WorkspaceRuntimeProvider", () => {
     expect(instanceStartupMock).toHaveBeenCalledTimes(2)
   })
 
+  it("propagates history migration while runtime connections and heartbeats stay disabled", () => {
+    instanceStartupMock.mockReturnValue({ instanceStatus: "migrating_history", instanceError: null })
+    render(
+      <WorkspaceRuntimeProvider slug="alice" persistenceScope="alice">
+        <RuntimeView />
+      </WorkspaceRuntimeProvider>
+    )
+
+    expect(screen.getByTestId("runtime-view").dataset.status).toBe("migrating_history")
+    expect(connectionMock).toHaveBeenCalledWith("alice", false)
+    expect(heartbeatMock).toHaveBeenCalledWith("alice", false)
+  })
+
   it("seeds the initial session from the ?session= URL param when no prop is given", () => {
     searchParamsMock.mockReturnValue(new URLSearchParams("session=abc-123"))
     sessionsMock.mockClear()
@@ -204,7 +217,7 @@ describe("WorkspaceRuntimeProvider", () => {
     expect(loadSessionsMock).toHaveBeenCalledTimes(1)
   })
 
-  it("does not load sessions before the instance is running and connected", () => {
+  it("loads sessions while offline so archived history remains accessible", () => {
     installStartupMock()
 
     render(
@@ -213,6 +226,6 @@ describe("WorkspaceRuntimeProvider", () => {
       </WorkspaceRuntimeProvider>
     )
 
-    expect(loadSessionsMock).not.toHaveBeenCalled()
+    expect(loadSessionsMock).toHaveBeenCalledTimes(1)
   })
 })

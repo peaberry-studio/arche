@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import * as transitions from '@/lib/services/instance'
 const { mockGetRuntimeCapabilities, mockPrisma } = vi.hoisted(() => ({
   mockGetRuntimeCapabilities: vi.fn(),
   mockPrisma: {
@@ -21,6 +22,7 @@ vi.mock('@/lib/prisma', () => ({ prisma: mockPrisma }))
 
 import {
   findBySlug,
+  findRuntimeKindBySlug,
   findCredentialsBySlug,
   findStatusBySlug,
   findProviderSyncBySlug,
@@ -34,6 +36,7 @@ import {
   setError,
   setRunning,
   setRunningIfCurrentContainer,
+  setRunningIfCurrentDesktopStart,
   setErrorIfCurrentContainer,
   correctToRunningIfCurrentContainer,
   setStopped,
@@ -59,6 +62,106 @@ describe('instanceService', () => {
     })
   })
 
+  describe('startup and migration transition ownership', () => {
+    const instance: transitions.InstanceRecord = {
+      id: 'i1', slug: 'alice', status: 'stopped', containerId: 'legacy', runtimeKind: null,
+      createdAt: new Date(0), startedAt: new Date(1), stoppedAt: new Date(2), lastActivityAt: null,
+      serverPassword: 'enc-fx', appliedConfigSha: null, providerSyncHash: null, providerSyncedAt: null,
+    }
+
+    it('records desktop runtime kind only for the current starting attempt before health checks', async () => {
+      const startedAt = new Date(3)
+      await transitions.setRuntimeKindIfCurrentDesktopStart('alice', startedAt, 'opencode-v2')
+      expect(mockPrisma.instance.updateMany).toHaveBeenCalledWith({
+        where: { slug: 'alice', status: 'starting', containerId: null, startedAt },
+        data: { runtimeKind: 'opencode-v2' },
+      })
+    })
+
+    it('fails desktop preparation only while the same attempt is starting', async () => {
+      const startedAt = new Date(3)
+      await transitions.setErrorIfCurrentDesktopStart('alice', startedAt)
+      expect(mockPrisma.instance.updateMany).toHaveBeenCalledWith({
+        where: { slug: 'alice', status: 'starting', containerId: null, startedAt },
+        data: { status: 'error', providerSyncHash: null, providerSyncedAt: null },
+      })
+    })
+
+    it('claims only the exact state seen before exporting or stopping', async () => {
+      const startedAt = new Date(3)
+      await transitions.claimStartingTransition(instance, startedAt)
+      expect(mockPrisma.instance.updateMany).toHaveBeenCalledWith({
+        where: { id: 'i1', status: 'stopped', containerId: 'legacy', startedAt: new Date(1) },
+        data: { status: 'starting', startedAt },
+      })
+    })
+
+    it('claims an idle stop only while no activity arrived after the instance was found idle', async () => {
+      const startedAt = new Date(3)
+      const idle = { ...instance, status: 'running' as const, lastActivityAt: new Date(2) }
+      await transitions.claimIdleStopTransition(idle, startedAt)
+      expect(mockPrisma.instance.updateMany).toHaveBeenCalledWith({
+        where: { id: 'i1', status: 'running', containerId: 'legacy', startedAt: new Date(1), lastActivityAt: new Date(2) },
+        data: { status: 'starting', startedAt },
+      })
+    })
+
+    it('continues migration only while its legacy container, kind and attempt still match', async () => {
+      const startedAt = new Date(3)
+      const nextStartedAt = new Date(4)
+      await transitions.continueStartingTransition(instance, startedAt, 'nxt-enc', nextStartedAt)
+      expect(mockPrisma.instance.updateMany).toHaveBeenCalledWith({
+        where: { id: 'i1', status: 'starting', containerId: 'legacy', runtimeKind: null, startedAt },
+        data: { containerId: null, providerSyncedAt: null, providerSyncHash: null, serverPassword: 'nxt-enc', startedAt: nextStartedAt, stoppedAt: null },
+      })
+    })
+
+    it('cannot fail or finish a superseding transition', async () => {
+      const startedAt = new Date(3)
+      for (const update of [transitions.failStartingTransition, transitions.finishStoppingTransition]) {
+        mockPrisma.instance.updateMany.mockResolvedValueOnce({ count: 0 })
+        expect(await update('i1', startedAt)).toEqual({ count: 0 })
+        expect(mockPrisma.instance.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({ where: { id: 'i1', status: 'starting', startedAt } }))
+      }
+    })
+
+    it('rotates a server password only while the same attempt still owns a container-free start', async () => {
+      const startedAt = new Date(3)
+      await transitions.setStartingPassword('alice', startedAt, 'nxt-enc')
+      expect(mockPrisma.instance.updateMany).toHaveBeenCalledWith({
+        where: { slug: 'alice', status: 'starting', containerId: null, startedAt },
+        data: { serverPassword: 'nxt-enc' },
+      })
+    })
+
+    it('recovers only its own failed shutdown without clearing the container pointer or runtime credentials', async () => {
+      const startedAt = new Date(3)
+      await transitions.recoverStoppingTransition(instance, startedAt)
+      expect(mockPrisma.instance.updateMany).toHaveBeenCalledWith({
+        where: { id: 'i1', status: 'starting', containerId: 'legacy', startedAt },
+        data: { status: 'stopped', startedAt: instance.startedAt },
+      })
+    })
+
+    it('reconciles stopped state only against its original status snapshot', async () => {
+      await transitions.setStoppedIfCurrentSnapshot('alice', instance)
+      expect(mockPrisma.instance.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: { slug: 'alice', status: 'stopped', containerId: 'legacy', startedAt: new Date(1) },
+      }))
+    })
+  })
+
+  describe('findRuntimeKindBySlug', () => {
+    it.each([null, { runtimeKind: null }, { runtimeKind: 'opencode-v2' }])('selects only runtimeKind (%j)', async (record) => {
+      mockPrisma.instance.findUnique.mockResolvedValue(record)
+      await expect(findRuntimeKindBySlug('alice')).resolves.toEqual(record)
+      expect(mockPrisma.instance.findUnique).toHaveBeenCalledWith({
+        where: { slug: 'alice' },
+        select: { runtimeKind: true },
+      })
+    })
+  })
+
   describe('findCredentialsBySlug', () => {
     it('selects only serverPassword and status', async () => {
       mockPrisma.instance.findUnique.mockResolvedValue({ serverPassword: 'pwd', status: 'running' })
@@ -76,7 +179,7 @@ describe('instanceService', () => {
       await findStatusBySlug('alice')
       expect(mockPrisma.instance.findUnique).toHaveBeenCalledWith({
         where: { slug: 'alice' },
-        select: expect.objectContaining({ status: true, startedAt: true, stoppedAt: true }),
+        select: expect.objectContaining({ status: true, startedAt: true, stoppedAt: true, runtimeKind: true }),
       })
     })
   })
@@ -162,12 +265,13 @@ describe('instanceService', () => {
   })
 
   describe('findIdleInstances', () => {
-    it('queries running instances with old lastActivityAt', async () => {
+    it('queries running instances with old lastActivityAt, longest idle first', async () => {
       const threshold = new Date('2026-04-20T00:00:00Z')
       mockPrisma.instance.findMany.mockResolvedValue([])
       await findIdleInstances(threshold)
       expect(mockPrisma.instance.findMany).toHaveBeenCalledWith({
         where: { status: 'running', lastActivityAt: { lt: threshold } },
+        orderBy: { lastActivityAt: 'asc' },
       })
     })
   })
@@ -183,16 +287,39 @@ describe('instanceService', () => {
           update: expect.objectContaining({ status: 'starting', serverPassword: 'pwd', containerId: null }),
         }),
       )
+      const transition = mockPrisma.instance.upsert.mock.calls[0][0]
+      expect(transition.create).not.toHaveProperty('runtimeKind')
+      expect(transition.update).not.toHaveProperty('runtimeKind')
+    })
+
+    it('records the runtime kind only when creating the row', async () => {
+      mockPrisma.instance.upsert.mockResolvedValue({})
+      await upsertStarting('alice', 'pwd', new Date(1), 'opencode-v2')
+      const transition = mockPrisma.instance.upsert.mock.calls[0][0]
+      expect(transition.create).toMatchObject({ runtimeKind: 'opencode-v2' })
+      expect(transition.update).not.toHaveProperty('runtimeKind')
     })
   })
 
   describe('setContainerId', () => {
-    it('sets containerId', async () => {
-      mockPrisma.instance.update.mockResolvedValue({})
-      await setContainerId('alice', 'container-123')
-      expect(mockPrisma.instance.update).toHaveBeenCalledWith({
-        where: { slug: 'alice' },
-        data: { containerId: 'container-123' },
+    it.each(['opencode-v1', 'opencode-v2'])('atomically records containerId and %s while still starting', async (runtimeKind) => {
+      const startedAt = new Date(3)
+      mockPrisma.instance.updateMany.mockResolvedValue({ count: 1 })
+      expect(await setContainerId('alice', 'container-123', runtimeKind, startedAt)).toEqual({ count: 1 })
+      expect(mockPrisma.instance.updateMany).toHaveBeenCalledWith({
+        where: { slug: 'alice', status: 'starting', containerId: null, startedAt },
+        data: { containerId: 'container-123', runtimeKind },
+      })
+    })
+
+    it('reports lost ownership without an unconditional update', async () => {
+      const startedAt = new Date(3)
+      mockPrisma.instance.updateMany.mockResolvedValueOnce({ count: 0 })
+      expect(await setContainerId('alice', 'stale', 'opencode-v2', startedAt)).toEqual({ count: 0 })
+      expect(mockPrisma.instance.update).not.toHaveBeenCalled()
+      expect(mockPrisma.instance.updateMany).toHaveBeenCalledWith({
+        where: { slug: 'alice', status: 'starting', containerId: null, startedAt },
+        data: { containerId: 'stale', runtimeKind: 'opencode-v2' },
       })
     })
   })
@@ -209,33 +336,42 @@ describe('instanceService', () => {
   })
 
   describe('setRunning', () => {
-    it('sets running with config sha', async () => {
+    it('sets running with config sha and runtime kind', async () => {
       mockPrisma.instance.update.mockResolvedValue({})
-      await setRunning('alice', 'sha-abc')
+      await setRunning('alice', 'sha-abc', 'opencode-v2')
       expect(mockPrisma.instance.update).toHaveBeenCalledWith({
         where: { slug: 'alice' },
-        data: expect.objectContaining({ status: 'running', appliedConfigSha: 'sha-abc' }),
+        data: expect.objectContaining({ status: 'running', appliedConfigSha: 'sha-abc', runtimeKind: 'opencode-v2' }),
       })
     })
   })
 
   describe('setRunningIfCurrentContainer', () => {
+    it('records the selected kind in the same container-keyed transition', async () => {
+      mockPrisma.instance.updateMany.mockResolvedValue({ count: 1 })
+      await setRunningIfCurrentContainer('alice', 'container-2', 'sha-v2', 'opencode-v2')
+      expect(mockPrisma.instance.updateMany).toHaveBeenCalledWith({
+        where: { slug: 'alice', status: 'starting', containerId: 'container-2' },
+        data: expect.objectContaining({ runtimeKind: 'opencode-v2', appliedConfigSha: 'sha-v2', status: 'running' }),
+      })
+    })
+
     it('guards the transition by slug, starting status and containerId', async () => {
       mockPrisma.instance.updateMany.mockResolvedValue({ count: 1 })
-      await setRunningIfCurrentContainer('alice', 'container-1', 'sha-abc')
+      await setRunningIfCurrentContainer('alice', 'container-1', 'sha-abc', 'opencode-v2')
       expect(mockPrisma.instance.updateMany).toHaveBeenCalledWith({
         where: { slug: 'alice', status: 'starting', containerId: 'container-1' },
-        data: expect.objectContaining({ status: 'running', appliedConfigSha: 'sha-abc' }),
+        data: expect.objectContaining({ status: 'running', appliedConfigSha: 'sha-abc', runtimeKind: 'opencode-v2' }),
       })
     })
 
     it('returns zero affected rows for a mismatched containerId', async () => {
       mockPrisma.instance.updateMany.mockResolvedValue({ count: 0 })
-      const result = await setRunningIfCurrentContainer('alice', 'stale-container', 'sha-abc')
+      const result = await setRunningIfCurrentContainer('alice', 'stale-container', 'sha-abc', 'opencode-v2')
       expect(result).toEqual({ count: 0 })
       expect(mockPrisma.instance.updateMany).toHaveBeenCalledWith({
         where: { slug: 'alice', status: 'starting', containerId: 'stale-container' },
-        data: expect.objectContaining({ status: 'running' }),
+        data: expect.objectContaining({ status: 'running', runtimeKind: 'opencode-v2' }),
       })
     })
   })
@@ -247,6 +383,18 @@ describe('instanceService', () => {
       expect(mockPrisma.instance.updateMany).toHaveBeenCalledWith({
         where: { slug: 'alice', status: 'starting', containerId: 'container-1' },
         data: expect.objectContaining({ status: 'error', containerId: null }),
+      })
+    })
+  })
+
+  describe('setRunningIfCurrentDesktopStart', () => {
+    it('records the kind only for the matching process start', async () => {
+      const startedAt = new Date('2026-10-20T12:00:00Z')
+      mockPrisma.instance.updateMany.mockResolvedValue({ count: 0 })
+      await expect(setRunningIfCurrentDesktopStart('local', startedAt, 'sha', 'opencode-v1')).resolves.toEqual({ count: 0 })
+      expect(mockPrisma.instance.updateMany).toHaveBeenCalledWith({
+        where: { slug: 'local', status: 'starting', containerId: null, startedAt },
+        data: expect.objectContaining({ status: 'running', appliedConfigSha: 'sha', runtimeKind: 'opencode-v1' }),
       })
     })
   })

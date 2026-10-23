@@ -1,156 +1,106 @@
 import { NextResponse } from 'next/server'
 
-import { getInstanceUrl } from '@/lib/opencode/client'
+import type { ArcheEvent } from '@/lib/harness/events'
+import { getRuntimeForSlug } from '@/lib/harness/registry'
 import { withAuth } from '@/lib/runtime/with-auth'
 import { subscribeWorkspaceEvents } from '@/lib/runtime/workspace-broadcast'
-import { instanceService } from '@/lib/services'
-import { decryptPassword } from '@/lib/spawner/crypto'
-import { INITIAL_SSE_PARSE_STATE, parseSseChunk } from '@/lib/sse-parser'
+import { createLegacyEventSerializer } from '@/lib/workspace-events/legacy'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 const HEARTBEAT_INTERVAL_MS = 10_000
 const UPSTREAM_CONNECT_TIMEOUT_MS = 8_000
+const CONNECTED_FRAME = ': connected\n\n'
+const LEGACY_IDENTITY_TIMEOUT_MS = 2_000
+const MAX_LEGACY_IDENTITY_REQUESTS = 50
 
-function jsonErrorResponse(status: number, error: string) {
-  return NextResponse.json({ error }, { status })
-}
-
-/**
- * Persistent event pipe: re-dispatches the OpenCode /event stream (SSE) to the
- * browser unchanged. Auth + pipe + heartbeat only. No translation, no session
- * family filter, no idle detection. The client reconnects on its own; the BFF
- * never retries toward OpenCode.
- */
 export const GET = withAuth<unknown, { slug: string }>(
   { csrf: false },
   async (request, { slug, user }) => {
-    const instance = await instanceService.findCredentialsBySlug(slug)
+    const resolved = await getRuntimeForSlug(slug)
+    if (!resolved.ok) return NextResponse.json({ error: resolved.error.code }, { status: 503 })
 
-    if (!instance || !instance.serverPassword || instance.status !== 'running') {
-      return jsonErrorResponse(503, 'instance_unavailable')
-    }
-
-    const password = decryptPassword(instance.serverPassword)
-    const authHeader = `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}`
-    const baseUrl = getInstanceUrl(slug)
-
-    // The timeout bounds the connect only: `AbortSignal.timeout()` would abort
-    // the body read too and tear the persistent pipe down every 8s. Once the
-    // headers arrive the timer is cleared and the upstream lives until the
-    // browser disconnects (request.signal) or OpenCode closes the stream.
     const upstreamController = new AbortController()
-    const connectTimer = setTimeout(() => upstreamController.abort(), UPSTREAM_CONNECT_TIMEOUT_MS)
-
-    let upstream: Response
-    try {
-      upstream = await fetch(`${baseUrl}/event`, {
-        headers: {
-          Authorization: authHeader,
-          Accept: 'text/event-stream',
-          'Cache-Control': 'no-cache',
-        },
-        signal: upstreamController.signal,
-      })
-    } catch {
-      clearTimeout(connectTimer)
-      return jsonErrorResponse(502, 'event_stream_unavailable')
-    }
-
+    const abort = () => upstreamController.abort()
+    request.signal.addEventListener('abort', abort, { once: true })
+    if (request.signal.aborted) abort()
+    const connectTimer = setTimeout(abort, UPSTREAM_CONNECT_TIMEOUT_MS)
+    const upstream = await resolved.data.subscribeEvents(upstreamController.signal)
     clearTimeout(connectTimer)
-
-    if (!upstream.ok || !upstream.body) {
-      upstreamController.abort()
-      return jsonErrorResponse(502, 'event_stream_unavailable')
+    if (!upstream.ok) {
+      request.signal.removeEventListener('abort', abort)
+      abort()
+      return NextResponse.json({ error: upstream.error.code === 'instance_unavailable' ? 'instance_unavailable' : 'event_stream_unavailable' }, { status: upstream.error.code === 'instance_unavailable' ? 503 : 502 })
     }
 
     const encoder = new TextEncoder()
-    const reader = upstream.body.getReader()
-
-    // Set inside start() once the broadcast listener is attached; cancel() can
-    // then release it even when start()'s close path never ran.
-    let unsubscribeBroadcast: (() => void) | null = null
-
-    const stream = new ReadableStream({
+    const legacy = new URL(request.url).searchParams.get('protocol') === 'arche-v1' ? null : createLegacyEventSerializer()
+    const identityRequests = new Set<string>()
+    let close = () => {}
+    const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
-        const decoder = new TextDecoder()
-        let parseState = INITIAL_SSE_PARSE_STATE
         let closed = false
-
-        const close = () => {
+        const heartbeat = setInterval(() => {
+          if (closed) return
+          try { controller.enqueue(encoder.encode(`: heartbeat ${Date.now()}\n\n`)) } catch { close() }
+        }, HEARTBEAT_INTERVAL_MS)
+        close = () => {
           if (closed) return
           closed = true
           clearInterval(heartbeat)
           unsubscribeBroadcast?.()
-          unsubscribeBroadcast = null
-          // Release the upstream connection: the browser is gone or the pipe
-          // ended. This aborts only this /event fetch, never the OpenCode
-          // session itself.
-          upstreamController.abort()
-          try { controller.close() } catch { /* already closed/errored */ }
+          request.signal.removeEventListener('abort', abort)
+          upstreamController.signal.removeEventListener('abort', close)
+          abort()
+          try { controller.close() } catch { /* already closed */ }
         }
-
-        const heartbeat = setInterval(() => {
-          if (closed) return
-          try {
-            controller.enqueue(encoder.encode(`: heartbeat ${Date.now()}\n\n`))
-          } catch {
-            close()
+        // Headers reach the client only with the first chunk; without this the
+        // client sees the stream open at the first event or heartbeat.
+        controller.enqueue(encoder.encode(CONNECTED_FRAME))
+        const send = (event: ArcheEvent) => {
+          for (const frame of legacy ? legacy.serialize(event) : [event]) {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(frame)}\n\n`))
           }
-        }, HEARTBEAT_INTERVAL_MS)
-
-        // Inject workspace-level notifications for this user into the pipe,
-        // shaped exactly like re-dispatched OpenCode frames so the client
-        // parser is unchanged. Delivery is best-effort: a closed or errored
-        // stream only closes this pipe, it never breaks the publishing side.
-        unsubscribeBroadcast = subscribeWorkspaceEvents(user.id, (event) => {
-          if (closed) return
-          try {
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
-          } catch {
-            close()
-          }
+        }
+        const unsubscribeBroadcast = subscribeWorkspaceEvents(user.id, (event) => {
+          if (closed || event.type !== 'knowledge.proposals_changed') return
+          try { send({ v: 1, type: 'knowledge.proposals_changed' }) } catch { close() }
         })
-
-        request.signal.addEventListener('abort', close, { once: true })
-
+        upstreamController.signal.addEventListener('abort', close, { once: true })
+        if (upstreamController.signal.aborted) close()
         try {
-          while (!closed) {
-            const { done, value } = await reader.read()
-            if (done) break
-
-            const parsed = parseSseChunk(parseState, decoder.decode(value, { stream: true }))
-            parseState = parsed.state
-            for (const event of parsed.events) {
-              if (closed) break
-              // Re-emit the OpenCode event unchanged; the client JSON.parses it.
-              controller.enqueue(encoder.encode(`data: ${event.data}\n\n`))
+          for await (const event of upstream.data) {
+            if (closed) break
+            const missing = legacy?.missingToolIdentity(event)
+            if (missing && !identityRequests.has(missing.messageId) && identityRequests.size < MAX_LEGACY_IDENTITY_REQUESTS) {
+              identityRequests.add(missing.messageId)
+              const identityController = new AbortController()
+              const identityTimer = setTimeout(() => identityController.abort(), LEGACY_IDENTITY_TIMEOUT_MS)
+              const signal = AbortSignal.any([upstreamController.signal, identityController.signal])
+              try {
+                const snapshot = await resolved.data.listMessages(missing.sessionId, { signal })
+                if (closed) break
+                const parts = snapshot.ok ? snapshot.data.find((message) => message.id === missing.messageId)?.parts : undefined
+                if (!signal.aborted) {
+                  for (const part of parts ?? []) {
+                    if (part.type === 'tool') legacy?.seedToolIdentity({ ...missing, toolId: part.id }, part)
+                  }
+                }
+              } finally {
+                clearTimeout(identityTimer)
+              }
             }
+            send(event)
           }
         } catch {
-          // Downstream aborted or upstream failed: close the response. The
-          // client reconnects; this never aborts the OpenCode session.
+          // Stream failure releases this subscription, never session execution.
         } finally {
           close()
-          request.signal.removeEventListener('abort', close)
         }
       },
-      cancel() {
-        // Downstream cancelled: release the upstream /event fetch and stop
-        // receiving broadcasts for this user.
-        unsubscribeBroadcast?.()
-        unsubscribeBroadcast = null
-        upstreamController.abort()
-      },
+      cancel() { close() },
     })
-
-    return new Response(stream, {
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'X-Accel-Buffering': 'no',
-      },
-    })
+    return new Response(stream, { headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no' } })
   },
 )

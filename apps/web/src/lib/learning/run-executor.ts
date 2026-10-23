@@ -1,3 +1,11 @@
+import {
+  captureSessionMessageCursor,
+  createSessionPromptRun,
+  EXECUTION_TERMINATION_UNCONFIRMED_ERROR,
+  ensureWorkspaceRunningForExecution,
+  waitForSessionToComplete,
+} from '@/lib/harness/execution'
+import { getRuntimeForSlug } from '@/lib/harness/registry'
 import { KNOWLEDGE_CURATOR_SYSTEM_INSTRUCTIONS } from '@/lib/learning/curator-prompt'
 import {
   claimLearningRunForExecution,
@@ -6,14 +14,6 @@ import {
   markLearningRunSucceeded,
   setLearningRunInternalSessionId,
 } from '@/lib/learning/repository'
-import { createInstanceClient } from '@/lib/opencode/client'
-import {
-  captureSessionMessageCursor,
-  createSessionPromptRun,
-  EXECUTION_TERMINATION_UNCONFIRMED_ERROR,
-  ensureWorkspaceRunningForExecution,
-  waitForSessionToComplete,
-} from '@/lib/opencode/session-execution'
 import { messageRunService } from '@/lib/services'
 import { SYSTEM_KNOWLEDGE_CURATOR_AGENT_ID } from '@/lib/workspace-config'
 import type { KnowledgeReviewRegenerationContext, LearningTrigger } from '@/types/learning'
@@ -42,10 +42,10 @@ function buildLearningSessionTitle(title: string): string {
     : base
 }
 
-export function buildCuratorPrompt(input: LearningRunExecutionInput): string {
+export function buildCuratorPrompt(input: LearningRunExecutionInput, callerSessionId?: string): string {
   const sourceInstruction = input.sourceSessionId
-    ? `Use the \`session_history_query\` tool to read the source session (sessionIds: ["${input.sourceSessionId}"], includeMessages: true).`
-    : 'Use the `session_history_query` tool to review the most recent sessions (includeMessages: true).'
+    ? `Use the \`arche_tools_session_history_query\` tool to read the source session (sessionIds: ["${input.sourceSessionId}"], includeMessages: true).`
+    : 'Use the `arche_tools_session_history_query` tool to review the most recent sessions (includeMessages: true).'
 
   const regenerationInstructions = input.regeneration ? [
     '',
@@ -62,7 +62,7 @@ export function buildCuratorPrompt(input: LearningRunExecutionInput): string {
     '--- Previous proposal ---',
     input.regeneration.proposedContent || '(delete file)',
     '',
-    'Regenerate the proposed content against the current content. Call `learning_propose` with this run id and the target path exactly once.',
+    'Regenerate the proposed content against the current content. Call `arche_tools_learning_propose` with this run id and the target path exactly once.',
   ] : []
 
   return [
@@ -70,18 +70,21 @@ export function buildCuratorPrompt(input: LearningRunExecutionInput): string {
     '',
     `Learning run id: ${input.runId}`,
     `Source session: ${input.sourceSessionId ?? 'none (review recent sessions)'}`,
+    `For identity-aware tools, set caller_agent to ${JSON.stringify(SYSTEM_KNOWLEDGE_CURATOR_AGENT_ID)}.`,
+    ...(callerSessionId ? [`Set caller_session_id to ${JSON.stringify(callerSessionId)} (your current session, not the source session).`] : []),
     '',
     'Instructions:',
     `1. ${sourceInstruction}`,
     '2. Inspect the existing Knowledge Base files in the workspace (read, glob, grep) so proposals reuse the existing structure and naming, and so you can decide between updating an existing file or creating a new one.',
-    '3. For each durable fact, preference, process, or correction worth keeping, call `learning_propose` with:',
+    '3. For each durable fact, preference, process, or correction worth keeping, call `arche_tools_learning_propose` with:',
     `   - runId: "${input.runId}"`,
     `   - trigger: "${input.trigger}"`,
     '   - operation "update" (full updated file content) or "create" (full new file content)',
     '   - kbPath relative to the workspace root',
     '   - a short title, type, confidence, and evidence quoting the session when possible',
-    '4. Never write Knowledge Base files directly; proposals are reviewed and applied by the user.',
-    '5. Skip transient, task-specific, or sensitive details. If there is nothing durable to learn, create no proposals.',
+    '4. If a proposal returns `pending_proposal_exists`, that path already has a pending proposal: re-read the current file, write content that keeps the changes of `pending.proposedContent` and adds yours, and call again with `supersedesId: pending.id` and `supersedesRevision: pending.revision`. If it changed meanwhile, merge the new pending content and retry. Never drop a pending proposal\'s changes.',
+    '5. Never write Knowledge Base files directly; proposals are reviewed and applied by the user.',
+    '6. Skip transient, task-specific, or sensitive details. If there is nothing durable to learn, create no proposals.',
     ...regenerationInstructions,
     '',
     'Finish with a one-paragraph summary of the proposals you created (or why none were needed).',
@@ -94,22 +97,24 @@ export async function executeLearningRun(input: LearningRunExecutionInput): Prom
     return { ok: false, error: 'run_not_claimable' }
   }
 
+  const failRun = async (error: string): Promise<LearningRunExecutionResult> => {
+    if (error !== LEARNING_RUN_CANCELLED_ERROR) {
+      await markLearningRunFailed({ runId: input.runId, error }).catch(() => undefined)
+    }
+    return { ok: false, error }
+  }
+
   try {
-    await ensureWorkspaceRunningForExecution(input.slug, input.userId)
+    const workspace = await ensureWorkspaceRunningForExecution(input.slug, input.userId)
+    if (!workspace.ok) return failRun(workspace.error || 'learning_run_failed')
 
-    const client = await createInstanceClient(input.slug)
-    if (!client) {
-      throw new Error('instance_unavailable')
-    }
+    const runtimeResult = await getRuntimeForSlug(input.slug)
+    if (!runtimeResult.ok) return failRun(runtimeResult.error.code)
+    const client = runtimeResult.data
 
-    const sessionResult = await client.session.create(
-      { title: buildLearningSessionTitle(input.title) },
-      { throwOnError: true },
-    )
-    const sessionId = sessionResult.data?.id
-    if (!sessionId) {
-      throw new Error('learning_session_create_failed')
-    }
+    const sessionResult = await client.createSession({ title: buildLearningSessionTitle(input.title) })
+    if (!sessionResult.ok) return failRun(sessionResult.error.code)
+    const sessionId = sessionResult.data.id
 
     await setLearningRunInternalSessionId({ runId: input.runId, internalSessionId: sessionId })
 
@@ -127,24 +132,29 @@ export async function executeLearningRun(input: LearningRunExecutionInput): Prom
       source: 'learning',
     })
     if (!promptRun.ok) {
-      throw new Error('session_busy')
+      return failRun('session_busy')
     }
 
     let completion: Awaited<ReturnType<typeof waitForSessionToComplete>>
     try {
-      const cursor = await captureSessionMessageCursor(client, sessionId)
-      await client.session.promptAsync(
-        {
-          agent: SYSTEM_KNOWLEDGE_CURATOR_AGENT_ID,
-          parts: [{ text: buildCuratorPrompt(input), type: 'text' }],
-          sessionID: sessionId,
-        },
-        { throwOnError: true },
-      )
+      const cursorResult = await captureSessionMessageCursor(client, sessionId)
+      if (!cursorResult.ok) {
+        await messageRunService.markRunFailed(promptRun.run.id, cursorResult.error.code).catch(() => undefined)
+        return failRun(cursorResult.error.code)
+      }
+      const submitted = await client.prompt({
+        agent: SYSTEM_KNOWLEDGE_CURATOR_AGENT_ID,
+        parts: [{ text: buildCuratorPrompt(input, sessionId), type: 'text' }],
+        sessionId,
+      })
+      if (!submitted.ok) {
+        await messageRunService.markRunFailed(promptRun.run.id, submitted.error.code).catch(() => undefined)
+        return failRun(submitted.error.code)
+      }
 
       completion = await waitForSessionToComplete({
         client,
-        cursor,
+        cursor: cursorResult.data,
         onPulse: getCancellationFailure,
         sessionId,
         slug: input.slug,
@@ -154,6 +164,11 @@ export async function executeLearningRun(input: LearningRunExecutionInput): Prom
       const message = error instanceof Error ? error.message : 'learning_prompt_failed'
       await messageRunService.markRunFailed(promptRun.run.id, message).catch(() => undefined)
       throw error
+    }
+
+    if (completion.status === 'error') {
+      await messageRunService.markRunFailed(promptRun.run.id, completion.error.code).catch(() => undefined)
+      return failRun(completion.error.code)
     }
 
     if (completion.status === 'termination_unconfirmed') {
@@ -184,10 +199,7 @@ export async function executeLearningRun(input: LearningRunExecutionInput): Prom
     return { ok: true }
   } catch (error) {
     const message = error instanceof Error && error.message ? error.message : 'learning_run_failed'
-    if (message !== LEARNING_RUN_CANCELLED_ERROR) {
-      await markLearningRunFailed({ runId: input.runId, error: message }).catch(() => undefined)
-    }
-    return { ok: false, error: message }
+    return failRun(message)
   }
 }
 

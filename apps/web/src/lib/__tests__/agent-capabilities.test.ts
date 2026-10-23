@@ -6,6 +6,7 @@ import {
   extractAgentCapabilitiesFromTools,
   getConnectorCapabilityId,
   OPENCODE_AGENT_TOOLS,
+  OPENCODE_AGENT_TOOL_OPTIONS,
   validateAgentCapabilityConnectorIds,
   validateAgentCapabilitySkillIds,
   validateAgentCapabilityTools,
@@ -31,6 +32,31 @@ describe('validateAgentCapabilityTools', () => {
       expect(result.tools).toHaveLength(OPENCODE_AGENT_TOOLS.length)
     }
   })
+
+  it.each(['chart_create', 'diagram_create', 'email_draft', 'flow_propose', 'learning_propose'])(
+    'validates and preserves the explicitly selected built-in capability %s through editing',
+    (toolId) => {
+      const validated = validateAgentCapabilityTools([toolId])
+      expect(validated).toEqual({ ok: true, tools: [toolId] })
+      expect(OPENCODE_AGENT_TOOL_OPTIONS).toContainEqual({ id: toolId, label: expect.any(String) })
+      if (!validated.ok) return
+
+      const capabilities = { skillIds: [], tools: validated.tools, mcpConnectorIds: [] }
+      const config = buildAgentToolsConfigFromCapabilities(capabilities, [])
+      expect(config[toolId]).toBe(true)
+      expect(config['arche_*']).toBe(false)
+      const extracted = extractAgentCapabilitiesFromTools(config)
+      expect(extracted).toEqual(capabilities)
+      expect(buildAgentToolsConfigFromCapabilities(extracted, [])).toEqual(config)
+
+      const restrictedConfig = buildAgentToolsConfigFromCapabilities(
+        { skillIds: [], tools: ['spreadsheet_query'], mcpConnectorIds: [] },
+        [],
+      )
+      expect(restrictedConfig[toolId]).toBe(false)
+      expect(extractAgentCapabilitiesFromTools(restrictedConfig).tools).toEqual(['spreadsheet_query'])
+    },
+  )
 
   it('deduplicates and sorts the result', () => {
     const result = validateAgentCapabilityTools([
@@ -360,6 +386,9 @@ describe('buildAgentToolsConfigFromCapabilities', () => {
 // extractAgentCapabilitiesFromTools
 // ---------------------------------------------------------------------------
 describe('extractAgentCapabilitiesFromTools', () => {
+  const DEFAULT_TOOLS = ['chart_create', 'diagram_create', 'email_draft', 'flow_propose', 'learning_propose', 'scratch_dir', 'scratch_publish', 'session_history_query']
+  const DEFAULTS_OFF = Object.fromEntries(DEFAULT_TOOLS.map((toolId) => [toolId, false]))
+
   it('returns empty capabilities when tools is undefined', () => {
     expect(extractAgentCapabilitiesFromTools(undefined)).toEqual({
       skillIds: [],
@@ -370,6 +399,7 @@ describe('extractAgentCapabilitiesFromTools', () => {
 
   it('returns empty capabilities when all tools are false', () => {
     const result = extractAgentCapabilitiesFromTools({
+      ...DEFAULTS_OFF,
       read: false,
       write: false,
       'arche_*': false,
@@ -381,8 +411,21 @@ describe('extractAgentCapabilitiesFromTools', () => {
     })
   })
 
+  it('keeps built-in tools that predate configuration enabled unless explicitly disabled', () => {
+    expect(extractAgentCapabilitiesFromTools({ read: true }).tools).toEqual([...DEFAULT_TOOLS, 'read'].sort())
+    expect(extractAgentCapabilitiesFromTools({ read: true, email_draft: false }).tools).toEqual(
+      [...DEFAULT_TOOLS.filter((toolId) => toolId !== 'email_draft'), 'read'].sort(),
+    )
+  })
+
+  it.each(['scratch_dir', 'scratch_publish'])('%s is enabled by default unless explicitly disabled', (toolId) => {
+    expect(extractAgentCapabilitiesFromTools({}).tools).toContain(toolId)
+    expect(extractAgentCapabilitiesFromTools({ [toolId]: false }).tools).not.toContain(toolId)
+  })
+
   it('extracts enabled agent tools', () => {
     const result = extractAgentCapabilitiesFromTools({
+      ...DEFAULTS_OFF,
       read: true,
       grep: true,
       write: false,
@@ -393,6 +436,7 @@ describe('extractAgentCapabilitiesFromTools', () => {
 
   it('sorts the extracted tools', () => {
     const result = extractAgentCapabilitiesFromTools({
+      ...DEFAULTS_OFF,
       write: true,
       bash: true,
       read: true,
@@ -496,6 +540,7 @@ describe('extractAgentCapabilitiesFromTools', () => {
   it('combines tools, connectors, and skills in a full extraction', () => {
     const capabilities = extractAgentCapabilitiesFromTools(
       {
+        ...DEFAULTS_OFF,
         read: true,
         grep: true,
         document_inspect: true,

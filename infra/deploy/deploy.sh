@@ -34,6 +34,17 @@ resolve_opencode_version() {
   printf '%s' "$version"
 }
 
+resolve_workspace_build_image() {
+  if [[ ! "$RESOLVED_OPENCODE_VERSION" =~ ^2\.[0-9A-Za-z._-]+$ ]]; then
+    err "Workspace deployments require an OpenCode 2 version"
+    return 1
+  fi
+  local revision content_hash
+  revision="$(git -C "$REPO_ROOT" rev-parse --short=12 HEAD)"
+  content_hash="$(tar -C "$REPO_ROOT" --exclude=node_modules --exclude=.pnpm-store -cf - infra/workspace-image | python3 -c 'import hashlib, sys; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest()[:12])')"
+  printf 'arche-workspace:opencode-v2-%s-%s-%s' "$RESOLVED_OPENCODE_VERSION" "$revision" "$content_hash"
+}
+
 # ---------------------------------------------------------------------------
 # Defaults
 # ---------------------------------------------------------------------------
@@ -102,9 +113,9 @@ prepare_remote_workspace_image() {
     ssh "${ssh_opts[@]}" "${SSH_USER}@${DEPLOY_IP}" \
       "rm -rf /tmp/arche-workspace-image-src && mkdir -p /tmp/arche-workspace-image-src && tar -xzf - -C /tmp/arche-workspace-image-src --strip-components=2"
 
-  log "Building workspace image on remote host: arche-workspace:latest"
+  log "Building workspace image on remote host: $WORKSPACE_RUNTIME_IMAGE"
   ssh "${ssh_opts[@]}" "${SSH_USER}@${DEPLOY_IP}" \
-    "cd /tmp/arche-workspace-image-src && podman build --build-arg OPENCODE_VERSION=$RESOLVED_OPENCODE_VERSION -t arche-workspace:latest ."
+    "cd /tmp/arche-workspace-image-src && podman build --build-arg OPENCODE_VERSION=$RESOLVED_OPENCODE_VERSION -t $WORKSPACE_RUNTIME_IMAGE ."
 }
 
 prepare_remote_web_image() {
@@ -210,6 +221,9 @@ ENVIRONMENT VARIABLES (via .env or exported):
   ARCHE_GATEWAY_BASE_URL    Gateway base URL (optional)
   ARCHE_PUBLIC_BASE_URL     Public callback base URL (optional)
   ARCHE_SESSION_TTL_DAYS    Session TTL in days (optional)
+  ARCHE_IDLE_TIMEOUT_MINUTES Minimum idle minutes before the reaper may stop a workspace (optional)
+  ARCHE_REAPER_MIN_AVAILABLE_MEMORY_PERCENT Stop idle workspaces below this % of free host memory (optional)
+  ARCHE_REAPER_MIN_AVAILABLE_MEMORY_MB Also stop them below this many MB of free memory (optional)
   ARCHE_CONNECTOR_GATEWAY_BASE_URL Connector gateway base URL (optional)
   ARCHE_CONNECTOR_GATEWAY_TOKEN_SECRET Connector gateway token secret (optional)
   ARCHE_CONNECTOR_*         Connector-specific OAuth/MCP overrides (optional)
@@ -352,6 +366,13 @@ validate_remote() {
   [[ -z "${ARCHE_SEED_ADMIN_SLUG:-}" ]]     && ERRORS+=("ARCHE_SEED_ADMIN_SLUG is required")
 
   validate_encryption_key
+
+  if [[ "$OPENCODE_IMAGE" != 'arche-workspace:latest' && "$OPENCODE_IMAGE" != *@sha256:* ]]; then
+    local image_name="${OPENCODE_IMAGE##*/}"
+    if [[ "$image_name" != *:* || "$image_name" == *:latest || "$image_name" == *:latest-* ]]; then
+      ERRORS+=("OPENCODE_IMAGE must pin a release/commit tag or @sha256 digest; latest and untagged refs can replace the runtime used by an old backend during deployment")
+    fi
+  fi
 
   log "validate_remote complete, errors: ${#ERRORS[@]}"
 }
@@ -579,8 +600,13 @@ deploy_remote() {
     printf '\n'
   } > "$INVENTORY"
 
+  WORKSPACE_RUNTIME_IMAGE="$OPENCODE_IMAGE"
+  if [[ "$OPENCODE_IMAGE" == 'arche-workspace:latest' ]]; then
+    WORKSPACE_RUNTIME_IMAGE="$(resolve_workspace_build_image)"
+  fi
+
   # Export variables so python3 subprocess can read them
-  export DEPLOY_DOMAIN ACME_EMAIL IMAGE_PREFIX WEB_VERSION WEB_IMAGE OPENCODE_IMAGE EXPOSURE_MODE CLOUDFLARED_TUNNEL_TOKEN CLOUDFLARED_IMAGE
+  export DEPLOY_DOMAIN ACME_EMAIL IMAGE_PREFIX WEB_VERSION WEB_IMAGE OPENCODE_IMAGE WORKSPACE_RUNTIME_IMAGE EXPOSURE_MODE CLOUDFLARED_TUNNEL_TOKEN CLOUDFLARED_IMAGE
 
   # Build extra vars as JSON (safe for secrets with special characters)
   python3 -c '
@@ -593,7 +619,7 @@ vars = {
     "image_prefix": os.environ["IMAGE_PREFIX"],
     "web_version": os.environ["WEB_VERSION"],
     "web_image": os.environ["WEB_IMAGE"],
-    "opencode_image": os.environ["OPENCODE_IMAGE"],
+    "opencode_image": os.environ["WORKSPACE_RUNTIME_IMAGE"],
     "cloudflared_tunnel_token": os.environ.get("CLOUDFLARED_TUNNEL_TOKEN", ""),
     "cloudflared_image": os.environ["CLOUDFLARED_IMAGE"],
     "postgres_password": os.environ["POSTGRES_PASSWORD"],
@@ -606,6 +632,9 @@ vars = {
     "arche_gateway_base_url": os.environ.get("ARCHE_GATEWAY_BASE_URL", ""),
     "arche_public_base_url": os.environ.get("ARCHE_PUBLIC_BASE_URL", ""),
     "arche_session_ttl_days": os.environ.get("ARCHE_SESSION_TTL_DAYS", ""),
+    "arche_idle_timeout_minutes": os.environ.get("ARCHE_IDLE_TIMEOUT_MINUTES", ""),
+    "arche_reaper_min_available_memory_percent": os.environ.get("ARCHE_REAPER_MIN_AVAILABLE_MEMORY_PERCENT", ""),
+    "arche_reaper_min_available_memory_mb": os.environ.get("ARCHE_REAPER_MIN_AVAILABLE_MEMORY_MB", ""),
     "arche_connector_gateway_base_url": os.environ.get("ARCHE_CONNECTOR_GATEWAY_BASE_URL", ""),
     "arche_connector_gateway_token_secret": os.environ.get("ARCHE_CONNECTOR_GATEWAY_TOKEN_SECRET", ""),
     "arche_connector_oauth_state_ttl_seconds": os.environ.get("ARCHE_CONNECTOR_OAUTH_STATE_TTL_SECONDS", ""),
@@ -733,8 +762,14 @@ deploy_local_dev() {
   LOCAL_DEV_NETWORK_NAME="arche-internal"
 
   # Build workspace image
-  log "Building workspace image: arche-workspace:latest"
-  podman build --build-arg OPENCODE_VERSION="$RESOLVED_OPENCODE_VERSION" -t arche-workspace:latest "$REPO_ROOT/infra/workspace-image"
+  WORKSPACE_RUNTIME_IMAGE="$(resolve_workspace_build_image)"
+  log "Building workspace image: $WORKSPACE_RUNTIME_IMAGE"
+  podman build --build-arg OPENCODE_VERSION="$RESOLVED_OPENCODE_VERSION" -t "$WORKSPACE_RUNTIME_IMAGE" "$REPO_ROOT/infra/workspace-image"
+
+  # Build the pinned legacy image used by opencode-v1 instances and archive export
+  OPENCODE_V1_VERSION="$(tr -d '[:space:]' < "$REPO_ROOT/versions/opencode-v1.version")"
+  log "Building legacy workspace image: arche-workspace:opencode-v1-$OPENCODE_V1_VERSION"
+  podman build --build-arg OPENCODE_VERSION="$OPENCODE_V1_VERSION" -t "arche-workspace:opencode-v1-$OPENCODE_V1_VERSION" "$REPO_ROOT/infra/workspace-image"
 
   # Deploy Knowledge Base
   KB_CONTENT_DEST="${KB_CONTENT_HOST_PATH:-$HOME/.arche/kb-content}"
@@ -761,7 +796,7 @@ deploy_local_dev() {
   EXTRA_VARS_FILE=$(mktemp)
   trap 'rm -f "$TEMP_PLAYBOOK" "$EXTRA_VARS_FILE"' EXIT
 
-  export LOCAL_DOMAIN PODMAN_SOCKET_PATH IMAGE_PREFIX WEB_VERSION REPO_ROOT KB_CONTENT_DEST KB_CONFIG_DEST USERS_DEST
+  export LOCAL_DOMAIN PODMAN_SOCKET_PATH IMAGE_PREFIX WEB_VERSION REPO_ROOT KB_CONTENT_DEST KB_CONFIG_DEST USERS_DEST OPENCODE_V1_VERSION WORKSPACE_RUNTIME_IMAGE
 
   python3 -c '
 import json, os, sys
@@ -774,7 +809,8 @@ vars = {
     "podman_socket_path": os.environ["PODMAN_SOCKET_PATH"],
     "image_prefix": os.environ["IMAGE_PREFIX"],
     "web_version": os.environ["WEB_VERSION"],
-    "opencode_image": "arche-workspace:latest",
+    "opencode_image": os.environ["WORKSPACE_RUNTIME_IMAGE"],
+    "opencode_v1_image": "arche-workspace:opencode-v1-" + os.environ["OPENCODE_V1_VERSION"],
     "cloudflared_tunnel_token": "",
     "cloudflared_image": "docker.io/cloudflare/cloudflared:2026.5.0",
     "repo_root": os.environ["REPO_ROOT"],
@@ -790,6 +826,9 @@ vars = {
     "arche_gateway_base_url": os.environ.get("ARCHE_GATEWAY_BASE_URL", ""),
     "arche_public_base_url": os.environ.get("ARCHE_PUBLIC_BASE_URL", ""),
     "arche_session_ttl_days": os.environ.get("ARCHE_SESSION_TTL_DAYS", ""),
+    "arche_idle_timeout_minutes": os.environ.get("ARCHE_IDLE_TIMEOUT_MINUTES", ""),
+    "arche_reaper_min_available_memory_percent": os.environ.get("ARCHE_REAPER_MIN_AVAILABLE_MEMORY_PERCENT", ""),
+    "arche_reaper_min_available_memory_mb": os.environ.get("ARCHE_REAPER_MIN_AVAILABLE_MEMORY_MB", ""),
     "arche_connector_gateway_base_url": os.environ.get("ARCHE_CONNECTOR_GATEWAY_BASE_URL", ""),
     "arche_connector_gateway_token_secret": os.environ.get("ARCHE_CONNECTOR_GATEWAY_TOKEN_SECRET", ""),
     "arche_connector_oauth_state_ttl_seconds": os.environ.get("ARCHE_CONNECTOR_OAUTH_STATE_TTL_SECONDS", ""),

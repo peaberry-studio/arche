@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
-import type { WorkspaceFileNode } from '@/lib/opencode/types'
 import {
   flattenWorkspaceFileNodes,
   getWorkspacePathBasename,
   rankWorkspaceFileSearchCandidates,
   resolveWorkspaceFilePath,
 } from '@/lib/workspace-file-search'
+import type { WorkspaceFileNode } from '@/types/workspace'
 
 const fileNodes: WorkspaceFileNode[] = [
   {

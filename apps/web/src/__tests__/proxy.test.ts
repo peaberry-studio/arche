@@ -2,6 +2,8 @@ import { NextRequest } from 'next/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const originalNodeEnv = process.env.NODE_ENV
+const mocks = vi.hoisted(() => ({ isKnownServerAction: vi.fn<() => boolean | null>(() => true) }))
+vi.mock('@/lib/server-action-manifest', () => ({ isKnownServerAction: mocks.isKnownServerAction }))
 
 function getNonceFromCsp(contentSecurityPolicy: string): string {
   const nonceMatch = contentSecurityPolicy.match(/script-src 'self' 'nonce-([^']+)' 'strict-dynamic'/)
@@ -16,6 +18,7 @@ function getNonceFromCsp(contentSecurityPolicy: string): string {
 describe('proxy security headers', () => {
   beforeEach(() => {
     vi.resetModules()
+    mocks.isKnownServerAction.mockReturnValue(true)
   })
 
   afterEach(() => {
@@ -79,6 +82,30 @@ describe('proxy security headers', () => {
     const contentSecurityPolicy = response.headers.get('Content-Security-Policy')
     expect(contentSecurityPolicy).toContain("'unsafe-eval'")
     expect(response.headers.get('Strict-Transport-Security')).toBeNull()
+  })
+
+  it('reloads a cached client whose action was removed by a deployment without executing its POST', async () => {
+    process.env.NODE_ENV = 'production'
+    mocks.isKnownServerAction.mockReturnValue(false)
+    const { proxy } = await import('@/proxy')
+    const response = proxy(new NextRequest('https://arche.example.com/u/alice?session=s1', {
+      method: 'POST', headers: { 'next-action': 'old-build-action' }, body: 'stale action arguments',
+    }))
+    expect(response.headers.get('x-action-redirect')).toBe('/u/alice?session=s1;replace')
+    expect(response.headers.get('x-middleware-next')).toBeNull()
+    expect(response.headers.get('x-nextjs-action-not-found')).toBeNull()
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+  })
+
+  it.each([true, null])('preserves action execution when its manifest lookup returns %s', async (known) => {
+    process.env.NODE_ENV = 'production'
+    mocks.isKnownServerAction.mockReturnValue(known)
+    const { proxy } = await import('@/proxy')
+    const response = proxy(new NextRequest('https://arche.example.com/u/alice', {
+      method: 'POST', headers: { 'next-action': 'current-action' },
+    }))
+    expect(response.headers.get('x-middleware-next')).toBe('1')
+    expect(response.headers.get('x-action-redirect')).toBeNull()
   })
 
   it('skips proxy for prefetch requests using matcher missing rules', async () => {

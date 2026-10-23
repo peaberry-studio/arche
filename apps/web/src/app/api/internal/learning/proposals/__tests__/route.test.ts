@@ -130,6 +130,21 @@ describe('POST /api/internal/learning/proposals', () => {
     expect(mocks.publishWorkspaceEvent).not.toHaveBeenCalled()
   })
 
+  it('requires the pending proposal for the path to be merged and forwards its revision', async () => {
+    const pending = { id: 'change-1', revision: 'a'.repeat(64), title: 'Old', operation: 'update', proposedContent: 'Old fact', reason: 'r', status: 'open' }
+    mocks.createKnowledgeReviewChange.mockResolvedValue({ ok: false, error: 'pending_proposal_exists', pending })
+
+    const response = await POST(makeRequest({ ...validBody, supersedesId: 'stale-id', supersedesRevision: pending.revision }))
+
+    expect(response.status).toBe(409)
+    await expect(response.json()).resolves.toEqual({ error: 'pending_proposal_exists', pending })
+    expect(mocks.createKnowledgeReviewChange).toHaveBeenCalledWith('user-1', expect.objectContaining({
+      requirePendingAcknowledged: true,
+      supersedesId: 'stale-id', supersedesRevision: pending.revision,
+    }))
+    expect(mocks.publishWorkspaceEvent).not.toHaveBeenCalled()
+  })
+
   it('attributes to the tool-provided agent when no run id is present', async () => {
     const response = await POST(makeRequest({ ...validBody, agent: 'lines' }))
 

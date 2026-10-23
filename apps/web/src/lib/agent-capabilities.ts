@@ -21,8 +21,15 @@ export const OPENCODE_AGENT_TOOLS = [
   'lsp',
   'todoread',
   'todowrite',
+  'chart_create',
+  'diagram_create',
   'document_inspect',
+  'email_draft',
+  'flow_propose',
+  'learning_propose',
   'presentation_inspect',
+  'scratch_dir',
+  'scratch_publish',
   'spreadsheet_inspect',
   'spreadsheet_sample',
   'spreadsheet_query',
@@ -31,6 +38,23 @@ export const OPENCODE_AGENT_TOOLS = [
 ] as const
 
 export type OpenCodeAgentToolId = (typeof OPENCODE_AGENT_TOOLS)[number]
+
+// OpenCode 1 tools that OpenCode 2 does not ship. They stay valid in stored
+// configs (a rollback to v1 still renders them) but are not offered for new choices.
+export const LEGACY_ONLY_AGENT_TOOLS: ReadonlySet<string> = new Set<OpenCodeAgentToolId>(['codesearch', 'lsp', 'todoread', 'todowrite'])
+
+// Legacy built-in tools plus scratch tools, intentionally enabled by default:
+// a stored tool map without the key keeps them enabled; only an explicit false disables them.
+export const DEFAULT_ENABLED_AGENT_TOOLS: ReadonlySet<string> = new Set<OpenCodeAgentToolId>([
+  'chart_create',
+  'diagram_create',
+  'email_draft',
+  'flow_propose',
+  'learning_propose',
+  'scratch_dir',
+  'scratch_publish',
+  'session_history_query',
+])
 
 export const OPENCODE_AGENT_TOOL_OPTIONS: Array<{
   id: OpenCodeAgentToolId
@@ -50,8 +74,15 @@ export const OPENCODE_AGENT_TOOL_OPTIONS: Array<{
   { id: 'lsp', label: 'Language server queries' },
   { id: 'todoread', label: 'Read todo list' },
   { id: 'todowrite', label: 'Update todo list' },
+  { id: 'chart_create', label: 'Create charts' },
+  { id: 'diagram_create', label: 'Create diagrams' },
   { id: 'document_inspect', label: 'Inspect documents' },
+  { id: 'email_draft', label: 'Draft emails' },
+  { id: 'flow_propose', label: 'Propose flows' },
+  { id: 'learning_propose', label: 'Propose knowledge' },
   { id: 'presentation_inspect', label: 'Inspect presentations' },
+  { id: 'scratch_dir', label: 'Use a scratch folder' },
+  { id: 'scratch_publish', label: 'Publish scratch files' },
   { id: 'spreadsheet_inspect', label: 'Inspect spreadsheets' },
   { id: 'spreadsheet_sample', label: 'Sample spreadsheet rows' },
   { id: 'spreadsheet_query', label: 'Query spreadsheet data' },
@@ -222,7 +253,7 @@ export function extractAgentCapabilitiesFromTools(
     }
   }
 
-  const enabledTools = OPENCODE_AGENT_TOOLS.filter((toolId) => tools[toolId] === true)
+  const enabledTools = OPENCODE_AGENT_TOOLS.filter((toolId) => (tools[toolId] ?? DEFAULT_ENABLED_AGENT_TOOLS.has(toolId)) === true)
   const connectorIds = Object.entries(tools)
     .filter(([, enabled]) => enabled)
     .flatMap(([toolId]) => {

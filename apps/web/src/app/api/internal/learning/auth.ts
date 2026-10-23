@@ -2,7 +2,7 @@ import crypto from 'crypto'
 
 import { NextRequest } from 'next/server'
 
-import { resolveInstanceConnection } from '@/lib/opencode/connection-resolver'
+import { getRuntimeConnection } from '@/lib/harness/registry'
 import { userService } from '@/lib/services'
 
 function timingSafeMatch(expected: string, actual: string): boolean {
@@ -22,7 +22,7 @@ export async function getInternalLearningContext(request: NextRequest): Promise<
     return { ok: false, error: 'unauthorized', status: 401 }
   }
 
-  const connection = await resolveInstanceConnection(slug)
+  const connection = await getRuntimeConnection(slug)
   if (!connection || !timingSafeMatch(connection.authHeader, authorization)) {
     return { ok: false, error: 'unauthorized', status: 401 }
   }

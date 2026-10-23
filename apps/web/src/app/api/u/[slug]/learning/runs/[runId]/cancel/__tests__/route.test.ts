@@ -5,7 +5,7 @@ const mocks = vi.hoisted(() => ({
   abortActiveRun: vi.fn(),
   auditEvent: vi.fn(),
   cancelLearningRun: vi.fn(),
-  createInstanceClient: vi.fn(),
+  getRuntimeForSlug: vi.fn(),
   findIdBySlug: vi.fn(),
   findLearningRunForUser: vi.fn(),
   abortSessionFamilyAndConfirmIdle: vi.fn(),
@@ -22,11 +22,11 @@ vi.mock('@/lib/learning/service', () => ({
 
 vi.mock('@/lib/services/user', () => ({ findIdBySlug: mocks.findIdBySlug }))
 
-vi.mock('@/lib/opencode/client', () => ({
-  createInstanceClient: mocks.createInstanceClient,
+vi.mock('@/lib/harness/registry', () => ({
+  getRuntimeForSlug: mocks.getRuntimeForSlug,
 }))
 
-vi.mock('@/lib/opencode/session-execution', () => ({
+vi.mock('@/lib/harness/execution', () => ({
   abortSessionFamilyAndConfirmIdle: mocks.abortSessionFamilyAndConfirmIdle,
 }))
 
@@ -85,11 +85,9 @@ describe('/api/u/[slug]/learning/runs/[runId]/cancel', () => {
     mocks.auditEvent.mockResolvedValue(undefined)
     mocks.abortActiveRun.mockResolvedValue(undefined)
     mocks.abortSessionFamilyAndConfirmIdle.mockResolvedValue(true)
-    mocks.createInstanceClient.mockResolvedValue({
-      session: {
-        abort: vi.fn().mockResolvedValue({ data: {} }),
-      },
-    })
+    mocks.getRuntimeForSlug.mockResolvedValue({ ok: true, data: {
+      abortSession: vi.fn().mockResolvedValue({ ok: true }),
+    } })
   })
 
   it('cancels an active run and confirms its internal session family is idle', async () => {
@@ -99,8 +97,8 @@ describe('/api/u/[slug]/learning/runs/[runId]/cancel', () => {
     await expect(response.json()).resolves.toEqual({ run: { ...runningRun, status: 'cancelled' } })
     expect(mocks.findLearningRunForUser).toHaveBeenCalledWith({ runId: 'run-1', userId: 'user-1' })
     expect(mocks.cancelLearningRun).toHaveBeenCalledWith({ runId: 'run-1', userId: 'user-1' })
-    expect(mocks.createInstanceClient).toHaveBeenCalledWith('alice')
-    const client = await mocks.createInstanceClient.mock.results[0].value
+    expect(mocks.getRuntimeForSlug).toHaveBeenCalledWith('alice')
+    const { data: client } = await mocks.getRuntimeForSlug.mock.results[0].value
     expect(mocks.abortSessionFamilyAndConfirmIdle).toHaveBeenCalledWith({
       client,
       rootSessionId: 'internal-session-1',
@@ -124,7 +122,7 @@ describe('/api/u/[slug]/learning/runs/[runId]/cancel', () => {
     const response = await POST(makeRequest(), routeContext())
 
     expect(response.status).toBe(200)
-    const client = await mocks.createInstanceClient.mock.results[0].value
+    const { data: client } = await mocks.getRuntimeForSlug.mock.results[0].value
     expect(mocks.abortSessionFamilyAndConfirmIdle).toHaveBeenCalledWith({
       client,
       rootSessionId: 'late-session',
@@ -134,8 +132,8 @@ describe('/api/u/[slug]/learning/runs/[runId]/cancel', () => {
 
   it('keeps cancellation successful without releasing the active run when termination is unconfirmed', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    const client = { session: {} }
-    mocks.createInstanceClient.mockResolvedValue(client)
+    const client = {}
+    mocks.getRuntimeForSlug.mockResolvedValue({ ok: true, data: client })
     mocks.abortSessionFamilyAndConfirmIdle.mockResolvedValue(false)
 
     try {
@@ -161,7 +159,7 @@ describe('/api/u/[slug]/learning/runs/[runId]/cancel', () => {
 
     expect(response.status).toBe(400)
     await expect(response.json()).resolves.toEqual({ error: 'run_not_cancelable' })
-    expect(mocks.createInstanceClient).not.toHaveBeenCalled()
+    expect(mocks.getRuntimeForSlug).not.toHaveBeenCalled()
     expect(mocks.abortActiveRun).not.toHaveBeenCalled()
     expect(mocks.auditEvent).not.toHaveBeenCalled()
   })

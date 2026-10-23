@@ -1,10 +1,11 @@
 'use server'
 
-import { ensureProviderAccessFreshForExecution } from '@/lib/opencode/providers'
+import { syncRuntimeProviderAccess } from '@/lib/harness/registry'
 import { getSession } from '@/lib/runtime/session'
 import { getWorkspaceStatus, startWorkspace, stopWorkspace } from '@/lib/runtime/workspace-host'
 import { providerService, userService } from '@/lib/services'
 import { isSlowStart, listActiveInstances } from '@/lib/spawner/core'
+import { isHistoryMigrationInProgress } from '@/lib/spawner/legacy-archive'
 import { getKickstartStatus } from '@/kickstart/status'
 
 export type SpawnerActionResult =
@@ -36,6 +37,19 @@ export async function stopInstanceAction(slug: string): Promise<SpawnerActionRes
   }
 
   return stopWorkspace(slug, session.user.id)
+}
+
+export async function getInstanceMigrationStatusAction(slug: string): Promise<boolean | null> {
+  try {
+    const session = await getSession()
+    if (!session) return null
+    if (session.user.slug !== slug && session.user.role !== 'ADMIN') return null
+
+    return await isHistoryMigrationInProgress(slug)
+  } catch (error) {
+    console.error('[spawner] Failed to read history migration status', { slug, error })
+    return null
+  }
 }
 
 export async function getInstanceStatusAction(slug: string) {
@@ -75,6 +89,20 @@ export async function listActiveInstancesAction() {
   }
 
   return listActiveInstances()
+}
+
+// Start failures a later attempt clears on its own: a busy legacy session, an
+// upstream catalog outage, an unavailable container inventory, or a concurrent
+// attempt that took over. The client keeps polling within its startup timeout.
+const RETRYABLE_START_DETAILS = new Set([
+  'catalog_unavailable',
+  'legacy_archive_busy',
+  'runtime_upgrade_check_failed',
+  'startup superseded by another attempt',
+])
+
+function isRetryableStartFailure(detail: string | undefined): boolean {
+  return detail !== undefined && RETRYABLE_START_DETAILS.has(detail)
 }
 
 /**
@@ -120,7 +148,8 @@ export async function ensureInstanceRunningAction(slug: string): Promise<{
           // Hash/TTL-guarded: only syncs (and disposes OpenCode) when provider
           // credentials changed or the gateway token aged out, and defers while
           // the workspace has active runs so generations are never aborted.
-          await ensureProviderAccessFreshForExecution({ slug, userId: syncUserId })
+          const refreshed = await syncRuntimeProviderAccess(slug, { userId: syncUserId })
+          if (!refreshed.ok) throw new Error(refreshed.error.detail ?? refreshed.error.code)
           await providerService.clearWorkspaceRestartRequired(syncUserId)
         }
       } catch (err) {
@@ -142,6 +171,7 @@ export async function ensureInstanceRunningAction(slug: string): Promise<{
     console.log('[ensureInstanceRunning] Start result:', result)
 
     if (!result.ok) {
+      if (result.error === 'runtime_upgrade_pending' || isRetryableStartFailure(result.detail)) return { status: 'starting' }
       return { status: 'error', error: result.detail ?? result.error }
     }
 

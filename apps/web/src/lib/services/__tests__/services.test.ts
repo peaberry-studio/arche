@@ -393,11 +393,11 @@ describe('service layer', () => {
       mockPrisma.instance.update.mockResolvedValue({ slug: 'alice', status: 'running' })
 
       const { instanceService } = await import('../index')
-      await instanceService.setRunning('alice', 'sha256abc')
+      await instanceService.setRunning('alice', 'sha256abc', 'opencode-v2')
 
       expect(mockPrisma.instance.update).toHaveBeenCalledWith({
         where: { slug: 'alice' },
-        data: expect.objectContaining({ status: 'running', appliedConfigSha: 'sha256abc' }),
+        data: expect.objectContaining({ status: 'running', appliedConfigSha: 'sha256abc', runtimeKind: 'opencode-v2' }),
       })
     })
 

@@ -93,6 +93,73 @@ describe.runIf(!SKIP)('concurrent Knowledge Review transitions', () => {
     await Promise.allSettled([controlClient.$disconnect(), baseClient.$disconnect()])
   })
 
+  it('serializes first proposals for the same path across independent database clients', async () => {
+    const kbPath = `Preferences/${randomUUID()}.md`
+    const input = {
+      author: 'curator', confidence: 0.8, evidence: {}, kbPath,
+      operation: 'update' as const, origin: 'learning', reason: 'Durable fact',
+      title: 'New fact', requirePendingAcknowledged: true,
+    }
+    let firstRead!: () => void
+    const read = new Promise<void>((resolve) => { firstRead = resolve })
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    let armed = true
+    const gatedClient = baseClient.$extends({ query: { knowledgeReviewChange: {
+      async findMany({ args, query }) {
+        const result = await query(args)
+        if (armed) { armed = false; firstRead(); await gate }
+        return result
+      },
+    } } })
+    vi.stubGlobal('prisma', gatedClient)
+    const first = repository.createKnowledgeReviewChange(userId, { ...input, proposedContent: 'Fact A' })
+    await read
+    // The other transaction uses its own connection and starts while the first
+    // already holds its empty-path snapshot and the owner row lock.
+    let secondAttempt!: () => void
+    const attempted = new Promise<void>((resolve) => { secondAttempt = resolve })
+    const otherClient = controlClient.$extends({ query: {
+      async $allOperations({ operation, args, query }) {
+        // With the fix, the second transaction reaches the owner lock. With
+        // the old implementation, it reads the empty pending set instead.
+        if (operation === '$executeRaw') secondAttempt()
+        const result = await query(args)
+        if (operation === 'findMany') secondAttempt()
+        return result
+      },
+    } })
+    vi.stubGlobal('prisma', otherClient)
+    const second = repository.createKnowledgeReviewChange(userId, { ...input, proposedContent: 'Fact B' })
+    await attempted
+    release()
+    const results = await Promise.all([first, second])
+    expect(results.map((result) => result.ok)).toEqual([true, false])
+    expect(results[1]).toMatchObject({ error: 'pending_proposal_exists', pending: { proposedContent: 'Fact A' } })
+    expect(await controlClient.knowledgeReviewChange.count({ where: { userId, kbPath, status: 'open' } })).toBe(1)
+  })
+
+  it('preserves a user draft made after the agent acknowledged the pending proposal', async () => {
+    const changeId = await seedChange()
+    const pending = await controlClient.knowledgeReviewChange.findUniqueOrThrow({ where: { id: changeId } })
+    const input = {
+      author: 'curator', confidence: 0.8, evidence: {}, kbPath: pending.kbPath,
+      operation: 'update' as const, origin: 'learning', reason: 'Another durable fact',
+      title: 'New fact', requirePendingAcknowledged: true, proposedContent: 'Agent merged old draft',
+    }
+    const conflict = await repository.createKnowledgeReviewChange(userId, input)
+    if (conflict.ok || conflict.error !== 'pending_proposal_exists') throw new Error('Expected pending proposal')
+    const saved = await repository.saveKnowledgeReviewDraft({ actor: 'alice', changeId, userId, content: 'User draft must survive.' })
+    expect(saved).not.toBeNull()
+    const stale = await repository.createKnowledgeReviewChange(userId, {
+      ...input, supersedesId: conflict.pending.id, supersedesRevision: conflict.pending.revision,
+    })
+    expect(stale).toMatchObject({ ok: false, error: 'pending_proposal_exists', pending: { proposedContent: 'User draft must survive.' } })
+    const stored = await controlClient.knowledgeReviewChange.findUniqueOrThrow({ where: { id: changeId } })
+    expect(stored.status).toBe('open')
+    expect(stored.proposedContent).toBe('User draft must survive.')
+  })
+
   it('rejects a draft save built on a stale read instead of overwriting a newer one', async () => {
     const changeId = await seedChange()
 

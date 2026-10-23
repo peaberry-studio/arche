@@ -2,12 +2,12 @@
 
 import { useCallback, type MutableRefObject, type SetStateAction } from "react";
 
-import type { WorkspaceMessage, WorkspaceSession } from "@/lib/opencode/types";
 import {
   PRE_SESSION_SELECTION_KEY,
   type SessionSelectionState,
 } from "@/hooks/workspace/workspace-types";
 import type { DeleteWorkspaceSessionResult } from "@/hooks/workspace/use-workspace-sessions";
+import type { WorkspaceMessage, WorkspaceSession } from "@/types/workspace-runtime";
 
 type UseWorkspaceSessionActionsOptions = {
   createWorkspaceSession: (title?: string) => Promise<WorkspaceSession | null>;

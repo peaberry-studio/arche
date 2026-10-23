@@ -7,13 +7,14 @@ const mocks = vi.hoisted(() => ({
   getSession: vi.fn(),
   validateSameOrigin: vi.fn(() => ({ ok: true })),
   validateDesktopToken: vi.fn(() => true),
-  instanceService: { findCredentialsBySlug: vi.fn() },
+  getRuntimeForSlug: vi.fn(),
+  isArchivedSession: vi.fn(),
+  replyPermission: vi.fn(),
   auditEvent: vi.fn(),
-  decryptPassword: vi.fn(() => 'secret'),
-  getInstanceUrl: vi.fn(() => 'http://test-slug:3000'),
 }))
 
 vi.mock('@/lib/runtime/capabilities', () => ({ getRuntimeCapabilities: mocks.getRuntimeCapabilities }))
+vi.mock('@/lib/services/legacy-session-archive', () => ({ isArchivedSession: mocks.isArchivedSession }))
 vi.mock('@/lib/runtime/mode', () => ({ isDesktop: mocks.isDesktop }))
 vi.mock('@/lib/runtime/session', () => ({ getSession: mocks.getSession }))
 vi.mock('@/lib/csrf', () => ({ validateSameOrigin: mocks.validateSameOrigin }))
@@ -22,9 +23,7 @@ vi.mock('@/lib/runtime/desktop/token', () => ({
   validateDesktopToken: mocks.validateDesktopToken,
 }))
 vi.mock('@/lib/auth', () => ({ auditEvent: mocks.auditEvent }))
-vi.mock('@/lib/services', () => ({ instanceService: mocks.instanceService }))
-vi.mock('@/lib/spawner/crypto', () => ({ decryptPassword: mocks.decryptPassword }))
-vi.mock('@/lib/opencode/client', () => ({ getInstanceUrl: mocks.getInstanceUrl }))
+vi.mock('@/lib/harness/registry', () => ({ getRuntimeForSlug: mocks.getRuntimeForSlug }))
 
 import { POST } from '../route'
 
@@ -51,35 +50,48 @@ function params() {
 describe('POST /api/w/[slug]/chat/permissions/[permissionId]', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.isArchivedSession.mockResolvedValue(false)
     mocks.getSession.mockResolvedValue({
       user: { id: 'u1', email: 'alice@test.com', slug: 'alice', role: 'USER' },
       sessionId: 's1',
     })
-    mocks.instanceService.findCredentialsBySlug.mockResolvedValue({
-      status: 'running',
-      serverPassword: 'enc:pw',
-    })
-    mocks.decryptPassword.mockReturnValue('secret')
-    mocks.getInstanceUrl.mockReturnValue('http://test-slug:3000')
+    mocks.getRuntimeForSlug.mockResolvedValue({ ok: true, data: { replyPermission: mocks.replyPermission } })
+    mocks.replyPermission.mockResolvedValue({ ok: true })
     mocks.auditEvent.mockResolvedValue(undefined)
   })
 
-  it('forwards permission response to OpenCode', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response('', { status: 200 }))
-    vi.stubGlobal('fetch', fetchMock)
+  it.each(['once', 'always', 'reject'])('forwards the Arche permission response %s to the runtime', async (response) => {
 
-    const res = await POST(makeRequest({ sessionId: 's1', response: 'always' }), params())
+    const request = makeRequest({ sessionId: 's1', response })
+    const res = await POST(request, params())
     const body = await res.json()
 
     expect(res.status).toBe(200)
     expect(body).toEqual({ ok: true })
-    expect(fetchMock).toHaveBeenCalledWith(
-      'http://test-slug:3000/permission/perm-1/reply',
-      expect.objectContaining({
-        method: 'POST',
-        body: JSON.stringify({ reply: 'always' }),
-      }),
-    )
+    expect(mocks.replyPermission).toHaveBeenCalledWith({
+      sessionId: 's1', permissionId: 'perm-1', response,
+    }, { signal: request.signal })
+  })
+
+  it.each(['USER', 'ADMIN'])('rejects archived permission replies as %s without runtime or audit calls', async (role) => {
+    mocks.getSession.mockResolvedValue({ user: { id: 'u1', slug: role === 'ADMIN' ? 'admin' : 'alice', role }, sessionId: 'auth' })
+    mocks.isArchivedSession.mockResolvedValue(true)
+    const res = await POST(makeRequest({ sessionId: 'old', response: 'once' }), params())
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ error: 'session_archived' })
+    expect(mocks.isArchivedSession).toHaveBeenCalledWith('alice', 'old')
+    expect(mocks.getRuntimeForSlug).not.toHaveBeenCalled()
+    expect(mocks.replyPermission).not.toHaveBeenCalled()
+    expect(mocks.auditEvent).not.toHaveBeenCalled()
+  })
+
+  it.each([null, { user: { id: 'bob', slug: 'bob', role: 'USER' }, sessionId: 'auth' }])('authorizes before archive storage access', async (session) => {
+    mocks.getSession.mockResolvedValue(session)
+    const res = await POST(makeRequest({ sessionId: 'old', response: 'always' }), params())
+    expect(res.status).toBe(session ? 403 : 401)
+    expect(mocks.isArchivedSession).not.toHaveBeenCalled()
+    expect(mocks.getRuntimeForSlug).not.toHaveBeenCalled()
+    expect(mocks.replyPermission).not.toHaveBeenCalled()
   })
 
   it('audits an administrator response for another workspace', async () => {
@@ -87,7 +99,6 @@ describe('POST /api/w/[slug]/chat/permissions/[permissionId]', () => {
       user: { id: 'admin-1', email: 'admin@test.com', slug: 'admin', role: 'ADMIN' },
       sessionId: 'admin-session',
     })
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('', { status: 200 })))
 
     const res = await POST(makeRequest({ sessionId: 's1', response: 'always' }), params())
 
@@ -128,7 +139,7 @@ describe('POST /api/w/[slug]/chat/permissions/[permissionId]', () => {
   })
 
   it('returns 503 when the workspace instance is unavailable', async () => {
-    mocks.instanceService.findCredentialsBySlug.mockResolvedValue({ status: 'stopped', serverPassword: null })
+    mocks.replyPermission.mockResolvedValue({ ok: false, error: { code: 'instance_unavailable' } })
 
     const res = await POST(makeRequest({ sessionId: 's1', response: 'once' }), params())
     const body = await res.json()
@@ -138,17 +149,18 @@ describe('POST /api/w/[slug]/chat/permissions/[permissionId]', () => {
   })
 
   it('returns 502 when OpenCode rejects the permission response', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('', { status: 500 })))
+    mocks.replyPermission.mockResolvedValue({ ok: false, error: { code: 'runtime_error', status: 500 } })
 
     const res = await POST(makeRequest({ sessionId: 's1', response: 'once' }), params())
     const body = await res.json()
 
     expect(res.status).toBe(502)
     expect(body.error).toBe('permission_reply_failed')
+    expect(mocks.auditEvent).not.toHaveBeenCalled()
   })
 
   it('preserves OpenCode client error statuses', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('', { status: 403 })))
+    mocks.replyPermission.mockResolvedValue({ ok: false, error: { code: 'runtime_error', status: 403 } })
 
     const res = await POST(makeRequest({ sessionId: 's1', response: 'once' }), params())
     const body = await res.json()

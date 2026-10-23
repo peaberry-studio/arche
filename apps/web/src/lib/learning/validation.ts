@@ -30,6 +30,8 @@ export type LearningProposalRequest = {
   internalSessionId?: string | null
   trigger?: LearningTrigger
   agent?: string | null
+  supersedesId?: string | null
+  supersedesRevision?: string | null
 }
 
 export type LearningProposalActionRequest = {
@@ -121,6 +123,9 @@ export function parseProposalRequest(body: unknown):
   if (!isOptionalStringOrNull(body.runId)) return { ok: false }
   if (!isOptionalStringOrNull(body.currentFileHash)) return { ok: false }
   if (!isOptionalStringOrNull(body.internalSessionId)) return { ok: false }
+  if (!isOptionalStringOrNull(body.supersedesId)) return { ok: false }
+  if (body.supersedesRevision !== undefined && body.supersedesRevision !== null &&
+    (typeof body.supersedesRevision !== 'string' || !/^[a-f0-9]{64}$/.test(body.supersedesRevision))) return { ok: false }
   if (body.type !== undefined && !isProposalType(body.type)) return { ok: false }
   if (body.reason !== undefined && !isBoundedString(body.reason, LEARNING_TITLE_MAX_LENGTH)) return { ok: false }
   if (body.trigger !== undefined && !isTrigger(body.trigger)) return { ok: false }
@@ -154,6 +159,8 @@ export function parseProposalRequest(body: unknown):
       internalSessionId: body.internalSessionId ?? null,
       trigger: body.trigger,
       agent: body.agent ?? null,
+      supersedesId: body.supersedesId ?? null,
+      supersedesRevision: body.supersedesRevision ?? null,
     },
   }
 }

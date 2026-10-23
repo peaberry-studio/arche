@@ -7,7 +7,6 @@ import { useWorkspaceRuntime } from "@/contexts/workspace-runtime-context";
 import type { WorkspaceDiff } from "@/hooks/use-workspace-diffs";
 import { useWorkspaceDiffs } from "@/hooks/use-workspace-diffs";
 import { useWorkspaceFiles } from "@/hooks/use-workspace-files";
-import type { WorkspaceConnectionState } from "@/lib/opencode/types";
 import { downloadWorkspaceFile } from "@/lib/workspace-file-download";
 import {
   exportWorkspaceFile,
@@ -18,6 +17,7 @@ import {
   isProtectedWorkspacePath,
   normalizeWorkspacePath,
 } from "@/lib/workspace-paths";
+import type { WorkspaceConnectionState } from "@/types/workspace-runtime";
 
 type FileContentCache = Record<
   string,

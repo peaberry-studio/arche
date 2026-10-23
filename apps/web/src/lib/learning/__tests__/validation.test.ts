@@ -28,6 +28,14 @@ describe('parseProposalRequest', () => {
     expect(parseProposalRequest({ ...validPayload, proposedContent: '' })).toEqual({ ok: false })
   })
 
+  it('validates proposal revision tokens at the API boundary', () => {
+    const supersedesRevision = 'a'.repeat(64)
+    expect(parseProposalRequest({ ...validPayload, supersedesRevision })).toMatchObject({ ok: true, value: { supersedesRevision } })
+    for (const invalid of [42, '', 'invalid', 'a'.repeat(65)]) {
+      expect(parseProposalRequest({ ...validPayload, supersedesRevision: invalid })).toEqual({ ok: false })
+    }
+  })
+
   it('rejects invalid enum values', () => {
     expect(parseProposalRequest({ ...validPayload, type: 'unknown' })).toEqual({ ok: false })
     expect(parseProposalRequest({ ...validPayload, operation: 'unlink' })).toEqual({ ok: false })

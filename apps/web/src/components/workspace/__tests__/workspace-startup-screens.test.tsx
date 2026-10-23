@@ -4,7 +4,8 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { WorkspaceConnectingBanner } from "@/components/workspace/workspace-startup-screens";
-import type { WorkspaceConnectionState } from "@/lib/opencode/types";
+import type { InstanceStartupStatus } from "@/hooks/use-instance-startup";
+import type { WorkspaceConnectionState } from "@/types/workspace-runtime";
 
 function renderBanner({
   connection = { status: "connecting" } satisfies WorkspaceConnectionState,
@@ -12,7 +13,7 @@ function renderBanner({
   instanceError = null,
 }: {
   connection?: WorkspaceConnectionState;
-  instanceStatus?: "starting" | "running" | "error" | null;
+  instanceStatus?: InstanceStartupStatus;
   instanceError?: string | null;
 } = {}) {
   return render(
@@ -41,6 +42,27 @@ describe("WorkspaceConnectingBanner", () => {
 
     expect(screen.getByText("Starting workspace")).toBeTruthy();
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("shows migrating history instead of a transient connection error", () => {
+    renderBanner({
+      instanceStatus: "migrating_history",
+      connection: { status: "error", error: "instance_unavailable" },
+    });
+
+    expect(screen.getByRole("heading", { name: "Migrating history" })).toBeTruthy();
+    expect(screen.getByText("Preserving your previous conversations before starting your workspace…")).toBeTruthy();
+    expect(screen.queryByText("Starting workspace")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("leaves the migration screen when startup completes", () => {
+    const { rerender } = renderBanner({ instanceStatus: "migrating_history" });
+
+    rerender(<WorkspaceConnectingBanner connection={{ status: "connecting" }} instanceStatus="running" instanceError={null} />);
+
+    expect(screen.queryByText("Migrating history")).toBeNull();
+    expect(screen.getByText("Connecting to OpenCode")).toBeTruthy();
   });
 
   it("surfaces the startup failure as an alert with the instance error", () => {
