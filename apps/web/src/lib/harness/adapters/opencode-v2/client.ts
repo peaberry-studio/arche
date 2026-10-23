@@ -30,13 +30,19 @@ export function normalizeOpenCodeError(error: unknown): ReturnType<typeof harnes
 
 // `@opencode/client` is ESM-only (its `exports` declare no `require` condition). The flow and reaper
 // daemons run under tsx as CommonJS, where a static import compiles to a `require()` that cannot resolve it.
-export async function loadOpenCode(): Promise<typeof OpenCode> {
+// A literal `import()` stays a native ESM import under tsx, and webpack and file tracing still see the
+// package, so the Next server and the desktop standalone build bundle it; do not hide it behind Function().
+async function loadOpenCode(): Promise<typeof OpenCode> {
   return (await import('@opencode/client')).OpenCode
 }
 
-export async function createConnectionClient(connection: { baseUrl: string; authHeader: string }): Promise<OpenCodeV2Client> {
+type OpenCodeV2Options = NonNullable<Parameters<typeof OpenCode.make>[0]>
+
+export async function createConnectionClient(
+  connection: { baseUrl: string; authHeader: string; fetch?: OpenCodeV2Options['fetch'] },
+): Promise<OpenCodeV2Client> {
   const OpenCode = await loadOpenCode()
-  return OpenCode.make({ baseUrl: connection.baseUrl, headers: { Authorization: connection.authHeader } })
+  return OpenCode.make({ baseUrl: connection.baseUrl, headers: { Authorization: connection.authHeader }, fetch: connection.fetch })
 }
 
 export async function createInstanceClient(slug: string): Promise<OpenCodeV2Client | null> {

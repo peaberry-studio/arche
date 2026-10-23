@@ -1,7 +1,7 @@
 import type { OpenCodeEvent } from '@opencode/client'
 
 import { formatTimestamp } from '@/lib/format-timestamp'
-import { getInstanceBasicAuth, loadOpenCode } from '@/lib/harness/adapters/opencode-v2/client'
+import { createConnectionClient, getInstanceBasicAuth } from '@/lib/harness/adapters/opencode-v2/client'
 import { accountingPart, contentPartId, toArchePermission, toHarnessError, toHarnessMessage, toInboxMessage, toolResultParts } from '@/lib/harness/adapters/opencode-v2/transform'
 import { harnessFailure, type HarnessResult } from '@/lib/harness/errors'
 import type { ArcheEvent } from '@/lib/harness/events'
@@ -175,8 +175,7 @@ export async function subscribeOpenCodeEvents(slug: string, signal: AbortSignal)
     const connection = await getInstanceBasicAuth(slug)
     if (!connection) return harnessFailure('instance_unavailable')
     const ready = Promise.withResolvers<void>()
-    const OpenCode = await loadOpenCode()
-    const client = OpenCode.make({ baseUrl: connection.baseUrl, headers: { Authorization: connection.authHeader },
+    const client = await createConnectionClient({ ...connection,
       fetch: async (input, options) => {
         const response = await fetch(input, options)
         if (new URL(String(input)).pathname === '/api/event') {
