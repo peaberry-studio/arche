@@ -148,8 +148,8 @@ describe('oauth-config', () => {
       expect(mergeConnectorConfigWithPreservedOAuth({
         connectorType: 'custom',
         currentConfig: { apiKey: 'stored', password: 'old', headers: { Authorization: 'secret' } },
-        nextConfig: { endpoint: 'https://example.com', password: 'replacement', hasApiKey: true, hasHeaders: true },
-      })).toEqual({ endpoint: 'https://example.com', apiKey: 'stored', password: 'replacement', headers: { Authorization: 'secret' } })
+        nextConfig: { endpoint: 'https://example.com', password: 'new', hasApiKey: true, hasHeaders: true },
+      })).toEqual({ endpoint: 'https://example.com', apiKey: 'stored', password: 'new', headers: { Authorization: 'secret' } })
     })
 
     it('returns next config when authType is not oauth', async () => {

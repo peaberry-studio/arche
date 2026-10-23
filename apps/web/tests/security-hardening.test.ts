@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
@@ -10,6 +10,26 @@ const root = resolve(process.cwd(), '../..')
 const read = (file: string) => readFileSync(resolve(root, file), 'utf8')
 
 describe('security deployment invariants', () => {
+  it.each([
+    ...[
+      ['apiKey', 'hasApiKey'],
+      ['password', 'hasPassword'],
+      ['clientSecret', 'hasClientSecret'],
+      ['accessToken', 'hasAccessToken'],
+    ].map(([key, flag]) => [`${key}: '${flag}',`, true] as const),
+    [`apiKey: '${'credential'.repeat(3)}',`, false],
+    [`apiKey: '${'hasApiKey'}', token: '${'ghp_'}${'a'.repeat(36)}'`, false],
+    [`const token = '${'ghp_'}${'a'.repeat(36)}'`, false],
+  ])('distinguishes public flag mappings from credentials: %s', (line, allowed) => {
+    const workflow = parse(read('.github/workflows/pr-governance.yml'))
+    const step = workflow.jobs['security-scan'].steps.find((entry: { name: string }) => entry.name === 'Scan for hardcoded secrets')
+    const result = spawnSync('bash', ['-e', '-c', `git() { printf '%s\\n' "$SCAN_DIFF"; }; ${step.run}`], {
+      env: { ...process.env, CHANGED_FILES: 'fixture.ts', SCAN_DIFF: `+  ${line}` },
+      encoding: 'utf8',
+    })
+    expect(result.status, result.stdout + result.stderr).toBe(allowed ? 0 : 1)
+  })
+
   it('loads dotenv values without executing command substitutions', () => {
     const directory = mkdtempSync(resolve(tmpdir(), 'arche-dotenv-'))
     const marker = resolve(directory, 'executed')

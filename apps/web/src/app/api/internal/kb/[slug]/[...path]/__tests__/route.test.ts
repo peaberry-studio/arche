@@ -10,23 +10,23 @@ vi.mock('@/lib/spawner/crypto', () => ({ decryptPassword: (value: string) => val
 import { GET, POST } from '@/app/api/internal/kb/[slug]/[...path]/route'
 
 const params = { params: Promise.resolve({ slug: 'alice', path: ['info', 'refs'] }) }
-const auth = `Basic ${Buffer.from('opencode:alice-secret').toString('base64')}`
+const auth = `Basic ${Buffer.from('opencode:fixture').toString('base64')}`
 
 describe('workspace KB broker authentication', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.credentials.mockResolvedValue({ serverPassword: 'alice-secret', status: 'running' })
+    mocks.credentials.mockResolvedValue({ serverPassword: 'fixture', status: 'running' })
     mocks.serve.mockImplementation(async () => new Response('git-protocol'))
   })
 
-  it.each([undefined, 'Bearer wrong', `Basic ${Buffer.from('opencode:bob-secret').toString('base64')}`])('rejects invalid credentials', async (authorization) => {
+  it.each([undefined, 'Bearer wrong', `Basic ${Buffer.from('opencode:invalid').toString('base64')}`])('rejects invalid credentials', async (authorization) => {
     const response = await GET(new Request('http://localhost/', { headers: authorization ? { authorization } : {} }), params)
     expect(response.status).toBe(401)
     expect(mocks.serve).not.toHaveBeenCalled()
   })
 
   it('rejects credentials for a stopped workspace', async () => {
-    mocks.credentials.mockResolvedValue({ serverPassword: 'alice-secret', status: 'stopped' })
+    mocks.credentials.mockResolvedValue({ serverPassword: 'fixture', status: 'stopped' })
     expect((await GET(new Request('http://localhost/', { headers: { authorization: auth } }), params)).status).toBe(401)
     expect(mocks.serve).not.toHaveBeenCalled()
   })

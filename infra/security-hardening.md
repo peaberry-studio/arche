@@ -41,7 +41,7 @@ Validation on 23 October 2026 used Node 24.14.0 and the repository pnpm lockfile
 
 | Check | Result |
 | --- | --- |
-| `pnpm test` | 6,242 passed; 30 conditional tests skipped |
+| `pnpm test` | 6,249 passed; 30 conditional tests skipped |
 | PostgreSQL concurrency suites | 6 passed against an isolated temporary database |
 | `pnpm test:e2e --retries=0` | 26 passed; fake upstream runtime and OAuth provider |
 | `pnpm lint` | No errors; 19 existing warnings |
