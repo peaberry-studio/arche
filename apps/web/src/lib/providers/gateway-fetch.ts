@@ -42,7 +42,7 @@ export async function fetchWithRetry(url: string, init: RequestInit, maxAttempts
 
   while (true) {
     try {
-      return await fetch(url, init)
+      return await fetch(url, { ...init, redirect: 'error' })
     } catch (error) {
       if (attempt >= maxAttempts || !isRetryableFetchError(error)) {
         throw error

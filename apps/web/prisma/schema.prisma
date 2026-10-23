@@ -521,6 +521,7 @@ model Flow {
   enabled        Boolean        @default(false)
   visibility     FlowVisibility @default(private)
   organizationCanRun Boolean    @default(false) @map("organization_can_run")
+  organizationApprovedHash String? @map("organization_approved_hash")
 
   nextRunAt      DateTime?      @map("next_run_at")
   lastRunAt      DateTime?      @map("last_run_at")

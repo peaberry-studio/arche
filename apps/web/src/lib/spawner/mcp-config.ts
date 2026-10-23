@@ -1,6 +1,4 @@
 import { decryptConfig } from '@/lib/connectors/crypto'
-import { getConnectorGatewayBaseUrl } from '@/lib/connectors/gateway-config'
-import { issueConnectorGatewayToken } from '@/lib/connectors/gateway-tokens'
 import { isConnectorCapabilityAvailable } from '@/lib/connectors/require-connector-capability'
 import {
   getStoredConnectorToolPermissions,
@@ -8,6 +6,8 @@ import {
 } from '@/lib/connectors/tool-permissions'
 import type { ConnectorType } from '@/lib/connectors/types'
 import { validateConnectorConfig, validateConnectorType } from '@/lib/connectors/validators'
+import { getConnectorProxyTarget } from '@/lib/connectors/workspace-proxy'
+import { getWorkspaceAgentPort } from '@/lib/spawner/config'
 import {
   buildConnectorMcpServerConfig,
   shouldExposeConnectorViaGateway,
@@ -143,7 +143,7 @@ function buildCustomConnectorAliases(input: {
   return aliases
 }
 
-export async function buildMcpConfigForSlug(slug: string): Promise<McpConfigBuildResult | null> {
+export async function buildMcpConfigForSlug(slug: string, proxyPort = getWorkspaceAgentPort()): Promise<McpConfigBuildResult | null> {
   const { userService, connectorService } = await import('@/lib/services')
 
   const user = await userService.findIdBySlug(slug)
@@ -152,7 +152,6 @@ export async function buildMcpConfigForSlug(slug: string): Promise<McpConfigBuil
   const connectors = await connectorService.findEnabledMcpByUserId(user.id)
 
   const gatewayTargets: Record<string, GatewayTarget> = {}
-  const gatewayBase = getConnectorGatewayBaseUrl()
 
   for (const connector of connectors) {
     if (!validateConnectorType(connector.type)) continue
@@ -167,14 +166,7 @@ export async function buildMcpConfigForSlug(slug: string): Promise<McpConfigBuil
 
     if (!shouldExposeConnectorViaGateway(connector.type, config)) continue
 
-    gatewayTargets[connector.id] = {
-      url: `${gatewayBase}/${connector.id}/mcp`,
-      token: issueConnectorGatewayToken({
-        userId: user.id,
-        workspaceSlug: slug,
-        connectorId: connector.id,
-      }),
-    }
+    gatewayTargets[connector.id] = await getConnectorProxyTarget(slug, connector.id, proxyPort)
   }
 
   const result = buildMcpConfigFromConnectors(connectors, {

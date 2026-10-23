@@ -31,7 +31,21 @@ jobs:
 
           changed=$(git diff --name-only origin/main...HEAD)
           echo "web=$(echo "$changed" | grep -qE '^(apps/web/|scripts/)' && echo true || echo false)" >> "$GITHUB_OUTPUT"
-          echo "desktop=$(echo "$changed" | grep -qE '^apps/desktop/' && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "desktop=$(echo "$changed" | grep -qE '^(apps/desktop/|apps/desktop-runtime/|apps/web/src/lib/(runtime|connectors|spawner)/|apps/web/src/lib/prisma-desktop.ts|apps/web/prisma/schema.sqlite.prisma|infra/workspace-image/workspace-agent/|scripts/prepare-desktop-runtime.sh)' && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+  workspace-agent-test:
+    name: Workspace Agent - Race Tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: infra/workspace-image/workspace-agent/go.mod
+          cache: false
+      - run: go test -race ./...
+        working-directory: infra/workspace-image/workspace-agent
 
   web-lint-test:
     name: Web - Lint & Test
@@ -124,7 +138,8 @@ jobs:
         run: |
           pnpm exec vitest run \
             src/lib/services/__tests__/message-run.e2e.test.ts \
-            src/lib/learning/__tests__/knowledge-review-concurrency.e2e.test.ts
+            src/lib/learning/__tests__/knowledge-review-concurrency.e2e.test.ts \
+            src/lib/services/__tests__/flow-approval.e2e.test.ts
 
       - name: Install Playwright browser
         run: pnpm exec playwright install --with-deps chromium

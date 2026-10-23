@@ -7,7 +7,10 @@ const volumes = ['work', 'share', 'state'].map(suffix => `${prefix}-${suffix}`)
 try {
 for (const mode of ['seed', 'archive']) {
 const result = spawnSync('podman', [
-  'run', '--rm', '-i', '--network', 'none', '--entrypoint', 'node',
+  'run', '--rm', '-i', '--network', 'none', '--entrypoint', 'node', '--user', '0:0',
+  ...(mode === 'archive' ? ['--read-only', '--cap-drop=ALL', '--cap-add=DAC_OVERRIDE', '--security-opt=no-new-privileges',
+    '--tmpfs', '/tmp:rw,nosuid,nodev,size=256m,mode=1777', '--tmpfs', '/home/workspace:rw,nosuid,nodev,size=2048m,mode=0700',
+    '--pids-limit=128', '--memory=2g', '--memory-swap=2g', '--cpus=2'] : []),
   '-e', `ARCHIVE_SMOKE_MODE=${mode}`,
   '-v', `${volumes[0]}:/workspace${mode === 'archive' ? ':ro' : ''}`,
   '-v', `${volumes[1]}:${mode === 'archive' ? '/tmp/arche-archive-source/share:ro' : '/home/workspace/.local/share/opencode'}`,
@@ -54,8 +57,8 @@ let server
 async function start(archive) {
   const args = ['serve', '--hostname', '127.0.0.1', '--port', '4096']
   const copyAndServe = 'mkdir -p /home/workspace/.local/share/opencode /home/workspace/.local/state/opencode && ' +
-    'cp -a /tmp/arche-archive-source/share/. /home/workspace/.local/share/opencode/ && ' +
-    'cp -a /tmp/arche-archive-source/state/. /home/workspace/.local/state/opencode/ && ' +
+    'cp -R /tmp/arche-archive-source/share/. /home/workspace/.local/share/opencode/ && ' +
+    'cp -R /tmp/arche-archive-source/state/. /home/workspace/.local/state/opencode/ && ' +
     'exec opencode "$@"'
   server = spawn(archive ? 'sh' : 'opencode', archive ? ['-c', copyAndServe, 'arche-archive', ...args] : args, {
     cwd: '/workspace', stdio: 'ignore',

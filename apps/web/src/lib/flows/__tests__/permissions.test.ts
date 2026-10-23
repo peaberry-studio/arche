@@ -9,6 +9,8 @@ import {
   canViewFlowRun,
 } from '@/lib/flows/permissions'
 
+import { getFlowDefinitionRevision } from '@/lib/flows/sharing-approval'
+
 const owner = { id: 'owner-1', role: 'USER' }
 const member = { id: 'member-1', role: 'USER' }
 const admin = { id: 'admin-1', role: 'ADMIN' }
@@ -23,7 +25,7 @@ function flow(overrides: Partial<{ organizationCanRun: boolean; userId: string; 
 }
 
 describe('flow permissions', () => {
-  it('allows owners and admins to view, run, edit, and manage private flows', () => {
+  it('keeps private execution with the owner while admins can manage the flow', () => {
     const privateFlow = flow()
 
     expect(canViewFlow(owner, privateFlow)).toBe(true)
@@ -32,7 +34,7 @@ describe('flow permissions', () => {
     expect(canManageFlow(owner, privateFlow)).toBe(true)
 
     expect(canViewFlow(admin, privateFlow)).toBe(true)
-    expect(canRunFlow(admin, privateFlow)).toBe(true)
+    expect(canRunFlow(admin, privateFlow)).toBe(false)
     expect(canEditFlow(admin, privateFlow)).toBe(true)
     expect(canManageFlow(admin, privateFlow)).toBe(true)
   })
@@ -57,7 +59,7 @@ describe('flow permissions', () => {
 
   it('allows regular members to run team flows only when organization execution is enabled', () => {
     expect(canRunFlow(member, flow({ organizationCanRun: false, visibility: 'team' }))).toBe(false)
-    expect(canRunFlow(member, flow({ organizationCanRun: true, visibility: 'team' }))).toBe(true)
+    expect(canRunFlow(member, { ...flow({ organizationCanRun: true, visibility: 'team' }), definition: {}, organizationApprovedHash: getFlowDefinitionRevision({}) })).toBe(true)
   })
 
   it('separates run visibility and mutation from flow visibility', () => {

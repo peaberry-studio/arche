@@ -1,6 +1,8 @@
 import { NextRequest } from 'next/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+vi.mock('@/lib/security/workspace-auth', () => ({ isWorkspaceCredentialCurrent: vi.fn().mockResolvedValue(true) }))
+
 const routeMocks = vi.hoisted(() => ({
   decryptConfig: vi.fn(),
   verifyConnectorGatewayToken: vi.fn(),

@@ -1,6 +1,8 @@
 import type { FlowConnectorRequirementSummary } from '@/lib/flows/types'
 
 export function getFlowErrorMessage(error: string): string {
+  if (error === 'flow_changed') return 'This flow changed. Reload and review it before approving.'
+  if (error === 'flow_approval_required') return 'An administrator must approve this version before teammates can run it.'
   if (error === 'flow_busy') {
     return 'This flow already has a run in progress. Try again after it finishes.'
   }

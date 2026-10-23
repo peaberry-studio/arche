@@ -6,15 +6,15 @@ export type ConnectorGatewayTokenPayload = {
   userId: string
   workspaceSlug: string
   connectorId: string
+  credentialEpoch: string
+  iat: number
+  exp: number
+  aud: 'connector-gateway'
 }
 
-type ConnectorGatewayTokenInput = ConnectorGatewayTokenPayload
+type ConnectorGatewayTokenInput = Pick<ConnectorGatewayTokenPayload, 'userId' | 'workspaceSlug' | 'connectorId' | 'credentialEpoch'>
 
-// Connector gateway tokens intentionally do not expire.
-// They are embedded into long-lived workspace runtime config, and rotating them
-// requires a workspace restart before OpenCode can pick the new credential up.
-// Adding exp here would break healthy running workspaces when the upstream
-// connector remains valid but the embedded gateway token ages out.
+export const CONNECTOR_GATEWAY_TTL_SECONDS = 300
 
 function encodePayload(payload: ConnectorGatewayTokenPayload): string {
   return Buffer.from(JSON.stringify(payload)).toString('base64url')
@@ -38,12 +38,19 @@ function isValidPayload(payload: ConnectorGatewayTokenPayload): boolean {
     typeof payload.workspaceSlug === 'string' &&
     payload.workspaceSlug.length > 0 &&
     typeof payload.connectorId === 'string' &&
-    payload.connectorId.length > 0
+    payload.connectorId.length > 0 &&
+    typeof payload.credentialEpoch === 'string' && payload.credentialEpoch.length > 0 &&
+    payload.aud === 'connector-gateway' &&
+    Number.isSafeInteger(payload.iat) && Number.isSafeInteger(payload.exp) &&
+    payload.iat <= Math.floor(Date.now() / 1000) &&
+    payload.exp > Math.floor(Date.now() / 1000) &&
+    payload.exp > payload.iat && payload.exp - payload.iat <= CONNECTOR_GATEWAY_TTL_SECONDS
   )
 }
 
 export function issueConnectorGatewayToken(input: ConnectorGatewayTokenInput): string {
-  const encoded = encodePayload(input)
+  const iat = Math.floor(Date.now() / 1000)
+  const encoded = encodePayload({ ...input, iat, exp: iat + CONNECTOR_GATEWAY_TTL_SECONDS, aud: 'connector-gateway' })
   const signature = signPayload(encoded, getConnectorGatewayTokenSecret())
   return `${encoded}.${signature}`
 }

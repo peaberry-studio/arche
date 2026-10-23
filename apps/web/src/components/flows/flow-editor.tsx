@@ -17,7 +17,7 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { SegmentedControl } from '@/components/workspace/segmented-control'
 import { useAgentsCatalog } from '@/hooks/use-agents-catalog'
-import { copyFlowRequest, createFlowRequest, deleteFlowRequest, fetchFlowDetail, runFlowRequest, updateFlowRequest, validateFlowImportRequest } from '@/lib/flows/client'
+import { copyFlowRequest, createFlowRequest, deleteFlowRequest, fetchFlowDetail, runFlowRequest, setFlowSharingApprovalRequest, updateFlowRequest, validateFlowImportRequest } from '@/lib/flows/client'
 import { getFlowTimeZoneOptions } from '@/lib/flows/cron'
 import {
   addFlowDefinitionNodeAfter,
@@ -92,6 +92,9 @@ export function FlowEditor({
   const [visibility, setVisibility] = useState<FlowVisibility>('private')
   const [organizationCanRun, setOrganizationCanRun] = useState(false)
   const [permissions, setPermissions] = useState<FlowPermissions | null>(null)
+  const [sharingApproval, setSharingApproval] = useState<FlowDetail['sharingApproval']>()
+  const [savedDefinition, setSavedDefinition] = useState('')
+  const [isApproving, setIsApproving] = useState(false)
   const [owner, setOwner] = useState<FlowUserSummary | null>(null)
   const [missingConnectorRequirements, setMissingConnectorRequirements] = useState<FlowConnectorRequirementSummary[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -114,6 +117,8 @@ export function FlowEditor({
     setName(flow.name)
     setDescription(flow.description ?? '')
     setDefinition(flow.definition)
+    setSavedDefinition(JSON.stringify(flow.definition))
+    setSharingApproval(flow.sharingApproval)
     setSelectedNodeId(flow.definition.startNodeId)
     setEditingNodeId(null)
     setSchedule(inferFlowScheduleFormState(flow.cronExpression))
@@ -126,6 +131,22 @@ export function FlowEditor({
     setOwner(flow.owner)
     setMissingConnectorRequirements(flow.missingConnectorRequirements ?? [])
   }, [teamVisibilityAvailable])
+
+  const handleApproval = async () => {
+    if (!flowId || !sharingApproval) return
+    setIsApproving(true)
+    setFormError(null)
+    try {
+      const result = await setFlowSharingApprovalRequest(slug, flowId, sharingApproval.revision, !sharingApproval.approved)
+      if (!result.ok) { setFormError(getFlowErrorMessage(result.error)); return }
+      setSharingApproval(result.data.flow.sharingApproval)
+      setPermissions(result.data.flow.permissions)
+    } catch {
+      setFormError(getFlowErrorMessage('network_error'))
+    } finally {
+      setIsApproving(false)
+    }
+  }
 
   const applyDraftPayload = useCallback((payload: FlowPayload) => {
     setName(payload.name)
@@ -599,7 +620,7 @@ export function FlowEditor({
                 <div className="flex items-center justify-between gap-4">
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-foreground">Team can run</p>
-                    <p className="text-xs text-muted-foreground">Runs use each teammate&apos;s workspace and connectors.</p>
+                    <p className="text-xs text-muted-foreground">An admin must approve this version. Runs use each teammate&apos;s workspace and connectors.</p>
                   </div>
                   <Switch
                     checked={visibility === 'team' && organizationCanRun}
@@ -608,6 +629,18 @@ export function FlowEditor({
                     aria-label="Allow team to run flow"
                   />
                 </div>
+                {organizationCanRun ? (
+                  <div className="mt-3 flex items-center justify-between gap-3">
+                    <p className="text-xs text-muted-foreground">
+                      {sharingApproval?.approved && JSON.stringify(definition) === savedDefinition ? 'This version is approved.' : 'This version needs approval after saving.'}
+                    </p>
+                    {permissions?.canApprove && sharingApproval ? (
+                      <Button variant="outline" size="sm" disabled={isApproving || isSaving || JSON.stringify(definition) !== savedDefinition} onClick={handleApproval}>
+                        {sharingApproval.approved ? 'Revoke approval' : 'Approve this version'}
+                      </Button>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
             </div>
           ) : null}
