@@ -1,7 +1,9 @@
+import { createHash } from 'node:crypto'
+
 import { NextRequest, NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
-import { decryptConfig } from '@/lib/connectors/crypto'
+import { decryptConfig, encryptConfig } from '@/lib/connectors/crypto'
 import { isGoogleWorkspaceConnectorType } from '@/lib/connectors/google-workspace'
 import {
   isOAuthConnectorType,
@@ -59,7 +61,7 @@ async function resolveOAuthStartConnectorConfig(
 export const POST = withAuth<
   StartOAuthResponse | { error: string; message?: string },
   { slug: string; id: string }
->({ csrf: true }, async (request: NextRequest, { user: actorUser, slug, params: { id } }) => {
+>({ csrf: true }, async (request: NextRequest, { user: actorUser, sessionId, slug, params: { id } }) => {
   const denied = requireCapability('connectors')
   if (denied) return denied
 
@@ -67,6 +69,10 @@ export const POST = withAuth<
 
   if (!targetUser) {
     return NextResponse.json({ error: 'user_not_found' }, { status: 404 })
+  }
+
+  if (actorUser.id !== targetUser.id) {
+    return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   }
 
   const connector = await connectorService.findByIdAndUserIdSelect(id, targetUser.id, {
@@ -103,6 +109,7 @@ export const POST = withAuth<
   let authorizeUrl: string
   try {
     const prepared = await prepareConnectorOAuthAuthorization({
+      sessionId,
       connectorId: connector.id,
       slug,
       returnTo,
@@ -111,6 +118,12 @@ export const POST = withAuth<
       redirectUri,
       connectorConfig,
     })
+    const nextConfig = encryptConfig({
+      ...decryptConfig(connector.config),
+      oauthPendingState: createHash('sha256').update(prepared.state).digest('hex'),
+    })
+    const saved = await connectorService.compareAndSwapConfig(connector.id, targetUser.id, connector.config, nextConfig)
+    if (saved.count !== 1) return NextResponse.json({ error: 'config_conflict' }, { status: 409 })
     authorizeUrl = prepared.authorizeUrl
   } catch (error) {
     const message = error instanceof Error ? error.message : 'oauth_start_failed'

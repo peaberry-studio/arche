@@ -118,8 +118,8 @@ describe('kbGithubRemoteService', () => {
         lastSyncAt: null,
         lastSyncStatus: null,
         repoCloneUrl: 'https://github.com/acme/kb.git',
-        repoDefaultBranch: 'main',
         repoFullName: 'acme/kb',
+        repoDefaultBranch: 'main',
       },
       updatedAt: NOW,
       version: 2,
@@ -220,6 +220,7 @@ describe('kbGithubRemoteService', () => {
       {
         installationId: 456,
         repoCloneUrl: 'https://github.com/acme/kb.git',
+        repoFullName: 'acme/kb',
         repoDefaultBranch: 'main',
       },
     ))
@@ -250,6 +251,7 @@ describe('kbGithubRemoteService', () => {
       {
         installationId: 456,
         repoCloneUrl: 'https://github.com/acme/kb.git',
+        repoFullName: 'acme/kb',
         repoDefaultBranch: null,
       },
     ))

@@ -10,6 +10,7 @@ const DISPLAY_MATH_PATTERN = /^ {0,3}\$\$([\s\S]*?)\$\$(?!\$)/u;
 const mathDisplayTokenizer: MarkdownTokenizer = {
   name: "mathDisplay",
   level: "block",
+  start: (src) => src.search(/^ {0,3}\$\$/mu),
   tokenize: (src) => {
     const match = DISPLAY_MATH_PATTERN.exec(src);
     if (!match) return undefined;

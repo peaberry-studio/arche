@@ -103,6 +103,18 @@ main() {
   curl --fail --silent --show-error --location --retry 3 --connect-timeout 10 "$download_url" -o "$tmp_bin" \
     || fail "Could not download ${download_url}"
   [ -s "$tmp_bin" ] || fail "Downloaded binary is empty"
+  local expected_hash actual_hash
+  curl --fail --silent --show-error --location --retry 3 --connect-timeout 10 "${download_url}.sha256" -o "$tmp_dir/checksum" \
+    || fail "Could not download the binary checksum"
+  expected_hash="$(awk 'NR == 1 { print $1 }' "$tmp_dir/checksum")"
+  [[ "$expected_hash" =~ ^[a-fA-F0-9]{64}$ ]] || fail "Invalid binary checksum"
+  if command -v sha256sum >/dev/null 2>&1; then
+    actual_hash="$(sha256sum "$tmp_bin" | awk '{print $1}')"
+  else
+    require_command shasum
+    actual_hash="$(shasum -a 256 "$tmp_bin" | awk '{print $1}')"
+  fi
+  [ "$actual_hash" = "$expected_hash" ] || fail "Binary checksum mismatch"
 
   note "Installing ${TOOL_NAME} to ${target}"
   mkdir -p "$bin_dir" || fail "Could not create ${bin_dir}"

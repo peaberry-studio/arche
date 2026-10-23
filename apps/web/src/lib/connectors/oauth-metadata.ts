@@ -1,3 +1,4 @@
+import { publicFetch } from '@/lib/security/public-fetch'
 import { validateConnectorTestEndpoint } from '@/lib/security/ssrf'
 
 export type OAuthServerMetadata = {
@@ -21,7 +22,7 @@ export async function validateConnectorUrl(rawUrl: string): Promise<string> {
 
 export async function sanitizeOAuthMetadata(metadata: OAuthServerMetadata): Promise<OAuthServerMetadata> {
   return {
-    issuer: metadata.issuer,
+    issuer: metadata.issuer ? await validateConnectorUrl(metadata.issuer) : undefined,
     authorizationEndpoint: await validateConnectorUrl(metadata.authorizationEndpoint),
     tokenEndpoint: await validateConnectorUrl(metadata.tokenEndpoint),
     registrationEndpoint: metadata.registrationEndpoint
@@ -35,7 +36,7 @@ export async function discoverOAuthMetadata(mcpServerUrl: string): Promise<OAuth
   const authorizationBase = `${serverUrl.protocol}//${serverUrl.host}`
   const metadataUrl = `${authorizationBase}/.well-known/oauth-authorization-server`
 
-  const metadataResponse = await fetch(metadataUrl, {
+  const metadataResponse = await publicFetch(metadataUrl, {
     method: 'GET',
     headers: {
       Accept: 'application/json',

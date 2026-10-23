@@ -28,6 +28,7 @@ import {
   type MarkdownFrontmatterProperty,
 } from "@/components/workspace/markdown-frontmatter";
 import { MarkdownFrontmatterPanel } from "@/components/workspace/markdown-frontmatter-panel";
+import { MarkdownParagraph } from "@/components/workspace/markdown-paragraph";
 import { MarkdownTableControls } from "@/components/workspace/markdown-table-controls";
 import { getInternalLinkHoverPosition } from "@/components/workspace/internal-link-hover-position";
 import { ObsidianLinkDecorations } from "@/components/workspace/obsidian-link-decorations";
@@ -318,10 +319,12 @@ export function MarkdownEditor({
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
+        paragraph: false,
         link: {
           openOnClick: false,
         },
       }),
+      MarkdownParagraph,
       Placeholder.configure({ placeholder: "Write…" }),
       TaskList,
       TaskItem.configure({ nested: true }),

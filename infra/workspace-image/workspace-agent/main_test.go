@@ -1421,3 +1421,20 @@ func TestHandleFileReadRef(t *testing.T) {
 		t.Fatalf("hidden path status = %d, body = %s", hiddenRecorder.Code, hiddenRecorder.Body.String())
 	}
 }
+
+func TestResolvePathRejectsSymlinkAncestors(t *testing.T) {
+	workspace := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(workspace, "attachments")); err != nil {
+		t.Fatal(err)
+	}
+	s := &server{workspace: workspace}
+	for _, path := range []string{"attachments/file.txt", "attachments/new/file.txt"} {
+		if _, err := s.resolvePath(path); err == nil {
+			t.Fatalf("accepted symlink path %s", path)
+		}
+	}
+	if _, err := s.resolvePath("new/file.txt"); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -569,3 +569,7 @@ describe('testConnectorConnection', () => {
     })
   })
 })
+
+vi.mock('@/lib/security/public-fetch', () => ({
+  publicFetch: (url: string, init: RequestInit) => fetch(url, { ...init, redirect: 'error' }),
+}))

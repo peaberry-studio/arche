@@ -87,3 +87,10 @@ export function getE2eRuntimeConnection(overrideBaseUrl?: string): {
     authHeader: `Basic ${Buffer.from(`${DEFAULT_USERNAME}:${password}`).toString('base64')}`,
   }
 }
+
+export function isE2eFakeOAuthEndpoint(rawUrl: string): boolean {
+  if (!isE2eHooksEnabled()) return false
+  const url = new URL(rawUrl)
+  const port = process.env.ARCHE_E2E_FAKE_OAUTH_PORT ?? '4212'
+  return url.origin === `http://127.0.0.1:${port}` && !url.username && !url.password
+}
