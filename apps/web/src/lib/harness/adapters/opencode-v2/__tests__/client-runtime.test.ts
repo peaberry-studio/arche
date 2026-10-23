@@ -1,6 +1,5 @@
 import { execFile as execFileCallback } from 'node:child_process'
 import * as fs from 'node:fs'
-import * as os from 'node:os'
 import * as path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
@@ -14,8 +13,12 @@ const appRoot = path.resolve(testDir, '../../../../../..')
 
 let scratchDir: string
 
+// Gitignored through node_modules, and below apps/web's package.json (no "type"), so tsx compiles the
+// script as CommonJS exactly like the daemon entrypoints; os.tmpdir() would follow TMPDIR's package.json.
 beforeAll(() => {
-  scratchDir = fs.mkdtempSync(path.join(os.tmpdir(), 'arche-client-runtime-'))
+  const cacheDir = path.join(appRoot, 'node_modules/.cache')
+  fs.mkdirSync(cacheDir, { recursive: true })
+  scratchDir = fs.mkdtempSync(path.join(cacheDir, 'arche-client-runtime-'))
 })
 
 afterAll(() => {
@@ -33,7 +36,7 @@ describe('V2 client runtime loading', () => {
     const clientUrl = pathToFileURL(path.resolve(testDir, '../client.ts')).href
     const eventsUrl = pathToFileURL(path.resolve(testDir, '../events.ts')).href
 
-    // Same CommonJS compilation as the daemons. createConnectionClient only constructs a client;
+    // Compiled to CommonJS like the daemons. createConnectionClient only constructs a client;
     // the URL is never contacted.
     const scriptPath = path.join(scratchDir, 'load-client.ts')
     fs.writeFileSync(scriptPath, [
@@ -55,7 +58,6 @@ describe('V2 client runtime loading', () => {
       timeout: 30_000,
     }).catch((error: { stdout?: string; stderr?: string }) => ({ stdout: error.stdout ?? '', stderr: error.stderr ?? String(error) }))
 
-    expect(stderr).not.toContain('ERR_PACKAGE_PATH_NOT_EXPORTED')
-    expect(stdout).toContain('OK')
+    expect({ stdout, stderr }).toEqual({ stdout: expect.stringContaining('OK'), stderr: expect.not.stringContaining('ERR_PACKAGE_PATH_NOT_EXPORTED') })
   }, 45_000)
 })

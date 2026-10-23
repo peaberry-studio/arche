@@ -1,11 +1,10 @@
 import { execFile as execFileCallback } from 'node:child_process'
-import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 const execFile = promisify(execFileCallback)
 
@@ -16,17 +15,7 @@ type DaemonRun = {
   stderr: string
 }
 
-let missingKbConfigRoot: string
-let scratchDir: string
-
-beforeAll(() => {
-  scratchDir = fs.mkdtempSync(path.join(os.tmpdir(), 'arche-daemons-runtime-'))
-  missingKbConfigRoot = path.join(scratchDir, 'kb-config')
-})
-
-afterAll(() => {
-  fs.rmSync(scratchDir, { recursive: true, force: true })
-})
+const missingKbConfigRoot = path.join(os.tmpdir(), 'arche-daemons-runtime-missing-kb-config')
 
 // Same invocation as the `start:flows` / `start:reaper` scripts and the compose
 // services: tsx compiles the module graph to CommonJS require() calls. The
@@ -48,24 +37,29 @@ async function runDaemon(entrypoint: string, env: Record<string, string>): Promi
 }
 
 describe('daemon entrypoints under tsx', () => {
-  it.each<{ entrypoint: string; failure: string; cause?: () => string; env: () => Record<string, string> }>([
-    { entrypoint: 'src/reaper-daemon.ts', failure: '[reaper-daemon] Failed to start reaper daemon', env: () => ({}) },
+  it.each<{ entrypoint: string; failure: string; cause: string; env: Record<string, string> }>([
+    {
+      entrypoint: 'src/reaper-daemon.ts',
+      failure: '[reaper-daemon] Failed to start reaper daemon',
+      cause: 'DATABASE_URL is required',
+      env: {},
+    },
     {
       entrypoint: 'src/flow-daemon.ts',
       failure: '[flow-daemon] Failed to start flow daemon',
-      cause: () => `kb_unavailable: ${missingKbConfigRoot}`,
-      env: () => ({
+      cause: `kb_unavailable: ${missingKbConfigRoot}`,
+      env: {
         ARCHE_FLOW_SCHEDULER_MODE: 'daemon',
         ARCHE_ENABLE_E2E_HOOKS: '1',
         KB_CONFIG_HOST_PATH: missingKbConfigRoot,
-      }),
+      },
     },
   ])('$entrypoint resolves its whole module graph and fails only on missing runtime config', async ({ entrypoint, failure, cause, env }) => {
-    const run = await runDaemon(entrypoint, env())
+    const run = await runDaemon(entrypoint, env)
 
     expect(run.stderr).not.toContain('ERR_PACKAGE_PATH_NOT_EXPORTED')
     expect(run.stderr).toContain(failure)
-    if (cause) expect(run.stderr).toContain(cause())
+    expect(run.stderr).toContain(cause)
     expect(run.exitCode).toBe(1)
   }, 90_000)
 })
