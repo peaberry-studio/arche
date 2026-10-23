@@ -3,7 +3,7 @@ import path from 'node:path'
 
 import { expect, test } from '@playwright/test'
 
-test('stores admin auth state', async ({ request }) => {
+test('stores admin auth state', async ({ request, baseURL }) => {
   const email = process.env.ARCHE_SEED_ADMIN_EMAIL ?? 'admin-e2e@arche.local'
   const password = process.env.ARCHE_SEED_ADMIN_PASSWORD ?? 'arche-e2e-admin'
   const authPath = path.resolve(__dirname, '../playwright/.auth/admin.json')
@@ -11,6 +11,7 @@ test('stores admin auth state', async ({ request }) => {
   await fs.mkdir(path.dirname(authPath), { recursive: true })
 
   const response = await request.post('/auth/login', {
+    headers: { origin: new URL(baseURL!).origin },
     data: { email, password },
   })
 

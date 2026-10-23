@@ -117,7 +117,7 @@ export function ReviewPanel({
           <p className="text-xs text-muted-foreground">{isLoading ? 'Loading changes…' : 'No manual edits to publish'}</p>
           {isLoading ? null : (
             <p className="max-w-[320px] text-[11px] leading-relaxed text-muted-foreground/70">
-              Edits you make in the Knowledge Base show up here. Applied proposals publish immediately.
+              Edits you make in the Knowledge Base show up here. Submit changes, then ask an administrator to review the publication.
             </p>
           )}
         </div>

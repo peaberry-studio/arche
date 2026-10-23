@@ -89,6 +89,28 @@ describe('learning repository', () => {
     mocks.prisma.knowledgeReviewChange.findMany.mockResolvedValue([])
   })
 
+  it('marks only applied content actually present in the approved commit', async () => {
+    const { markKnowledgeReviewChangesPublished } = await import('@/lib/learning/repository')
+    const applied = { ...reviewRecord, status: 'applied', appliedHash: 'sha256:approved' }
+    mocks.prisma.knowledgeReviewChange.findMany.mockResolvedValue([
+      applied, { ...applied, id: 'other', kbPath: 'Other.md', appliedHash: 'sha256:newer' },
+    ])
+    mocks.prisma.knowledgeReviewChange.findFirst.mockResolvedValue(applied)
+    mocks.prisma.knowledgeReviewChange.updateMany.mockResolvedValue({ count: 1 })
+    mocks.prisma.knowledgeReviewChange.findUnique.mockResolvedValue({ ...applied, status: 'published' })
+    await markKnowledgeReviewChangesPublished({ actor: 'admin', commitSha: 'commit', paths: [applied.kbPath, 'Other.md'], userId: 'user-1', pathHashes: { [applied.kbPath]: 'sha256:approved', 'Other.md': 'sha256:old' } })
+    expect(mocks.prisma.knowledgeReviewChange.updateMany).toHaveBeenCalledTimes(1)
+    expect(mocks.prisma.knowledgeReviewChange.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: 'change-1', appliedHash: 'sha256:approved' }) }))
+  })
+
+  it('does not mark a newer applied revision published after the approval snapshot', async () => {
+    const { markKnowledgeReviewChangesPublished } = await import('@/lib/learning/repository')
+    mocks.prisma.knowledgeReviewChange.findMany.mockResolvedValue([{ ...reviewRecord, status: 'applied', appliedHash: 'sha256:approved' }])
+    mocks.prisma.knowledgeReviewChange.findFirst.mockResolvedValue({ ...reviewRecord, status: 'applied', appliedHash: 'sha256:newer' })
+    expect(await markKnowledgeReviewChangesPublished({ actor: 'admin', commitSha: 'commit', paths: [reviewRecord.kbPath], userId: 'user-1', pathHashes: { [reviewRecord.kbPath]: 'sha256:approved' } })).toEqual([])
+    expect(mocks.prisma.knowledgeReviewChange.updateMany).not.toHaveBeenCalled()
+  })
+
   it('maps learning run list results', async () => {
     const { listLearningRuns } = await import('@/lib/learning/repository')
     mocks.prisma.knowledgeLearningRun.findMany.mockResolvedValue([runRecord])

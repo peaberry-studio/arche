@@ -20,6 +20,7 @@ type PublishState =
   | 'idle'
   | 'publishing'
   | 'published'
+  | 'proposed'
   | 'nothing'
   | 'push_rejected'
   | 'no_remote'
@@ -49,6 +50,12 @@ export function PublishKbButton({ slug, disabled, disabledReason, onComplete, pa
       }
 
       const result: PublishKbResult = await response.json()
+
+      if (result.status === 'proposed') {
+        setState('proposed')
+        onComplete?.()
+        return
+      }
 
       if (result.status === 'published') {
         setState('published')
@@ -104,18 +111,19 @@ export function PublishKbButton({ slug, disabled, disabledReason, onComplete, pa
   const stateConfig = {
     idle: {
       icon: Check,
-      label: 'Publish',
+      label: 'Submit',
       className: '',
       buttonClassName: '',
       weight: 'bold' as const,
     },
     publishing: {
       icon: ArrowsClockwise,
-      label: 'Publishing...',
+      label: 'Submitting...',
       className: 'animate-spin',
       buttonClassName: '',
       weight: 'bold' as const,
     },
+    proposed: { icon: Check, label: 'Awaiting approval', className: '', buttonClassName: '', weight: 'bold' as const },
     published: {
       icon: Check,
       label: 'Published',
@@ -154,11 +162,11 @@ export function PublishKbButton({ slug, disabled, disabledReason, onComplete, pa
   }
 
   const config = state === 'idle'
-    ? { ...stateConfig.idle, label: paths ? 'Publish' : 'Publish all' }
+    ? { ...stateConfig.idle, label: paths ? 'Submit' : 'Submit all' }
     : stateConfig[state]
   const Icon = config.icon
   const showPopover = state === 'push_rejected' || state === 'no_remote' || state === 'error'
-  const idleTitle = paths ? 'Publish this file' : 'Publish all changes'
+  const idleTitle = paths ? 'Submit this file for approval' : 'Submit all changes for approval'
 
   return (
     <div className="relative shrink-0">

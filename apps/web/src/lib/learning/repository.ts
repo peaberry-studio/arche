@@ -502,12 +502,14 @@ async function transitionKnowledgeReviewChange(args: {
   changeId: string
   data: Prisma.KnowledgeReviewChangeUpdateManyMutationInput
   hash?: string
+  expectedAppliedHash?: string
   userId: string
 }): Promise<KnowledgeReviewChange | null> {
   const current = await prisma.knowledgeReviewChange.findFirst({
     where: { id: args.changeId, userId: args.userId },
   })
   if (!current || !args.allowedStatuses.includes(current.status)) return null
+  if (args.expectedAppliedHash !== undefined && current.appliedHash !== args.expectedAppliedHash) return null
 
   const result = await prisma.knowledgeReviewChange.updateMany({
     where: {
@@ -519,6 +521,7 @@ async function transitionKnowledgeReviewChange(args: {
       // the status untouched (a draft save is `open -> open`), which let a stale
       // writer overwrite a newer one and drop its audit entry.
       updatedAt: current.updatedAt,
+      ...(args.expectedAppliedHash !== undefined ? { appliedHash: args.expectedAppliedHash } : {}),
     },
     data: {
       ...args.data,
@@ -737,10 +740,12 @@ export async function markKnowledgeReviewChangesPublished(args: {
   actor: string
   commitSha: string
   paths: string[]
+  pathHashes?: Record<string, string>
   userId: string
 }): Promise<KnowledgeReviewChange[]> {
   const changes = await listAppliedKnowledgeReviewChanges({ paths: args.paths, userId: args.userId })
-  const published = await Promise.all(changes.map((change) => transitionKnowledgeReviewChange({
+  const matching = args.pathHashes ? changes.filter((change) => args.pathHashes?.[change.kbPath] === change.appliedHash) : changes
+  const published = await Promise.all(matching.map((change) => transitionKnowledgeReviewChange({
     action: 'published',
     actor: args.actor,
     allowedStatuses: ['applied'],
@@ -751,6 +756,7 @@ export async function markKnowledgeReviewChangesPublished(args: {
       publishedAt: new Date(),
     },
     hash: args.commitSha,
+    expectedAppliedHash: args.pathHashes?.[change.kbPath],
     userId: args.userId,
   })))
   return published.filter((change): change is KnowledgeReviewChange => change !== null)

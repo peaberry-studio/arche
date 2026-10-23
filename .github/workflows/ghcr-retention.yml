@@ -78,10 +78,18 @@ jobs:
 
             open_prs_json="$(jq -Rs 'split("\n") | map(select(length > 0) | tonumber)' "$open_prs_file")"
 
+            # Keep content-addressed child manifests and signature/referrer objects.
+            # Tag-only deletion cannot prove that these are unreachable.
+            jq -r '
+              .[]
+              | select((.tags | length) == 0 or any(.tags[]?; test("^sha256-")))
+              | .id
+            ' "$versions_json" >> "$keep_ids_file"
+
             # Keep all release-tagged versions forever.
             jq -r '
               .[]
-              | select(any(.tags[]?; test("^v[0-9]+\\.[0-9]+\\.[0-9]+$")))
+              | select(any(.tags[]?; test("^v[0-9]+\\.[0-9]+\\.[0-9]+(-(amd64|arm64))?$")))
               | .id
             ' "$versions_json" >> "$keep_ids_file"
 
@@ -94,17 +102,13 @@ jobs:
 
             # Keep the current main image (the one tagged latest, usually also tagged with current sha).
             jq -r '
-              [ .[] | select(any(.tags[]?; . == "latest")) ]
-              | sort_by(.updated_at)
-              | reverse
-              | .[:1]
-              | .[].id
+               .[] | select(any(.tags[]?; test("^latest(-(amd64|arm64))?$"))) | .id
             ' "$versions_json" >> "$keep_ids_file"
 
             # Keep exactly one previous main image: newest sha-only version that is not latest/release/pr.
             jq -r '
               def is_sha: test("^[0-9a-f]{7,40}$");
-              def is_release: test("^v[0-9]+\\.[0-9]+\\.[0-9]+$");
+              def is_release: test("^v[0-9]+\\.[0-9]+\\.[0-9]+(-(amd64|arm64))?$");
               def is_pr: test("^pr-[0-9]+$");
 
               [ .[]

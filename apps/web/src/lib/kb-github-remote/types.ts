@@ -23,7 +23,7 @@ export type KbGithubRemoteRepo = {
   private: boolean
 }
 
-export type KbGithubRemoteWorkspaceConfig = {
+export type KbGithubRemoteBrokerConfig = {
   branch: string
   repoCloneUrl: string
   token: string

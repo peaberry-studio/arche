@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
   validateDesktopToken: vi.fn(() => true),
   isWorkspaceReachable: vi.fn(),
   createWorkspaceAgentClient: vi.fn(),
-  createWorkspaceRemoteConfig: vi.fn(),
+  createBrokerRemoteConfig: vi.fn(),
   listAppliedKnowledgeReviewChanges: vi.fn(),
   markKnowledgeReviewChangesPublished: vi.fn(),
   findIdBySlug: vi.fn(),
@@ -33,7 +33,7 @@ vi.mock('@/lib/workspace-agent/client', () => ({
 }))
 vi.mock('@/lib/services', () => ({
   kbGithubRemoteService: {
-    createWorkspaceRemoteConfig: mocks.createWorkspaceRemoteConfig,
+    createBrokerRemoteConfig: mocks.createBrokerRemoteConfig,
     updateSyncState: mocks.updateSyncState,
   },
 }))
@@ -104,7 +104,7 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
       baseUrl: 'http://agent:8080',
       authHeader: 'Bearer tok',
     })
-    mocks.createWorkspaceRemoteConfig.mockResolvedValue({ ok: true, remote: null })
+    mocks.createBrokerRemoteConfig.mockResolvedValue({ ok: true, remote: null })
     mocks.updateSyncState.mockResolvedValue(undefined)
     mocks.findIdBySlug.mockResolvedValue({ id: 'u1' })
     mocks.listAppliedKnowledgeReviewChanges.mockResolvedValue([{ kbPath: 'Notes/Reviewed.md', operation: 'update', appliedHash: 'sha256:reviewed' }])
@@ -112,10 +112,10 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
   })
 
   it('returns published result on success', async () => {
-    const spy = mockFetch({ ok: true, status: 'published', commitHash: 'abc123' })
+    const spy = mockFetch({ ok: true, status: 'proposed', commitHash: 'abc123' })
     const res = await POST(makeRequest(), params('alice'))
     const body = await res.json()
-    expect(body).toEqual({ ok: true, status: 'published', commitHash: 'abc123' })
+    expect(body).toEqual({ ok: true, status: 'proposed', commitHash: 'abc123' })
     spy.mockRestore()
   })
 
@@ -135,7 +135,7 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     expect(body).toEqual({ ok: true, status: 'nothing_to_publish' })
     expect(mocks.listAppliedKnowledgeReviewChanges).not.toHaveBeenCalled()
     expect(spy).toHaveBeenLastCalledWith('http://agent:8080/kb/publish', expect.objectContaining({
-      body: JSON.stringify({}),
+      body: JSON.stringify({ proposalRef: 'refs/heads/proposals/alice/pending' }),
     }))
     spy.mockRestore()
   })
@@ -143,7 +143,7 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
   it('publishes user-only workspace diffs without path hashes', async () => {
     mocks.listAppliedKnowledgeReviewChanges.mockResolvedValue([])
     const spy = mockFetch(
-      { ok: true, status: 'published', commitHash: 'abc123', files: ['Notes/Reviewed.md'] },
+      { ok: true, status: 'proposed', commitHash: 'abc123', files: ['Notes/Reviewed.md'] },
       200,
       { includeFileRead: false },
     )
@@ -151,17 +151,15 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     const res = await POST(makeRequest(), params('alice'))
     const body = await res.json()
 
-    expect(body).toEqual({ ok: true, status: 'published', commitHash: 'abc123', files: ['Notes/Reviewed.md'] })
+    expect(body).toEqual({ ok: true, status: 'proposed', commitHash: 'abc123', files: ['Notes/Reviewed.md'] })
     expect(spy).toHaveBeenLastCalledWith('http://agent:8080/kb/publish', expect.objectContaining({
       body: JSON.stringify({
+        proposalRef: 'refs/heads/proposals/alice/pending',
         paths: ['Notes/Reviewed.md'],
         pathHashes: {},
       }),
     }))
-    expect(mocks.auditEvent).toHaveBeenCalledWith(expect.objectContaining({
-      action: 'knowledge.user_published',
-      metadata: expect.objectContaining({ paths: ['Notes/Reviewed.md'] }),
-    }))
+    expect(mocks.auditEvent).not.toHaveBeenCalled()
     expect(mocks.markKnowledgeReviewChangesPublished).not.toHaveBeenCalled()
     spy.mockRestore()
   })
@@ -170,7 +168,7 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     const spy = mockFetch(
       {
         ok: true,
-        status: 'published',
+        status: 'proposed',
         commitHash: 'abc123',
         files: ['Notes/Reviewed.md', 'Notes/User.md'],
       },
@@ -190,20 +188,19 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     }))
     expect(spy).toHaveBeenLastCalledWith('http://agent:8080/kb/publish', expect.objectContaining({
       body: JSON.stringify({
+        proposalRef: 'refs/heads/proposals/alice/pending',
         paths: ['Notes/Reviewed.md', 'Notes/User.md'],
         pathHashes: { 'Notes/Reviewed.md': 'sha256:reviewed' },
       }),
     }))
-    expect(mocks.markKnowledgeReviewChangesPublished).toHaveBeenCalledWith(expect.objectContaining({
-      paths: ['Notes/Reviewed.md'],
-    }))
+    expect(mocks.markKnowledgeReviewChangesPublished).not.toHaveBeenCalled()
     spy.mockRestore()
   })
 
-  it('publishes drifted applied changes as user overrides and marks them published', async () => {
+  it('publishes drifted applied changes as user overrides without marking them published', async () => {
     const spy = mockFetch({
       ok: true,
-      status: 'published',
+      status: 'proposed',
       commitHash: 'abc123',
       files: ['Notes/Reviewed.md'],
     }, 200, {
@@ -215,18 +212,17 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     expect((await res.json()).ok).toBe(true)
     expect(spy).toHaveBeenLastCalledWith('http://agent:8080/kb/publish', expect.objectContaining({
       body: JSON.stringify({
+        proposalRef: 'refs/heads/proposals/alice/pending',
         paths: ['Notes/Reviewed.md'],
         pathHashes: {},
       }),
     }))
-    expect(mocks.markKnowledgeReviewChangesPublished).toHaveBeenCalledWith(expect.objectContaining({
-      paths: ['Notes/Reviewed.md'],
-    }))
+    expect(mocks.markKnowledgeReviewChangesPublished).not.toHaveBeenCalled()
     spy.mockRestore()
   })
 
   it('returns conflicts without calling the publish endpoint', async () => {
-    const spy = mockFetch({ ok: true, status: 'published' }, 200, {
+    const spy = mockFetch({ ok: true, status: 'proposed' }, 200, {
       diffs: [{ conflicted: true, path: 'Notes/Conflict.md' }],
       includeFileRead: false,
     })
@@ -239,8 +235,8 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     spy.mockRestore()
   })
 
-  it('marks GitHub sync conflicts for BFF-side conflicted diffs', async () => {
-    mocks.createWorkspaceRemoteConfig.mockResolvedValue({
+  it('does not mark broker GitHub sync conflicts for BFF-side conflicted diffs', async () => {
+    mocks.createBrokerRemoteConfig.mockResolvedValue({
       ok: true,
       remote: {
         branch: 'main',
@@ -248,7 +244,7 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
         token: 'token-1',
       },
     })
-    const spy = mockFetch({ ok: true, status: 'published' }, 200, {
+    const spy = mockFetch({ ok: true, status: 'proposed' }, 200, {
       diffs: [{ conflicted: true, path: 'Notes/Conflict.md' }],
       includeFileRead: false,
     })
@@ -256,16 +252,14 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     const res = await POST(makeRequest(), params('alice'))
 
     expect(await res.json()).toEqual({ ok: true, status: 'conflicts' })
-    expect(mocks.updateSyncState).toHaveBeenCalledWith(expect.objectContaining({
-      lastSyncStatus: 'conflicts',
-    }))
+    expect(mocks.updateSyncState).not.toHaveBeenCalled()
     expect(spy).toHaveBeenCalledTimes(1)
     spy.mockRestore()
   })
 
   it('filters hidden dot-prefixed diff paths out of the publish manifest', async () => {
     const spy = mockFetch(
-      { ok: true, status: 'published', commitHash: 'abc123', files: ['Notes/Reviewed.md'] },
+      { ok: true, status: 'proposed', commitHash: 'abc123', files: ['Notes/Reviewed.md'] },
       200,
       { diffs: [{ path: 'Notes/Reviewed.md' }, { path: '.obsidian/workspace.json' }] },
     )
@@ -278,6 +272,7 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     }))
     expect(spy).toHaveBeenLastCalledWith('http://agent:8080/kb/publish', expect.objectContaining({
       body: JSON.stringify({
+        proposalRef: 'refs/heads/proposals/alice/pending',
         paths: ['Notes/Reviewed.md'],
         pathHashes: { 'Notes/Reviewed.md': 'sha256:reviewed' },
       }),
@@ -287,7 +282,7 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
 
   it('returns invalid_reviewed_path when every diff is a hidden dot-prefixed file', async () => {
     const spy = mockFetch(
-      { ok: true, status: 'published', commitHash: 'abc123', files: [] },
+      { ok: true, status: 'proposed', commitHash: 'abc123', files: [] },
       200,
       { diffs: [{ path: '.obsidian/workspace.json' }, { path: '.config/cache.json' }], includeFileRead: false },
     )
@@ -343,7 +338,7 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     mocks.createWorkspaceAgentClient.mockResolvedValue(null)
     const res = await POST(makeRequest(), params('alice'))
     expect(res.status).toBe(409)
-    expect(mocks.createWorkspaceRemoteConfig).not.toHaveBeenCalled()
+    expect(mocks.createBrokerRemoteConfig).not.toHaveBeenCalled()
   })
 
   it('handles agent HTTP error', async () => {
@@ -355,21 +350,13 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     spy.mockRestore()
   })
 
-  it('returns GitHub remote configuration errors without publishing', async () => {
-    mocks.createWorkspaceRemoteConfig.mockResolvedValue({ ok: false, error: 'token failed' })
-    const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
-      ok: true,
-      diffs: [{ path: 'Notes/Reviewed.md' }],
-    }), {
-      headers: { 'Content-Type': 'application/json' },
-    }))
-
+  it('can submit proposals without requesting GitHub credentials', async () => {
+    mocks.createBrokerRemoteConfig.mockRejectedValue(new Error('credentials must not be requested'))
+    const spy = mockFetch({ ok: true, status: 'proposed' })
     const res = await POST(makeRequest(), params('alice'))
-    const body = await res.json()
-
-    expect(body).toEqual({ ok: false, status: 'error', message: 'token failed' })
-    expect(spy).toHaveBeenCalledTimes(1)
-    expect(spy).not.toHaveBeenCalledWith('http://agent:8080/kb/publish', expect.anything())
+    expect((await res.json()).status).toBe('proposed')
+    expect(mocks.createBrokerRemoteConfig).not.toHaveBeenCalled()
+    expect(JSON.stringify(spy.mock.calls)).not.toContain('token-1')
     spy.mockRestore()
   })
 
@@ -400,8 +387,8 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     spy.mockRestore()
   })
 
-  it('passes GitHub remote credentials to the workspace agent when configured', async () => {
-    mocks.createWorkspaceRemoteConfig.mockResolvedValue({
+  it('never obtains or forwards GitHub credentials when submitting a proposal', async () => {
+    mocks.createBrokerRemoteConfig.mockResolvedValue({
       ok: true,
       remote: {
         branch: 'main',
@@ -409,32 +396,25 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
         token: 'token-1',
       },
     })
-    const spy = mockFetch({ ok: true, status: 'published', githubStatus: 'pushed' })
+    const spy = mockFetch({ ok: true, status: 'proposed', githubStatus: 'pushed' })
 
     const res = await POST(makeRequest(), params('alice'))
     const body = await res.json()
 
-    expect(body.status).toBe('published')
+    expect(body.status).toBe('proposed')
     expect(spy).toHaveBeenCalledWith('http://agent:8080/kb/publish', expect.objectContaining({
       body: JSON.stringify({
-        github: {
-          branch: 'main',
-          repoCloneUrl: 'https://github.com/acme/kb.git',
-          token: 'token-1',
-        },
+        proposalRef: 'refs/heads/proposals/alice/pending',
         paths: ['Notes/Reviewed.md'],
         pathHashes: { 'Notes/Reviewed.md': 'sha256:reviewed' },
       }),
     }))
-    expect(mocks.updateSyncState).toHaveBeenCalledWith(expect.objectContaining({
-      lastError: null,
-      lastSyncStatus: 'success',
-    }))
+    expect(mocks.updateSyncState).not.toHaveBeenCalled()
     spy.mockRestore()
   })
 
-  it('marks GitHub publish conflicts', async () => {
-    mocks.createWorkspaceRemoteConfig.mockResolvedValue({
+  it('does not mark broker GitHub publish conflicts', async () => {
+    mocks.createBrokerRemoteConfig.mockResolvedValue({
       ok: true,
       remote: {
         branch: 'main',
@@ -448,15 +428,12 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     const body = await res.json()
 
     expect(body.status).toBe('conflicts')
-    expect(mocks.updateSyncState).toHaveBeenCalledWith(expect.objectContaining({
-      lastError: 'merge conflict',
-      lastSyncStatus: 'conflicts',
-    }))
+    expect(mocks.updateSyncState).not.toHaveBeenCalled()
     spy.mockRestore()
   })
 
-  it('marks GitHub publish errors from the agent response', async () => {
-    mocks.createWorkspaceRemoteConfig.mockResolvedValue({
+  it('does not mark broker GitHub publish errors from the agent response', async () => {
+    mocks.createBrokerRemoteConfig.mockResolvedValue({
       ok: true,
       remote: {
         branch: 'main',
@@ -470,15 +447,12 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     const body = await res.json()
 
     expect(body.status).toBe('push_rejected')
-    expect(mocks.updateSyncState).toHaveBeenCalledWith(expect.objectContaining({
-      lastError: 'fetch first',
-      lastSyncStatus: 'error',
-    }))
+    expect(mocks.updateSyncState).not.toHaveBeenCalled()
     spy.mockRestore()
   })
 
-  it('marks GitHub publish HTTP errors', async () => {
-    mocks.createWorkspaceRemoteConfig.mockResolvedValue({
+  it('does not mark broker GitHub publish HTTP errors', async () => {
+    mocks.createBrokerRemoteConfig.mockResolvedValue({
       ok: true,
       remote: {
         branch: 'main',
@@ -492,10 +466,7 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     const body = await res.json()
 
     expect(body).toEqual({ ok: false, status: 'error', message: 'agent failed' })
-    expect(mocks.updateSyncState).toHaveBeenCalledWith(expect.objectContaining({
-      lastError: 'agent failed',
-      lastSyncStatus: 'error',
-    }))
+    expect(mocks.updateSyncState).not.toHaveBeenCalled()
     spy.mockRestore()
   })
 
@@ -503,7 +474,7 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     mocks.listAppliedKnowledgeReviewChanges.mockResolvedValue([
       { kbPath: 'Notes/Reviewed.md', operation: 'delete', appliedHash: 'sha256:gone' },
     ])
-    const spy = mockFetch({ ok: true, status: 'published', commitHash: 'abc' }, 200, {
+    const spy = mockFetch({ ok: true, status: 'proposed', commitHash: 'abc' }, 200, {
       fileRead: { body: { ok: false, error: 'not_found' }, status: 404 },
     })
 
@@ -513,6 +484,7 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     expect(body.ok).toBe(true)
     expect(spy).toHaveBeenLastCalledWith('http://agent:8080/kb/publish', expect.objectContaining({
       body: JSON.stringify({
+        proposalRef: 'refs/heads/proposals/alice/pending',
         paths: ['Notes/Reviewed.md'],
         pathHashes: { 'Notes/Reviewed.md': 'deleted' },
       }),
@@ -526,7 +498,7 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     ])
     const spy = mockFetch({
       ok: true,
-      status: 'published',
+      status: 'proposed',
       commitHash: 'abc123',
       files: ['Notes/Reviewed.md'],
     }, 200, {
@@ -538,13 +510,12 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     expect((await res.json()).ok).toBe(true)
     expect(spy).toHaveBeenLastCalledWith('http://agent:8080/kb/publish', expect.objectContaining({
       body: JSON.stringify({
+        proposalRef: 'refs/heads/proposals/alice/pending',
         paths: ['Notes/Reviewed.md'],
         pathHashes: {},
       }),
     }))
-    expect(mocks.markKnowledgeReviewChangesPublished).toHaveBeenCalledWith(expect.objectContaining({
-      paths: ['Notes/Reviewed.md'],
-    }))
+    expect(mocks.markKnowledgeReviewChangesPublished).not.toHaveBeenCalled()
     spy.mockRestore()
   })
 
@@ -562,16 +533,17 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     mocks.listAppliedKnowledgeReviewChanges.mockResolvedValue([
       { kbPath: 'Notes/Reviewed.md', operation: 'update', appliedHash: null },
     ])
-    const spy = mockFetch({ ok: true, status: 'published' }, 200, { includeFileRead: false })
+    const spy = mockFetch({ ok: true, status: 'proposed' }, 200, { includeFileRead: false })
 
     const res = await POST(makeRequest(), params('alice'))
     const body = await res.json()
 
-    expect(body).toEqual({ ok: true, status: 'published' })
+    expect(body).toEqual({ ok: true, status: 'proposed' })
     // Nothing to attest: the read would be wasted, so it is skipped entirely.
     expect(spy).not.toHaveBeenCalledWith('http://agent:8080/files/read', expect.anything())
     expect(spy).toHaveBeenLastCalledWith('http://agent:8080/kb/publish', expect.objectContaining({
       body: JSON.stringify({
+        proposalRef: 'refs/heads/proposals/alice/pending',
         paths: ['Notes/Reviewed.md'],
         pathHashes: {},
       }),
@@ -598,7 +570,7 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
       }))
       .mockResolvedValue(new Response(JSON.stringify({
         ok: true,
-        status: 'published',
+        status: 'proposed',
         commitHash: 'abc123',
         files: ['Notes/Reviewed.md'],
       }), {
@@ -613,9 +585,7 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
       paths: ['Notes/Reviewed.md'],
       userId: 'alice-owner',
     })
-    expect(mocks.markKnowledgeReviewChangesPublished).toHaveBeenCalledWith(expect.objectContaining({
-      userId: 'alice-owner',
-    }))
+    expect(mocks.markKnowledgeReviewChangesPublished).not.toHaveBeenCalled()
     spy.mockRestore()
   })
 
@@ -648,7 +618,7 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, hash: 'sha256:reviewed' }), {
         headers: { 'Content-Type': 'application/json' },
       }))
-      .mockResolvedValue(new Response(JSON.stringify({ ok: true, status: 'published', commitHash: 'abc123' }), {
+      .mockResolvedValue(new Response(JSON.stringify({ ok: true, status: 'proposed', commitHash: 'abc123' }), {
         headers: { 'Content-Type': 'application/json' },
       }))
 
@@ -663,6 +633,7 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     expect(body.ok).toBe(true)
     expect(spy).toHaveBeenLastCalledWith('http://agent:8080/kb/publish', expect.objectContaining({
       body: JSON.stringify({
+        proposalRef: 'refs/heads/proposals/alice/pending',
         paths: ['Notes/Reviewed.md'],
         pathHashes: { 'Notes/Reviewed.md': 'sha256:reviewed' },
       }),

@@ -564,6 +564,7 @@ describe('/api/internal/providers/[provider]/[...path]', () => {
           authorization: 'Bearer valid-token',
           connection: 'x-custom, keep-alive',
           'x-custom': 'strip me',
+          'x-arche-ingress': 'i'.repeat(32),
           'keep-alive': 'timeout=5',
         },
       }),
@@ -574,6 +575,7 @@ describe('/api/internal/providers/[provider]/[...path]', () => {
     const sentHeaders = fetchMock.mock.calls[0][1].headers as Headers
     expect(sentHeaders.get('connection')).toBeNull()
     expect(sentHeaders.get('x-custom')).toBeNull()
+    expect(sentHeaders.get('x-arche-ingress')).toBeNull()
     expect(sentHeaders.get('keep-alive')).toBeNull()
     expect(sentHeaders.get('accept-encoding')).toBe('identity')
   })

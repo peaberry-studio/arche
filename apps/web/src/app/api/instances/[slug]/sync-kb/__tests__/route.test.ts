@@ -9,7 +9,7 @@ const {
   mockValidateDesktopToken,
   mockIsWorkspaceReachable,
   mockCreateWorkspaceAgentClient,
-  mockCreateWorkspaceRemoteConfig,
+  mockSyncKbGithub,
   mockUpdateSyncState,
 } = vi.hoisted(() => ({
   mockGetRuntimeCapabilities: vi.fn(),
@@ -19,7 +19,7 @@ const {
   mockValidateDesktopToken: vi.fn(),
   mockIsWorkspaceReachable: vi.fn(),
   mockCreateWorkspaceAgentClient: vi.fn(),
-  mockCreateWorkspaceRemoteConfig: vi.fn(),
+  mockSyncKbGithub: vi.fn(),
   mockUpdateSyncState: vi.fn(),
 }))
 
@@ -37,12 +37,7 @@ vi.mock('@/lib/runtime/workspace-host', () => ({
 vi.mock('@/lib/workspace-agent/client', () => ({
   createWorkspaceAgentClient: mockCreateWorkspaceAgentClient,
 }))
-vi.mock('@/lib/services', () => ({
-  kbGithubRemoteService: {
-    createWorkspaceRemoteConfig: mockCreateWorkspaceRemoteConfig,
-    updateSyncState: mockUpdateSyncState,
-  },
-}))
+vi.mock('@/lib/git/kb-github-broker', () => ({ syncKbGithub: mockSyncKbGithub }))
 
 import { GET, POST } from '../route'
 
@@ -76,7 +71,7 @@ describe('POST /api/instances/[slug]/sync-kb', () => {
       baseUrl: 'http://agent:8080',
       authHeader: 'Bearer tok',
     })
-    mockCreateWorkspaceRemoteConfig.mockResolvedValue({ ok: true, remote: null })
+    mockSyncKbGithub.mockResolvedValue({ ok: true, configured: false, incoming: false })
     mockUpdateSyncState.mockResolvedValue(undefined)
   })
 
@@ -107,7 +102,7 @@ describe('POST /api/instances/[slug]/sync-kb', () => {
     mockCreateWorkspaceAgentClient.mockResolvedValue(null)
     const res = await POST(makeRequest('POST'), { params: Promise.resolve({ slug: 'alice' }) })
     expect(res.status).toBe(409)
-    expect(mockCreateWorkspaceRemoteConfig).not.toHaveBeenCalled()
+    expect(mockSyncKbGithub).not.toHaveBeenCalled()
   })
 
   it('handles agent HTTP error', async () => {
@@ -120,7 +115,7 @@ describe('POST /api/instances/[slug]/sync-kb', () => {
   })
 
   it('returns GitHub remote configuration errors before contacting the agent endpoint', async () => {
-    mockCreateWorkspaceRemoteConfig.mockResolvedValue({ ok: false, error: 'token failed' })
+    mockSyncKbGithub.mockResolvedValue({ ok: false, error: 'token failed' })
     const spy = vi.spyOn(globalThis, 'fetch')
 
     const res = await POST(makeRequest('POST'), { params: Promise.resolve({ slug: 'alice' }) })
@@ -128,7 +123,7 @@ describe('POST /api/instances/[slug]/sync-kb', () => {
 
     expect(body).toEqual({ ok: false, status: 'error', message: 'token failed' })
     expect(mockCreateWorkspaceAgentClient.mock.invocationCallOrder[0]).toBeLessThan(
-      mockCreateWorkspaceRemoteConfig.mock.invocationCallOrder[0],
+      mockSyncKbGithub.mock.invocationCallOrder[0],
     )
     expect(spy).not.toHaveBeenCalled()
     spy.mockRestore()
@@ -161,39 +156,19 @@ describe('POST /api/instances/[slug]/sync-kb', () => {
     spy.mockRestore()
   })
 
-  it('passes GitHub remote credentials to the workspace agent when configured', async () => {
-    mockCreateWorkspaceRemoteConfig.mockResolvedValue({
-      ok: true,
-      remote: {
-        branch: 'main',
-        repoCloneUrl: 'https://github.com/acme/kb.git',
-        token: 'token-1',
-      },
-    })
-    const spy = mockFetch({ ok: true, status: 'synced', githubStatus: 'pulled' })
-
+  it('fetches GitHub in the BFF and sends only an incoming-branch flag to the workspace', async () => {
+    mockSyncKbGithub.mockResolvedValue({ ok: true, configured: true, incoming: true })
+    const spy = mockFetch({ ok: true, status: 'synced' })
     const res = await POST(makeRequest('POST'), { params: Promise.resolve({ slug: 'alice' }) })
-    const body = await res.json()
-
-    expect(body.status).toBe('synced')
-    expect(spy).toHaveBeenCalledWith('http://agent:8080/kb/sync', expect.objectContaining({
-      body: JSON.stringify({
-        github: {
-          branch: 'main',
-          repoCloneUrl: 'https://github.com/acme/kb.git',
-          token: 'token-1',
-        },
-      }),
-    }))
-    expect(mockUpdateSyncState).toHaveBeenCalledWith(expect.objectContaining({
-      lastError: null,
-      lastSyncStatus: 'success',
-    }))
+    expect((await res.json()).status).toBe('synced')
+    expect(mockSyncKbGithub).toHaveBeenCalledWith('fetch', 'u1')
+    expect(spy).toHaveBeenCalledWith('http://agent:8080/kb/sync', expect.objectContaining({ body: JSON.stringify({ incomingGithub: true }) }))
+    expect(JSON.stringify(spy.mock.calls)).not.toContain('token-1')
     spy.mockRestore()
   })
 
-  it('marks GitHub sync conflicts', async () => {
-    mockCreateWorkspaceRemoteConfig.mockResolvedValue({
+  it('does not mark broker sync from agent conflicts', async () => {
+    mockSyncKbGithub.mockResolvedValue({
       ok: true,
       remote: {
         branch: 'main',
@@ -207,15 +182,12 @@ describe('POST /api/instances/[slug]/sync-kb', () => {
     const body = await res.json()
 
     expect(body.status).toBe('synced')
-    expect(mockUpdateSyncState).toHaveBeenCalledWith(expect.objectContaining({
-      lastError: 'merge conflict',
-      lastSyncStatus: 'conflicts',
-    }))
+    expect(mockUpdateSyncState).not.toHaveBeenCalled()
     spy.mockRestore()
   })
 
-  it('marks GitHub sync errors from agent responses', async () => {
-    mockCreateWorkspaceRemoteConfig.mockResolvedValue({
+  it('does not mark broker sync from agent errors from agent responses', async () => {
+    mockSyncKbGithub.mockResolvedValue({
       ok: true,
       remote: {
         branch: 'main',
@@ -229,15 +201,12 @@ describe('POST /api/instances/[slug]/sync-kb', () => {
     const body = await res.json()
 
     expect(body.status).toBe('error')
-    expect(mockUpdateSyncState).toHaveBeenCalledWith(expect.objectContaining({
-      lastError: 'pull failed',
-      lastSyncStatus: 'error',
-    }))
+    expect(mockUpdateSyncState).not.toHaveBeenCalled()
     spy.mockRestore()
   })
 
-  it('marks GitHub sync HTTP errors', async () => {
-    mockCreateWorkspaceRemoteConfig.mockResolvedValue({
+  it('does not mark broker sync from agent HTTP errors', async () => {
+    mockSyncKbGithub.mockResolvedValue({
       ok: true,
       remote: {
         branch: 'main',
@@ -251,10 +220,7 @@ describe('POST /api/instances/[slug]/sync-kb', () => {
     const body = await res.json()
 
     expect(body).toEqual({ ok: false, status: 'error', message: 'agent failed' })
-    expect(mockUpdateSyncState).toHaveBeenCalledWith(expect.objectContaining({
-      lastError: 'agent failed',
-      lastSyncStatus: 'error',
-    }))
+    expect(mockUpdateSyncState).not.toHaveBeenCalled()
     spy.mockRestore()
   })
 })
@@ -271,7 +237,7 @@ describe('GET /api/instances/[slug]/sync-kb', () => {
       baseUrl: 'http://agent:8080',
       authHeader: 'Bearer tok',
     })
-    mockCreateWorkspaceRemoteConfig.mockResolvedValue({ ok: true, remote: null })
+    mockSyncKbGithub.mockResolvedValue({ ok: true, configured: false, incoming: false })
     mockUpdateSyncState.mockResolvedValue(undefined)
   })
 

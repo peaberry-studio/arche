@@ -17,11 +17,11 @@ vi.mock('@/lib/prisma', () => ({
   prisma: { instance: { findUnique: (...args: unknown[]) => mockFindUnique(...args) } },
 }))
 
-const mockCreateWorkspaceRemoteConfig = vi.fn()
+const mockCreateBrokerRemoteConfig = vi.fn()
 const mockUpdateSyncState = vi.fn()
 vi.mock('@/lib/services', () => ({
   kbGithubRemoteService: {
-    createWorkspaceRemoteConfig: (...args: unknown[]) => mockCreateWorkspaceRemoteConfig(...args),
+    createBrokerRemoteConfig: (...args: unknown[]) => mockCreateBrokerRemoteConfig(...args),
     updateSyncState: (...args: unknown[]) => mockUpdateSyncState(...args),
   },
 }))
@@ -100,7 +100,7 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     vi.resetModules()
     vi.stubGlobal('fetch', vi.fn())
     mockIsWorkspaceReachable.mockResolvedValue(true)
-    mockCreateWorkspaceRemoteConfig.mockResolvedValue({ ok: true, remote: null })
+    mockCreateBrokerRemoteConfig.mockResolvedValue({ ok: true, remote: null })
     mockUpdateSyncState.mockResolvedValue(undefined)
     mockFindIdBySlug.mockResolvedValue({ id: '1' })
     mockListAppliedKnowledgeReviewChanges.mockResolvedValue([{ kbPath: 'file1.md', operation: 'update', appliedHash: 'sha256:file1' }])
@@ -202,19 +202,19 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     })
     mockFetchResponse({
       ok: true,
-      status: 'published',
+      status: 'proposed',
       commitHash: 'abc1234',
       files: ['file1.md', 'file2.md']
     })
     const { status, body } = await callPOST('alice')
     expect(status).toBe(200)
     expect(body.ok).toBe(true)
-    expect(body.status).toBe('published')
+    expect(body.status).toBe('proposed')
     expect(body.commitHash).toBe('abc1234')
     expect(body.files).toEqual(['file1.md', 'file2.md'])
   })
 
-  it('publishes reviewed and user-only paths and records the resulting commit', async () => {
+  it('publishes reviewed and user-only paths without marking them published before approval', async () => {
     mockGetAuthenticatedUser.mockResolvedValue(session('alice'))
     mockFindUnique.mockResolvedValue(instance())
     mockCreateWorkspaceAgentClient.mockResolvedValue({
@@ -224,7 +224,7 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     mockListAppliedKnowledgeReviewChanges.mockResolvedValue([{ id: 'change-1', kbPath: 'reviewed.md', operation: 'update', appliedHash: 'sha256:reviewed' }])
     mockFetchResponse({
       ok: true,
-      status: 'published',
+      status: 'proposed',
       commitHash: 'abc1234',
       files: ['reviewed.md', 'unreviewed.md'],
     }, 200, ['reviewed.md', 'unreviewed.md'], 'sha256:reviewed')
@@ -232,23 +232,19 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     const { status, body } = await callPOST('alice')
 
     expect(status).toBe(200)
-    expect(body).toMatchObject({ ok: true, status: 'published', commitHash: 'abc1234' })
+    expect(body).toMatchObject({ ok: true, status: 'proposed', commitHash: 'abc1234' })
     expect(mockListAppliedKnowledgeReviewChanges).toHaveBeenCalledWith({
       paths: ['reviewed.md', 'unreviewed.md'],
       userId: '1',
     })
     expect(global.fetch).toHaveBeenLastCalledWith('http://agent/kb/publish', expect.objectContaining({
       body: JSON.stringify({
+        proposalRef: 'refs/heads/proposals/alice/pending',
         paths: ['reviewed.md', 'unreviewed.md'],
         pathHashes: { 'reviewed.md': 'sha256:reviewed' },
       }),
     }))
-    expect(mockMarkKnowledgeReviewChangesPublished).toHaveBeenCalledWith({
-      actor: '1',
-      commitSha: 'abc1234',
-      paths: ['reviewed.md'],
-      userId: '1',
-    })
+    expect(mockMarkKnowledgeReviewChangesPublished).not.toHaveBeenCalled()
   })
 
   it('returns push_rejected when push fails with rejected', async () => {

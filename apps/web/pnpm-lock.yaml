@@ -170,6 +170,9 @@ importers:
       dompurify:
         specifier: 3.4.17
         version: 3.4.17
+      dotenv:
+        specifier: 16.6.1
+        version: 16.6.1
       fflate:
         specifier: 0.8.3
         version: 0.8.3
@@ -197,6 +200,9 @@ importers:
       pg:
         specifier: 8.18.0
         version: 8.18.0
+      prisma:
+        specifier: 7.3.0
+        version: 7.3.0(@types/node@20.19.30)(@types/react@19.2.10)(better-sqlite3@12.6.2)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(typescript@5.9.3)
       puppeteer-core:
         specifier: 25.3.0
         version: 25.3.0
@@ -245,6 +251,9 @@ importers:
       tailwindcss-animate:
         specifier: 1.0.7
         version: 1.0.7(tailwindcss@4.1.18)
+      tsx:
+        specifier: 4.21.0
+        version: 4.21.0
       undici:
         specifier: 7.29.1
         version: 7.29.1
@@ -315,9 +324,6 @@ importers:
       '@vitest/coverage-v8':
         specifier: 4.1.8
         version: 4.1.8(vitest@4.1.8)
-      dotenv:
-        specifier: 16.6.1
-        version: 16.6.1
       eslint:
         specifier: 9.39.2
         version: 9.39.2(jiti@2.6.1)
@@ -330,15 +336,9 @@ importers:
       playwright:
         specifier: 1.59.1
         version: 1.59.1
-      prisma:
-        specifier: 7.3.0
-        version: 7.3.0(@types/node@20.19.30)(@types/react@19.2.10)(better-sqlite3@12.6.2)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(typescript@5.9.3)
       tailwindcss:
         specifier: 4.1.18
         version: 4.1.18
-      tsx:
-        specifier: 4.21.0
-        version: 4.21.0
       typescript:
         specifier: 5.9.3
         version: 5.9.3

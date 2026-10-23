@@ -28,6 +28,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write
+      attestations: write
       pull-requests: write
 
     steps:
@@ -89,9 +91,9 @@ jobs:
 
           if [[ "${{ github.event_name }}" == "repository_dispatch" ]] || [[ -n "${{ github.event.inputs.pr_number }}" ]]; then
             PR_NUM="${{ steps.source.outputs.pr_number }}"
-            echo "PR_NUMBER=$PR_NUM" >> $GITHUB_OUTPUT
-            echo "PR_TAG=pr-$PR_NUM" >> $GITHUB_OUTPUT
-            echo "MODE=pr" >> $GITHUB_OUTPUT
+            echo "PR_NUMBER=$PR_NUM" >> "$GITHUB_OUTPUT"
+            echo "PR_TAG=pr-$PR_NUM" >> "$GITHUB_OUTPUT"
+            echo "MODE=pr" >> "$GITHUB_OUTPUT"
             echo "Building PR workspace image with tag: pr-$PR_NUM$ARCH_SUFFIX"
           elif [[ "${GITHUB_REF_TYPE}" == "tag" ]] && [[ "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "RELEASE_TAG=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
@@ -122,14 +124,15 @@ jobs:
         run: node --test infra/workspace-image/tests/runtime-infrastructure.test.mjs
 
       - name: Build and push pinned legacy image
+        id: legacy
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: infra/workspace-image
           file: infra/workspace-image/Containerfile
           push: true
           platforms: linux/${{ matrix.arch }}
-          provenance: false
-          sbom: false
+          provenance: mode=max
+          sbom: true
           build-args: |
             OPENCODE_VERSION=${{ steps.opencode.outputs.OPENCODE_V1_VERSION }}
           tags: |
@@ -140,14 +143,15 @@ jobs:
             ${{ steps.tags.outputs.MODE != 'pr' && steps.tags.outputs.DEFAULT_ARCH_TAGS == 'true' && format('{0}/{1}:opencode-v1-1.18.18', env.REGISTRY, env.IMAGE_NAME) || '' }}
 
       - name: Build and push image
+        id: image
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: infra/workspace-image
           file: infra/workspace-image/Containerfile
           push: true
           platforms: linux/${{ matrix.arch }}
-          provenance: false
-          sbom: false
+          provenance: mode=max
+          sbom: true
           build-args: |
             OPENCODE_VERSION=${{ steps.opencode.outputs.OPENCODE_VERSION }}
           tags: |
@@ -159,6 +163,22 @@ jobs:
             ${{ steps.tags.outputs.MODE == 'main' && format('{0}/{1}:{2}{3}', env.REGISTRY, env.IMAGE_NAME, steps.tags.outputs.SHA_TAG, steps.tags.outputs.ARCH_SUFFIX) || '' }}
             ${{ steps.tags.outputs.MODE == 'main' && steps.tags.outputs.DEFAULT_ARCH_TAGS == 'true' && format('{0}/{1}:latest', env.REGISTRY, env.IMAGE_NAME) || '' }}
             ${{ steps.tags.outputs.MODE == 'main' && steps.tags.outputs.DEFAULT_ARCH_TAGS == 'true' && format('{0}/{1}:{2}', env.REGISTRY, env.IMAGE_NAME, steps.tags.outputs.SHA_TAG) || '' }}
+
+      - name: Attest image provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.image.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false
+
+      - name: Attest legacy image provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.legacy.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false
 
       - name: Comment PR with image info
         if: steps.tags.outputs.MODE == 'pr' && matrix.arch == 'amd64'

@@ -1,6 +1,6 @@
 module github.com/peaberry-studio/arche/infra/one-click
 
-go 1.24.0
+go 1.27.3
 
 require (
 	github.com/charmbracelet/lipgloss v1.1.0

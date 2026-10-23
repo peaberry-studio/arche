@@ -13,6 +13,7 @@ import {
 import { buildConfigWithOAuth } from '@/lib/connectors/oauth-config'
 import { validateConnectorType } from '@/lib/connectors/validators'
 import { getPublicBaseUrl } from '@/lib/http'
+import { checkRateLimit } from '@/lib/rate-limit'
 import { getSession } from '@/lib/runtime/session'
 import { connectorService } from '@/lib/services'
 
@@ -53,6 +54,10 @@ function buildRedirect(
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const baseUrl = getPublicBaseUrl(request.headers, request.nextUrl.origin)
   const session = await getSession()
+  const limit = checkRateLimit(`oauth-callback:${session?.sessionId ?? 'anonymous'}`, 60, 60_000)
+  if (!limit.allowed) {
+    return NextResponse.json({ error: 'rate_limited' }, { status: 429, headers: { 'Retry-After': '60' } })
+  }
   const code = request.nextUrl.searchParams.get('code')
   const state = request.nextUrl.searchParams.get('state')
   const providerError = request.nextUrl.searchParams.get('error')

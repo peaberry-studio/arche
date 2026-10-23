@@ -1,6 +1,6 @@
 import { timingSafeEqual } from 'node:crypto'
 
-import { auditEvent } from '@/lib/auth'
+import { createEventStrict as auditEvent } from '@/lib/services/audit'
 import { serveKbGit } from '@/lib/git/kb-http-backend'
 import { getKbContentRoot } from '@/lib/runtime/paths'
 import { instanceService } from '@/lib/services'
@@ -23,14 +23,12 @@ async function handle(request: Request, context: { params: Promise<{ slug: strin
     return Response.json({ error: 'unauthorized' }, { status: 401 })
   }
   try {
-    const response = await serveKbGit(request, getKbContentRoot(), path.join('/'))
-    if (request.method === 'POST') {
-      await auditEvent({ action: 'kb.workspace_push', metadata: { slug, status: response.status } })
-    }
-    return response
+    return await serveKbGit(request, getKbContentRoot(), path.join('/'), slug, async (event) => {
+      await auditEvent({ action: 'kb.workspace_push', metadata: { slug, ...event } })
+    })
   } catch (error) {
     console.error('[kb] Git backend failed', { slug, error })
-    return Response.json({ error: 'git_backend_failed' }, { status: 502 })
+    return Response.json({ error: error instanceof Error && error.message === 'kb_busy' ? 'kb_busy' : 'push_rejected' }, { status: error instanceof Error && error.message === 'kb_busy' ? 429 : 400 })
   }
 }
 

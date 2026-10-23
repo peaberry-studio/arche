@@ -7,13 +7,14 @@ on:
 jobs:
   build-macos:
     name: Build macOS (${{ matrix.arch }})
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
     strategy:
       fail-fast: false
       matrix:
         include:
           - runner: macos-14
             arch: arm64
-          - runner: macos-13
+          - runner: macos-15-intel
             arch: x64
 
     runs-on: ${{ matrix.runner }}
@@ -23,10 +24,9 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version-file: .node-version
 
@@ -34,7 +34,7 @@ jobs:
         run: corepack enable
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: infra/workspace-image/workspace-agent/go.mod
 
@@ -84,7 +84,7 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           node -e "
             const pkg = require('./package.json');
-            pkg.version = '$VERSION';
+            pkg.version = process.env.GITHUB_REF_NAME.slice(1);
             require('fs').writeFileSync('./package.json', JSON.stringify(pkg, null, 2) + '\n');
           "
           echo "Desktop version set to $VERSION"
@@ -160,7 +160,7 @@ jobs:
           pnpm exec electron-builder --mac --${{ matrix.arch }} --publish never --config electron-builder.config.js
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: desktop-macos-${{ matrix.arch }}
           path: |
@@ -178,7 +178,7 @@ jobs:
 
     steps:
       - name: Download all build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: artifacts
           pattern: desktop-macos-*
@@ -201,7 +201,7 @@ jobs:
           ls -lh artifacts/
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: artifacts/*
           generate_release_notes: true

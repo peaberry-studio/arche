@@ -394,3 +394,19 @@ func TestGeneratedScriptsLoadEnvAsData(t *testing.T) {
 		}
 	}
 }
+
+func TestBootstrapUsesSignedDistributionPackages(t *testing.T) {
+	script := renderBootstrapScript(input{email: "test@example.com", version: "v1.2.3"})
+	if strings.Contains(script, "get.docker.com") {
+		t.Fatal("remote shell installer must not run")
+	}
+	if !strings.Contains(script, "apt-get install -y docker.io docker-compose-v2") {
+		t.Fatal("expected distribution package installation")
+	}
+	if !strings.Contains(script, "./start.sh init") {
+		t.Fatal("bootstrap must initialize users explicitly")
+	}
+	if !strings.Contains(renderCompose(), `!PathPrefix("/api/internal")`) {
+		t.Fatal("public router exposes internal APIs")
+	}
+}

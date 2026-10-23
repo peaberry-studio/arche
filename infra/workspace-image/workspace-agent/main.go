@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -12,7 +13,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -219,33 +219,16 @@ type publishKbResponse struct {
 	GithubMessage string   `json:"githubMessage,omitempty"`
 }
 
-type kbGithubRemoteRequest struct {
-	Branch       string `json:"branch,omitempty"`
-	RepoCloneUrl string `json:"repoCloneUrl"`
-	Token        string `json:"token"`
-}
-
 type kbSyncRequest struct {
-	Github *kbGithubRemoteRequest `json:"github,omitempty"`
+	Github         json.RawMessage `json:"github,omitempty"`
+	IncomingGithub bool            `json:"incomingGithub,omitempty"`
 }
 
 type kbPublishRequest struct {
-	Github     *kbGithubRemoteRequest `json:"github,omitempty"`
-	Paths      []string               `json:"paths"`
-	PathHashes map[string]string      `json:"pathHashes"`
-}
-
-type kbGithubRemoteConfig struct {
-	Branch       string
-	RepoCloneUrl string
-	Token        string
-}
-
-type githubSyncResult struct {
-	Ok        bool
-	Status    string
-	Message   string
-	Conflicts []string
+	Github      json.RawMessage   `json:"github,omitempty"`
+	ProposalRef string            `json:"proposalRef,omitempty"`
+	Paths       []string          `json:"paths"`
+	PathHashes  map[string]string `json:"pathHashes"`
 }
 
 func main() {
@@ -306,12 +289,26 @@ func main() {
 	}
 }
 
+var authenticatedRequestSlots = make(chan struct{}, 32)
+
 func (s *server) withAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		username, password, ok := r.BasicAuth()
-		if !ok || username != s.username || password != s.password {
+		actualUser, expectedUser := sha256.Sum256([]byte(username)), sha256.Sum256([]byte(s.username))
+		actualPassword, expectedPassword := sha256.Sum256([]byte(password)), sha256.Sum256([]byte(s.password))
+		validUser := subtle.ConstantTimeCompare(actualUser[:], expectedUser[:])
+		validPassword := subtle.ConstantTimeCompare(actualPassword[:], expectedPassword[:])
+		if !ok || validUser&validPassword != 1 {
 			w.Header().Set("WWW-Authenticate", "Basic")
 			writeError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		select {
+		case authenticatedRequestSlots <- struct{}{}:
+			defer func() { <-authenticatedRequestSlots }()
+		default:
+			w.Header().Set("Retry-After", "1")
+			writeError(w, http.StatusTooManyRequests, "busy")
 			return
 		}
 		next(w, r)
@@ -1305,13 +1302,8 @@ func (s *server) handleKbSync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	githubRemote, hasGithubRemote, githubConfigErr := normalizeGithubRemote(req.Github)
-	if githubConfigErr != "" {
-		writeJSON(w, http.StatusOK, syncKbResponse{
-			Ok:      false,
-			Status:  "error",
-			Message: githubConfigErr,
-		})
+	if len(req.Github) > 0 && string(req.Github) != "null" {
+		writeError(w, http.StatusBadRequest, "github_credentials_forbidden")
 		return
 	}
 	_, _, remoteCode, remoteExecErr := runCmd(r.Context(), s.workspace, []string{
@@ -1348,6 +1340,9 @@ func (s *server) handleKbSync(w http.ResponseWriter, r *http.Request) {
 	}
 
 	mergeOk, conflicts, mergeErrMsg := s.fetchAndMergeKb(r.Context())
+	if mergeOk && req.IncomingGithub {
+		mergeOk, _, conflicts, mergeErrMsg = s.mergeRemoteTrackingBranch(r.Context(), "kb", "arche-github")
+	}
 
 	if stashed {
 		popConflicts, popErr := s.popWorkspaceStash(r.Context())
@@ -1371,32 +1366,6 @@ func (s *server) handleKbSync(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if mergeOk {
-		if hasGithubRemote {
-			githubResult := s.syncGithubRemote(r.Context(), githubRemote)
-			if !githubResult.Ok {
-				status := "error"
-				if githubResult.Status == "conflicts" {
-					status = "conflicts"
-				}
-				writeJSON(w, http.StatusOK, syncKbResponse{
-					Ok:            status == "conflicts",
-					Status:        status,
-					Message:       githubResult.Message,
-					Conflicts:     githubResult.Conflicts,
-					GithubStatus:  githubResult.Status,
-					GithubMessage: githubResult.Message,
-				})
-				return
-			}
-
-			writeJSON(w, http.StatusOK, syncKbResponse{
-				Ok:           true,
-				Status:       "synced",
-				Message:      "KB synchronized successfully",
-				GithubStatus: githubResult.Status,
-			})
-			return
-		}
 
 		writeJSON(w, http.StatusOK, syncKbResponse{
 			Ok:      true,
@@ -1449,13 +1418,8 @@ func (s *server) handleKbPublish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	githubRemote, hasGithubRemote, githubConfigErr := normalizeGithubRemote(req.Github)
-	if githubConfigErr != "" {
-		writeJSON(w, http.StatusOK, publishKbResponse{
-			Ok:      false,
-			Status:  "error",
-			Message: githubConfigErr,
-		})
+	if len(req.Github) > 0 && string(req.Github) != "null" {
+		writeError(w, http.StatusBadRequest, "github_credentials_forbidden")
 		return
 	}
 	// A reviewed-path manifest is only required when there are workspace
@@ -1521,10 +1485,9 @@ func (s *server) handleKbPublish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	committedLocalChanges := false
 	if len(req.Paths) > 0 {
 		var commitErrMsg string
-		committedLocalChanges, _, commitErrMsg = s.commitWorkspacePathsIfNeeded(r.Context(), req.Paths, req.PathHashes)
+		_, _, commitErrMsg = s.commitWorkspacePathsIfNeeded(r.Context(), req.Paths, req.PathHashes)
 		if commitErrMsg != "" {
 			writeJSON(w, http.StatusOK, publishKbResponse{
 				Ok:      false,
@@ -1568,47 +1531,6 @@ func (s *server) handleKbPublish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	files := s.changedFilesToPublish(r.Context(), kbBranch)
-	if hasGithubRemote {
-		githubResult := s.syncGithubRemote(r.Context(), githubRemote)
-		if !githubResult.Ok {
-			status := "error"
-			resultFiles := files
-			if githubResult.Status == "conflicts" {
-				status = "conflicts"
-				resultFiles = githubResult.Conflicts
-			} else if githubResult.Status == "push_rejected" {
-				status = "push_rejected"
-			}
-
-			writeJSON(w, http.StatusOK, publishKbResponse{
-				Ok:            false,
-				Status:        status,
-				Files:         resultFiles,
-				Message:       githubResult.Message,
-				GithubStatus:  githubResult.Status,
-				GithubMessage: githubResult.Message,
-			})
-			return
-		}
-
-		hashOut, _, _, _ := runCmd(r.Context(), s.workspace, []string{
-			"git", "rev-parse", "--short", "HEAD",
-		})
-		commitHash := strings.TrimSpace(hashOut)
-		status := "published"
-		if !committedLocalChanges && githubResult.Status == "up_to_date" {
-			status = "nothing_to_publish"
-		}
-
-		writeJSON(w, http.StatusOK, publishKbResponse{
-			Ok:           true,
-			Status:       status,
-			CommitHash:   commitHash,
-			Files:        files,
-			GithubStatus: githubResult.Status,
-		})
-		return
-	}
 
 	if !s.localHeadDiffersFromKb(r.Context(), kbBranch) {
 		writeJSON(w, http.StatusOK, publishKbResponse{
@@ -1620,12 +1542,24 @@ func (s *server) handleKbPublish(w http.ResponseWriter, r *http.Request) {
 	}
 
 	hashOut, _, _, _ := runCmd(r.Context(), s.workspace, []string{
-		"git", "rev-parse", "--short", "HEAD",
+		"git", "rev-parse", "HEAD",
 	})
 	commitHash := strings.TrimSpace(hashOut)
 
+	slug := s.workspaceSlug
+	if slug == "" {
+		slug = "local"
+	}
+	target := "refs/heads/proposals/" + slug + "/pending"
+	if req.ProposalRef != "" {
+		if !strings.HasPrefix(req.ProposalRef, "refs/heads/proposals/") || !strings.HasSuffix(req.ProposalRef, "/pending") || !isSafeGitBranch(req.ProposalRef) || len(strings.Split(req.ProposalRef, "/")) != 5 || (s.workspaceSlug != "" && req.ProposalRef != target) {
+			writeError(w, http.StatusBadRequest, "invalid_proposal_ref")
+			return
+		}
+		target = req.ProposalRef
+	}
 	_, pushErr, pushCode, pushExecErr := runCmd(r.Context(), s.workspace, []string{
-		"git", "push", "kb", "HEAD:refs/heads/" + kbBranch,
+		"git", "push", "kb", "HEAD:" + target,
 	})
 	if pushExecErr != nil || pushCode != 0 {
 		msg := strings.TrimSpace(pushErr)
@@ -1644,7 +1578,7 @@ func (s *server) handleKbPublish(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, publishKbResponse{
 		Ok:         true,
-		Status:     "published",
+		Status:     "proposed",
 		CommitHash: commitHash,
 		Files:      files,
 	})
@@ -2036,43 +1970,6 @@ func (s *server) changedFilesToPublish(ctx context.Context, branch string) []str
 	return splitNulLines(filesOut)
 }
 
-func normalizeGithubRemote(req *kbGithubRemoteRequest) (kbGithubRemoteConfig, bool, string) {
-	if req == nil {
-		return kbGithubRemoteConfig{}, false, ""
-	}
-
-	repoCloneUrl := strings.TrimSpace(req.RepoCloneUrl)
-	token := strings.TrimSpace(req.Token)
-	branch := strings.TrimSpace(req.Branch)
-	if branch == "" {
-		branch = "main"
-	}
-
-	if repoCloneUrl == "" || token == "" {
-		return kbGithubRemoteConfig{}, false, "github_remote_incomplete"
-	}
-	if !isGithubCloneUrl(repoCloneUrl) {
-		return kbGithubRemoteConfig{}, false, "github_remote_invalid_url"
-	}
-	if !isSafeGitBranch(branch) {
-		return kbGithubRemoteConfig{}, false, "github_branch_invalid"
-	}
-
-	return kbGithubRemoteConfig{
-		Branch:       branch,
-		RepoCloneUrl: repoCloneUrl,
-		Token:        token,
-	}, true, ""
-}
-
-func isGithubCloneUrl(raw string) bool {
-	parsed, err := url.Parse(raw)
-	if err != nil {
-		return false
-	}
-	return parsed.Scheme == "https" && strings.EqualFold(parsed.Host, "github.com") && parsed.Path != ""
-}
-
 func isSafeGitBranch(branch string) bool {
 	if branch == "" || strings.HasPrefix(branch, "-") || strings.HasPrefix(branch, "/") || strings.HasSuffix(branch, "/") || strings.HasSuffix(branch, ".") {
 		return false
@@ -2086,103 +1983,6 @@ func isSafeGitBranch(branch string) bool {
 		}
 	}
 	return true
-}
-
-func (s *server) syncGithubRemote(ctx context.Context, remote kbGithubRemoteConfig) githubSyncResult {
-	if msg := s.ensureNamedRemote(ctx, "github", remote.RepoCloneUrl); msg != "" {
-		return githubSyncResult{Ok: false, Status: "error", Message: msg}
-	}
-
-	fetchStatus, fetchMessage := s.fetchGithubBranch(ctx, remote)
-	if fetchStatus == "auth_failed" || fetchStatus == "error" {
-		return githubSyncResult{Ok: false, Status: fetchStatus, Message: fetchMessage}
-	}
-
-	if fetchStatus == "missing" {
-		kbBranch := s.resolveKbBranch(ctx)
-		if msg := s.pushCurrentToKb(ctx, kbBranch); msg != "" {
-			return githubSyncResult{Ok: false, Status: "error", Message: msg}
-		}
-		return s.pushCurrentToGithub(ctx, remote)
-	}
-
-	mergeOk, mergeChanged, conflicts, mergeMessage := s.mergeRemoteTrackingBranch(ctx, "github", remote.Branch)
-	if !mergeOk {
-		if len(conflicts) > 0 {
-			return githubSyncResult{
-				Ok:        false,
-				Status:    "conflicts",
-				Message:   "Merge has conflicts that need to be resolved",
-				Conflicts: conflicts,
-			}
-		}
-		return githubSyncResult{Ok: false, Status: "error", Message: mergeMessage}
-	}
-
-	kbBranch := s.resolveKbBranch(ctx)
-	if s.localHeadDiffersFromKb(ctx, kbBranch) {
-		if msg := s.pushCurrentToKb(ctx, kbBranch); msg != "" {
-			return githubSyncResult{Ok: false, Status: "error", Message: msg}
-		}
-	}
-
-	pushResult := s.pushCurrentToGithub(ctx, remote)
-	if pushResult.Ok && pushResult.Status == "up_to_date" && mergeChanged {
-		pushResult.Status = "pulled"
-	}
-	return pushResult
-}
-
-func (s *server) ensureNamedRemote(ctx context.Context, name string, remoteUrl string) string {
-	_, _, remoteCode, remoteExecErr := runCmd(ctx, s.workspace, []string{
-		"git", "remote", "get-url", name,
-	})
-	if remoteExecErr == nil && remoteCode == 0 {
-		_, stderr, code, execErr := runCmd(ctx, s.workspace, []string{
-			"git", "remote", "set-url", name, remoteUrl,
-		})
-		if execErr == nil && code == 0 {
-			return ""
-		}
-		msg := strings.TrimSpace(stderr)
-		if msg == "" {
-			msg = "remote_set_url_failed"
-		}
-		return msg
-	}
-
-	_, stderr, code, execErr := runCmd(ctx, s.workspace, []string{
-		"git", "remote", "add", name, remoteUrl,
-	})
-	if execErr == nil && code == 0 {
-		return ""
-	}
-	msg := strings.TrimSpace(stderr)
-	if msg == "" {
-		msg = "remote_add_failed"
-	}
-	return msg
-}
-
-func (s *server) fetchGithubBranch(ctx context.Context, remote kbGithubRemoteConfig) (string, string) {
-	_, stderr, code, execErr := runGithubGit(ctx, s.workspace, remote.Token,
-		"fetch", "github", "+refs/heads/"+remote.Branch+":refs/remotes/github/"+remote.Branch,
-	)
-	if execErr == nil && code == 0 {
-		return "ok", ""
-	}
-
-	msg := sanitizeGithubMessage(strings.TrimSpace(stderr), remote.Token)
-	if msg == "" {
-		msg = "github_fetch_failed"
-	}
-	if isMissingRemoteRef(msg) {
-		return "missing", "GitHub repository has no selected branch yet."
-	}
-	if isGithubAuthFailure(msg) {
-		return "auth_failed", "GitHub authentication failed or repository access was denied."
-	}
-	return "error", "GitHub fetch failed: " + msg
 }
 
 func (s *server) mergeRemoteTrackingBranch(ctx context.Context, remote string, branch string) (bool, bool, []string, string) {
@@ -2227,84 +2027,9 @@ func (s *server) mergeRemoteTrackingBranch(ctx context.Context, remote string, b
 	return false, false, nil, "Merge failed: " + msg
 }
 
-func (s *server) pushCurrentToKb(ctx context.Context, branch string) string {
-	_, stderr, code, execErr := runCmd(ctx, s.workspace, []string{
-		"git", "push", "kb", "HEAD:refs/heads/" + branch,
-	})
-	if execErr == nil && code == 0 {
-		return ""
-	}
-	msg := strings.TrimSpace(stderr)
-	if msg == "" {
-		msg = "git_push_failed"
-	}
-	return "KB push failed: " + msg
-}
-
-func (s *server) pushCurrentToGithub(ctx context.Context, remote kbGithubRemoteConfig) githubSyncResult {
-	stdout, stderr, code, execErr := runGithubGit(ctx, s.workspace, remote.Token,
-		"push", "github", "HEAD:refs/heads/"+remote.Branch,
-	)
-	combined := sanitizeGithubMessage(strings.TrimSpace(stdout+"\n"+stderr), remote.Token)
-	if execErr == nil && code == 0 {
-		if strings.Contains(combined, "Everything up-to-date") {
-			return githubSyncResult{Ok: true, Status: "up_to_date"}
-		}
-		return githubSyncResult{Ok: true, Status: "pushed"}
-	}
-
-	msg := combined
-	if msg == "" {
-		msg = "github_push_failed"
-	}
-	if isGithubAuthFailure(msg) {
-		return githubSyncResult{Ok: false, Status: "auth_failed", Message: "GitHub authentication failed or repository access was denied."}
-	}
-	if strings.Contains(strings.ToLower(msg), "non-fast-forward") || strings.Contains(strings.ToLower(msg), "rejected") {
-		return githubSyncResult{Ok: false, Status: "push_rejected", Message: msg}
-	}
-	return githubSyncResult{Ok: false, Status: "error", Message: "GitHub push failed: " + msg}
-}
-
-func runGithubGit(ctx context.Context, dir string, token string, args ...string) (string, string, int, error) {
-	command := append([]string{"git"}, args...)
-	return runCmdWithEnv(ctx, dir, command, githubGitEnv(token))
-}
-
-func githubGitEnv(token string) []string {
-	credential := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + token))
-	return []string{
-		"GIT_CONFIG_COUNT=1",
-		"GIT_CONFIG_KEY_0=http.extraheader",
-		"GIT_CONFIG_VALUE_0=AUTHORIZATION: basic " + credential,
-		"GIT_TERMINAL_PROMPT=0",
-	}
-}
-
-func sanitizeGithubMessage(message string, token string) string {
-	if token == "" {
-		return message
-	}
-	credential := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + token))
-	message = strings.ReplaceAll(message, token, "***")
-	message = strings.ReplaceAll(message, credential, "***")
-	return message
-}
-
 func isMissingRemoteRef(message string) bool {
 	lower := strings.ToLower(message)
 	return strings.Contains(lower, "couldn't find remote ref") || strings.Contains(lower, "could not find remote ref")
-}
-
-func isGithubAuthFailure(message string) bool {
-	lower := strings.ToLower(message)
-	return strings.Contains(lower, "authentication failed") ||
-		strings.Contains(lower, "could not read username") ||
-		strings.Contains(lower, "invalid credentials") ||
-		strings.Contains(lower, "repository not found") ||
-		strings.Contains(lower, "403") ||
-		strings.Contains(lower, "401") ||
-		strings.Contains(lower, "permission denied")
 }
 
 func (s *server) currentBranch(ctx context.Context) string {

@@ -30,7 +30,8 @@ vi.mock('@/lib/auth', () => ({
   verifyPassword: mocks.verifyPassword,
 }))
 
-vi.mock('@/lib/http', () => ({
+vi.mock('@/lib/http', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/lib/http')>(),
   getClientIp: mocks.getClientIp,
 }))
 
@@ -64,7 +65,7 @@ const FAKE_USER = {
 function makeRequest(body: unknown) {
   return new Request('http://localhost/auth/login', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', origin: 'http://localhost' },
     body: JSON.stringify(body),
   })
 }
@@ -72,7 +73,7 @@ function makeRequest(body: unknown) {
 function makeRawRequest(rawBody: string) {
   return new Request('http://localhost/auth/login', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', origin: 'http://localhost' },
     body: rawBody,
   })
 }
@@ -187,6 +188,7 @@ describe('POST /auth/login', () => {
 
       expect(res.status).toBe(401)
       expect(body.error).toBe('invalid_credentials')
+      expect(mocks.verifyPassword).toHaveBeenCalledWith('x', expect.stringContaining('$argon2id$'))
       expect(mocks.auditEvent).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'auth.login.failed', metadata: { email: 'nobody@example.com' } }),
       )
@@ -304,4 +306,11 @@ describe('POST /auth/login', () => {
       )
     })
   })
+})
+
+it.each([null, 'null', 'https://attacker.example'])('rejects untrusted login Origin %s', async (origin) => {
+  const request = makeRequest({})
+  if (origin === null) request.headers.delete('origin')
+  else request.headers.set('origin', origin)
+  expect((await POST(request)).status).toBe(403)
 })
