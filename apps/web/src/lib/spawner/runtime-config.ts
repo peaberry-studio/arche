@@ -37,7 +37,6 @@ export const WEB_INTERNAL_API_ROOT = 'http://web:3000/api/internal'
 // outside the Knowledge Base mount, wiped when the container restarts.
 export const WEB_SCRATCH = { root: '/tmp/arche-scratch', workspaceRoot: '/workspace' } as const
 export const WEB_XDG_DATA_HOME = '/home/workspace/.local/share'
-// OpenCode spills oversized tool results here, under XDG_DATA_HOME.
 export const WEB_TOOL_OUTPUT_DIRECTORY = `${WEB_XDG_DATA_HOME}/opencode/tool-output`
 
 export function getWebProviderGatewayConfig(): Record<string, unknown> {

@@ -66,7 +66,6 @@ type WorkspaceRuntimeOptions = {
   connectorProxyPort?: number
   // Defaults to the workspace container layout (WEB_SCRATCH).
   scratch?: { root: string; workspaceRoot: string }
-  // Defaults to the workspace container layout (WEB_TOOL_OUTPUT_DIRECTORY).
   toolOutputDirectory?: string
 }
 
