@@ -45,7 +45,7 @@ describe('V2 client', () => {
     expect(signal?.aborted).toBe(true)
   })
 
-  it('keeps client construction out of the health deadline', async () => {
+  it('keeps the one-time module load out of the health deadline', async () => {
     const fetch = vi.fn().mockResolvedValue(Response.json({ version: '2.0.32', pid: 1, urls: [] }))
     vi.stubGlobal('fetch', fetch)
     vi.resetModules()
@@ -60,7 +60,21 @@ describe('V2 client', () => {
     } finally {
       vi.doUnmock('@opencode/client')
       vi.resetModules()
+      // Re-warm the module cache so later tests do not pay the cold ESM load.
+      await import('@opencode/client')
     }
+  })
+
+  it('still counts a slow instance lookup against the health deadline', async () => {
+    vi.useFakeTimers()
+    let resolveLookup: (connection: { baseUrl: string; authHeader: string }) => void = () => {}
+    auth.mockImplementation(() => new Promise((resolve) => { resolveLookup = resolve }))
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ version: '2.0.32', pid: 1, urls: [] })))
+    const pending = checkHealth('alice', { timeoutMs: 50 })
+    await vi.waitFor(() => expect(auth).toHaveBeenCalled())
+    await vi.advanceTimersByTimeAsync(50)
+    resolveLookup({ baseUrl: 'http://runtime', authHeader: 'Basic test' })
+    expect(await pending).toEqual({ ok: false, error: { code: 'healthcheck_timeout' } })
   })
 
   it('skips the client entirely when the caller signal is already aborted', async () => {
