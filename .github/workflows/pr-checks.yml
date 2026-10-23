@@ -60,7 +60,7 @@ jobs:
           cache: false
       - name: Check Go modules
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+          go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
           for module in infra/one-click infra/workspace-image/workspace-agent; do
             (cd "$module" && govulncheck ./...)
           done
