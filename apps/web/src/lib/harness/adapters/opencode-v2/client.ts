@@ -50,18 +50,20 @@ export async function createInstanceClient(slug: string): Promise<OpenCodeV2Clie
 }
 
 export async function checkHealth(slug: string, options?: HarnessHealthOptions): Promise<HarnessResult<{ version?: string }>> {
+  if (options?.signal?.aborted) return harnessFailure('healthcheck_timeout')
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), options?.timeoutMs ?? 5000)
   const abort = () => controller.abort()
   options?.signal?.addEventListener('abort', abort, { once: true })
-  if (options?.signal?.aborted) controller.abort()
+  let timer: ReturnType<typeof setTimeout> | undefined
   try {
     const connection = options?.password !== undefined ? {
       baseUrl: getInstanceUrl(slug, options.baseUrl),
       authHeader: `Basic ${Buffer.from(`opencode:${options.password}`).toString('base64')}`,
     } : await getInstanceBasicAuth(slug)
     if (!connection) return harnessFailure('instance_unavailable')
+    // The first client construction loads the ESM package; arm the deadline only once it is done.
     const client = await createConnectionClient(connection)
+    timer = setTimeout(() => controller.abort(), options?.timeoutMs ?? 5000)
     const info = await client.server.info({ signal: controller.signal })
     if (controller.signal.aborted) return harnessFailure('healthcheck_timeout')
     if (!info.version.startsWith('2.') || !Number.isFinite(info.pid) || !Array.isArray(info.urls)) return harnessFailure('unhealthy_response')
@@ -69,7 +71,7 @@ export async function checkHealth(slug: string, options?: HarnessHealthOptions):
   } catch (error) {
     return controller.signal.aborted ? harnessFailure('healthcheck_timeout') : normalizeOpenCodeError(error)
   } finally {
-    clearTimeout(timer)
+    if (timer) clearTimeout(timer)
     options?.signal?.removeEventListener('abort', abort)
   }
 }

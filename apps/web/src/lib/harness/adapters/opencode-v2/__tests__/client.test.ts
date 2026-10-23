@@ -45,6 +45,32 @@ describe('V2 client', () => {
     expect(signal?.aborted).toBe(true)
   })
 
+  it('keeps client construction out of the health deadline', async () => {
+    const fetch = vi.fn().mockResolvedValue(Response.json({ version: '2.0.32', pid: 1, urls: [] }))
+    vi.stubGlobal('fetch', fetch)
+    vi.resetModules()
+    vi.doMock('@opencode/client', async (importOriginal) => {
+      await new Promise((resolve) => setTimeout(resolve, 150))
+      return await importOriginal<typeof import('@opencode/client')>()
+    })
+    try {
+      const { checkHealth: slowLoadCheckHealth } = await import('@/lib/harness/adapters/opencode-v2/client')
+      expect(await slowLoadCheckHealth('alice', { timeoutMs: 50 })).toEqual({ ok: true, data: { version: '2.0.32' } })
+      expect(fetch).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.doUnmock('@opencode/client')
+      vi.resetModules()
+    }
+  })
+
+  it('skips the client entirely when the caller signal is already aborted', async () => {
+    const fetch = vi.fn()
+    vi.stubGlobal('fetch', fetch)
+    expect(await checkHealth('alice', { signal: AbortSignal.abort() })).toEqual({ ok: false, error: { code: 'healthcheck_timeout' } })
+    expect(auth).not.toHaveBeenCalled()
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
   it('propagates losing-probe cancellation', async () => {
     const controller = new AbortController()
     const fetch = vi.fn((_url: string, options: RequestInit) => new Promise((_resolve, reject) => {
