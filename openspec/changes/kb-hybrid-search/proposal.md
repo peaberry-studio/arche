@@ -10,7 +10,7 @@
 
 - Replace the substring scan with a **hybrid ranked search** over heading-level sections of every Markdown article:
   - **Lexical**: BM25 over accent- and case-folded tokens of the article path, heading trail and section text, so multi-word queries match by terms instead of exact phrase.
-  - **Semantic**: cosine similarity between embeddings of the query and of each section, computed in-process by a local multilingual model (`Xenova/paraphrase-multilingual-MiniLM-L12-v2`, quantized, via `@huggingface/transformers`), keeping only sections above a minimum similarity.
+  - **Semantic**: cosine similarity between embeddings of the query and of each section, computed by a local multilingual model (`paraphrase-multilingual-MiniLM-L12-v2` with its vocabulary trimmed to Spanish and English, quantized, via `@huggingface/transformers`), keeping only sections above a minimum similarity.
   - **Fusion**: reciprocal rank fusion of both rankings, aggregated to one result per article (its best section).
 - **BREAKING** (MCP tool contract): `search_kb` returns at most one match per article, ordered by relevance, each with `path`, `heading`, `line`, a bounded `text` snippet and a `score`. Default `limit` drops from 50 lines to 10 articles (max 50).
 - The search index is derived, in-memory state keyed by the content repo `HEAD` commit. It is built lazily on the first search and refreshed on the next search after any commit; embeddings are reused for unchanged sections. Markdown files in the bare repo remain the only source of truth; no write path changes.
@@ -29,6 +29,7 @@
 - New `apps/web/src/lib/mcp/kb-search-sections.ts` (Markdown → sections, tokenizer), `kb-search-ranking.ts` (BM25, fusion, per-article aggregation), `kb-search-embeddings.ts` (local model wrapper), `kb-search-index.ts` (HEAD-keyed index lifecycle).
 - `apps/web/src/lib/mcp/server.ts` — `search_kb` description reflects ranked results.
 - `apps/web/package.json` — new dependency `@huggingface/transformers` (pulls `onnxruntime-node`), loaded only by the embedder child process `apps/web/src/kb-search-embedder.ts`; `kb-search-vector-cache.ts` persists section vectors.
-- `apps/web/Containerfile` — bakes the pinned model (~113 MB) into the image and drops unused `onnxruntime` binaries; `infra/deploy` mounts a vector cache directory into the web container.
-- Runtime: ~500 MB for the embedder child while searches run, released after 10 idle minutes; index memory is roughly 1.5 KB per section (384-dim vectors).
+- `apps/web/Containerfile` — bakes the pinned model (43 MB) into the image and drops unused `onnxruntime` binaries; `infra/deploy` mounts a vector cache directory into the web container.
+- New `scripts/trim-kb-search-model.py` — reproducibly builds the Spanish/English model published on Hugging Face.
+- Runtime: ~440 MB for the embedder child while searches run, released after 10 idle minutes; index memory is roughly 1.5 KB per section (384-dim vectors).
 - No DB migration, no Prisma schema change, no change to KB writes, Knowledge Review or workspace git pushes.
