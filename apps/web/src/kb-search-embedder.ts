@@ -23,10 +23,10 @@ const MODEL_DIRECTORY = path.join(process.cwd(), 'node_modules', '.cache', 'arch
 // loader probes the unpinned `main` branch for tokenizer_config.json on every load, so the model is
 // kept in its own directory and loaded with remote access disabled.
 const MODEL_FILES: ModelFile[] = [
-  { path: 'config.json', sha256: '05b570bff786faa5c4604152aa16f19f77ed6dfc31e47dd0f3dd987078693ac7' },
-  { path: 'tokenizer.json', sha256: 'b60b6b43406a48bf3638526314f3d232d97058bc93472ff2de930d43686fa441' },
+  { path: 'config.json', sha256: '763e73c5bf7dd24e026d758e38a8d103ce01791ddd9d779be5ee93051e9538b3' },
+  { path: 'tokenizer.json', sha256: '533f038e31c137a783e51029504f38dc8beb75a6a90e22f1f0b0bc831d6e0deb' },
   { path: 'tokenizer_config.json', sha256: '3f5961b9ac86288cccdb97f32fb848d6187c78e1603958c53f3ea1f296b7d8a2' },
-  { path: 'onnx/model_quantized.onnx', sha256: '66fc00f5f29afcaff34092e1bdd20008ca3918265a82fb9695a551e510cc4ebc' },
+  { path: 'onnx/model_quantized.onnx', sha256: '383be6b6edbba1c23d5d486f87c9f6a71c815cf05979bc85b252315dd2b11740' },
 ]
 
 type EmbedTexts = (texts: string[]) => Promise<Float32Array[]>

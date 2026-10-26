@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { readVectorCache, writeVectorCache } from '@/lib/mcp/kb-search-vector-cache'
 
-const MODEL = 'Xenova/paraphrase-multilingual-MiniLM-L12-v2@2c4055b12046f11709e9df2c122e59ffbdc2f900'
+const MODEL = 'ixjosemi/paraphrase-multilingual-MiniLM-L12-v2-es-en@da6cf6363bf76060ecadc865da58cabfb4c2d212'
 
 function vectorOf(seed: number): Float32Array {
   return Float32Array.from({ length: 384 }, (_, index) => (seed + index) / 1000)

@@ -18,7 +18,7 @@ vi.mock('@huggingface/transformers', () => ({
   pipeline: transformers.pipeline,
 }))
 
-const MODEL = 'Xenova/paraphrase-multilingual-MiniLM-L12-v2'
+const MODEL = 'ixjosemi/paraphrase-multilingual-MiniLM-L12-v2-es-en'
 
 function sha256(content: string) {
   return createHash('sha256').update(content).digest('hex')
@@ -149,8 +149,8 @@ describe('kb search embedding model files', () => {
     await ensureModelFiles(modelDirectory, files, fetchFile)
 
     expect(fetchFile.mock.calls.map(([url]) => url)).toEqual([
-      `https://huggingface.co/${MODEL}/resolve/2c4055b12046f11709e9df2c122e59ffbdc2f900/config.json`,
-      `https://huggingface.co/${MODEL}/resolve/2c4055b12046f11709e9df2c122e59ffbdc2f900/onnx/model_quantized.onnx`,
+      `https://huggingface.co/${MODEL}/resolve/da6cf6363bf76060ecadc865da58cabfb4c2d212/config.json`,
+      `https://huggingface.co/${MODEL}/resolve/da6cf6363bf76060ecadc865da58cabfb4c2d212/onnx/model_quantized.onnx`,
     ])
     await expect(fs.readFile(path.join(modelDirectory, MODEL, 'onnx/model_quantized.onnx'), 'utf-8')).resolves.toBe('weights')
   })

@@ -3,7 +3,7 @@ import * as path from 'node:path'
 
 import type { EmbedRequest, EmbedResponse } from '@/lib/mcp/kb-search-model'
 
-// The model holds ~500 MB that a process does not return to the OS once loaded, so it runs
+// The model holds ~440 MB that a process does not return to the OS once loaded, so it runs
 // in a child process (src/kb-search-embedder.ts) that is stopped after this long without requests.
 const EMBEDDER_IDLE_MS = 10 * 60 * 1000
 const EMBEDDER_ENTRY = path.join(process.cwd(), 'src', 'kb-search-embedder.ts')
