@@ -13,6 +13,11 @@ const embeddings = vi.hoisted(() => ({
 
 vi.mock('@/lib/mcp/kb-search-embeddings', () => embeddings)
 
+vi.mock('@/lib/mcp/kb-search-vector-cache', () => ({
+  readVectorCache: vi.fn().mockResolvedValue(new Map()),
+  writeVectorCache: vi.fn().mockResolvedValue(undefined),
+}))
+
 const mocks = vi.hoisted(() => ({
   cleanupClone: vi.fn(),
   cloneRepoToTemp: vi.fn(),

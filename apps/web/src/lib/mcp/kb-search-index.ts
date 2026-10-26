@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 import { embedPassages, embedQuery } from '@/lib/mcp/kb-search-embeddings'
 import {
   aggregateByArticle,
@@ -9,6 +11,7 @@ import {
   type LexicalIndex,
 } from '@/lib/mcp/kb-search-ranking'
 import { splitArticleIntoSections, type KbSection } from '@/lib/mcp/kb-search-sections'
+import { readVectorCache, writeVectorCache } from '@/lib/mcp/kb-search-vector-cache'
 
 export type KbArticleContent = { path: string; content: string }
 
@@ -19,7 +22,7 @@ type SearchIndex = {
   sections: KbSection[]
   lexical: LexicalIndex
   vectors: Float32Array[]
-  vectorsByText: Map<string, Float32Array>
+  vectorsByPassage: Map<string, Float32Array>
 }
 
 const MIN_SEMANTIC_SIMILARITY = 0.4
@@ -61,7 +64,7 @@ function getIndex(headHash: string, loadArticles: LoadArticles): Promise<SearchI
   if (currentIndex?.headHash === headHash) return Promise.resolve(currentIndex)
   if (pendingBuild?.headHash === headHash) return pendingBuild.promise
 
-  const promise = buildIndex(headHash, loadArticles, currentIndex?.vectorsByText ?? new Map()).catch((error: unknown) => {
+  const promise = buildIndex(headHash, loadArticles, currentIndex?.vectorsByPassage ?? null).catch((error: unknown) => {
     console.error('[kb-search] Index build failed', error)
     return null
   }).then((index) => {
@@ -77,7 +80,7 @@ function getIndex(headHash: string, loadArticles: LoadArticles): Promise<SearchI
 async function buildIndex(
   headHash: string,
   loadArticles: LoadArticles,
-  previousVectors: Map<string, Float32Array>,
+  previousVectors: Map<string, Float32Array> | null,
 ): Promise<SearchIndex | null> {
   const loaded = await loadArticles()
   if (!loaded.ok) {
@@ -87,23 +90,39 @@ async function buildIndex(
 
   const sections = loaded.articles.flatMap((article) => splitArticleIntoSections(article.path, article.content))
   const passages = sections.map((section) => `${section.heading || section.path}\n${section.text}`)
-
-  const vectorsByText = new Map<string, Float32Array>()
-  const missing: string[] = []
-  for (const passage of new Set(passages)) {
-    const previous = previousVectors.get(passage)
-    if (previous) vectorsByText.set(passage, previous)
-    else missing.push(passage)
-  }
-  const embedded = await embedPassages(missing)
-  missing.forEach((passage, position) => vectorsByText.set(passage, embedded[position]))
+  const vectorsByPassage = await resolveVectors(passages, previousVectors ?? await readVectorCache())
 
   const vectors: Float32Array[] = []
   for (const passage of passages) {
-    const vector = vectorsByText.get(passage)
+    const vector = vectorsByPassage.get(passageKey(passage))
     if (!vector) return null
     vectors.push(vector)
   }
 
-  return { headHash, sections, lexical: buildLexicalIndex(sections), vectors, vectorsByText }
+  return { headHash, sections, lexical: buildLexicalIndex(sections), vectors, vectorsByPassage }
+}
+
+// Reuses known vectors, embeds only new passages and persists the result when it changed.
+async function resolveVectors(passages: string[], known: Map<string, Float32Array>): Promise<Map<string, Float32Array>> {
+  const vectorsByPassage = new Map<string, Float32Array>()
+  const missing = new Map<string, string>()
+  for (const passage of passages) {
+    const key = passageKey(passage)
+    const vector = known.get(key)
+    if (vector) vectorsByPassage.set(key, vector)
+    else missing.set(key, passage)
+  }
+  if (missing.size === 0) return vectorsByPassage
+
+  const missingKeys = [...missing.keys()]
+  const embedded = await embedPassages([...missing.values()])
+  missingKeys.forEach((key, position) => vectorsByPassage.set(key, embedded[position]))
+  await writeVectorCache(vectorsByPassage).catch((error: unknown) => {
+    console.error('[kb-search] Saving vectors failed', error)
+  })
+  return vectorsByPassage
+}
+
+function passageKey(passage: string): string {
+  return createHash('sha256').update(passage).digest('hex')
 }

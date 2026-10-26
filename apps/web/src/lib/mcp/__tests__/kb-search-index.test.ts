@@ -9,6 +9,13 @@ const embeddings = vi.hoisted(() => ({
 
 vi.mock('@/lib/mcp/kb-search-embeddings', () => embeddings)
 
+const vectorCache = vi.hoisted(() => ({
+  readVectorCache: vi.fn(),
+  writeVectorCache: vi.fn(),
+}))
+
+vi.mock('@/lib/mcp/kb-search-vector-cache', () => vectorCache)
+
 type Article = { path: string; content: string }
 
 const ARTICLES: Article[] = [
@@ -26,6 +33,8 @@ describe('kb search index', () => {
     vi.clearAllMocks()
     embeddings.embedPassages.mockImplementation(async (texts: string[]) => texts.map(fakeEmbedding))
     embeddings.embedQuery.mockImplementation(async (text: string) => fakeEmbedding(text))
+    vectorCache.readVectorCache.mockResolvedValue(new Map())
+    vectorCache.writeVectorCache.mockResolvedValue(undefined)
   })
 
   it('ranks articles from the loaded content', async () => {
@@ -189,6 +198,58 @@ describe('kb search index', () => {
     await searchKbIndex({ headHash: 'h1', loadArticles: async () => ({ ok: false, error: 'read_failed' }), query: 'vercel', limit: 10 })
 
     expect(errorSpy).toHaveBeenCalledWith('[kb-search] Loading articles failed', 'read_failed')
+    errorSpy.mockRestore()
+  })
+
+  it('reuses cached vectors on the first build and embeds only the rest', async () => {
+    const { searchKbIndex } = await import('@/lib/mcp/kb-search-index')
+    await searchKbIndex({ headHash: 'h1', loadArticles: loaderOf(ARTICLES), query: 'vercel', limit: 10 })
+    const [saved] = vectorCache.writeVectorCache.mock.calls[0]
+
+    vi.resetModules()
+    embeddings.embedPassages.mockClear()
+    vectorCache.readVectorCache.mockResolvedValue(new Map([...saved].slice(0, 1)))
+    const { searchKbIndex: searchAfterRestart } = await import('@/lib/mcp/kb-search-index')
+    const result = await searchAfterRestart({ headHash: 'h1', loadArticles: loaderOf(ARTICLES), query: 'vercel', limit: 10 })
+
+    expect(embeddings.embedPassages).toHaveBeenCalledTimes(1)
+    expect(embeddings.embedPassages).toHaveBeenCalledWith(['Arche › Deploy\nAnsible deploy on a VPS.'])
+    expect(result.ok && result.matches.map((match) => match.path)).toEqual(['Proyectos/Magua/00 - Magua.md'])
+  })
+
+  it('saves the vectors of the current sections after embedding new ones', async () => {
+    const { searchKbIndex } = await import('@/lib/mcp/kb-search-index')
+    await searchKbIndex({ headHash: 'h1', loadArticles: loaderOf(ARTICLES), query: 'vercel', limit: 10 })
+
+    const changed = [ARTICLES[0], { path: ARTICLES[1].path, content: '# Arche\n## Deploy\nAnsible deploy over Tailscale.' }]
+    await searchKbIndex({ headHash: 'h2', loadArticles: loaderOf(changed), query: 'vercel', limit: 10 })
+
+    expect(vectorCache.readVectorCache).toHaveBeenCalledTimes(1)
+    expect(vectorCache.writeVectorCache).toHaveBeenCalledTimes(2)
+    const [saved] = vectorCache.writeVectorCache.mock.calls[1]
+    expect([...saved.values()]).toEqual([
+      fakeEmbedding('Magua › Stack\nHosting: Vercel with security headers.'),
+      fakeEmbedding('Arche › Deploy\nAnsible deploy over Tailscale.'),
+    ])
+  })
+
+  it('does not rewrite the cache when every section was already embedded', async () => {
+    const { searchKbIndex } = await import('@/lib/mcp/kb-search-index')
+    await searchKbIndex({ headHash: 'h1', loadArticles: loaderOf(ARTICLES), query: 'vercel', limit: 10 })
+    await searchKbIndex({ headHash: 'h2', loadArticles: loaderOf(ARTICLES), query: 'vercel', limit: 10 })
+
+    expect(vectorCache.writeVectorCache).toHaveBeenCalledTimes(1)
+  })
+
+  it('still answers and logs when saving the vectors fails', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    vectorCache.writeVectorCache.mockRejectedValueOnce(new Error('EACCES'))
+    const { searchKbIndex } = await import('@/lib/mcp/kb-search-index')
+
+    const result = await searchKbIndex({ headHash: 'h1', loadArticles: loaderOf(ARTICLES), query: 'vercel', limit: 10 })
+
+    expect(result.ok).toBe(true)
+    expect(errorSpy).toHaveBeenCalledWith('[kb-search] Saving vectors failed', expect.any(Error))
     errorSpy.mockRestore()
   })
 })
