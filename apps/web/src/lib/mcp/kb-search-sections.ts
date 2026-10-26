@@ -5,8 +5,8 @@ export type KbSection = {
   text: string
 }
 
-const HEADING_PATTERN = /^(#{1,3})\s+(.+?)\s*#*\s*$/
-const FENCE_PATTERN = /^\s*(```|~~~)/
+const HEADING_PATTERN = /^(#{1,3})\s+(.+?)(?:\s+#+)?\s*$/
+const FENCE_PATTERN = /^\s*(`{3,}|~{3,})/
 const MAX_SECTION_CHARS = 500
 const MIN_TOKEN_LENGTH = 2
 // Accent-folded Spanish and English function words: they occur in nearly every
@@ -28,7 +28,7 @@ export function splitArticleIntoSections(path: string, content: string): KbSecti
   let heading = ''
   let line = 1
   let body: string[] = []
-  let inFence = false
+  let fence: string | null = null
 
   const flush = () => {
     for (const text of splitLongText(body.join('\n').trim())) {
@@ -37,8 +37,8 @@ export function splitArticleIntoSections(path: string, content: string): KbSecti
   }
 
   content.split('\n').forEach((rawLine, index) => {
-    if (FENCE_PATTERN.test(rawLine)) inFence = !inFence
-    const match = inFence ? null : HEADING_PATTERN.exec(rawLine)
+    fence = nextFence(fence, rawLine)
+    const match = fence ? null : HEADING_PATTERN.exec(rawLine)
 
     if (!match) {
       body.push(rawLine)
@@ -56,6 +56,14 @@ export function splitArticleIntoSections(path: string, content: string): KbSecti
 
   flush()
   return sections
+}
+
+// A fence closes only on the same character, at least as long as the one that opened it.
+function nextFence(open: string | null, line: string): string | null {
+  const marker = FENCE_PATTERN.exec(line)?.[1]
+  if (!marker) return open
+  if (!open) return marker
+  return marker[0] === open[0] && marker.length >= open.length ? null : open
 }
 
 function splitLongText(text: string): string[] {

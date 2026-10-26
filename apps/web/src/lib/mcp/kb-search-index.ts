@@ -12,7 +12,7 @@ import { splitArticleIntoSections, type KbSection } from '@/lib/mcp/kb-search-se
 
 export type KbArticleContent = { path: string; content: string }
 
-type LoadArticles = () => Promise<{ ok: true; articles: KbArticleContent[] } | { ok: false }>
+type LoadArticles = () => Promise<{ ok: true; articles: KbArticleContent[] } | { ok: false; error: string }>
 
 type SearchIndex = {
   headHash: string
@@ -65,7 +65,7 @@ function getIndex(headHash: string, loadArticles: LoadArticles): Promise<SearchI
     console.error('[kb-search] Index build failed', error)
     return null
   }).then((index) => {
-    if (index) currentIndex = index
+    if (index && pendingBuild?.promise === promise) currentIndex = index
     return index
   }).finally(() => {
     if (pendingBuild?.promise === promise) pendingBuild = null
@@ -80,7 +80,10 @@ async function buildIndex(
   previousVectors: Map<string, Float32Array>,
 ): Promise<SearchIndex | null> {
   const loaded = await loadArticles()
-  if (!loaded.ok) return null
+  if (!loaded.ok) {
+    console.error('[kb-search] Loading articles failed', loaded.error)
+    return null
+  }
 
   const sections = loaded.articles.flatMap((article) => splitArticleIntoSections(article.path, article.content))
   const passages = sections.map((section) => `${section.heading || section.path}\n${section.text}`)

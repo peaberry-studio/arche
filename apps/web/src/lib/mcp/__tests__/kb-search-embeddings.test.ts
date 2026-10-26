@@ -25,7 +25,10 @@ describe('kb search embeddings', () => {
     const { embedPassages } = await import('@/lib/mcp/kb-search-embeddings')
     const vectors = await embedPassages(['first', 'second'])
 
-    expect(mocks.pipeline).toHaveBeenCalledWith('feature-extraction', 'Xenova/paraphrase-multilingual-MiniLM-L12-v2', { dtype: 'q8' })
+    expect(mocks.pipeline).toHaveBeenCalledWith('feature-extraction', 'Xenova/paraphrase-multilingual-MiniLM-L12-v2', {
+      dtype: 'q8',
+      revision: '2c4055b12046f11709e9df2c122e59ffbdc2f900',
+    })
     expect(mocks.extractor).toHaveBeenCalledWith(['first', 'second'], { pooling: 'mean', normalize: true })
     expect(vectors).toEqual([Float32Array.from([0, 1]), Float32Array.from([1, 1])])
   })
@@ -60,5 +63,15 @@ describe('kb search embeddings', () => {
     await expect(embedQuery('a')).rejects.toThrow('offline')
     await expect(embedQuery('a')).resolves.toEqual(Float32Array.from([0, 1]))
     expect(mocks.pipeline).toHaveBeenCalledTimes(2)
+  })
+
+  it('loads the library lazily so a missing native binding fails the call, not the import', async () => {
+    vi.doMock('@huggingface/transformers', () => {
+      throw new Error('no onnxruntime binding for darwin/x64')
+    })
+
+    const { embedQuery } = await import('@/lib/mcp/kb-search-embeddings')
+    await expect(embedQuery('a')).rejects.toThrow()
+    vi.doUnmock('@huggingface/transformers')
   })
 })

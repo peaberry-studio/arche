@@ -18,13 +18,13 @@
 ## Decisions
 
 ### D1. Section-level documents
-Articles are split at ATX headings `#`–`###` outside fenced code blocks. Each section carries its heading trail (`Title › Section`) and 1-based start line. Sections longer than 500 characters split further at line boundaries (a single longer line stays whole), so each piece fits the embedding model's 128-token window; empty sections are dropped. Sections are the unit of ranking because whole articles dilute both BM25 and embeddings, and lines lack context.
+Articles are split at ATX headings `#`–`###` outside fenced code blocks (a fence closes only on the same character, at least as long as its opener). Each section carries its heading trail (`Title › Section`) and 1-based start line. Sections longer than 500 characters split further at line boundaries (a single longer line stays whole), so each piece fits the embedding model's 128-token window; empty sections are dropped. Sections are the unit of ranking because whole articles dilute both BM25 and embeddings, and lines lack context.
 
 ### D2. Lexical ranking: BM25 over folded tokens
 Tokens are NFKD-normalized, stripped of combining marks, lower-cased and split on non-letter/digit runs; tokens shorter than 2 characters and a short list of Spanish/English function words (`de`, `la`, `the`, `where`…) are dropped: on the real KB, `de` alone made `receta de paella` match every article. The indexed text is article path + heading trail + section text, so path and heading terms always count. BM25 with k1 = 1.2, b = 0.75. No stemming.
 
 ### D3. Semantic ranking: local paraphrase-multilingual-MiniLM-L12-v2
-`Xenova/paraphrase-multilingual-MiniLM-L12-v2` (384 dims, quantized `q8`, ~120 MB, 128-token window) through `@huggingface/transformers` `feature-extraction` with mean pooling and L2 normalization, so cosine similarity is a dot product. The pipeline loads once per process and is shared; a failed load is retried on the next call.
+`Xenova/paraphrase-multilingual-MiniLM-L12-v2` (384 dims, quantized `q8`, ~120 MB, 128-token window) through `@huggingface/transformers` `feature-extraction` with mean pooling and L2 normalization, so cosine similarity is a dot product. The model revision is pinned. The library is imported lazily inside the loader because it loads `onnxruntime-node`'s native binding on import; a platform without a binding then fails the search (D6) instead of every MCP tool. The pipeline loads once per process and is shared; a failed load is retried on the next call.
 
 Measured on KB-like Spanish/English passages (five passages, four relevant queries and one unrelated query):
 

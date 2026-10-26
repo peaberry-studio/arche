@@ -17,3 +17,11 @@
 - [x] 3.2 Evaluate against a copy of the real KB: a query set covering exact terms, multi-word, paraphrase, cross-language and scoped queries, comparing old and new results.
 - [x] 3.3 `bash scripts/check-podman-images.sh` builds the images.
 - [x] 3.4 `openspec validate kb-hybrid-search --strict` passes.
+
+## 4. Review follow-up fixes
+
+- [x] 4.1 Import `@huggingface/transformers` lazily in `kb-search-embeddings.ts`: the library loads `onnxruntime-node`'s native binding on import and the package ships no `darwin/x64` binary, so a static import broke every `/api/mcp` tool on Intel macOS desktop builds. Verify with a test where the library import fails: importing the module succeeds and the embedding call rejects (design D6).
+- [x] 4.2 Pin the model `revision` so a fresh download keeps the weights the 0.4 threshold was calibrated on (design D3).
+- [x] 4.3 Only publish a finished build as the current index while it is still the latest pending build, so an older HEAD finishing last cannot replace a newer index (design D5); log article-loading failures with their error.
+- [x] 4.4 Close fenced code blocks only on the same character with at least the opening length, and keep a trailing `#` that is part of the heading text (design D1). Add a sibling-folder path scoping test.
+

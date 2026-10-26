@@ -40,6 +40,22 @@ describe('splitArticleIntoSections', () => {
     ])
   })
 
+  it('closes a fence only with the same character and at least the same length', () => {
+    const content = '# Doc\n````md\n```\n# inside\n```\n````\n## After\ntext\n~~~\n```\n# inside too\n~~~\n## Last\nend'
+    expect(splitArticleIntoSections('a.md', content).map((section) => [section.heading, section.line])).toEqual([
+      ['Doc', 1],
+      ['Doc › After', 7],
+      ['Doc › Last', 13],
+    ])
+  })
+
+  it('keeps a trailing hash that is part of the heading text', () => {
+    expect(splitArticleIntoSections('a.md', '## Notas sobre C#\ntext\n## Closed ##\nmore').map((section) => section.heading)).toEqual([
+      'Notas sobre C#',
+      'Closed',
+    ])
+  })
+
   it('drops sections without text', () => {
     expect(splitArticleIntoSections('a.md', '# Empty\n\n## Filled\ntext')).toEqual([
       { path: 'a.md', heading: 'Empty › Filled', line: 3, text: 'text' },

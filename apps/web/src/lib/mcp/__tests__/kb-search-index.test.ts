@@ -93,7 +93,7 @@ describe('kb search index', () => {
 
   it('returns search_failed when loading fails and retries on the next search', async () => {
     const { searchKbIndex } = await import('@/lib/mcp/kb-search-index')
-    const failing = vi.fn(async () => ({ ok: false as const }))
+    const failing = vi.fn(async () => ({ ok: false as const, error: 'read_failed' }))
 
     expect(await searchKbIndex({ headHash: 'h1', loadArticles: failing, query: 'vercel', limit: 10 })).toEqual({
       ok: false,
@@ -151,5 +151,44 @@ describe('kb search index', () => {
       error: 'search_failed',
     })
     expect((await searchKbIndex({ headHash: 'h1', loadArticles, query: 'vercel', limit: 10 })).ok).toBe(true)
+  })
+
+  it('does not match sibling folders that share the prefix', async () => {
+    const articles = [
+      { path: 'Proyectos/Arche/a.md', content: '# A\nvercel hosting' },
+      { path: 'Proyectos/Archelab/b.md', content: '# B\nvercel hosting' },
+    ]
+    const { searchKbIndex } = await import('@/lib/mcp/kb-search-index')
+    const result = await searchKbIndex({ headHash: 'h1', loadArticles: loaderOf(articles), pathPrefix: 'Proyectos/Arche', query: 'vercel', limit: 10 })
+
+    expect(result.ok && result.matches.map((match) => match.path)).toEqual(['Proyectos/Arche/a.md'])
+  })
+
+  it('keeps the newer index when an older build finishes last', async () => {
+    const { searchKbIndex } = await import('@/lib/mcp/kb-search-index')
+    let releaseOld: () => void = () => {}
+    const oldLoader = vi.fn(() => new Promise<{ ok: true; articles: Article[] }>((resolve) => {
+      releaseOld = () => resolve({ ok: true, articles: ARTICLES })
+    }))
+    const newLoader = loaderOf([...ARTICLES, { path: 'new.md', content: '# Kubernetes\nCluster notes.' }])
+
+    const oldSearch = searchKbIndex({ headHash: 'h1', loadArticles: oldLoader, query: 'vercel', limit: 10 })
+    await searchKbIndex({ headHash: 'h2', loadArticles: newLoader, query: 'kubernetes', limit: 10 })
+    releaseOld()
+    await oldSearch
+
+    const result = await searchKbIndex({ headHash: 'h2', loadArticles: newLoader, query: 'kubernetes', limit: 10 })
+    expect(newLoader).toHaveBeenCalledTimes(1)
+    expect(result.ok && result.matches.map((match) => match.path)).toEqual(['new.md'])
+  })
+
+  it('logs why loading the articles failed', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { searchKbIndex } = await import('@/lib/mcp/kb-search-index')
+
+    await searchKbIndex({ headHash: 'h1', loadArticles: async () => ({ ok: false, error: 'read_failed' }), query: 'vercel', limit: 10 })
+
+    expect(errorSpy).toHaveBeenCalledWith('[kb-search] Loading articles failed', 'read_failed')
+    errorSpy.mockRestore()
   })
 })
