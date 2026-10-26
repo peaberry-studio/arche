@@ -150,6 +150,7 @@ describe('searchKb', () => {
 
   it.each([
     ['empty query', { query: '   ' }, 'invalid_query'],
+    ['query over 1000 characters', { query: 'a'.repeat(1001) }, 'invalid_query'],
     ['unsafe path', { query: 'vercel', path: '../etc' }, 'invalid_path'],
   ])('rejects %s', async (_, input, error) => {
     const { searchKb } = await import('@/lib/mcp/kb-content-store')

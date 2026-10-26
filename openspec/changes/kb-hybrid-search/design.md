@@ -48,7 +48,7 @@ Module-level state `{ headHash, sections, lexical stats, vectors }`. Each search
 Index build failures (clone, read, model load or inference) return `{ ok: false, error: 'search_failed' }` from `searchKb` and leave the previous index intact for the next attempt. There is no lexical-only fallback: one canonical search behavior, explicit failure.
 
 ### D7. Contract shape
-`KbSearchMatch = { path, heading, line, text, score }`, ordered by descending score. `limit` default 10, clamped to 1–50. `path` keeps its meaning (restrict to a folder) and is applied before fusion.
+`KbSearchMatch = { path, heading, line, text, score }`, ordered by descending score. `limit` default 10, clamped to 1–50. Queries are trimmed and rejected as `invalid_query` when empty or longer than 1,000 characters, because tokenizing and embedding run on the request thread. `path` keeps its meaning (restrict to a folder) and is applied before fusion.
 
 ## Risks / Trade-offs
 

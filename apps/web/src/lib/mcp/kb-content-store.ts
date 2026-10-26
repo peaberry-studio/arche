@@ -24,6 +24,7 @@ type CloneContext = {
 const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f]/
 const SEARCH_DEFAULT_LIMIT = 10
 const SEARCH_MAX_LIMIT = 50
+const SEARCH_MAX_QUERY_LENGTH = 1000
 const GIT_CONTROL_FILES = new Set(['.git', '.gitattributes', '.gitignore', '.gitmodules'])
 
 export type KbArticleListItem = {
@@ -107,7 +108,7 @@ export async function searchKb(input: { query: string; path?: string; limit?: nu
   | { ok: false; error: KbReadError | 'invalid_query' | 'search_failed' }
 > {
   const query = input.query.trim()
-  if (!query) return { ok: false, error: 'invalid_query' }
+  if (!query || query.length > SEARCH_MAX_QUERY_LENGTH) return { ok: false, error: 'invalid_query' }
 
   let pathPrefix: string | undefined
   if (input.path) {
