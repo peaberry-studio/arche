@@ -100,5 +100,7 @@ export function aggregateByArticle(sections: KbSection[], scores: Map<number, nu
 
 function toSnippet(text: string): string {
   const collapsed = text.replace(/\s+/g, ' ').trim()
-  return collapsed.length <= SNIPPET_MAX_CHARS ? collapsed : `${collapsed.slice(0, SNIPPET_MAX_CHARS - 1)}…`
+  // Code points, not UTF-16 units, so truncation never splits a surrogate pair.
+  const characters = Array.from(collapsed)
+  return characters.length <= SNIPPET_MAX_CHARS ? collapsed : `${characters.slice(0, SNIPPET_MAX_CHARS - 1).join('')}…`
 }

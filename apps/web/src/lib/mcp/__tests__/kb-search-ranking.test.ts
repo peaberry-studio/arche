@@ -91,4 +91,11 @@ describe('aggregateByArticle', () => {
     expect(match.text.length).toBe(280)
     expect(match.text.endsWith('…')).toBe(true)
   })
+
+  it('does not split a surrogate pair when truncating a snippet', () => {
+    const emoji = section('a.md', 'A', `${'x'.repeat(278)}😀${'y'.repeat(10)}`)
+    const [match] = aggregateByArticle([emoji], new Map([[0, 1]]), 10)
+
+    expect(match.text).toBe(`${'x'.repeat(278)}😀…`)
+  })
 })

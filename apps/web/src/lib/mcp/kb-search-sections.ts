@@ -6,7 +6,7 @@ export type KbSection = {
 }
 
 const HEADING_PATTERN = /^(#{1,3})\s+(.+?)(?:\s+#+)?\s*$/
-const FENCE_PATTERN = /^\s*(`{3,}|~{3,})/
+const FENCE_PATTERN = /^ {0,3}(`{3,}|~{3,})(.*)$/
 const MAX_SECTION_CHARS = 500
 const MIN_TOKEN_LENGTH = 2
 // Accent-folded Spanish and English function words: they occur in nearly every
@@ -58,12 +58,14 @@ export function splitArticleIntoSections(path: string, content: string): KbSecti
   return sections
 }
 
-// A fence closes only on the same character, at least as long as the one that opened it.
+// CommonMark fences: a backtick opener's info string has no backticks, and a fence
+// closes only on the same character, at least as long, with nothing after it.
 function nextFence(open: string | null, line: string): string | null {
-  const marker = FENCE_PATTERN.exec(line)?.[1]
-  if (!marker) return open
-  if (!open) return marker
-  return marker[0] === open[0] && marker.length >= open.length ? null : open
+  const match = FENCE_PATTERN.exec(line)
+  if (!match) return open
+  const [, marker, rest] = match
+  if (!open) return marker[0] === '`' && rest.includes('`') ? null : marker
+  return marker[0] === open[0] && marker.length >= open.length && !rest.trim() ? null : open
 }
 
 function splitLongText(text: string): string[] {

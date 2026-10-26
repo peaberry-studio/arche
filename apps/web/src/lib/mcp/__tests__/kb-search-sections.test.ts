@@ -49,6 +49,23 @@ describe('splitArticleIntoSections', () => {
     ])
   })
 
+  it('does not close a fence with a line that carries an info string', () => {
+    const content = '# Doc\n```\n```bash\n# inside\n```\n## After\ntext'
+    expect(splitArticleIntoSections('a.md', content).map((section) => [section.heading, section.line])).toEqual([
+      ['Doc', 1],
+      ['Doc › After', 6],
+    ])
+  })
+
+  it('does not open a fence on inline code or indented code', () => {
+    const content = '# Doc\n```inline``` code\n## Middle\n    ```\n## After\ntext'
+    expect(splitArticleIntoSections('a.md', content).map((section) => [section.heading, section.line])).toEqual([
+      ['Doc', 1],
+      ['Doc › Middle', 3],
+      ['Doc › After', 5],
+    ])
+  })
+
   it('keeps a trailing hash that is part of the heading text', () => {
     expect(splitArticleIntoSections('a.md', '## Notas sobre C#\ntext\n## Closed ##\nmore').map((section) => section.heading)).toEqual([
       'Notas sobre C#',

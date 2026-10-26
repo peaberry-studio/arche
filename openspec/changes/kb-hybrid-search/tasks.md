@@ -25,3 +25,4 @@
 - [x] 4.3 Only publish a finished build as the current index while it is still the latest pending build, so an older HEAD finishing last cannot replace a newer index (design D5); log article-loading failures with their error.
 - [x] 4.4 Close fenced code blocks only on the same character with at least the opening length, and keep a trailing `#` that is part of the heading text (design D1). Add a sibling-folder path scoping test.
 - [x] 4.5 Reject queries longer than 1,000 characters as `invalid_query` (security audit: unbounded input is tokenized and embedded on the request thread) (design D7).
+- [x] 4.6 Follow CommonMark fences (no info string on a closing fence, no backticks in a backtick opener's info string, at most 3 spaces of indentation) and truncate snippets by code point so an emoji is never split (code review on PR #521).
