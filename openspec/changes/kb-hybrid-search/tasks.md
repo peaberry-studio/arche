@@ -26,3 +26,10 @@
 - [x] 4.4 Close fenced code blocks only on the same character with at least the opening length, and keep a trailing `#` that is part of the heading text (design D1). Add a sibling-folder path scoping test.
 - [x] 4.5 Reject queries longer than 1,000 characters as `invalid_query` (security audit: unbounded input is tokenized and embedded on the request thread) (design D7).
 - [x] 4.6 Follow CommonMark fences (no info string on a closing fence, no backticks in a backtick opener's info string, at most 3 spaces of indentation) and truncate snippets by code point so an emoji is never split (code review on PR #521).
+
+## 5. Resource optimization
+
+- [x] 5.1 Profile the model on the home deployment: RSS, CPU and image size per phase; graph optimization level, memory arena, batch size and pipeline disposal (design D3).
+- [x] 5.2 Run the model in a child process (`src/kb-search-embedder.ts`) forked through `tsx`, stopped after 10 idle minutes; reject pending requests when it exits or fails to start (design D3, D6). Verify with `src/kb-search-embedder.test.ts` and `__tests__/kb-search-embeddings.test.ts`.
+- [x] 5.3 Persist section vectors keyed by passage hash and model revision; read them on a process's first build and rewrite them after embedding (design D5). Verify with `__tests__/kb-search-vector-cache.test.ts` and `__tests__/kb-search-index.test.ts`.
+- [x] 5.4 Fetch the four pinned model files verified by SHA-256 and load them with remote access disabled; bake them into the web image, drop other platforms' `onnxruntime-node` binaries and `onnxruntime-web`, and mount the vector cache directory in the Ansible deploy.

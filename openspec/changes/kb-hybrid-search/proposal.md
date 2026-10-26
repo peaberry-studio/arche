@@ -28,6 +28,7 @@
 - `apps/web/src/lib/mcp/kb-content-store.ts` — `searchKb()` delegates to the search index; `KbSearchMatch` gains `heading` and `score`.
 - New `apps/web/src/lib/mcp/kb-search-sections.ts` (Markdown → sections, tokenizer), `kb-search-ranking.ts` (BM25, fusion, per-article aggregation), `kb-search-embeddings.ts` (local model wrapper), `kb-search-index.ts` (HEAD-keyed index lifecycle).
 - `apps/web/src/lib/mcp/server.ts` — `search_kb` description reflects ranked results.
-- `apps/web/package.json` — new dependency `@huggingface/transformers` (pulls `onnxruntime-node`); `next.config.ts` lists it in `serverExternalPackages`.
-- Runtime: the model (~120 MB) downloads from the Hugging Face Hub on the first search into the library's default cache under `node_modules`; the web process needs outbound HTTPS once per fresh `node_modules`. Index memory is roughly 1.5 KB per section (384-dim vectors).
-- No DB migration, no Prisma schema change, no compose/Ansible change, no change to KB writes, Knowledge Review or workspace git pushes.
+- `apps/web/package.json` — new dependency `@huggingface/transformers` (pulls `onnxruntime-node`), loaded only by the embedder child process `apps/web/src/kb-search-embedder.ts`; `kb-search-vector-cache.ts` persists section vectors.
+- `apps/web/Containerfile` — bakes the pinned model (~113 MB) into the image and drops unused `onnxruntime` binaries; `infra/deploy` mounts a vector cache directory into the web container.
+- Runtime: ~500 MB for the embedder child while searches run, released after 10 idle minutes; index memory is roughly 1.5 KB per section (384-dim vectors).
+- No DB migration, no Prisma schema change, no change to KB writes, Knowledge Review or workspace git pushes.
