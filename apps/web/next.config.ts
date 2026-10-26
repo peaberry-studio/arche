@@ -45,7 +45,7 @@ const nextConfig: NextConfig = {
       ],
     },
   }),
-  serverExternalPackages: ["dockerode", "better-sqlite3", "@prisma/adapter-better-sqlite3", "argon2", "@slack/bolt", "@huggingface/transformers"],
+  serverExternalPackages: ["dockerode", "better-sqlite3", "@prisma/adapter-better-sqlite3", "argon2", "@slack/bolt"],
   experimental: {
     proxyClientMaxBodySize: "110mb",
   },

@@ -1,18 +1,23 @@
-import type { FeatureExtractionPipeline } from '@huggingface/transformers'
+import { fork, type ChildProcess } from 'node:child_process'
+import * as path from 'node:path'
 
-const EMBEDDING_MODEL = 'Xenova/paraphrase-multilingual-MiniLM-L12-v2'
-// Pinned so a fresh download keeps the weights the 0.4 similarity threshold was calibrated on.
-const EMBEDDING_MODEL_REVISION = '2c4055b12046f11709e9df2c122e59ffbdc2f900'
-const EMBEDDING_BATCH_SIZE = 16
+import type { EmbedRequest, EmbedResponse } from '@/lib/mcp/kb-search-model'
 
-let extractorPromise: Promise<FeatureExtractionPipeline> | null = null
+// The model holds ~500 MB that a process does not return to the OS once loaded, so it runs
+// in a child process (src/kb-search-embedder.ts) that is stopped after this long without requests.
+const EMBEDDER_IDLE_MS = 10 * 60 * 1000
+const EMBEDDER_ENTRY = path.join(process.cwd(), 'src', 'kb-search-embedder.ts')
+
+type PendingRequest = { resolve: (vectors: Float32Array[]) => void; reject: (error: Error) => void }
+type Embedder = { process: ChildProcess; pending: Map<number, PendingRequest> }
+
+let current: Embedder | null = null
+let idleTimer: NodeJS.Timeout | null = null
+let nextRequestId = 0
 
 export async function embedPassages(texts: string[]): Promise<Float32Array[]> {
-  const vectors: Float32Array[] = []
-  for (let start = 0; start < texts.length; start += EMBEDDING_BATCH_SIZE) {
-    vectors.push(...await embed(texts.slice(start, start + EMBEDDING_BATCH_SIZE)))
-  }
-  return vectors
+  if (texts.length === 0) return []
+  return embed(texts)
 }
 
 export async function embedQuery(text: string): Promise<Float32Array> {
@@ -20,20 +25,55 @@ export async function embedQuery(text: string): Promise<Float32Array> {
   return vector
 }
 
-async function embed(texts: string[]): Promise<Float32Array[]> {
-  const extractor = await loadExtractor()
-  const output = await extractor(texts, { pooling: 'mean', normalize: true })
-  return (output.tolist() as number[][]).map((row) => Float32Array.from(row))
+function embed(texts: string[]): Promise<Float32Array[]> {
+  const embedder = current ?? startEmbedder()
+  clearIdleTimer()
+  const id = nextRequestId++
+  return new Promise((resolve, reject) => {
+    embedder.pending.set(id, { resolve, reject })
+    embedder.process.send({ id, texts } satisfies EmbedRequest, (error) => {
+      if (error) settle(embedder, { id, ok: false, error: error.message })
+    })
+  })
 }
 
-// Imported lazily: the library loads onnxruntime-node's native binding on import, so a
-// platform without a binding must fail the search, not every module that imports this one.
-function loadExtractor(): Promise<FeatureExtractionPipeline> {
-  extractorPromise ??= import('@huggingface/transformers')
-    .then(({ pipeline }) => pipeline('feature-extraction', EMBEDDING_MODEL, { dtype: 'q8', revision: EMBEDDING_MODEL_REVISION }))
-    .catch((error: unknown) => {
-      extractorPromise = null
-      throw error
-    })
-  return extractorPromise
+function startEmbedder(): Embedder {
+  // Runs from source through tsx at runtime; the Next build must not try to bundle it.
+  const child = fork(/* turbopackIgnore: true */ EMBEDDER_ENTRY, [], { execArgv: ['--import', 'tsx'], serialization: 'advanced' })
+  const embedder: Embedder = { process: child, pending: new Map() }
+  current = embedder
+
+  child.on('message', (message: EmbedResponse) => settle(embedder, message))
+  child.on('error', (error) => stopEmbedder(embedder, error))
+  child.once('exit', (code, signal) => stopEmbedder(embedder, new Error(`Embedder process exited (${code ?? signal})`)))
+  return embedder
+}
+
+function settle(embedder: Embedder, response: EmbedResponse): void {
+  const request = embedder.pending.get(response.id)
+  if (!request) return
+  embedder.pending.delete(response.id)
+  if (response.ok) request.resolve(response.vectors)
+  else request.reject(new Error(response.error))
+  if (embedder === current && embedder.pending.size === 0) scheduleIdleStop(embedder)
+}
+
+function stopEmbedder(embedder: Embedder, error: Error): void {
+  if (embedder === current) {
+    current = null
+    clearIdleTimer()
+  }
+  for (const request of embedder.pending.values()) request.reject(error)
+  embedder.pending.clear()
+  if (embedder.process.exitCode === null) embedder.process.kill()
+}
+
+function scheduleIdleStop(embedder: Embedder): void {
+  idleTimer = setTimeout(() => stopEmbedder(embedder, new Error('Embedder process stopped while idle')), EMBEDDER_IDLE_MS)
+  idleTimer.unref()
+}
+
+function clearIdleTimer(): void {
+  if (idleTimer) clearTimeout(idleTimer)
+  idleTimer = null
 }
