@@ -201,7 +201,7 @@ function buildToolDefinitions(scopes: readonly string[], user: RuntimeUser): Too
       }),
       defineTool({
         name: 'search_kb',
-        description: 'Search markdown knowledge-base articles by text. Use this when the relevant article is unknown.',
+        description: 'Search markdown knowledge-base articles by terms and meaning. Returns the most relevant articles first, one match per article with its best section heading, start line and a short snippet. Use this when the relevant article is unknown; optional path restricts results to a folder.',
         args: { query: { type: 'string', required: true }, path: { type: 'string' }, limit: { type: 'number' } },
         handler: (a) => searchKb({ query: str(a, 'query'), path: optStr(a, 'path'), limit: optNum(a, 'limit') }),
       }),

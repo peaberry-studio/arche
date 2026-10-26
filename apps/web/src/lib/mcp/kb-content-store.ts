@@ -8,8 +8,10 @@ import {
   hasBareRepoLayout,
   isGitAvailable,
   resolveRepoRoot,
-  runGit,
+  runGitOnBareRepo,
 } from '@/lib/git/bare-repo'
+import { searchKbIndex, type KbArticleContent } from '@/lib/mcp/kb-search-index'
+import type { KbSearchMatch } from '@/lib/mcp/kb-search-ranking'
 import { getKbContentRoot } from '@/lib/runtime/paths'
 
 type KbReadError = 'invalid_path' | 'kb_unavailable' | 'not_found' | 'read_failed'
@@ -20,17 +22,13 @@ type CloneContext = {
 }
 
 const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f]/
+const SEARCH_DEFAULT_LIMIT = 10
+const SEARCH_MAX_LIMIT = 50
 const GIT_CONTROL_FILES = new Set(['.git', '.gitattributes', '.gitignore', '.gitmodules'])
 
 export type KbArticleListItem = {
   path: string
   size: number
-}
-
-export type KbSearchMatch = {
-  path: string
-  line: number
-  text: string
 }
 
 export type KbArticleSnapshot = {
@@ -106,52 +104,30 @@ export async function captureKbArticleForReview(input: { path: string }): Promis
 
 export async function searchKb(input: { query: string; path?: string; limit?: number }): Promise<
   | { ok: true; matches: KbSearchMatch[] }
-  | { ok: false; error: KbReadError | 'invalid_query' }
+  | { ok: false; error: KbReadError | 'invalid_query' | 'search_failed' }
 > {
   const query = input.query.trim()
   if (!query) return { ok: false, error: 'invalid_query' }
 
-  let normalizedPath: string | undefined
+  let pathPrefix: string | undefined
   if (input.path) {
-    normalizedPath = normalizeKbPath(input.path) ?? undefined
-    if (!normalizedPath) return { ok: false, error: 'invalid_path' as KbReadError }
+    pathPrefix = normalizeKbPath(input.path) ?? undefined
+    if (!pathPrefix) return { ok: false, error: 'invalid_path' }
   }
 
-  return readContentRepo(async ({ repoDir, gitEnv }) => {
-    const pathspecs = normalizedPath ? [`${normalizedPath}/`] : []
-    const result = await runGit(
-      ['grep', '-n', '-i', '--fixed-strings', '--', query, ...pathspecs],
-      { cwd: repoDir, env: gitEnv }
-    )
+  const root = await resolveContentRepoRoot()
+  if (!root || !(await hasBareRepoLayout(root))) return { ok: false, error: 'kb_unavailable' }
 
-    if (!result.ok) {
-      return result.stderr ? { ok: false, error: 'read_failed' as KbReadError } : { ok: true, matches: [] }
-    }
+  const head = await runGitOnBareRepo(root, ['rev-parse', '--verify', '-q', 'HEAD'])
+  if (!head.ok && head.stderr) return { ok: false, error: 'read_failed' }
 
-    const limit = Math.min(Math.max(input.limit ?? 50, 1), 100)
-    const matches: KbSearchMatch[] = []
-
-    for (const line of result.stdout.split('\n')) {
-      if (!line || matches.length >= limit) continue
-      const match = parseGitGrepLine(line)
-      if (match && match.path.toLowerCase().endsWith('.md')) matches.push(match)
-    }
-
-    return { ok: true, matches }
+  return searchKbIndex({
+    headHash: head.ok ? head.stdout.trim() : null,
+    limit: Math.min(Math.max(input.limit ?? SEARCH_DEFAULT_LIMIT, 1), SEARCH_MAX_LIMIT),
+    loadArticles: () => readContentRepo(({ repoDir }) => readAllArticlesInRepo(repoDir)),
+    pathPrefix,
+    query,
   })
-}
-
-function parseGitGrepLine(line: string): KbSearchMatch | null {
-  const firstColon = line.indexOf(':')
-  if (firstColon < 0) return null
-  const secondColon = line.indexOf(':', firstColon + 1)
-  if (secondColon < 0) return null
-
-  const filePath = line.slice(0, firstColon)
-  const lineNumber = Number(line.slice(firstColon + 1, secondColon))
-  if (!Number.isFinite(lineNumber) || lineNumber < 1) return null
-
-  return { path: filePath, line: lineNumber, text: line.slice(secondColon + 1).trim() }
 }
 
 async function listKbArticlesInRepo(repoDir: string, input: { path?: string } = {}): Promise<
@@ -181,6 +157,20 @@ async function listKbArticlesInRepo(repoDir: string, input: { path?: string } = 
       ? [{ path: basePath, size: stats.size }]
       : []
 
+  return { ok: true, articles }
+}
+
+async function readAllArticlesInRepo(repoDir: string): Promise<
+  | { ok: true; articles: KbArticleContent[] }
+  | { ok: false; error: KbReadError }
+> {
+  const files = await listMarkdownFiles(repoDir, repoDir, '')
+  const articles: KbArticleContent[] = []
+  for (const file of files) {
+    const content = await fs.readFile(path.join(repoDir, file.path), 'utf-8').catch(() => null)
+    if (content === null) return { ok: false, error: 'read_failed' }
+    articles.push({ path: file.path, content })
+  }
   return { ok: true, articles }
 }
 
