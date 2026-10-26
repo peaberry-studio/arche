@@ -22,7 +22,7 @@ type SearchIndex = {
   vectorsByText: Map<string, Float32Array>
 }
 
-const MIN_SEMANTIC_SIMILARITY = 0.3
+const MIN_SEMANTIC_SIMILARITY = 0.4
 const SEMANTIC_CANDIDATES = 50
 
 let currentIndex: SearchIndex | null = null

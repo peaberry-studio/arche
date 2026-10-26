@@ -14,6 +14,6 @@
 ## 3. Verification
 
 - [x] 3.1 `pnpm test` and `pnpm lint` from `apps/web/` are green.
-- [ ] 3.2 Evaluate against a copy of the real KB: a query set covering exact terms, multi-word, paraphrase, cross-language and scoped queries, comparing old and new results.
+- [x] 3.2 Evaluate against a copy of the real KB: a query set covering exact terms, multi-word, paraphrase, cross-language and scoped queries, comparing old and new results.
 - [ ] 3.3 `bash scripts/check-podman-images.sh` builds the images.
 - [x] 3.4 `openspec validate kb-hybrid-search --strict` passes.

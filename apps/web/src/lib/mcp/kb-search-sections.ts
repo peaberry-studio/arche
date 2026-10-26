@@ -9,6 +9,18 @@ const HEADING_PATTERN = /^(#{1,3})\s+(.+?)\s*#*\s*$/
 const FENCE_PATTERN = /^\s*(```|~~~)/
 const MAX_SECTION_CHARS = 500
 const MIN_TOKEN_LENGTH = 2
+// Accent-folded Spanish and English function words: they occur in nearly every
+// section, so matching them makes unrelated queries return every article.
+const STOP_WORDS = new Set([
+  'al', 'como', 'con', 'cual', 'cuando', 'de', 'del', 'desde', 'donde', 'el', 'en', 'entre', 'es', 'esa', 'ese', 'eso',
+  'esta', 'este', 'esto', 'fue', 'hay', 'la', 'las', 'le', 'les', 'lo', 'los', 'mas', 'me', 'mi', 'muy', 'no', 'nos',
+  'para', 'pero', 'por', 'que', 'quien', 'se', 'ser', 'si', 'sin', 'sobre', 'son', 'su', 'sus', 'te', 'tu', 'un', 'una',
+  'unas', 'unos', 'ya',
+  'an', 'and', 'are', 'as', 'at', 'be', 'but', 'by', 'can', 'do', 'does', 'each', 'for', 'from', 'has', 'have', 'how',
+  'if', 'in', 'into', 'is', 'it', 'its', 'of', 'on', 'or', 'our', 'so', 'than', 'that', 'the', 'their', 'them', 'then',
+  'there', 'these', 'they', 'this', 'those', 'to', 'was', 'we', 'what', 'when', 'where', 'which', 'who', 'will', 'with',
+  'you', 'your',
+])
 
 export function splitArticleIntoSections(path: string, content: string): KbSection[] {
   const sections: KbSection[] = []
@@ -71,5 +83,5 @@ export function tokenize(text: string): string[] {
     .replace(/\p{M}/gu, '')
     .toLowerCase()
     .split(/[^\p{L}\p{N}]+/u)
-    .filter((token) => token.length >= MIN_TOKEN_LENGTH)
+    .filter((token) => token.length >= MIN_TOKEN_LENGTH && !STOP_WORDS.has(token))
 }

@@ -65,7 +65,9 @@ describe('splitArticleIntoSections', () => {
 
 describe('tokenize', () => {
   it.each([
-    ['Índice de Proyectos', ['indice', 'de', 'proyectos']],
+    ['Índice de Proyectos', ['indice', 'proyectos']],
+    ['¿Dónde se aloja la web?', ['aloja', 'web']],
+    ['Where is the site hosted', ['site', 'hosted']],
     ['kb-http-backend.ts', ['kb', 'http', 'backend', 'ts']],
     ['a 1 ok', ['ok']],
     ['Beds24 → WordPress', ['beds24', 'wordpress']],
