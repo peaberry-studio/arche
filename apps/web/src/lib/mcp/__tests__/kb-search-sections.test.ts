@@ -46,15 +46,20 @@ describe('splitArticleIntoSections', () => {
     ])
   })
 
-  it('splits long sections at paragraph boundaries keeping the heading', () => {
-    const paragraph = 'word '.repeat(150).trim()
-    const content = `# Long\n${paragraph}\n\n${paragraph}\n\n${paragraph}`
-    const sections = splitArticleIntoSections('a.md', content)
+  it('splits long sections at line boundaries keeping the heading', () => {
+    const line = 'word '.repeat(40).trim()
+    const lines = Array.from({ length: 6 }, () => line)
+    const sections = splitArticleIntoSections('a.md', `# Long\n${lines.join('\n')}`)
 
     expect(sections.length).toBeGreaterThan(1)
     expect(sections.every((section) => section.heading === 'Long' && section.line === 1)).toBe(true)
-    expect(sections.every((section) => section.text.length <= 1200)).toBe(true)
-    expect(sections.map((section) => section.text).join('\n\n')).toBe(`${paragraph}\n\n${paragraph}\n\n${paragraph}`)
+    expect(sections.every((section) => section.text.length <= 500)).toBe(true)
+    expect(sections.map((section) => section.text).join('\n')).toBe(lines.join('\n'))
+  })
+
+  it('keeps a single line longer than the limit whole', () => {
+    const line = 'x'.repeat(700)
+    expect(splitArticleIntoSections('a.md', `# Long\n${line}`)).toEqual([{ path: 'a.md', heading: 'Long', line: 1, text: line }])
   })
 })
 

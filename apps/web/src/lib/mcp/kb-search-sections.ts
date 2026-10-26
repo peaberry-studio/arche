@@ -7,7 +7,7 @@ export type KbSection = {
 
 const HEADING_PATTERN = /^(#{1,3})\s+(.+?)\s*#*\s*$/
 const FENCE_PATTERN = /^\s*(```|~~~)/
-const MAX_SECTION_CHARS = 1200
+const MAX_SECTION_CHARS = 500
 const MIN_TOKEN_LENGTH = 2
 
 export function splitArticleIntoSections(path: string, content: string): KbSection[] {
@@ -52,16 +52,16 @@ function splitLongText(text: string): string[] {
 
   const chunks: string[] = []
   let current = ''
-  for (const paragraph of text.split(/\n\s*\n/)) {
-    const candidate = current ? `${current}\n\n${paragraph}` : paragraph
+  for (const line of text.split('\n')) {
+    const candidate = current ? `${current}\n${line}` : line
     if (current && candidate.length > MAX_SECTION_CHARS) {
-      chunks.push(current)
-      current = paragraph
+      chunks.push(current.trim())
+      current = line
     } else {
       current = candidate
     }
   }
-  if (current) chunks.push(current)
+  if (current.trim()) chunks.push(current.trim())
   return chunks
 }
 

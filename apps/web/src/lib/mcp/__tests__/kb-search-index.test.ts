@@ -1,5 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { fakeEmbedding } from '@/lib/mcp/__tests__/kb-search-fake-embeddings'
+
+const embeddings = vi.hoisted(() => ({
+  embedPassages: vi.fn(),
+  embedQuery: vi.fn(),
+}))
+
+vi.mock('@/lib/mcp/kb-search-embeddings', () => embeddings)
+
 type Article = { path: string; content: string }
 
 const ARTICLES: Article[] = [
@@ -14,6 +23,9 @@ function loaderOf(articles: Article[]) {
 describe('kb search index', () => {
   beforeEach(() => {
     vi.resetModules()
+    vi.clearAllMocks()
+    embeddings.embedPassages.mockImplementation(async (texts: string[]) => texts.map(fakeEmbedding))
+    embeddings.embedQuery.mockImplementation(async (text: string) => fakeEmbedding(text))
   })
 
   it('ranks articles from the loaded content', async () => {
@@ -92,5 +104,52 @@ describe('kb search index', () => {
     const result = await searchKbIndex({ headHash: 'h1', loadArticles, query: 'vercel', limit: 10 })
     expect(result.ok).toBe(true)
     expect(loadArticles).toHaveBeenCalledTimes(1)
+  })
+
+  it('finds an article by meaning when the query shares no terms with it', async () => {
+    const { searchKbIndex } = await import('@/lib/mcp/kb-search-index')
+    const result = await searchKbIndex({ headHash: 'h1', loadArticles: loaderOf(ARTICLES), query: 'dónde se aloja', limit: 10 })
+
+    expect(result.ok && result.matches.map((match) => match.path)).toEqual(['Proyectos/Magua/00 - Magua.md'])
+  })
+
+  it('ranks an article matched by terms and meaning above one matched by meaning only', async () => {
+    const articles = [
+      { path: 'meaning.md', content: '# Notes\nAlojamiento del sitio.' },
+      { path: 'both.md', content: '# Notes\nHosting on Vercel.' },
+    ]
+    const { searchKbIndex } = await import('@/lib/mcp/kb-search-index')
+    const result = await searchKbIndex({ headHash: 'h1', loadArticles: loaderOf(articles), query: 'vercel hosting', limit: 10 })
+
+    expect(result.ok && result.matches.map((match) => match.path)).toEqual(['both.md', 'meaning.md'])
+  })
+
+  it('embeds only new or changed sections after a new commit', async () => {
+    const { searchKbIndex } = await import('@/lib/mcp/kb-search-index')
+    await searchKbIndex({ headHash: 'h1', loadArticles: loaderOf(ARTICLES), query: 'vercel', limit: 10 })
+    expect(embeddings.embedPassages).toHaveBeenLastCalledWith([
+      'Magua › Stack\nHosting: Vercel with security headers.',
+      'Arche › Deploy\nAnsible deploy on a VPS.',
+    ])
+
+    const changed = [ARTICLES[0], { path: ARTICLES[1].path, content: '# Arche\n## Deploy\nAnsible deploy over Tailscale.' }]
+    await searchKbIndex({ headHash: 'h2', loadArticles: loaderOf(changed), query: 'vercel', limit: 10 })
+
+    expect(embeddings.embedPassages).toHaveBeenLastCalledWith(['Arche › Deploy\nAnsible deploy over Tailscale.'])
+  })
+
+  it.each([
+    ['passage embedding', () => embeddings.embedPassages.mockRejectedValueOnce(new Error('model unavailable'))],
+    ['query embedding', () => embeddings.embedQuery.mockRejectedValueOnce(new Error('inference failed'))],
+  ])('returns search_failed when %s fails and recovers on the next search', async (_, fail) => {
+    fail()
+    const { searchKbIndex } = await import('@/lib/mcp/kb-search-index')
+    const loadArticles = loaderOf(ARTICLES)
+
+    expect(await searchKbIndex({ headHash: 'h1', loadArticles, query: 'vercel', limit: 10 })).toEqual({
+      ok: false,
+      error: 'search_failed',
+    })
+    expect((await searchKbIndex({ headHash: 'h1', loadArticles, query: 'vercel', limit: 10 })).ok).toBe(true)
   })
 })

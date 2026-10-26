@@ -10,7 +10,7 @@
 
 - Replace the substring scan with a **hybrid ranked search** over heading-level sections of every Markdown article:
   - **Lexical**: BM25 over accent- and case-folded tokens of the article path, heading trail and section text, so multi-word queries match by terms instead of exact phrase.
-  - **Semantic**: cosine similarity between a local multilingual embedding model (`Xenova/multilingual-e5-small`, quantized, run in-process via `@huggingface/transformers`) of the query and of each section.
+  - **Semantic**: cosine similarity between embeddings of the query and of each section, computed in-process by a local multilingual model (`Xenova/paraphrase-multilingual-MiniLM-L12-v2`, quantized, via `@huggingface/transformers`), keeping only sections above a minimum similarity.
   - **Fusion**: reciprocal rank fusion of both rankings, aggregated to one result per article (its best section).
 - **BREAKING** (MCP tool contract): `search_kb` returns at most one match per article, ordered by relevance, each with `path`, `heading`, `line`, a bounded `text` snippet and a `score`. Default `limit` drops from 50 lines to 10 articles (max 50).
 - The search index is derived, in-memory state keyed by the content repo `HEAD` commit. It is built lazily on the first search and refreshed on the next search after any commit; embeddings are reused for unchanged sections. Markdown files in the bare repo remain the only source of truth; no write path changes.

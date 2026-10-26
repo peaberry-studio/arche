@@ -57,6 +57,20 @@ export function rankLexical(index: LexicalIndex, query: string): number[] {
   return scored.sort((left, right) => right.score - left.score).map((entry) => entry.position)
 }
 
+export function rankSemantic(vectors: Float32Array[], query: Float32Array, minSimilarity: number): number[] {
+  return vectors
+    .map((vector, position) => ({ position, similarity: dot(vector, query) }))
+    .filter((entry) => entry.similarity >= minSimilarity)
+    .sort((left, right) => right.similarity - left.similarity)
+    .map((entry) => entry.position)
+}
+
+function dot(left: Float32Array, right: Float32Array): number {
+  let sum = 0
+  for (let index = 0; index < left.length; index += 1) sum += left[index] * right[index]
+  return sum
+}
+
 export function fuseRankings(rankings: number[][]): Map<number, number> {
   const scores = new Map<number, number>()
   for (const ranking of rankings) {

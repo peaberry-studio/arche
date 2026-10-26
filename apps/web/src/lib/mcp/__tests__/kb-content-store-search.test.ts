@@ -4,6 +4,15 @@ import * as path from 'node:path'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { fakeEmbedding } from '@/lib/mcp/__tests__/kb-search-fake-embeddings'
+
+const embeddings = vi.hoisted(() => ({
+  embedPassages: vi.fn(),
+  embedQuery: vi.fn(),
+}))
+
+vi.mock('@/lib/mcp/kb-search-embeddings', () => embeddings)
+
 const mocks = vi.hoisted(() => ({
   cleanupClone: vi.fn(),
   cloneRepoToTemp: vi.fn(),
@@ -55,6 +64,8 @@ describe('searchKb', () => {
     mocks.hasBareRepoLayout.mockResolvedValue(true)
     mocks.cloneRepoToTemp.mockResolvedValue({ ok: true, dir: cloneDir, gitEnv: {}, safeConfigDir: '/tmp/safe' })
     headIs('abc123')
+    embeddings.embedPassages.mockImplementation(async (texts: string[]) => texts.map(fakeEmbedding))
+    embeddings.embedQuery.mockImplementation(async (text: string) => fakeEmbedding(text))
   })
 
   afterEach(async () => {
@@ -76,6 +87,13 @@ describe('searchKb', () => {
       }],
     })
     expect(mocks.runGitOnBareRepo).toHaveBeenCalledWith('/kb-content.git', ['rev-parse', '--verify', '-q', 'HEAD'])
+  })
+
+  it('finds an article by meaning when the query shares no terms with it', async () => {
+    const { searchKb } = await import('@/lib/mcp/kb-content-store')
+    const result = await searchKb({ query: 'dónde se aloja la web' })
+
+    expect(result.ok && result.matches.map((match) => match.path)).toEqual(['Proyectos/Magua/00 - Magua.md'])
   })
 
   it('only searches markdown files', async () => {

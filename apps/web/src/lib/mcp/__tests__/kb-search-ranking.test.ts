@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { aggregateByArticle, buildLexicalIndex, fuseRankings, rankLexical } from '@/lib/mcp/kb-search-ranking'
+import { aggregateByArticle, buildLexicalIndex, fuseRankings, rankLexical, rankSemantic } from '@/lib/mcp/kb-search-ranking'
 import type { KbSection } from '@/lib/mcp/kb-search-sections'
 
 function section(path: string, heading: string, text: string, line = 1): KbSection {
@@ -37,6 +37,22 @@ describe('rankLexical', () => {
   it('ranks rarer terms higher than common ones', () => {
     const ranking = rankLexical(buildLexicalIndex(SECTIONS), 'hosting podman')
     expect(ranking[0]).toBe(2)
+  })
+})
+
+describe('rankSemantic', () => {
+  const vectors = [
+    Float32Array.from([1, 0]),
+    Float32Array.from([0.6, 0.8]),
+    Float32Array.from([0, 1]),
+  ]
+
+  it('orders sections by cosine similarity', () => {
+    expect(rankSemantic(vectors, Float32Array.from([0.8, 0.6]), 0)).toEqual([1, 0, 2])
+  })
+
+  it('drops sections below the minimum similarity', () => {
+    expect(rankSemantic(vectors, Float32Array.from([1, 0]), 0.5)).toEqual([0, 1])
   })
 })
 

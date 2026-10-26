@@ -15,6 +15,8 @@ allowBuilds:
   es5-ext: false
   # Bundled binary used by TypeScript/runtime tooling.
   esbuild: true
+  # CPU binaries ship in the package; postinstall only downloads optional CUDA providers.
+  onnxruntime-node: false
   # Prisma CLI postinstall/generate flow requires its build scripts.
   prisma: true
   # protobufjs postinstall only prints version-scheme guidance.
