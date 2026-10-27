@@ -227,7 +227,7 @@ No DNS provider token is required in direct mode. Traefik uses ACME HTTP challen
 | `WEB_IMAGE` | `<IMAGE_PREFIX>web:<WEB_VERSION>` |
 | `OPENCODE_IMAGE` | `arche-workspace:latest` |
 | `OPENCODE_V1_IMAGE` | `<IMAGE_PREFIX>workspace:opencode-v1-1.18.18` remote, locally built `arche-workspace:opencode-v1-1.18.18` local-dev |
-| `CLOUDFLARED_IMAGE` | `docker.io/cloudflare/cloudflared:2026.5.0` |
+| `CLOUDFLARED_IMAGE` | `docker.io/cloudflare/cloudflared:2026.10.4` |
 | `PODMAN_SOCKET_PATH` | Auto-detected (see below) |
 | `ARCHE_PUBLIC_BASE_URL` | Derived from request origin unless set; in tunnel mode defaults to `https://<domain>` |
 | `ARCHE_SESSION_TTL_DAYS` | `7` |
@@ -275,7 +275,7 @@ HTTP-01 challenge is used in direct remote mode. Make sure your domain resolves 
 | Service | Image | Purpose |
 |---------|-------|---------|
 | Traefik | `traefik:v3.6.7` | Reverse proxy, direct-mode TLS termination, routing |
-| cloudflared | `cloudflare/cloudflared:2026.5.0` | Cloudflare Tunnel client in tunnel mode |
+| cloudflared | `cloudflare/cloudflared:2026.10.4` | Cloudflare Tunnel client in tunnel mode |
 | docker-socket-proxy | `ghcr.io/tecnativa/docker-socket-proxy@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459` | Secure container API access |
 | PostgreSQL | `postgres:16` | Database |
 | Web | Configurable (`WEB_IMAGE`) | Next.js app (BFF + spawner) |
