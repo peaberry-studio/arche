@@ -292,7 +292,7 @@ if ! $EXPOSURE_MODE_SET_BY_FLAG; then
 fi
 
 WEB_IMAGE="${WEB_IMAGE:-${IMAGE_PREFIX}web:${WEB_VERSION}}"
-CLOUDFLARED_IMAGE="${CLOUDFLARED_IMAGE:-docker.io/cloudflare/cloudflared:2026.5.0}"
+CLOUDFLARED_IMAGE="${CLOUDFLARED_IMAGE:-docker.io/cloudflare/cloudflared:2026.10.4}"
 
 # ---------------------------------------------------------------------------
 # Validation
@@ -818,7 +818,7 @@ vars = {
     "opencode_image": os.environ["WORKSPACE_RUNTIME_IMAGE"],
     "opencode_v1_image": "arche-workspace:opencode-v1-" + os.environ["OPENCODE_V1_VERSION"],
     "cloudflared_tunnel_token": "",
-    "cloudflared_image": "docker.io/cloudflare/cloudflared:2026.5.0",
+    "cloudflared_image": "docker.io/cloudflare/cloudflared:2026.10.4",
     "repo_root": os.environ["REPO_ROOT"],
     "kb_content_host_path": os.environ["KB_CONTENT_DEST"],
     "kb_config_host_path": os.environ["KB_CONFIG_DEST"],
