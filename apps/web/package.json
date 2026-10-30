@@ -41,6 +41,7 @@
   },
   "dependencies": {
     "@arche/desktop-runtime": "link:../desktop-runtime",
+    "@huggingface/transformers": "4.3.1",
     "@opencode-ai/sdk": "1.18.18",
     "@opencode/client": "2.0.32",
     "@phosphor-icons/react": "2.1.10",
