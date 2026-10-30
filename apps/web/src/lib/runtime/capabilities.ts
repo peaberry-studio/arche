@@ -16,6 +16,7 @@ export type RuntimeCapabilities = {
   googleWorkspaceIntegration: boolean
   kbGithubRemoteIntegration: boolean
   metaAdsConnector: boolean
+  kbSemanticSearch: boolean
 }
 
 const WEB_CAPABILITIES: RuntimeCapabilities = {
@@ -34,6 +35,7 @@ const WEB_CAPABILITIES: RuntimeCapabilities = {
   googleWorkspaceIntegration: true,
   kbGithubRemoteIntegration: true,
   metaAdsConnector: true,
+  kbSemanticSearch: true,
 }
 
 const DESKTOP_CAPABILITIES: RuntimeCapabilities = {
@@ -52,6 +54,8 @@ const DESKTOP_CAPABILITIES: RuntimeCapabilities = {
   googleWorkspaceIntegration: false,
   kbGithubRemoteIntegration: false,
   metaAdsConnector: true,
+  // The packaged desktop app ships neither the embedder process nor the model.
+  kbSemanticSearch: false,
 }
 
 const CAPABILITIES_BY_MODE: Record<RuntimeMode, RuntimeCapabilities> = {
