@@ -90,6 +90,14 @@
     group: "{{ deploy_user }}"
     mode: "0750"
 
+- name: Create KB search cache directory
+  ansible.builtin.file:
+    path: "{{ data_dir }}/kb-search"
+    state: directory
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    mode: "0750"
+
 - name: Create backups directory
   ansible.builtin.file:
     path: "{{ data_dir }}/backups"
@@ -432,6 +440,8 @@
       --network arche-control \
       --network {{ compose_default_network }} \
       -v {{ users_path | default('/opt/arche/users') }}:{{ users_path | default('/opt/arche/users') }} \
+      -e ARCHE_KB_SEARCH_CACHE_DIR=/var/lib/arche/kb-search \
+      -v {{ data_dir }}/kb-search:/var/lib/arche/kb-search \
       {{ kb_volumes | trim }} \
       --label traefik.enable=true \
       {{ traefik_labels | trim }} \
