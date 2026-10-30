@@ -1,5 +1,5 @@
 import { isE2eFakeRuntimeEnabled } from '@/lib/e2e/runtime'
-import { getInstanceBasicAuth } from '@/lib/opencode/client'
+import { getRuntimeConnection } from '@/lib/harness/registry'
 import type { WorkspaceHost, WorkspaceHostConnection, WorkspaceHostStatus } from '@/lib/runtime/types'
 import { webWorkspaceHostE2e } from '@/lib/runtime/workspace-host-web-e2e'
 import { startInstance, stopInstance, getInstanceStatus } from '@/lib/spawner/core'
@@ -26,7 +26,7 @@ const webWorkspaceHostReal: WorkspaceHost = {
   },
 
   async getConnection(slug: string): Promise<WorkspaceHostConnection | null> {
-    return getInstanceBasicAuth(slug)
+    return getRuntimeConnection(slug)
   },
 
   async getAgentConnection(slug: string): Promise<WorkspaceHostConnection | null> {

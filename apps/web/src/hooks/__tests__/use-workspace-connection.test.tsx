@@ -9,7 +9,7 @@ const opencodeMocks = vi.hoisted(() => ({
   checkConnectionAction: vi.fn(),
 }));
 
-vi.mock("@/actions/opencode", () => opencodeMocks);
+vi.mock("@/actions/workspace-sessions", () => opencodeMocks);
 
 describe("useWorkspaceConnection", () => {
   afterEach(() => {

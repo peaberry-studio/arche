@@ -4,7 +4,7 @@ import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useWorkspaceSessions } from "@/hooks/workspace/use-workspace-sessions";
-import type { WorkspaceSession } from "@/lib/opencode/types";
+import type { WorkspaceSession } from "@/types/workspace-runtime";
 
 const opencodeMocks = vi.hoisted(() => ({
   createSessionAction: vi.fn(),
@@ -15,7 +15,7 @@ const opencodeMocks = vi.hoisted(() => ({
   updateSessionAction: vi.fn(),
 }));
 
-vi.mock("@/actions/opencode", () => opencodeMocks);
+vi.mock("@/actions/workspace-sessions", () => opencodeMocks);
 
 function createStorageMock() {
   let store: Record<string, string> = {};
@@ -115,6 +115,112 @@ describe("useWorkspaceSessions", () => {
       "root",
     ]);
     expect(result.current.sessions).toEqual([]);
+  });
+
+  it("opens an explicitly selected archive offline, preserves it on reconnect, and refuses local mutations", async () => {
+    const archive = { ...rootSession, archived: true };
+    opencodeMocks.listSessionsAction.mockResolvedValue({ ok: true, sessions: [archive], hasMore: false });
+    opencodeMocks.listSessionFamilyAction.mockResolvedValue({ ok: true, rootSessionId: archive.id, sessions: [archive] });
+    const { result, rerender } = renderHook(({ connected }) => useWorkspaceSessions({ slug: "alice", initialSessionId: "root", isConnected: connected }), { initialProps: { connected: false } });
+    await act(async () => { await result.current.loadSessions(); });
+    expect(result.current.activeSession?.archived).toBe(true);
+    expect(opencodeMocks.createSessionAction).not.toHaveBeenCalled();
+    rerender({ connected: true });
+    await act(async () => { await result.current.loadSessions(); });
+    expect(result.current.activeSessionId).toBe("root");
+    expect(await result.current.renameSession("root", "Changed")).toBe(false);
+    expect(await result.current.deleteSession("root")).toBeNull();
+    expect(opencodeMocks.updateSessionAction).not.toHaveBeenCalled();
+    expect(opencodeMocks.deleteSessionAction).not.toHaveBeenCalled();
+  });
+
+  it("does not auto-select an archive or auto-create a live session for archive-only workspaces", async () => {
+    opencodeMocks.listSessionsAction.mockResolvedValue({ ok: true, sessions: [{ ...rootSession, archived: true }], hasMore: false });
+    const { result } = renderHook(() => useWorkspaceSessions({ slug: "alice", isConnected: false }));
+    await act(async () => { await result.current.loadSessions(); });
+    expect(result.current.activeSessionId).toBeNull();
+    expect(opencodeMocks.createSessionAction).not.toHaveBeenCalled();
+  });
+
+  it.each(["instance_unavailable", "runtime_unsupported"])(
+    "keeps a live deep link pending through archive-only loads and %s until recovery",
+    async (error) => {
+      const archive = { ...rootSession, id: "archive", archived: true };
+      opencodeMocks.listSessionsAction.mockResolvedValue({ ok: true, sessions: [archive], hasMore: false });
+      opencodeMocks.listSessionFamilyAction.mockResolvedValue({ ok: false, error });
+      const { result, rerender } = renderHook(
+        ({ connected }) => useWorkspaceSessions({ slug: "alice", initialSessionId: "child", isConnected: connected }),
+        { initialProps: { connected: false } },
+      );
+
+      await act(async () => { await result.current.loadSessions(); });
+      expect(result.current.sessions).toEqual([archive]);
+      expect(result.current.activeSessionId).toBeNull();
+      expect(result.current.isInitialSessionsReady).toBe(false);
+
+      rerender({ connected: true });
+      await act(async () => { await result.current.loadSessions(); });
+      expect(result.current.isInitialSessionsReady).toBe(false);
+
+      opencodeMocks.listSessionsAction.mockResolvedValue({ ok: true, sessions: [rootSession, archive], hasMore: false });
+      opencodeMocks.listSessionFamilyAction.mockResolvedValue({ ok: true, rootSessionId: "root", sessions: [rootSession, childSession] });
+      await act(async () => { await result.current.loadSessions(); });
+
+      expect(opencodeMocks.listSessionFamilyAction).toHaveBeenCalledTimes(3);
+      expect(opencodeMocks.listSessionFamilyAction).toHaveBeenLastCalledWith("alice", "child");
+      expect(result.current.activeSessionId).toBe("child");
+      expect(result.current.isInitialSessionsReady).toBe(true);
+      expect(result.current.sessionsError).toBeNull();
+      expect(opencodeMocks.createSessionAction).not.toHaveBeenCalled();
+    },
+  );
+
+  it("settles a missing deep link only after an authoritative family not-found", async () => {
+    opencodeMocks.listSessionFamilyAction.mockResolvedValue({ ok: false, error: "not_found" });
+    const { result } = renderHook(() => useWorkspaceSessions({ slug: "alice", initialSessionId: "missing", isConnected: true }));
+
+    await act(async () => { await result.current.loadSessions(); });
+    expect(result.current.activeSessionId).toBeNull();
+    expect(result.current.isInitialSessionsReady).toBe(true);
+
+    opencodeMocks.listSessionsAction.mockResolvedValue({ ok: true, sessions: [{ ...rootSession, id: "missing" }], hasMore: false });
+    await act(async () => { await result.current.loadSessions(); });
+    expect(opencodeMocks.listSessionFamilyAction).toHaveBeenCalledTimes(1);
+    expect(result.current.activeSessionId).toBeNull();
+  });
+
+  it("retries a pending deep link when reconnect overlaps the offline load", async () => {
+    const offlineList = createDeferred<{ ok: true; sessions: WorkspaceSession[]; hasMore: boolean }>();
+    opencodeMocks.listSessionsAction
+      .mockReturnValueOnce(offlineList.promise)
+      .mockResolvedValue({ ok: true, sessions: [rootSession], hasMore: false });
+    opencodeMocks.listSessionFamilyAction.mockResolvedValueOnce({ ok: false, error: "instance_unavailable" });
+    const { result, rerender } = renderHook(
+      ({ connected }) => useWorkspaceSessions({ slug: "alice", initialSessionId: "child", isConnected: connected }),
+      { initialProps: { connected: false } },
+    );
+    let offlineLoad!: Promise<void>;
+    act(() => { offlineLoad = result.current.loadSessions(); });
+    rerender({ connected: true });
+    act(() => { void result.current.loadSessions(); });
+
+    await act(async () => {
+      offlineList.resolve({ ok: true, sessions: [{ ...rootSession, id: "archive", archived: true }], hasMore: false });
+      await offlineLoad;
+    });
+
+    await waitFor(() => { expect(result.current.activeSessionId).toBe("child"); });
+    expect(opencodeMocks.listSessionsAction).toHaveBeenCalledTimes(2);
+    expect(result.current.isInitialSessionsReady).toBe(true);
+  });
+
+  it("does not count archives towards the live pagination limit", async () => {
+    const archives = Array.from({ length: 600 }, (_, index) => ({ ...rootSession, id: `old-${index}`, archived: true }));
+    opencodeMocks.listSessionsAction.mockResolvedValue({ ok: true, sessions: [rootSession, ...archives], hasMore: true });
+    const { result } = renderHook(() => useWorkspaceSessions({ slug: "alice", isConnected: true }));
+    await act(async () => { await result.current.loadSessions(); });
+    await act(async () => { await result.current.loadMoreSessions(); });
+    expect(opencodeMocks.listSessionsAction).toHaveBeenLastCalledWith("alice", { limit: 1000, rootsOnly: true });
   });
 
   it("keeps the initial state pending until the requested session family resolves", async () => {

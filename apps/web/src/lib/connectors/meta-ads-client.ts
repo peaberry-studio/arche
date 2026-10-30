@@ -110,6 +110,7 @@ async function requestMetaAdsJson(
       Authorization: `Bearer ${accessToken}`,
     },
     cache: 'no-store',
+    redirect: 'error',
   }).catch(() => null)
 
   if (!response) {

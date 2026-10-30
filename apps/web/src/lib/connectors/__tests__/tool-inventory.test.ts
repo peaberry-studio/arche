@@ -67,10 +67,7 @@ describe('loadConnectorToolInventory', () => {
     mocks.getConnectorAuthType.mockReturnValue('manual')
     mocks.getConnectorMcpServerUrl.mockReturnValue('https://mcp.example/rpc')
     mocks.getConnectorOAuthConfig.mockReturnValue(null)
-    mocks.validateConnectorTestEndpoint.mockResolvedValue({
-      ok: true,
-      url: new URL('https://validated.example/rpc'),
-    })
+    mocks.validateConnectorTestEndpoint.mockImplementation(async (url: string) => ({ ok: true, url: new URL(url) }))
   })
 
   it('returns embedded connector tools with display titles', async () => {
@@ -210,7 +207,7 @@ describe('loadConnectorToolInventory', () => {
         }),
       }),
     )
-    expect(mocks.validateConnectorTestEndpoint).not.toHaveBeenCalled()
+    expect(mocks.validateConnectorTestEndpoint).toHaveBeenCalledWith('https://api.githubcopilot.com/mcp/')
   })
 
   it('uses API key auth for any remote connector inventory', async () => {
@@ -284,7 +281,7 @@ describe('loadConnectorToolInventory', () => {
     })
     expect(mocks.validateConnectorTestEndpoint).toHaveBeenCalledWith('https://input.example/mcp')
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://validated.example/rpc',
+      'https://input.example/mcp',
       expect.objectContaining({
         headers: expect.objectContaining({ Authorization: 'Bearer custom-token' }),
       }),
@@ -313,7 +310,7 @@ describe('loadConnectorToolInventory', () => {
       tools: [{ name: 'query_events', title: 'Query events', description: 'Query events' }],
     })
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://validated.example/rpc',
+      'https://mcp.example/rpc',
       expect.objectContaining({
         headers: expect.objectContaining({ accept: 'application/json, text/event-stream' }),
       }),

@@ -7,9 +7,7 @@ import { toast } from "sonner";
 import { useWorkspaceRuntime } from "@/contexts/workspace-runtime-context";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { useConfigStatus } from "@/hooks/use-config-status";
-import { useSkillsCatalog } from "@/hooks/use-skills-catalog";
 import { useViewportWidth } from "@/hooks/use-viewport-width";
-import type { WorkspaceSession } from "@/lib/opencode/types";
 import {
   getWorkspaceFlowsHref,
   getWorkspaceHref,
@@ -30,6 +28,7 @@ import {
 } from "@/lib/workspace-panel-state";
 import { cn } from "@/lib/utils";
 import { flattenWorkspaceFileNodes, resolveWorkspaceFilePath } from "@/lib/workspace-file-search";
+import type { WorkspaceSession } from "@/types/workspace-runtime";
 
 import { ChatPanel } from "./chat-panel";
 import { ConfigChangeBanner } from "./config-change-banner";
@@ -214,7 +213,6 @@ export function WorkspaceShell({
     enabled: instanceStatus === 'running',
     workspaceAgentEnabled,
   });
-  const skillsCatalog = useSkillsCatalog(slug)
   const {
     readFile: readWorkspaceFile,
   } = workspace;
@@ -255,9 +253,11 @@ export function WorkspaceShell({
   // URL is restorable and shareable. Management overlays (catalog, flows) own
   // their navigation, so their params are left untouched.
   //
-  // Do not rewrite the URL until the session list is validated. Replacing
-  // `?session=` during startup aborts the in-flight ensureInstanceRunningAction
-  // and leaves the workspace on "Starting workspace".
+  // Do not rewrite the URL until the session list is validated. The param is
+  // client state, so the history entry is updated directly (Next syncs
+  // useSearchParams): a router navigation would refetch the page and race with
+  // in-flight navigations and actions, either losing this update or undoing the
+  // user's (e.g. opening the Knowledge Base right after startup).
   useEffect(() => {
     if (catalogParam || flowsParam) return;
     if (!workspace.isInitialSessionsReady) return;
@@ -272,8 +272,8 @@ export function WorkspaceShell({
       params.delete("session");
     }
     const query = params.toString();
-    router.replace(query ? `/w/${slug}?${query}` : `/w/${slug}`);
-  }, [catalogParam, flowsParam, router, searchParams, slug, workspace.activeSessionId, workspace.isInitialSessionsReady]);
+    window.history.replaceState(null, "", query ? `/w/${slug}?${query}` : `/w/${slug}`);
+  }, [catalogParam, flowsParam, searchParams, slug, workspace.activeSessionId, workspace.isInitialSessionsReady]);
 
   const activeRootSessionId = useMemo(
     () => resolveRootSessionId(workspace.activeSessionId, sessionsById),
@@ -683,6 +683,7 @@ export function WorkspaceShell({
   const uiSessions = useMemo(() => {
     return workspace.sessions.map(s => ({
       id: s.id,
+      archived: s.archived,
       title: s.title,
       status: s.status === 'busy' ? 'active' as const : s.status === 'idle' ? 'idle' as const : 'archived' as const,
       updatedAt: s.updatedAt,
@@ -726,7 +727,7 @@ export function WorkspaceShell({
     ? sessionsById.get(workspace.activeSessionId) ?? null
     : null;
   const isBusyFlowSession = isBusyFlowWorkspaceSession(activeSessionRecord);
-  const isReadOnlyChatSession = isInspectingSubagentSession || isBusyFlowSession;
+  const isReadOnlyChatSession = Boolean(activeSessionRecord?.archived) || isInspectingSubagentSession || isBusyFlowSession;
 
   const chatPanelElement = (
     <ChatPanel
@@ -737,7 +738,6 @@ export function WorkspaceShell({
       attachmentsEnabled={workspaceAgentEnabled}
       contextFilePaths={markdownFilePaths}
       sessions={uiSessions}
-      skills={skillsCatalog.skills}
       messages={uiMessages}
       permissions={workspace.permissions}
       activeSessionId={workspace.activeSessionId}
@@ -794,7 +794,7 @@ export function WorkspaceShell({
       slackIntegrationAvailable={slackIntegrationAvailable}
       teamVisibilityAvailable={teamVisibilityAvailable}
     />
-  ) : isReady ? chatPanelElement : (
+  ) : isReady || activeSessionRecord?.archived ? chatPanelElement : (
     <WorkspaceConnectingBanner
       connection={connection}
       instanceError={instanceError}

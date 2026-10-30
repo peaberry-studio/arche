@@ -2,10 +2,9 @@
 
 import { XCircle } from "@phosphor-icons/react";
 
+import { ArcLoader } from "@/components/workspace/arc-loader";
 import type { InstanceStartupStatus } from "@/hooks/use-instance-startup";
-import type { WorkspaceConnectionState } from "@/lib/opencode/types";
-
-import { ArcLoader } from "./arc-loader";
+import type { WorkspaceConnectionState } from "@/types/workspace-runtime";
 
 const CONNECTION_ERROR_COPY: Record<string, string> = {
   connection_check_failed: "Couldn't reach the workspace. Retrying...",
@@ -35,7 +34,8 @@ export function WorkspaceConnectingBanner({
   instanceStatus,
   instanceError,
 }: WorkspaceConnectingBannerProps) {
-  const starting = instanceStatus === "starting" || instanceStatus === null;
+  const migrating = instanceStatus === "migrating_history";
+  const starting = instanceStatus === "starting" || instanceStatus === null || migrating;
   const failed = instanceStatus === "error";
   const connectionFailed = !starting && !failed && connection.status === "error";
 
@@ -44,16 +44,20 @@ export function WorkspaceConnectingBanner({
       {failed || connectionFailed ? (
         <XCircle size={24} weight="fill" className="text-destructive/70" aria-hidden />
       ) : (
-        <ArcLoader />
+        <div aria-hidden><ArcLoader /></div>
       )}
-      <div className="space-y-1">
+      <div className="max-w-sm space-y-1">
         {starting ? (
-          <>
-            <h2 className="type-display text-base font-semibold">Starting workspace</h2>
+          <div role="status" aria-atomic="true" className="space-y-1">
+            <h2 className="type-display text-base font-semibold">
+              {migrating ? "Migrating history" : "Starting workspace"}
+            </h2>
             <p className="text-sm text-muted-foreground">
-              Setting up your workspace…
+              {migrating
+                ? "Preserving your previous conversations before starting your workspace…"
+                : "Setting up your workspace…"}
             </p>
-          </>
+          </div>
         ) : failed ? (
           <div role="alert">
             <h2 className="type-display text-base font-semibold text-destructive">Failed to start</h2>

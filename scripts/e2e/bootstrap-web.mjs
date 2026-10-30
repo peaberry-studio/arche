@@ -144,7 +144,8 @@ async function upsertFakeInstance(configSha) {
           server_password,
           applied_config_sha,
           provider_sync_hash,
-          provider_synced_at
+          provider_synced_at,
+          runtime_kind
         ) VALUES (
           $1,
           $2,
@@ -157,7 +158,8 @@ async function upsertFakeInstance(configSha) {
           $4,
           $5,
           NULL,
-          NULL
+          NULL,
+          'opencode-v2'
         )
         ON CONFLICT (slug) DO UPDATE SET
           status = 'running',
@@ -168,7 +170,8 @@ async function upsertFakeInstance(configSha) {
           server_password = EXCLUDED.server_password,
           applied_config_sha = EXCLUDED.applied_config_sha,
           provider_sync_hash = NULL,
-          provider_synced_at = NULL`,
+          provider_synced_at = NULL,
+          runtime_kind = 'opencode-v2'`,
         [randomUUID(), adminSlug, 'e2e-fake-runtime', encryptedPassword, configSha],
       )
 

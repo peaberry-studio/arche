@@ -1,6 +1,6 @@
 import { createHmac } from 'node:crypto'
 
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mockGetConnectorGatewayTokenSecret = vi.fn()
 
@@ -10,9 +10,13 @@ vi.mock('@/lib/connectors/gateway-config', () => ({
 
 describe('gateway-tokens', () => {
   beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2025-01-01T00:00:00Z'))
     vi.clearAllMocks()
     mockGetConnectorGatewayTokenSecret.mockReturnValue('test-secret')
   })
+
+  afterEach(() => vi.useRealTimers())
 
   describe('issueConnectorGatewayToken', () => {
     it('issues a token with encoded payload and signature', async () => {
@@ -21,14 +25,16 @@ describe('gateway-tokens', () => {
         userId: 'user-1',
         workspaceSlug: 'ws-1',
         connectorId: 'conn-1',
+        credentialEpoch: 'epoch',
       })
       expect(token).toContain('.')
       const [encoded] = token.split('.')
       const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'))
-      expect(payload).toEqual({
+      expect(payload).toMatchObject({
         userId: 'user-1',
         workspaceSlug: 'ws-1',
         connectorId: 'conn-1',
+        credentialEpoch: 'epoch',
       })
     })
   })
@@ -40,12 +46,14 @@ describe('gateway-tokens', () => {
         userId: 'user-1',
         workspaceSlug: 'ws-1',
         connectorId: 'conn-1',
+        credentialEpoch: 'epoch',
       })
       const result = verifyConnectorGatewayToken(token)
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         userId: 'user-1',
         workspaceSlug: 'ws-1',
         connectorId: 'conn-1',
+        credentialEpoch: 'epoch',
       })
     })
 
@@ -67,6 +75,7 @@ describe('gateway-tokens', () => {
         userId: 'user-1',
         workspaceSlug: 'ws-1',
         connectorId: 'conn-1',
+        credentialEpoch: 'epoch',
       })
       const [encoded] = token.split('.')
       expect(() => verifyConnectorGatewayToken(`${encoded}.bad-signature`)).toThrow('invalid_token')

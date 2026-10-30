@@ -16,6 +16,8 @@ test('uploads a PDF and gets the extracted token back', async ({ page }) => {
   await page.getByRole('button', { name: 'Start working' }).click()
 
   await expect(page.getByPlaceholder('Type a message...')).toBeVisible({ timeout: 30_000 })
+  // A second prompt sent while the first run is still busy is refused (409).
+  await expect(page.getByText('E2E_OK: Upload a PDF', { exact: true })).toBeVisible({ timeout: 30_000 })
 
   await page.locator('input[type="file"]').setInputFiles(samplePdfPath)
   await expect(page.getByText(/sample(?: \(\d+\))?\.pdf/)).toBeVisible({ timeout: 30_000 })

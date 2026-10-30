@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   fetchFlowDetail: vi.fn(),
   push: vi.fn(),
   runFlowRequest: vi.fn(),
+  setFlowSharingApprovalRequest: vi.fn(),
   updateFlowRequest: vi.fn(),
   validateFlowImportRequest: vi.fn(),
 }))
@@ -24,6 +25,7 @@ vi.mock('@/lib/flows/client', () => ({
   deleteFlowRequest: mocks.deleteFlowRequest,
   fetchFlowDetail: mocks.fetchFlowDetail,
   runFlowRequest: mocks.runFlowRequest,
+  setFlowSharingApprovalRequest: mocks.setFlowSharingApprovalRequest,
   updateFlowRequest: mocks.updateFlowRequest,
   validateFlowImportRequest: mocks.validateFlowImportRequest,
 }))
@@ -136,6 +138,22 @@ describe('FlowEditor', () => {
 
     await waitFor(() => expect(mocks.createFlowRequest).toHaveBeenCalledWith('alice', expect.objectContaining({ name: 'New flow' })))
     expect(mocks.push).toHaveBeenCalledWith('/u/alice/flows/flow-1')
+  })
+
+  it('lets an administrator approve the saved version and disables approval after edits', async () => {
+    const flow = createFlowDetail()
+    flow.visibility = 'team'
+    flow.organizationCanRun = true
+    flow.permissions.canApprove = true
+    flow.sharingApproval = { approved: false, revision: 'reviewed' }
+    mocks.fetchFlowDetail.mockResolvedValue({ ok: true, data: { flow } })
+    mocks.setFlowSharingApprovalRequest.mockResolvedValue({ ok: true, data: { flow: { ...flow, sharingApproval: { approved: true, revision: 'reviewed' } } } })
+    render(<FlowEditor slug="alice" mode="edit" flowId="flow-1" />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Approve this version' }))
+    await waitFor(() => expect(mocks.setFlowSharingApprovalRequest).toHaveBeenCalledWith('alice', 'flow-1', 'reviewed', true))
+    await screen.findByRole('button', { name: 'Revoke approval' })
+    fireEvent.click(screen.getByRole('button', { name: 'Add human after agent' }))
+    expect(screen.getByRole('button', { name: 'Revoke approval', hidden: true })).toHaveProperty('disabled', true)
   })
 
   it('loads an initial imported template as an unsaved draft', async () => {

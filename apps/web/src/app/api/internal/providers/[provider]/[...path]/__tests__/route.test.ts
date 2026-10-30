@@ -16,7 +16,7 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('@/lib/providers/crypto', () => ({ decryptProviderSecret: mocks.decryptProviderSecret }))
-vi.mock('@/lib/e2e/runtime', () => ({ getE2eFakeProviderUrl: mocks.getE2eFakeProviderUrl }))
+vi.mock('@/lib/e2e/runtime', () => ({ getE2eFakeProviderUrl: mocks.getE2eFakeProviderUrl, isE2eFakeOAuthEndpoint: () => false }))
 vi.mock('@/lib/providers/catalog', () => ({ getCanonicalProviderId: mocks.getCanonicalProviderId }))
 vi.mock('@/lib/providers/store', () => ({ getEffectiveCredentialForUser: mocks.getEffectiveCredentialForUser }))
 vi.mock('@/lib/providers/tokens', () => ({ verifyGatewayToken: mocks.verifyGatewayToken }))
@@ -493,6 +493,28 @@ describe('/api/internal/providers/[provider]/[...path]', () => {
     })
   })
 
+  it('proxies OpenCode 2 Zen inference paths without forwarding the gateway token', async () => {
+    mocks.verifyGatewayToken.mockReturnValue({ ...GATEWAY_PAYLOAD, providerId: 'opencode', version: 0 })
+    mocks.getEffectiveCredentialForUser.mockResolvedValue(null)
+    fetchMock.mockResolvedValue(new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }))
+    const path = ['inference', 'google', 'v1beta', 'models', 'gemini:streamGenerateContent']
+
+    const res = await POST(
+      makeRequest('POST', `http://localhost/api/internal/providers/opencode/${path.join('/')}?alt=sse`, {
+        headers: { 'x-goog-api-key': 'gateway-token', 'content-type': 'application/json' },
+        body: '{}',
+      }),
+      { params: Promise.resolve({ provider: 'opencode', path }) },
+    )
+
+    expect(res.status).toBe(200)
+    expect(mocks.verifyGatewayToken).toHaveBeenCalledWith('gateway-token')
+    expect(fetchMock.mock.calls[0][0]).toBe('https://opencode.ai/inference/google/v1beta/models/gemini:streamGenerateContent?alt=sse')
+    const sentHeaders = fetchMock.mock.calls[0][1].headers as Headers
+    expect(sentHeaders.get('x-goog-api-key')).toBeNull()
+    expect(sentHeaders.get('authorization')).toBeNull()
+  })
+
   it('handles opencode expired token fallback (authorization deleted)', async () => {
     mocks.verifyGatewayToken.mockImplementation(() => {
       throw Object.assign(new Error('token_expired'), { message: 'token_expired' })
@@ -560,7 +582,7 @@ describe('/api/internal/providers/[provider]/[...path]', () => {
     mocks.verifyGatewayToken.mockReturnValue({ ...GATEWAY_PAYLOAD, providerId: 'ollama' })
     mocks.decryptProviderSecret.mockReturnValue({
       apiKey: 'ollama-token',
-      baseUrl: 'https://203.0.113.10/v1',
+      baseUrl: 'https://8.8.8.8/v1',
       discoveredAt: '2026-05-27T00:00:00.000Z',
       mode: 'remote',
       models: [{ id: 'llama3.2', name: 'llama3.2' }],
@@ -576,7 +598,7 @@ describe('/api/internal/providers/[provider]/[...path]', () => {
 
     expect(res.status).toBe(200)
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://203.0.113.10/v1/models',
+      'https://8.8.8.8/v1/models',
       expect.objectContaining({ redirect: 'error' }),
     )
     const sentHeaders = fetchMock.mock.calls[0][1].headers as Headers

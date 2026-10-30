@@ -77,6 +77,15 @@ describe('github-app-auth', () => {
     )
   })
 
+  it('restricts workspace installation tokens to one repository and contents permission', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ expires_at: '2026-05-15T13:00:00Z', token: 'token-1' }))
+    await getInstallationToken('123', PRIVATE_KEY, 456, 'kb')
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.github.com/app/installations/456/access_tokens',
+      expect.objectContaining({ body: JSON.stringify({ repositories: ['kb'], permissions: { contents: 'write' } }) }),
+    )
+  })
+
   it.each([
     [401, 'auth_failed', 'GitHub App credentials are invalid.'],
     [404, 'not_found', 'GitHub App installation was not found.'],

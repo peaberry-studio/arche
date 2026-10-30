@@ -6,8 +6,8 @@ import { ChatCircle, Circle, Plus, SpinnerGap, XCircle } from "@phosphor-icons/r
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { groupByDateBucket } from "@/lib/date-buckets";
-import type { WorkspaceSession } from "@/lib/opencode/types";
 import { excludeSubagentSessions, hasUnseenFlowResult, isFlowSession } from "@/lib/workspace-session-utils";
+import type { WorkspaceSession } from "@/types/workspace-runtime";
 
 type SessionsPanelProps = {
   sessions: WorkspaceSession[];
@@ -54,6 +54,7 @@ export function SessionsPanel({
   );
 
   const getIndicatorClassName = (session: WorkspaceSession): string | null => {
+    if (session.archived) return null;
     if (session.status === "busy") return "text-amber-400";
     if (session.status === "error") return "text-red-400";
     if (session.flow?.status === "waiting_for_human") return "text-amber-400";
@@ -170,10 +171,11 @@ export function SessionsPanel({
                 <button
                   key={session.id}
                   type="button"
+                  aria-current={activeSessionId === session.id ? "true" : undefined}
                   onClick={() => onSelectSession(session.id)}
                   className={cn(
                     "group/session flex w-full items-center gap-0 rounded-lg px-2 py-1.5 text-left text-[13px] transition-colors",
-                    "hover:bg-foreground/5",
+                    "hover:bg-foreground/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/30",
                     activeSessionId === session.id
                       ? "bg-primary/10 text-primary"
                       : "text-foreground/80"

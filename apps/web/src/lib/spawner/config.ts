@@ -1,6 +1,10 @@
 export function getEncryptionKey(): Buffer {
   const key = process.env.ARCHE_ENCRYPTION_KEY
-  if (key) return Buffer.from(key, 'base64')
+  if (key) {
+    const decoded = Buffer.from(key, 'base64')
+    if (decoded.length !== 32) throw new Error('ARCHE_ENCRYPTION_KEY must contain 32 bytes')
+    return decoded
+  }
   if (process.env.NODE_ENV === 'production') {
     throw new Error('ARCHE_ENCRYPTION_KEY is required in production')
   }
@@ -20,6 +24,10 @@ export function getContainerProxyUrl(): string {
 
 export function getOpencodeImage(): string {
   return process.env.OPENCODE_IMAGE || 'ghcr.io/peaberry-studio/arche/workspace:latest'
+}
+
+export function getOpencodeV1Image(): string {
+  return process.env.OPENCODE_V1_IMAGE || 'ghcr.io/peaberry-studio/arche/workspace:opencode-v1-1.18.18'
 }
 
 export function getOpencodeNetwork(): string {
@@ -44,10 +52,31 @@ export function getStartTimeoutMs(): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 120_000
 }
 
+// Minimum time an instance must be idle before the reaper may stop it. The
+// reaper only stops instances while the host is under memory pressure.
 export function getIdleTimeoutMinutes(): number {
   const raw = process.env.ARCHE_IDLE_TIMEOUT_MINUTES
   const parsed = raw ? Number(raw) : NaN
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 120
+}
+
+export function getScratchSizeMb(): number {
+  const raw = process.env.ARCHE_SCRATCH_SIZE_MB
+  const parsed = raw ? Number(raw) : NaN
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 512
+}
+
+export function getReaperMinAvailableMemoryPercent(): number {
+  const raw = process.env.ARCHE_REAPER_MIN_AVAILABLE_MEMORY_PERCENT
+  const parsed = raw ? Number(raw) : NaN
+  return Number.isFinite(parsed) && parsed > 0 && parsed < 100 ? parsed : 15
+}
+
+// Optional absolute floor; unset means only the percentage applies.
+export function getReaperMinAvailableMemoryMb(): number | null {
+  const raw = process.env.ARCHE_REAPER_MIN_AVAILABLE_MEMORY_MB
+  const parsed = raw ? Number(raw) : NaN
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : null
 }
 
 export function getKbContentHostPath(): string {
@@ -57,4 +86,3 @@ export function getKbContentHostPath(): string {
   }
   return value
 }
-

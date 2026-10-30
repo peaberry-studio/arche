@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { WorkspaceSessionsRail } from '@/components/workspace/workspace-sessions-rail'
-import type { WorkspaceSession } from '@/lib/opencode/types'
+import type { WorkspaceSession } from '@/types/workspace-runtime'
 
 const sessions: WorkspaceSession[] = [
   {
@@ -84,6 +84,15 @@ describe('WorkspaceSessionsRail', () => {
     expect(screen.queryByRole('button', { name: 'Daily summary' })).toBeTruthy()
     expect(dotFor('Idle chat').className).toContain('bg-muted-foreground')
     expect(dotFor('Daily summary').className).toContain('bg-green-400')
+  })
+
+  it('places archived sessions after live ones with an accessible marker', () => {
+    const onSelectSession = vi.fn()
+    renderRail({ sessions: [{ ...sessions[0], archived: true }, sessions[1]], onSelectSession })
+    const archive = screen.getByRole('button', { name: 'Idle chat · Archived' })
+    expect(screen.getAllByRole('button').at(-1)).toBe(archive)
+    fireEvent.click(archive)
+    expect(onSelectSession).toHaveBeenCalledWith('idle-chat')
   })
 
   it('filters out subagent sessions from the rail', () => {

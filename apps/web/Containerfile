@@ -27,9 +27,18 @@ COPY --from=deps /desktop-runtime /desktop-runtime
 COPY web ./
 RUN pnpm prisma generate
 RUN DATABASE_URL="postgresql://build:build@localhost:5432/build" ARCHE_GIT_SHA="$GIT_SHA" pnpm run build
+# KB search embeddings: keep only this platform's onnxruntime binary, drop the browser runtime the
+# server never loads, and bake the pinned model into the image so search needs no runtime download.
+RUN keep="linux/$(node -p process.arch)" \
+  && for dir in node_modules/.pnpm/onnxruntime-node@*/node_modules/onnxruntime-node/bin/napi-v6/*/*; do \
+    case "$dir" in */"$keep") ;; *) rm -rf "$dir" ;; esac; \
+  done \
+  && rm -rf node_modules/.pnpm/onnxruntime-web@* \
+  && ./node_modules/.bin/tsx src/kb-search-embedder.ts --prefetch
 
 FROM base AS runtime
 ARG GIT_SHA=dev
+LABEL arche.runtime.contract=opencode-v2
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV ARCHE_GIT_SHA=$GIT_SHA

@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
+  LEGACY_ONLY_AGENT_TOOLS,
   OPENCODE_AGENT_TOOL_OPTIONS,
   type AgentCapabilities,
   type OpenCodeAgentToolId,
@@ -40,8 +41,8 @@ type SkillListItem = {
   name: string
 }
 
-// write/edit are stripped at spawn by denyAgentKnowledgeWrites and must not be
-// re-persisted from the form; keep this list in sync with that transform.
+// Runtime policies control writes by path; legacy write/edit switches must not
+// be re-persisted from the form.
 const HIDDEN_TOOL_IDS = new Set<OpenCodeAgentToolId>(['write', 'edit'])
 
 export function AgentForm({
@@ -512,7 +513,7 @@ export function AgentForm({
               Knowledge Base writes go through Knowledge Review proposals. File write and edit tools are disabled at spawn and cannot be enabled here.
             </p>
             <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3">
-              {OPENCODE_AGENT_TOOL_OPTIONS.filter((tool) => !HIDDEN_TOOL_IDS.has(tool.id)).map((tool) => {
+              {OPENCODE_AGENT_TOOL_OPTIONS.filter((tool) => !HIDDEN_TOOL_IDS.has(tool.id) && !LEGACY_ONLY_AGENT_TOOLS.has(tool.id)).map((tool) => {
                 const checked = enabledTools.includes(tool.id)
                 return (
                   <label

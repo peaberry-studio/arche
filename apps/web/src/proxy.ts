@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
+import { isKnownServerAction } from '@/lib/server-action-manifest'
+
 export function proxy(request: NextRequest) {
   const isDevelopment = process.env.NODE_ENV === 'development'
   const nonce = Buffer.from(crypto.randomUUID()).toString('base64')
@@ -23,7 +25,14 @@ export function proxy(request: NextRequest) {
   requestHeaders.set('x-nonce', nonce)
   requestHeaders.set('Content-Security-Policy', contentSecurityPolicy)
 
-  const response = NextResponse.next({ request: { headers: requestHeaders } })
+  const actionId = request.method === 'POST' ? request.headers.get('next-action') : null
+  const staleAction = !isDevelopment && actionId && isKnownServerAction(actionId) === false
+  const response = staleAction
+    ? new NextResponse(null, { status: 200, headers: {
+      'x-action-redirect': `${request.nextUrl.pathname}${request.nextUrl.search};replace`,
+      'Cache-Control': 'no-store',
+    } })
+    : NextResponse.next({ request: { headers: requestHeaders } })
 
   // Prevent the page from being framed (clickjacking protection)
   response.headers.set('X-Frame-Options', 'DENY')

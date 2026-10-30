@@ -50,7 +50,7 @@ Step 1 is required for kickstart-enabled workspaces.
 ### Step 2: Deploy docker-socket-proxy
 
 1. Create a **Service** or **Application** resource
-2. Use Docker Image: `ghcr.io/tecnativa/docker-socket-proxy:master`
+2. Use Docker Image: `ghcr.io/tecnativa/docker-socket-proxy@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459`
 3. Set environment variables:
    ```
    CONTAINERS=1
@@ -61,8 +61,8 @@ Step 1 is required for kickstart-enabled workspaces.
    VOLUMES=1
    ```
 4. Mount volume: `/var/run/docker.sock:/var/run/docker.sock:ro`
-5. Enable **"Connect to Predefined Network"** and set the network to `arche_internal`
-6. No domain needed (internal only)
+5. Attach the proxy only to `arche-control`, created with `docker network create --internal arche-control`. Do not attach it to `arche_internal`, a shared Coolify network, or any workspace network.
+6. Do not publish port 2375 or assign a public domain.
 
 ### Step 3: Create the arche_internal network
 
@@ -78,8 +78,8 @@ docker network create arche_internal
 3. Branch: `main`
 4. Build pack: **Dockerfile**
 5. Dockerfile path: `apps/web/Containerfile`
-6. Build context: `apps/web`
-7. Enable **"Connect to Predefined Network"** and set to `arche_internal`
+6. Build context: `apps`
+7. Configure persistent attachments to both `arche_internal` and `arche-control` for the web application. Workspace containers must use only `arche_internal`. Verify these attachments survive a Coolify redeploy.
 8. Set domain in Coolify's domain settings
 
 ### Step 5: Configure environment variables
@@ -108,6 +108,7 @@ Set these in the web application's environment variables in Coolify:
 | `CONTAINER_PROXY_HOST` | Yes | Hostname of docker-socket-proxy (use the Coolify service name) |
 | `CONTAINER_PROXY_PORT` | Yes | `2375` |
 | `OPENCODE_IMAGE` | No | Default: `ghcr.io/peaberry-studio/arche/workspace:latest` |
+| `OPENCODE_V1_IMAGE` | No | Legacy OpenCode 1 image, used only to archive V1 history. Default: `ghcr.io/peaberry-studio/arche/workspace:opencode-v1-1.18.18` (`-arm64` suffix on arm64) |
 | `OPENCODE_NETWORK` | Yes | `arche_internal` |
 | `ARCHE_USERS_PATH` | No | Default: `/opt/arche/users` |
 | `KB_CONTENT_HOST_PATH` | No | Default: `/opt/arche/kb-content` |
@@ -122,6 +123,8 @@ Click **Deploy** in Coolify. The web app will:
 2. Start the container
 3. Run database migrations automatically (`start.sh`)
 4. Begin serving once the health check passes
+
+Before the first hardened rollout, follow [the workspace recreation and host verification requirements](../security-hardening.md#deployment-prerequisites).
 
 ### How updates work
 
@@ -214,6 +217,7 @@ You only need to build a custom image if you want to override `OPENCODE_IMAGE`.
    | `ARCHE_SEED_ADMIN_PASSWORD` | Yes | Initial admin password |
    | `ARCHE_SEED_ADMIN_SLUG` | No | Admin URL slug (default: `admin`) |
    | `OPENCODE_IMAGE` | No | Workspace image (default: `ghcr.io/peaberry-studio/arche/workspace:latest`) |
+   | `OPENCODE_V1_IMAGE` | No | Legacy OpenCode 1 image, used only to archive V1 history (default: `ghcr.io/peaberry-studio/arche/workspace:opencode-v1-1.18.18`) |
    | `KB_CONTENT_HOST_PATH` | No | Host path for KB content bare repo (default: `/opt/arche/kb-content`) |
    | `KB_CONFIG_HOST_PATH` | No | Host path for config bare repo (default: `/opt/arche/kb-config`) |
    | `ARCHE_USERS_PATH` | No | Host path for persisted user runtime data (default: `/opt/arche/users`) |

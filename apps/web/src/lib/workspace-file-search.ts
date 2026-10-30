@@ -1,4 +1,4 @@
-import type { WorkspaceFileNode } from '@/lib/opencode/types'
+import type { WorkspaceFileNode } from '@/types/workspace'
 
 export type WorkspaceFileSearchCandidate = {
   name: string

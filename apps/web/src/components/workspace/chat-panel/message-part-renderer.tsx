@@ -10,6 +10,7 @@ import {
   CheckCircle,
   Circle,
   Copy,
+  DownloadSimple,
   EnvelopeSimple,
   File,
   GitDiff,
@@ -49,10 +50,12 @@ import {
   workspaceRemarkPlugins,
 } from '@/components/workspace/markdown-plugins'
 import { copyTextToClipboard } from '@/lib/clipboard'
-import type { MessagePart, PermissionResponse } from '@/lib/opencode/types'
 import { isRecord } from '@/lib/records'
 import { cn } from '@/lib/utils'
+import { formatAttachmentSize, isWorkspaceAttachmentPath } from '@/lib/workspace-attachments'
+import { getWorkspaceFileDownloadUrl } from '@/lib/workspace-file-download'
 import { getWorkspaceToolDisplay } from '@/lib/workspace-tool-display'
+import type { MessagePart, PermissionResponse } from '@/types/workspace-runtime'
 
 export type ToolPart = Extract<MessagePart, { type: 'tool' }>
 export type FilePart = Extract<MessagePart, { type: 'file' }>
@@ -99,6 +102,8 @@ const TOOL_LABELS: Record<string, string> = {
   diagram_create: 'Creating diagram',
   flow_propose: 'Proposing flow',
   learning_propose: 'Proposing KB learning',
+  scratch_dir: 'Opening scratch folder',
+  scratch_publish: 'Publishing file',
   session_history_query: 'Querying session history',
   todowrite: 'Planning',
   todoread: 'Reviewing plan',
@@ -108,6 +113,19 @@ const getString = (value: unknown) => (typeof value === 'string' && value.trim()
 const getNumber = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) ? value : undefined)
 const getStringArray = (value: unknown) =>
   Array.isArray(value) ? value.map((item) => String(item)) : undefined
+
+function parsePublishedAttachment(output: string): { path: string; name: string; size: number } | null {
+  try {
+    const value: unknown = JSON.parse(output)
+    if (!isRecord(value) || value.ok !== true || !isRecord(value.attachment)) return null
+    const { path, name, size } = value.attachment
+    if (typeof path !== 'string' || !isWorkspaceAttachmentPath(path) || typeof name !== 'string' || !name.trim() ||
+      typeof size !== 'number' || !Number.isFinite(size) || size < 0) return null
+    return { path, name, size }
+  } catch {
+    return null
+  }
+}
 
 function formatToolName(tool: string): string {
   const formatted = tool.replace(/[_-]+/g, ' ').trim()
@@ -134,7 +152,7 @@ const getDirectory = (path?: string) => {
 function getToolLabel(tool: string, connectorNamesById?: Record<string, string>) {
   const toolDisplay = getWorkspaceToolDisplay(tool, connectorNamesById)
   if (toolDisplay.isConnectorTool) return toolDisplay.groupLabel
-  return TOOL_LABELS[tool] ?? formatToolName(tool)
+  return TOOL_LABELS[toolDisplay.groupLabel] ?? formatToolName(toolDisplay.groupLabel)
 }
 
 function getToolDisplay(
@@ -171,7 +189,7 @@ function getToolDisplay(
   if (offset !== undefined) offsetLimit.push(`offset=${offset}`)
   if (limit !== undefined) offsetLimit.push(`limit=${limit}`)
 
-  switch (tool) {
+  switch (toolDisplay.groupLabel) {
     case 'glob': {
       const summaryParts: string[] = []
       if (pattern) summaryParts.push(`pattern=${pattern}`)
@@ -421,6 +439,7 @@ function getDelegationSessionId(part: ToolPart): string | undefined {
     getString(metadata?.sessionId) ??
     getString(metadata?.sessionID) ??
     getString(part.state.input.task_id) ??
+    getString(part.state.input.sessionID) ??
     outputSessionId
   )
 }
@@ -441,7 +460,7 @@ function DelegationCard({
   return (
     <div className="my-2 space-y-2">
       {parts.map((part) => {
-        const subagentType = getString(part.state.input?.subagent_type)
+        const subagentType = getString(part.state.input?.subagent_type) ?? getString(part.state.input?.agent)
         const taskDescription = getString(part.state.input?.description)
         const agentLabel = subagentType
           ? subagentType.charAt(0).toUpperCase() + subagentType.slice(1)
@@ -621,12 +640,45 @@ export function ToolGroup({
   const canExpand = totalCount > 1 || isError
 
   const [isOpen, setIsOpen] = useState(() => (totalCount === 1 ? isRunning || isError : false))
+  const displayToolName = getWorkspaceToolDisplay(tool).groupLabel
 
-  if (tool === 'task') {
+  if (displayToolName === 'task') {
     return <DelegationCard parts={parts} sessionTabs={sessionTabs} onSelectSessionTab={onSelectSessionTab} />
   }
 
-  if (tool === 'email_draft') {
+  if (displayToolName === 'scratch_publish') {
+    const attachments = parts.flatMap((part) => {
+      if (part.state.status !== 'completed') return []
+      const attachment = parsePublishedAttachment(part.state.output)
+      return attachment ? [{ id: part.id, ...attachment }] : []
+    })
+    if (attachments.length) {
+      return (
+        <div className="my-2 space-y-2">
+          {attachments.map((attachment) => (
+            <div key={attachment.id} className="flex items-center gap-2 rounded-lg border border-border/40 bg-muted/20 px-3 py-2 text-xs">
+              <File size={14} className="shrink-0 text-primary" />
+              <span className="min-w-0 flex-1 truncate font-medium">{attachment.name}</span>
+              <span className="text-muted-foreground">{formatAttachmentSize(attachment.size)}</span>
+              {onOpenFile ? (
+                <button type="button" onClick={() => onOpenFile(attachment.path)} className="rounded-md px-2 py-1 text-primary hover:bg-primary/10" aria-label={`Open ${attachment.name}`}>
+                  Open
+                </button>
+              ) : null}
+              {slug ? (
+                <a href={getWorkspaceFileDownloadUrl(slug, attachment.path) ?? undefined} download className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-primary hover:bg-primary/10" aria-label={`Download ${attachment.name}`}>
+                  <DownloadSimple size={12} />
+                  Download
+                </a>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      )
+    }
+  }
+
+  if (displayToolName === 'email_draft') {
     let latestDraft: EmailDraftOutput | null = null
 
     for (let index = parts.length - 1; index >= 0; index -= 1) {
@@ -645,7 +697,7 @@ export function ToolGroup({
     }
   }
 
-  if (tool === 'chart_create') {
+  if (displayToolName === 'chart_create') {
     let latestChart: ChartOutput | null = null
 
     for (let index = parts.length - 1; index >= 0; index -= 1) {
@@ -664,7 +716,7 @@ export function ToolGroup({
     }
   }
 
-  if (tool === 'diagram_create') {
+  if (displayToolName === 'diagram_create') {
     let latestDiagram: DiagramOutput | null = null
 
     for (let index = parts.length - 1; index >= 0; index -= 1) {
@@ -683,7 +735,7 @@ export function ToolGroup({
     }
   }
 
-  if (tool === 'flow_propose') {
+  if (displayToolName === 'flow_propose') {
     let latestProposal: FlowProposalOutput | null = null
 
     for (let index = parts.length - 1; index >= 0; index -= 1) {
@@ -702,7 +754,7 @@ export function ToolGroup({
     }
   }
 
-  if (tool === 'todowrite') {
+  if (displayToolName === 'todowrite') {
     return <TodoCard parts={parts} />
   }
 

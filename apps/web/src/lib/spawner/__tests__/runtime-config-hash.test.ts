@@ -17,7 +17,12 @@ vi.mock('@/lib/runtime/mode', () => ({
 }))
 
 vi.mock('@/lib/runtime/desktop/config', () => ({
+  getDesktopArcheToolsCommand: () => ['desktop-node', 'arche-tools.js'],
   getDesktopProviderGatewayConfig: () => mockGetDesktopProviderGatewayConfig(),
+}))
+
+vi.mock('@/lib/runtime/desktop/workspace-dirs', () => ({
+  getDesktopScratch: (slug: string) => ({ root: '/tmp/arche-scratch', workspaceRoot: `/vault/${slug}` }),
 }))
 
 vi.mock('@/lib/spawner/runtime-artifacts', () => ({
@@ -48,7 +53,10 @@ describe('getRuntimeConfigHashForSlug', () => {
 
     const result = await getRuntimeConfigHashForSlug('alice')
     expect(result).toEqual({ ok: true, hash: 'abc123hash' })
-    expect(mockBuildWorkspaceRuntimeArtifacts).toHaveBeenCalledWith('alice', { desktopConfig: true })
+    expect(mockBuildWorkspaceRuntimeArtifacts).toHaveBeenCalledWith('alice', { desktopConfig: true }, {
+      archeToolsCommand: ['desktop-node', 'arche-tools.js'],
+      scratch: { root: '/tmp/arche-scratch', workspaceRoot: '/vault/alice' },
+    })
     expect(mockHashWorkspaceRuntimeArtifacts).toHaveBeenCalledWith({ artifacts: 'desktop' })
   })
 

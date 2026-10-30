@@ -31,13 +31,14 @@ test('keeps the shared sidebar across chat and explore without a fullscreen conn
 
   // Chat → Explorer keeps the sidebar mounted and marks Knowledge Base active.
   await nav.getByRole('button', { name: 'Knowledge Base' }).click()
-  await expect(page).toHaveURL(new RegExp(`/w/${adminSlug}/explore$`))
+  // The first visit compiles the route on the dev server, which can exceed the default 5 s.
+  await expect(page).toHaveURL(new RegExp(`/w/${adminSlug}/explore$`), { timeout: 30_000 })
   await expect(nav).toBeVisible()
   await expect(nav.getByRole('button', { name: 'Knowledge Base' })).toHaveAttribute('aria-pressed', 'true')
 
   // Explorer → chat via New chat returns without reconnecting.
   await page.getByRole('button', { name: 'New chat' }).first().click()
-  await expect(page).toHaveURL(new RegExp(`/w/${adminSlug}$`))
+  await expect(page).toHaveURL(new RegExp(`/w/${adminSlug}$`), { timeout: 30_000 })
   await waitForWorkspaceReady(page)
   await expect(nav).toBeVisible()
 

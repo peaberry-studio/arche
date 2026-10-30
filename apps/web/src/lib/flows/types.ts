@@ -13,6 +13,7 @@ export type FlowUserSummary = {
 }
 
 export type FlowPermissions = {
+  canApprove?: boolean
   canCopy: boolean
   canEdit: boolean
   canManage: boolean
@@ -175,6 +176,7 @@ export type FlowRunListItem = {
 }
 
 export type FlowListItem = {
+  sharingApproval?: { approved: boolean; revision: string }
   id: string
   owner: FlowUserSummary | null
   name: string

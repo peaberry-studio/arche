@@ -59,7 +59,7 @@ const workspaceAgentMocks = vi.hoisted(() => ({
   discardWorkspaceFileChangesAction: vi.fn(),
 }));
 
-vi.mock("@/actions/opencode", () => opencodeMocks);
+vi.mock("@/actions/workspace-sessions", () => opencodeMocks);
 vi.mock("@/actions/workspace-agent", () => workspaceAgentMocks);
 
 describe("useExploreWorkspace", () => {

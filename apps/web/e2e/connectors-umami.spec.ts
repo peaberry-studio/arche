@@ -92,7 +92,7 @@ async function openAddConnectorDialog(page: Page) {
   // /u/{slug}/connectors redirects into it.
   await page.goto(`/u/${adminSlug}/connectors`)
   await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Connectors' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Connectors', exact: true })).toBeVisible()
 
   const addFirstButton = page.getByRole('button', { name: 'Add your first connector' })
   if (await addFirstButton.isVisible()) {
@@ -156,9 +156,11 @@ test('creates an Umami Cloud connector with an API key', async ({ page }) => {
   const detail = await getUmamiConnectorDetail(page)
   expect(detail.type).toBe('umami')
   expect(detail.name).toBe('Umami')
+  expect(detail.config).not.toHaveProperty('apiKey')
+  expect(detail.config).not.toHaveProperty('password')
   expect(detail.config).toMatchObject({
     authMethod: 'api-key',
-    apiKey: 'umami-cloud-key',
+    hasApiKey: true,
     baseUrl: 'https://api.umami.is/v1',
   })
 })
@@ -187,10 +189,12 @@ test('creates a self-hosted Umami connector with login credentials', async ({ pa
   const detail = await getUmamiConnectorDetail(page)
   expect(detail.type).toBe('umami')
   expect(detail.name).toBe('Umami')
+  expect(detail.config).not.toHaveProperty('apiKey')
+  expect(detail.config).not.toHaveProperty('password')
   expect(detail.config).toMatchObject({
     authMethod: 'login',
     baseUrl: 'https://analytics.example.com',
-    password: 'umami-password',
+    hasPassword: true,
     username: 'admin',
   })
 })

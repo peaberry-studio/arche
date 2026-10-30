@@ -67,11 +67,25 @@ const SCHEMA_DDL = [
     "stopped_at" DATETIME,
     "last_activity_at" DATETIME,
     "container_id" TEXT,
+    "runtime_kind" TEXT,
     "server_password" TEXT NOT NULL,
     "applied_config_sha" TEXT,
     "provider_sync_hash" TEXT,
     "provider_synced_at" DATETIME,
     CONSTRAINT "instances_slug_fkey" FOREIGN KEY ("slug") REFERENCES "users" ("slug") ON DELETE RESTRICT ON UPDATE CASCADE
+  )`,
+  `CREATE TABLE IF NOT EXISTS "legacy_session_archives" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "slug" TEXT NOT NULL,
+    "session_id" TEXT NOT NULL,
+    "parent_id" TEXT,
+    "title" TEXT NOT NULL,
+    "created_at" DATETIME NOT NULL,
+    "updated_at" DATETIME NOT NULL,
+    "messages" JSONB NOT NULL,
+    "archived_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "validated_at" DATETIME,
+    CONSTRAINT "legacy_session_archives_slug_fkey" FOREIGN KEY ("slug") REFERENCES "users" ("slug") ON DELETE CASCADE ON UPDATE CASCADE
   )`,
   `CREATE TABLE IF NOT EXISTS "sessions" (
     "id" TEXT NOT NULL PRIMARY KEY,
@@ -125,6 +139,7 @@ const SCHEMA_DDL = [
     "enabled" BOOLEAN NOT NULL DEFAULT false,
     "visibility" TEXT NOT NULL DEFAULT 'private',
     "organization_can_run" BOOLEAN NOT NULL DEFAULT false,
+    "organization_approved_hash" TEXT,
     "next_run_at" DATETIME,
     "last_run_at" DATETIME,
     "lease_owner" TEXT,
@@ -403,6 +418,7 @@ const SCHEMA_DDL = [
   `CREATE UNIQUE INDEX IF NOT EXISTS "users_slug_key" ON "users"("slug")`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "instances_slug_key" ON "instances"("slug")`,
   `CREATE INDEX IF NOT EXISTS "instances_status_idx" ON "instances"("status")`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "legacy_session_archives_slug_session_id_key" ON "legacy_session_archives"("slug", "session_id")`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "sessions_token_hash_key" ON "sessions"("token_hash")`,
   `CREATE INDEX IF NOT EXISTS "sessions_user_id_idx" ON "sessions"("user_id")`,
   `CREATE INDEX IF NOT EXISTS "sessions_expires_at_idx" ON "sessions"("expires_at")`,
@@ -472,7 +488,7 @@ const SCHEMA_DDL = [
   `CREATE INDEX IF NOT EXISTS "two_factor_recovery_user_id_idx" ON "two_factor_recovery"("user_id")`,
 ]
 
-const SCHEMA_VERSION = '12'
+const SCHEMA_VERSION = '15'
 
 function isCreateIndexStatement(ddl: string): boolean {
   return /^CREATE (UNIQUE )?INDEX\b/.test(ddl.trim())
@@ -501,6 +517,9 @@ async function ensureDesktopSchemaColumns(client: DesktopPrismaClient): Promise<
   await ensureColumn(client, 'instances', 'provider_sync_hash', 'ALTER TABLE "instances" ADD COLUMN "provider_sync_hash" TEXT')
   await ensureColumn(client, 'instances', 'provider_synced_at', 'ALTER TABLE "instances" ADD COLUMN "provider_synced_at" DATETIME')
   await ensureColumn(client, 'knowledge_learning_runs', 'regeneration_change_id', 'ALTER TABLE "knowledge_learning_runs" ADD COLUMN "regeneration_change_id" TEXT')
+  await ensureColumn(client, 'instances', 'runtime_kind', 'ALTER TABLE "instances" ADD COLUMN "runtime_kind" TEXT')
+  await ensureColumn(client, 'legacy_session_archives', 'validated_at', 'ALTER TABLE "legacy_session_archives" ADD COLUMN "validated_at" DATETIME')
+  await ensureColumn(client, 'flows', 'organization_approved_hash', 'ALTER TABLE "flows" ADD COLUMN "organization_approved_hash" TEXT')
 }
 
 function getDesktopDatabasePath(): string {

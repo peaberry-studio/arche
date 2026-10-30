@@ -87,14 +87,21 @@ describe.runIf(!SKIP)('spawner lifecycle e2e', () => {
     expect(status?.status).toBe('running')
   })
 
-  it('reaps an idle instance', async () => {
-    // Simulate idle by setting lastActivityAt far in the past
+  it('reaps an idle instance under host memory pressure', async () => {
+    // Simulate idle by setting lastActivityAt past the minimum idle time (120 min)
     await prismaModule.prisma.instance.update({
       where: { slug: TEST_SLUG },
-      data: { lastActivityAt: new Date(Date.now() - 60 * 60 * 1000) }, // 1h ago
+      data: { lastActivityAt: new Date(Date.now() - 3 * 60 * 60 * 1000) },
     })
 
-    const reaped = await reaper.reapIdleInstances()
+    // The reaper only stops instances while host memory is low; a threshold
+    // just under 100% makes any real host count as low.
+    const previousThreshold = process.env.ARCHE_REAPER_MIN_AVAILABLE_MEMORY_PERCENT
+    process.env.ARCHE_REAPER_MIN_AVAILABLE_MEMORY_PERCENT = '99.99'
+    const reaped = await reaper.reapIdleInstances().finally(() => {
+      if (previousThreshold === undefined) delete process.env.ARCHE_REAPER_MIN_AVAILABLE_MEMORY_PERCENT
+      else process.env.ARCHE_REAPER_MIN_AVAILABLE_MEMORY_PERCENT = previousThreshold
+    })
     expect(reaped).toBe(1)
 
     const status = await core.getInstanceStatus(TEST_SLUG)

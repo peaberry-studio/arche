@@ -135,6 +135,7 @@ model User {
   sessions           Session[]
   auditEvents        AuditEvent[] @relation("AuditActor")
   instance           Instance?
+  legacySessionArchives LegacySessionArchive[]
   twoFactorRecovery  TwoFactorRecovery[]
   connectors         Connector[]
   providerCredentials ProviderCredential[]
@@ -315,6 +316,7 @@ model Instance {
   lastActivityAt  DateTime?      @map("last_activity_at")
 
   containerId     String?        @map("container_id")
+  runtimeKind     String?        @map("runtime_kind")
   serverPassword  String         @map("server_password")
   appliedConfigSha String?       @map("applied_config_sha")
   providerSyncHash String?       @map("provider_sync_hash")
@@ -324,6 +326,24 @@ model Instance {
 
   @@index([status])
   @@map("instances")
+}
+
+model LegacySessionArchive {
+  id         String   @id @default(cuid())
+  slug       String
+  sessionId  String   @map("session_id")
+  parentId   String?  @map("parent_id")
+  title      String
+  createdAt  DateTime @map("created_at")
+  updatedAt  DateTime @map("updated_at")
+  messages   Json
+  archivedAt DateTime @default(now()) @map("archived_at")
+  validatedAt DateTime? @map("validated_at")
+
+  user       User     @relation(fields: [slug], references: [slug], onDelete: Cascade)
+
+  @@unique([slug, sessionId])
+  @@map("legacy_session_archives")
 }
 
 model Session {
@@ -501,6 +521,7 @@ model Flow {
   enabled        Boolean        @default(false)
   visibility     FlowVisibility @default(private)
   organizationCanRun Boolean    @default(false) @map("organization_can_run")
+  organizationApprovedHash String? @map("organization_approved_hash")
 
   nextRunAt      DateTime?      @map("next_run_at")
   lastRunAt      DateTime?      @map("last_run_at")

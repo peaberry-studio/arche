@@ -25,6 +25,9 @@ describe('system skills', () => {
     expect(bundle.skill.frontmatter.name).toBe(SYSTEM_FLOW_AUTHORING_SKILL_NAME)
     expect(bundle.skill.body).toContain('FlowDefinition')
     expect(bundle.skill.body).toContain('agent')
+    expect(bundle.skill.body).toContain('`arche_tools_flow_propose`')
+    expect(bundle.skill.body).not.toContain('`flow_propose`')
+    expect(bundle.skill.frontmatter.description).toContain('arche_tools_flow_propose')
     expect(Buffer.from(bundle.files[0]?.content ?? new Uint8Array()).toString('utf-8')).toContain(
       `name: ${SYSTEM_FLOW_AUTHORING_SKILL_NAME}`
     )
@@ -40,6 +43,6 @@ describe('system skills', () => {
       'pdf-processing',
       SYSTEM_FLOW_AUTHORING_SKILL_NAME,
     ])
-    expect(bundles.at(-1)?.skill.body).toContain('flow_propose')
+    expect(bundles.at(-1)?.skill.body).toContain('`arche_tools_flow_propose`')
   })
 })

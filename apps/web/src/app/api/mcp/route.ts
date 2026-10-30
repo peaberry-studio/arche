@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 
 import { getClientIp } from '@/lib/http'
 import { authenticatePat } from '@/lib/mcp/auth'
@@ -172,7 +171,5 @@ function getPreAuthSubject(headers: Headers): string {
   const ip = getClientIp(headers)
   if (ip) return `ip:${ip}`
 
-  const userAgent = headers.get('user-agent') ?? 'missing-user-agent'
-  const hash = createHash('sha256').update(userAgent).digest('hex').slice(0, 24)
-  return `ua:${hash}`
+  return 'untrusted-client'
 }

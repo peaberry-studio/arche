@@ -50,7 +50,7 @@ arche/
 | Auth | HTTP-only sessions + Argon2 + TOTP 2FA |
 | Encryption | AES-256-GCM (connectors, instance passwords) |
 | Containers | Podman + Traefik v3 + docker-socket-proxy |
-| Workspaces | OpenCode AI SDK (`@opencode-ai/sdk`) |
+| Workspaces | OpenCode 2 (`@opencode/client`) behind Arche's harness contract (`apps/web/src/lib/harness/`); OpenCode 1 is only read to export legacy history |
 | Package manager | pnpm 10 |
 | Tests | Vitest 3 |
 | Lint | ESLint 9 |

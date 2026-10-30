@@ -3,15 +3,15 @@
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { listModelsAction } from "@/actions/opencode";
+import { listModelsAction } from "@/actions/workspace-sessions";
 import { useWorkspaceModelSelection } from "@/hooks/workspace/use-workspace-model-selection";
-import type { WorkspaceMessage } from "@/lib/opencode/types";
+import type { WorkspaceMessage } from "@/types/workspace-runtime";
 
 const opencodeMocks = vi.hoisted(() => ({
   listModelsAction: vi.fn(),
 }));
 
-vi.mock("@/actions/opencode", () => opencodeMocks);
+vi.mock("@/actions/workspace-sessions", () => opencodeMocks);
 
 const assistantMessage: WorkspaceMessage = {
   id: "m1",

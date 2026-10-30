@@ -116,6 +116,15 @@ export async function deleteFlowRequest(slug: string, flowId: string): Promise<F
   return result.ok ? ensureOk(result.data) : result
 }
 
+export async function setFlowSharingApprovalRequest(slug: string, flowId: string, revision: string, approved: boolean): Promise<FlowClientResult<{ flow: FlowDetail }>> {
+  const result = await readFlowJson<{ flow?: FlowDetail }>(await fetch(`/api/u/${slug}/flows/${flowId}/approval`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ revision, approved }),
+  }))
+  return result.ok ? ensureFlowDetail(result.data) : result
+}
+
 export async function runFlowRequest(slug: string, flowId: string): Promise<FlowClientResult<{ ok: true; runId: string }>> {
   const result = await readFlowJson<{ ok?: boolean; runId?: string }>(await fetch(`/api/u/${slug}/flows/${flowId}/run`, { method: 'POST' }))
   return result.ok ? ensureFlowRunStarted(result.data) : result

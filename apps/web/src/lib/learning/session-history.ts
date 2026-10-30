@@ -1,4 +1,4 @@
-import { extractTextContent, transformParts } from '@/lib/opencode/transform'
+import type { WorkspaceMessage } from '@/types/workspace-runtime'
 
 export type SessionHistoryRequest = {
   includeMessages?: boolean
@@ -22,14 +22,15 @@ export function getSessionId(session: unknown): string | null {
   return typeof session.id === 'string' ? session.id : null
 }
 
-export function getMessageText(message: unknown): string {
-  if (!isRecord(message) || !Array.isArray(message.parts)) return ''
-  return extractTextContent(transformParts(message.parts))
+export function getMessageText(message: WorkspaceMessage): string {
+  return message.parts
+    .filter((part) => part.type === 'text')
+    .map((part) => part.text)
+    .join('\n')
 }
 
-export function getMessageRole(message: unknown): string {
-  if (!isRecord(message) || !isRecord(message.info)) return 'unknown'
-  return typeof message.info.role === 'string' ? message.info.role : 'unknown'
+export function getMessageRole(message: WorkspaceMessage): string {
+  return message.role
 }
 
 export function clampSessionHistoryBounds(body: SessionHistoryRequest | null): {

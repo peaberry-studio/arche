@@ -125,27 +125,6 @@ function getCurrentVaultTitle(): string {
   return currentVault ? `Arche - ${currentVault.name}` : 'Arche'
 }
 
-function resolveDesktopOpencodeConfigDir(): string | null {
-  const explicitPath = process.env.ARCHE_OPENCODE_CONFIG_DIR
-  if (explicitPath && existsSync(explicitPath)) {
-    return explicitPath
-  }
-
-  if (app.isPackaged) {
-    const bundledPath = join(process.resourcesPath, 'opencode-config')
-    if (existsSync(bundledPath)) {
-      return bundledPath
-    }
-  }
-
-  const devPath = join(__dirname, '..', '..', '..', 'infra', 'workspace-image', 'opencode-config')
-  if (existsSync(devPath)) {
-    return devPath
-  }
-
-  return null
-}
-
 function ensureIsolatedDesktopGitEnvironment(): void {
   const gitConfigDir = join(getDesktopMetadataDir(), 'git')
   if (!existsSync(gitConfigDir)) {
@@ -181,13 +160,6 @@ function setDesktopEnv(): void {
   }
   if (!process.env.ARCHE_RELEASE_VERSION) {
     process.env.ARCHE_RELEASE_VERSION = app.getVersion()
-  }
-
-  const opencodeConfigDir = resolveDesktopOpencodeConfigDir()
-  if (opencodeConfigDir) {
-    process.env.ARCHE_OPENCODE_CONFIG_DIR = opencodeConfigDir
-  } else {
-    delete process.env.ARCHE_OPENCODE_CONFIG_DIR
   }
 
   if (currentVault) {

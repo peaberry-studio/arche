@@ -13,7 +13,7 @@ const connectorMocks = vi.hoisted(() => ({
   parseUmamiConnectorConfig: vi.fn(),
   decryptConfig: vi.fn(),
   getConnectorGatewayBaseUrl: vi.fn(),
-  issueConnectorGatewayToken: vi.fn(),
+  getConnectorProxyTarget: vi.fn(),
   getConnectorAuthType: vi.fn(),
   getConnectorOAuthConfig: vi.fn(),
   validateConnectorConfig: vi.fn(),
@@ -50,8 +50,8 @@ vi.mock('@/lib/connectors/gateway-config', () => ({
   getConnectorGatewayBaseUrl: connectorMocks.getConnectorGatewayBaseUrl,
 }))
 
-vi.mock('@/lib/connectors/gateway-tokens', () => ({
-  issueConnectorGatewayToken: connectorMocks.issueConnectorGatewayToken,
+vi.mock('@/lib/connectors/workspace-proxy', () => ({
+  getConnectorProxyTarget: connectorMocks.getConnectorProxyTarget,
 }))
 
 vi.mock('@/lib/connectors/oauth-config', () => ({
@@ -247,13 +247,13 @@ describe('mcp-config', () => {
         const connector = makeConnector({ type: 'notion', id: 'n1' })
         const result = buildMcpConfigFromConnectors([connector], {
           gatewayTargets: {
-            'n1': { url: 'http://gateway/n1/mcp', token: 'gw-token' },
+            'n1': { url: 'http://127.0.0.1:4097/mcp/connectors/n1', token: 'gw-token' },
           },
         })
 
         expect(result.mcpConfig.mcp['arche_notion_n1']).toEqual({
           type: 'remote',
-          url: 'http://gateway/n1/mcp',
+          url: 'http://127.0.0.1:4097/mcp/connectors/n1',
           enabled: true,
           headers: { Authorization: 'Bearer gw-token' },
           oauth: false,
@@ -349,13 +349,13 @@ describe('mcp-config', () => {
 
         const result = buildMcpConfigFromConnectors([connector], {
           gatewayTargets: {
-            'l1': { url: 'http://gateway/l1/mcp', token: 'gw-token' },
+            'l1': { url: 'http://127.0.0.1:4097/mcp/connectors/l1', token: 'gw-token' },
           },
         })
 
         expect(result.mcpConfig.mcp['arche_linear_l1']).toEqual({
           type: 'remote',
-          url: 'http://gateway/l1/mcp',
+          url: 'http://127.0.0.1:4097/mcp/connectors/l1',
           enabled: true,
           headers: { Authorization: 'Bearer gw-token' },
           oauth: false,
@@ -374,7 +374,7 @@ describe('mcp-config', () => {
 
         const result = buildMcpConfigFromConnectors([connector], {
           gatewayTargets: {
-            gh1: { url: 'http://gateway/gh1/mcp', token: 'gateway-token' },
+            gh1: { url: 'http://127.0.0.1:4097/mcp/connectors/gh1', token: 'gateway-token' },
           },
         })
 
@@ -574,13 +574,13 @@ describe('mcp-config', () => {
 
         const result = buildMcpConfigFromConnectors([connector], {
           gatewayTargets: {
-            'c1': { url: 'http://gateway/c1/mcp', token: 'gw-token' },
+            'c1': { url: 'http://127.0.0.1:4097/mcp/connectors/c1', token: 'gw-token' },
           },
         })
 
         expect(result.mcpConfig.mcp['arche_custom_c1']).toEqual({
           type: 'remote',
-          url: 'http://gateway/c1/mcp',
+          url: 'http://127.0.0.1:4097/mcp/connectors/c1',
           enabled: true,
           headers: {
             'X-Extra': 'v',
@@ -707,7 +707,7 @@ describe('mcp-config', () => {
   describe('buildMcpConfigForSlug', () => {
     beforeEach(() => {
       connectorMocks.getConnectorGatewayBaseUrl.mockReturnValue('http://gateway')
-      connectorMocks.issueConnectorGatewayToken.mockReturnValue('gw-token-123')
+      connectorMocks.getConnectorProxyTarget.mockImplementation(async (_slug: string, id: string, port: number) => ({ url: `http://127.0.0.1:${port}/mcp/connectors/${id}`, token: 'gw-token-123' }))
       connectorMocks.validateConnectorType.mockReturnValue(true)
       connectorMocks.validateConnectorConfig.mockReturnValue({ valid: true })
       serviceMocks.connectorService.findNameEntriesByType.mockResolvedValue([])
@@ -746,16 +746,12 @@ describe('mcp-config', () => {
 
       const result = await buildMcpConfigForSlug('my-slug')
 
-      expect(connectorMocks.issueConnectorGatewayToken).toHaveBeenCalledWith({
-        userId: 'user-1',
-        workspaceSlug: 'my-slug',
-        connectorId: 'z1',
-      })
+      expect(connectorMocks.getConnectorProxyTarget).toHaveBeenCalledWith('my-slug', 'z1', 4097)
 
       expect(result).not.toBeNull()
       expect(result!.mcpConfig.mcp['arche_zendesk_z1']).toEqual({
         type: 'remote',
-        url: 'http://gateway/z1/mcp',
+        url: 'http://127.0.0.1:4097/mcp/connectors/z1',
         enabled: true,
         headers: { Authorization: 'Bearer gw-token-123' },
         oauth: false,
@@ -783,14 +779,10 @@ describe('mcp-config', () => {
 
       const result = await buildMcpConfigForSlug('my-slug')
 
-      expect(connectorMocks.issueConnectorGatewayToken).toHaveBeenCalledWith({
-        userId: 'user-1',
-        workspaceSlug: 'my-slug',
-        connectorId: 'n1',
-      })
+      expect(connectorMocks.getConnectorProxyTarget).toHaveBeenCalledWith('my-slug', 'n1', 4097)
 
       expect(result).not.toBeNull()
-      expect(result!.mcpConfig.mcp['arche_notion_n1']!.url).toBe('http://gateway/n1/mcp')
+      expect(result!.mcpConfig.mcp['arche_notion_n1']!.url).toBe('http://127.0.0.1:4097/mcp/connectors/n1')
     })
 
     it('skips invalid connector types during gateway target building', async () => {
@@ -831,7 +823,7 @@ describe('mcp-config', () => {
 
       const result = await buildMcpConfigForSlug('my-slug')
 
-      expect(connectorMocks.issueConnectorGatewayToken).not.toHaveBeenCalled()
+      expect(connectorMocks.getConnectorProxyTarget).not.toHaveBeenCalled()
       expect(result).toBeNull()
     })
 
@@ -853,7 +845,7 @@ describe('mcp-config', () => {
 
       await buildMcpConfigForSlug('my-slug')
 
-      expect(connectorMocks.issueConnectorGatewayToken).not.toHaveBeenCalled()
+      expect(connectorMocks.getConnectorProxyTarget).not.toHaveBeenCalled()
     })
 
     it('allows custom OAuth connectors with mcpServerUrl but no endpoint', async () => {
@@ -875,11 +867,7 @@ describe('mcp-config', () => {
 
       await buildMcpConfigForSlug('my-slug')
 
-      expect(connectorMocks.issueConnectorGatewayToken).toHaveBeenCalledWith({
-        userId: 'user-1',
-        workspaceSlug: 'my-slug',
-        connectorId: 'c1',
-      })
+      expect(connectorMocks.getConnectorProxyTarget).toHaveBeenCalledWith('my-slug', 'c1', 4097)
     })
 
     it('aliases shared custom connector tools to the user connector with the same name', async () => {
@@ -939,7 +927,7 @@ describe('mcp-config', () => {
 
       const result = await buildMcpConfigForSlug('my-slug')
 
-      expect(connectorMocks.issueConnectorGatewayToken).not.toHaveBeenCalled()
+      expect(connectorMocks.getConnectorProxyTarget).not.toHaveBeenCalled()
       expect(result).toBeNull()
     })
 
@@ -955,7 +943,7 @@ describe('mcp-config', () => {
 
       const result = await buildMcpConfigForSlug('my-slug')
 
-      expect(connectorMocks.issueConnectorGatewayToken).not.toHaveBeenCalled()
+      expect(connectorMocks.getConnectorProxyTarget).not.toHaveBeenCalled()
       // But should still produce a local config
       expect(result).not.toBeNull()
       expect(result!.mcpConfig.mcp['arche_notion_n1']!.type).toBe('local')
@@ -973,7 +961,7 @@ describe('mcp-config', () => {
 
       const result = await buildMcpConfigForSlug('my-slug')
 
-      expect(connectorMocks.issueConnectorGatewayToken).not.toHaveBeenCalled()
+      expect(connectorMocks.getConnectorProxyTarget).not.toHaveBeenCalled()
       expect(result?.mcpConfig.mcp['arche_github_gh1']).toEqual({
         type: 'remote',
         url: 'https://api.githubcopilot.com/mcp/',

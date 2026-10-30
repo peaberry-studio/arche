@@ -1,5 +1,7 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 
+vi.mock('@/lib/spawner/volume-init', () => ({ prepareWorkspaceVolumes: vi.fn().mockResolvedValue(undefined) }))
+
 const mockContainer = {
   id: 'container-123',
   start: vi.fn(),
@@ -27,8 +29,10 @@ const mockWriteFile = vi.fn().mockResolvedValue(undefined)
 const mockChmod = vi.fn().mockResolvedValue(undefined)
 const mockMkdir = vi.fn().mockResolvedValue(undefined)
 const mockRm = vi.fn().mockResolvedValue(undefined)
+const mockReadFile = vi.fn(async () => { throw Object.assign(new Error('missing'), { code: 'ENOENT' }) })
 vi.mock('fs/promises', () => ({
   mkdir: (...args: unknown[]) => mockMkdir(...args),
+  readFile: () => mockReadFile(),
   rm: (...args: unknown[]) => mockRm(...args),
   writeFile: (...args: unknown[]) => mockWriteFile(...args),
   chmod: (...args: unknown[]) => mockChmod(...args),
@@ -36,6 +40,7 @@ vi.mock('fs/promises', () => ({
 
 vi.mock('node:fs/promises', () => ({
   mkdir: (...args: unknown[]) => mockMkdir(...args),
+  readFile: () => mockReadFile(),
   rm: (...args: unknown[]) => mockRm(...args),
   writeFile: (...args: unknown[]) => mockWriteFile(...args),
   chmod: (...args: unknown[]) => mockChmod(...args),
@@ -91,12 +96,10 @@ describe('docker extended', () => {
       )
     })
 
-    it('handles volume creation errors gracefully', async () => {
-      mockDockerInstance.createVolume.mockRejectedValue(new Error('already exists'))
-
-      const container = await createContainer('user-slug', 'secret-password')
-      expect(container.id).toBe('container-123')
-      expect(mockDockerInstance.createVolume).toHaveBeenCalledTimes(3)
+    it('refuses to launch when the volume service fails', async () => {
+      mockDockerInstance.createVolume.mockRejectedValueOnce(new Error('volume unavailable'))
+      await expect(createContainer('user-slug', 'fixture')).rejects.toThrow('volume unavailable')
+      expect(mockDockerInstance.createContainer).not.toHaveBeenCalled()
     })
   })
 

@@ -28,19 +28,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.14'
 
       - name: Install Ansible
         run: |
-          pip install ansible
-          ansible-galaxy collection install community.general
+          pip install --require-hashes -r infra/deploy/requirements.txt
+          ansible-galaxy collection install -r infra/deploy/collections.yml
 
       - name: Set up SSH key
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
         run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+          test -n "$VPS_KNOWN_HOSTS" || { echo 'VPS_KNOWN_HOSTS must contain the independently verified host key' >&2; exit 1; }
+          install -d -m 700 ~/.ssh
+          umask 077
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/deploy_key
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
 
       - name: Deploy
         env:
@@ -53,9 +62,12 @@ jobs:
           ARCHE_SEED_ADMIN_EMAIL: ${{ secrets.ARCHE_SEED_ADMIN_EMAIL }}
           ARCHE_SEED_ADMIN_PASSWORD: ${{ secrets.ARCHE_SEED_ADMIN_PASSWORD }}
           ARCHE_SEED_ADMIN_SLUG: ${{ secrets.ARCHE_SEED_ADMIN_SLUG }}
-          OPENCODE_IMAGE: ghcr.io/peaberry-studio/arche/workspace:latest
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_DOMAIN: ${{ secrets.VPS_DOMAIN }}
+          ACME_EMAIL: ${{ secrets.ACME_EMAIL }}
           VPS_USER: ${{ secrets.VPS_USER }}
         run: |
+          export OPENCODE_IMAGE="ghcr.io/peaberry-studio/arche/workspace:$(git rev-parse --short HEAD)"
           USER_FLAG=()
           if [[ -n "${VPS_USER}" ]]; then
             USER_FLAG=(--user "${VPS_USER}")
@@ -63,10 +75,10 @@ jobs:
 
           cd infra/deploy
           ./deploy.sh \
-            --ip "${{ secrets.VPS_HOST }}" \
-            --domain "${{ secrets.VPS_DOMAIN }}" \
+            --ip "$VPS_HOST" \
+            --domain "$VPS_DOMAIN" \
             --ssh-key ~/.ssh/deploy_key \
-            --acme-email "${{ secrets.ACME_EMAIL }}" \
+            --acme-email "$ACME_EMAIL" \
             "${USER_FLAG[@]}" \
             --version "$(git rev-parse --short HEAD)" \
             --skip-ensure-dns-record

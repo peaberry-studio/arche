@@ -31,19 +31,43 @@ jobs:
       pull-requests: write
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Validate build source
+        id: source
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
-          ref: ${{ github.event.client_payload.ref || github.ref }}
+          script: |
+            const raw = context.payload.client_payload?.pr_number ?? context.payload.inputs?.pr_number;
+            if (context.eventName === 'repository_dispatch' || raw) {
+              if (!/^[1-9][0-9]*$/.test(String(raw))) throw new Error('Invalid PR number');
+              if (context.eventName !== 'repository_dispatch') {
+                const { data: permission } = await github.rest.repos.getCollaboratorPermissionLevel({
+                  ...context.repo, username: context.actor,
+                });
+                if (!['admin', 'write'].includes(permission.permission)) throw new Error('Write access required');
+              }
+              const { data: pr } = await github.rest.pulls.get({ ...context.repo, pull_number: Number(raw) });
+              if (pr.head.repo?.full_name !== `${context.repo.owner}/${context.repo.repo}`) throw new Error('Fork builds are not permitted');
+              if (context.payload.client_payload?.ref && context.payload.client_payload.ref !== pr.head.sha) throw new Error('Stale PR head');
+              core.setOutput('ref', pr.head.sha);
+              core.setOutput('pr_number', pr.number);
+            } else {
+              core.setOutput('ref', context.sha);
+            }
+
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ steps.source.outputs.ref }}
+          persist-credentials: false
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -64,7 +88,7 @@ jobs:
           echo "DEFAULT_ARCH_TAGS=$DEFAULT_ARCH_TAGS" >> "$GITHUB_OUTPUT"
 
           if [[ "${{ github.event_name }}" == "repository_dispatch" ]] || [[ -n "${{ github.event.inputs.pr_number }}" ]]; then
-            PR_NUM="${{ github.event.client_payload.pr_number || github.event.inputs.pr_number }}"
+            PR_NUM="${{ steps.source.outputs.pr_number }}"
             echo "PR_NUMBER=$PR_NUM" >> $GITHUB_OUTPUT
             echo "PR_TAG=pr-$PR_NUM" >> $GITHUB_OUTPUT
             echo "MODE=pr" >> $GITHUB_OUTPUT
@@ -82,14 +106,41 @@ jobs:
         id: opencode
         run: |
           OPENCODE_VERSION="$(tr -d '[:space:]' < versions/opencode.version)"
+          OPENCODE_V1_VERSION="$(tr -d '[:space:]' < versions/opencode-v1.version)"
           if [[ -z "$OPENCODE_VERSION" ]]; then
             echo "OpenCode version is empty" >&2
             exit 1
           fi
           echo "OPENCODE_VERSION=$OPENCODE_VERSION" >> "$GITHUB_OUTPUT"
+          if [[ "$OPENCODE_V1_VERSION" != "1.18.18" ]]; then
+            echo "Legacy OpenCode must remain pinned to 1.18.18" >&2
+            exit 1
+          fi
+          echo "OPENCODE_V1_VERSION=$OPENCODE_V1_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Test runtime infrastructure
+        run: node --test infra/workspace-image/tests/runtime-infrastructure.test.mjs
+
+      - name: Build and push pinned legacy image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: infra/workspace-image
+          file: infra/workspace-image/Containerfile
+          push: true
+          platforms: linux/${{ matrix.arch }}
+          provenance: false
+          sbom: false
+          build-args: |
+            OPENCODE_VERSION=${{ steps.opencode.outputs.OPENCODE_V1_VERSION }}
+          tags: |
+            ${{ format('{0}/{1}:opencode-v1-1.18.18-{2}{3}', env.REGISTRY, env.IMAGE_NAME, steps.tags.outputs.MODE == 'pr' && steps.tags.outputs.PR_TAG || steps.tags.outputs.SHA_TAG, steps.tags.outputs.ARCH_SUFFIX) }}
+            ${{ steps.tags.outputs.MODE != 'pr' && format('{0}/{1}:opencode-v1{2}', env.REGISTRY, env.IMAGE_NAME, steps.tags.outputs.ARCH_SUFFIX) || '' }}
+            ${{ steps.tags.outputs.MODE != 'pr' && format('{0}/{1}:opencode-v1-1.18.18{2}', env.REGISTRY, env.IMAGE_NAME, steps.tags.outputs.ARCH_SUFFIX) || '' }}
+            ${{ steps.tags.outputs.MODE != 'pr' && steps.tags.outputs.DEFAULT_ARCH_TAGS == 'true' && format('{0}/{1}:opencode-v1', env.REGISTRY, env.IMAGE_NAME) || '' }}
+            ${{ steps.tags.outputs.MODE != 'pr' && steps.tags.outputs.DEFAULT_ARCH_TAGS == 'true' && format('{0}/{1}:opencode-v1-1.18.18', env.REGISTRY, env.IMAGE_NAME) || '' }}
 
       - name: Build and push image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: infra/workspace-image
           file: infra/workspace-image/Containerfile

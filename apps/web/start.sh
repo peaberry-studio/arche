@@ -1,6 +1,8 @@
 #!/bin/sh
 set -e
 
+export PATH="$PWD/node_modules/.bin:$PATH"
+
 # Wait for the database to accept connections before running migrations.
 # prisma migrate deploy can hang indefinitely if postgres is unreachable,
 # so we fail fast here with a clear message instead.
@@ -23,10 +25,10 @@ done
 echo "[arche] Database is ready"
 
 echo "[arche] Running database migrations..."
-timeout 60 pnpm prisma migrate deploy 2>&1
+timeout 60 ./node_modules/.bin/prisma migrate deploy 2>&1
 
 echo "[arche] Running database seed..."
-pnpm prisma db seed 2>&1 || echo "[arche] Seed skipped (may already be seeded)"
+./node_modules/.bin/prisma db seed 2>&1 || echo "[arche] Seed skipped (may already be seeded)"
 
 echo "[arche] Starting application (version: ${ARCHE_GIT_SHA:-dev})..."
-exec pnpm run start
+exec ./node_modules/.bin/next start

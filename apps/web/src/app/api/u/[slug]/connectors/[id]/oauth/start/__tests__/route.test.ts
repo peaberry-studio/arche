@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   getPublicBaseUrl: vi.fn(),
   normalizeConnectorOAuthReturnTo: vi.fn(),
   decryptConfig: vi.fn(),
+  compareAndSwapConfig: vi.fn(),
   getResolvedCredentials: vi.fn(),
   prepareConnectorOAuthAuthorization: vi.fn(),
   auditEvent: vi.fn(),
@@ -30,6 +31,7 @@ vi.mock('@/lib/services', () => ({
     findIdBySlug: (...args: unknown[]) => mocks.findIdBySlug(...args),
   },
   connectorService: {
+    compareAndSwapConfig: mocks.compareAndSwapConfig,
     findByIdAndUserIdSelect: (...args: unknown[]) => mocks.findByIdAndUserIdSelect(...args),
   },
   googleWorkspaceService: {
@@ -46,6 +48,7 @@ vi.mock('@/lib/connectors/oauth', () => ({
   prepareConnectorOAuthAuthorization: (...args: unknown[]) => mocks.prepareConnectorOAuthAuthorization(...args),
 }))
 vi.mock('@/lib/connectors/crypto', () => ({
+  encryptConfig: JSON.stringify,
   decryptConfig: (...args: unknown[]) => mocks.decryptConfig(...args),
 }))
 vi.mock('@/lib/connectors/validators', () => ({
@@ -91,8 +94,9 @@ describe('POST /api/u/[slug]/connectors/[id]/oauth/start', () => {
     mocks.normalizeConnectorOAuthReturnTo.mockReturnValue(undefined)
     mocks.decryptConfig.mockReturnValue({ clientId: 'client-1', clientSecret: 'secret-1' })
     mocks.getResolvedCredentials.mockResolvedValue(null)
-    mocks.prepareConnectorOAuthAuthorization.mockResolvedValue({ authorizeUrl: 'https://linear.app/oauth/authorize' })
+    mocks.prepareConnectorOAuthAuthorization.mockResolvedValue({ authorizeUrl: 'https://linear.app/oauth/authorize', state: 'encoded-state' })
     mocks.auditEvent.mockResolvedValue(undefined)
+    mocks.compareAndSwapConfig.mockResolvedValue({ count: 1 })
   })
 
   it('starts OAuth for a linear connector', async () => {

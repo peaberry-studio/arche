@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { validateConnectorTestEndpoint } from '../ssrf'
+import { validateConnectorTestEndpoint } from '@/lib/security/ssrf'
 
 describe('validateConnectorTestEndpoint', () => {
   it('rejects empty or whitespace-only endpoints', async () => {
@@ -49,6 +49,14 @@ describe('validateConnectorTestEndpoint', () => {
       'https://169.254.1.1/mcp',
       'https://0.0.0.0/mcp',
       'https://0.1.2.3/mcp',
+      'https://100.64.0.1/mcp',
+      'https://192.0.0.1/mcp',
+      'https://198.18.0.1/mcp',
+      'https://224.0.0.1/mcp',
+      'https://240.0.0.1/mcp',
+      'https://[ff00::1]/mcp',
+      'https://[64:ff9b::a00:1]/mcp',
+
     ]
 
     for (const url of tests) {

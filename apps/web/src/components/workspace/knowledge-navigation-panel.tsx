@@ -5,8 +5,8 @@ import { CaretLineLeft, CaretLineRight, Graph, TreeStructure } from '@phosphor-i
 
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import type { KnowledgeGraphAgentSource } from '@/lib/kb-graph'
-import type { WorkspaceFileNode } from '@/lib/opencode/types'
 import { cn } from '@/lib/utils'
+import type { WorkspaceFileNode } from '@/types/workspace'
 
 import { FileTreePanel } from './file-tree-panel'
 import { KnowledgeGraphPanel } from './knowledge-graph-panel'

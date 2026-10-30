@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SessionsPanel } from "@/components/workspace/sessions-panel";
-import type { WorkspaceSession } from "@/lib/opencode/types";
+import type { WorkspaceSession } from "@/types/workspace-runtime";
 
 afterEach(() => {
   cleanup();
@@ -64,6 +64,19 @@ function renderPanel(sessions: WorkspaceSession[], overrides: Record<string, unk
 }
 
 describe("SessionsPanel", () => {
+  it("lists archived conversations among live ones by date, unmarked and selectable", () => {
+    const onSelectSession = vi.fn();
+    renderPanel([
+      chatSessions[0],
+      { ...chatSessions[1], id: "old", title: "Old conversation", archived: true, updatedAtRaw: 5 },
+    ], { onSelectSession });
+    expect(screen.queryByText(/live conversations|archived conversations/i)).toBeNull();
+    expect(screen.queryByText("Archived")).toBeNull();
+    const row = screen.getByRole("button", { name: /old conversation/i });
+    expect(screen.getAllByRole("button", { name: /old conversation|idle chat/i })[0]).toBe(row);
+    fireEvent.click(row);
+    expect(onSelectSession).toHaveBeenCalledWith("old");
+  });
   it("renders both chat sessions and flow sessions in the same list", () => {
     renderPanel([...chatSessions, flowSession]);
 

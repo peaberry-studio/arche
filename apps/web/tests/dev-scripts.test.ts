@@ -126,6 +126,22 @@ describe('web dev scripts', () => {
     expect(deployScript).toContain('ARCHE_USERS_PATH')
   })
 
+  it('builds the remote web image from the apps context without AppleDouble files', () => {
+    const repoRoot = resolve(process.cwd(), '..', '..')
+    const deployScript = readFileSync(resolve(repoRoot, 'infra', 'deploy', 'deploy.sh'), 'utf8')
+    const remoteTarCommands = deployScript.match(/^\s*(?:COPYFILE_DISABLE=1 )?tar (?:--no-xattrs )?-C "\$repo_root" -czf - .*$/gm) ?? []
+
+    expect(remoteTarCommands).toHaveLength(2)
+    for (const command of remoteTarCommands) {
+      expect(command).toContain('COPYFILE_DISABLE=1 tar --no-xattrs')
+    }
+
+    expect(deployScript).toContain('-czf - apps/web apps/desktop-runtime apps/.dockerignore')
+    expect(deployScript).toContain('tar -xzf - -C /tmp/arche-web-src --strip-components=1')
+    expect(deployScript).toContain('podman build -f web/Containerfile -t arche-web:latest .')
+    expect(deployScript).not.toContain('podman build -t arche-web:latest .')
+  })
+
   it('keeps Cloudflare Tunnel exposure mode wired through deploy templates', () => {
     const repoRoot = resolve(process.cwd(), '..', '..')
     const composeTemplate = readFileSync(
@@ -189,5 +205,40 @@ describe('web dev scripts', () => {
     expect(autostartTemplate).toContain("cloudflared{% endif %}")
     expect(autostartServiceTemplate).toContain('KillMode=process')
     expect(autostartServiceTemplate).toContain('TimeoutStartSec=600s')
+  })
+
+  it('keeps Tailscale exposure mode wired through deploy templates', () => {
+    const repoRoot = resolve(process.cwd(), '..', '..')
+    const composeTemplate = readFileSync(
+      resolve(repoRoot, 'infra', 'deploy', 'ansible', 'roles', 'app', 'templates', 'compose.yml.j2'),
+      'utf8',
+    )
+    const appTasks = readFileSync(
+      resolve(repoRoot, 'infra', 'deploy', 'ansible', 'roles', 'app', 'tasks', 'main.yml'),
+      'utf8',
+    )
+    const deployScript = readFileSync(resolve(repoRoot, 'infra', 'deploy', 'deploy.sh'), 'utf8')
+
+    const tailscaleBranch = "{% elif deploy_mode == 'remote' and exposure_mode == 'tailscale' %}"
+    const tailscaleEntrypointStart = composeTemplate.indexOf(tailscaleBranch)
+    const tailscaleEntrypointEnd = composeTemplate.indexOf('{% else %}', tailscaleEntrypointStart)
+    const tailscaleEntrypointBlock = composeTemplate.slice(tailscaleEntrypointStart, tailscaleEntrypointEnd)
+    const tailscalePortsStart = composeTemplate.indexOf(tailscaleBranch, tailscaleEntrypointEnd)
+    const tailscalePortsEnd = composeTemplate.indexOf('{% elif', tailscalePortsStart + tailscaleBranch.length)
+    const tailscalePortsBlock = composeTemplate.slice(tailscalePortsStart, tailscalePortsEnd)
+
+    expect(tailscaleEntrypointStart).toBeGreaterThan(-1)
+    expect(tailscaleEntrypointEnd).toBeGreaterThan(tailscaleEntrypointStart)
+    expect(tailscaleEntrypointBlock).not.toContain('letsencrypt')
+    expect(tailscaleEntrypointBlock).not.toContain('websecure')
+    expect(tailscalePortsStart).toBeGreaterThan(tailscaleEntrypointEnd)
+    expect(tailscalePortsEnd).toBeGreaterThan(tailscalePortsStart)
+    expect(tailscalePortsBlock).toContain('- "127.0.0.1:80:80"')
+    expect(tailscalePortsBlock).not.toContain('- "80:80"')
+    expect(tailscalePortsBlock).not.toContain('443')
+    expect(deployScript).toContain('--tailscale)')
+    expect(deployScript).toContain('direct|cloudflare-tunnel|tailscale)')
+    expect(deployScript).toContain('"$EXPOSURE_MODE" == "cloudflare-tunnel" || "$EXPOSURE_MODE" == "tailscale"')
+    expect(appTasks).toContain("exposure_mode in ['cloudflare-tunnel', 'tailscale']")
   })
 })

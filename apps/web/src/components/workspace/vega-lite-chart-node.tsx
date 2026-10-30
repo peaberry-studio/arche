@@ -11,6 +11,7 @@ const VEGA_LITE_FENCE_PATTERN =
 const vegaLiteTokenizer: MarkdownTokenizer = {
   name: "vegaLiteChart",
   level: "block",
+  start: (src) => src.search(/^ {0,3}(`{3,}|~{3,})vega-lite[ \t]*(?:\n|$)/mu),
   tokenize: (src) => {
     const match = VEGA_LITE_FENCE_PATTERN.exec(src);
     if (!match) return undefined;

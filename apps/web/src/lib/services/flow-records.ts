@@ -18,6 +18,7 @@ export type FlowRecord = {
   enabled: boolean
   visibility: FlowVisibility
   organizationCanRun: boolean
+  organizationApprovedHash?: string | null
   nextRunAt: Date | null
   lastRunAt: Date | null
   leaseOwner: string | null

@@ -2,10 +2,9 @@ import { randomBytes } from 'crypto'
 import { existsSync } from 'fs'
 import { join } from 'path'
 
-import { getRuntimeResourceCandidate } from '@arche/desktop-runtime/binaries'
+import { getRuntimeResourceCandidate, type RuntimeBinaryName } from '@arche/desktop-runtime/binaries'
 
 import { buildProviderGatewayConfig } from '@/lib/providers/catalog'
-import { buildWorkspaceRuntimeConfig } from '@/lib/spawner/runtime-artifacts'
 
 const DEFAULT_NEXT_PORT = 3000
 const DEFAULT_USERNAME = 'opencode'
@@ -19,46 +18,42 @@ export function getDesktopWebPort(): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_NEXT_PORT
 }
 
-export function getDesktopProviderGatewayConfig(): Record<string, unknown> {
-  return buildProviderGatewayConfig(
-    `http://${LOOPBACK_HOST}:${getDesktopWebPort()}/api/internal/providers`,
-  )
+export function getDesktopInternalApiRoot(): string {
+  return `http://${LOOPBACK_HOST}:${getDesktopWebPort()}/api/internal`
 }
 
-function resolveFallbackDesktopOpencodeConfigDir(): string | null {
+export function getDesktopProviderGatewayConfig(): Record<string, unknown> {
+  return buildProviderGatewayConfig(`${getDesktopInternalApiRoot()}/providers`)
+}
+
+function getDesktopArcheToolsDir(): string {
+  const explicitPath = process.env.ARCHE_TOOLS_DIR
+  if (explicitPath) {
+    return explicitPath
+  }
+
   const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath
   if (resourcesPath) {
-    const bundledPath = join(resourcesPath, 'opencode-config')
-    if (existsSync(bundledPath)) {
-      return bundledPath
-    }
+    return join(resourcesPath, 'bin', 'arche-tools')
   }
 
   const candidates = [
-    join(process.cwd(), 'infra', 'workspace-image', 'opencode-config'),
-    join(process.cwd(), '..', '..', 'infra', 'workspace-image', 'opencode-config'),
+    join(process.cwd(), 'infra', 'workspace-image', 'arche-tools'),
+    join(process.cwd(), '..', '..', 'infra', 'workspace-image', 'arche-tools'),
   ]
 
   for (const candidate of candidates) {
-    if (existsSync(candidate)) {
+    if (existsSync(join(candidate, 'server.js'))) {
       return candidate
     }
   }
 
-  return null
+  return candidates[1]
 }
 
-export function getDesktopOpencodeConfigDir(): string | null {
-  const explicitPath = process.env.ARCHE_OPENCODE_CONFIG_DIR
-  if (explicitPath && existsSync(explicitPath)) {
-    return explicitPath
-  }
-
-  return resolveFallbackDesktopOpencodeConfigDir()
-}
-
-export async function buildDesktopOpencodeConfig(slug: string): Promise<Record<string, unknown>> {
-  return buildWorkspaceRuntimeConfig(slug, getDesktopProviderGatewayConfig())
+export function getDesktopArcheToolsCommand(): string[] {
+  const nodeBinary = process.env.ARCHE_NODE_BIN ?? resolveBundledBinary('node') ?? 'node'
+  return [nodeBinary, join(getDesktopArcheToolsDir(), 'server.js')]
 }
 
 export function makeAuthHeader(username: string, password: string): string {
@@ -85,7 +80,7 @@ export function createSafeEnv(): NodeJS.ProcessEnv {
   }
 }
 
-function resolveBundledBinary(binaryName: 'opencode' | 'workspace-agent'): string | null {
+function resolveBundledBinary(binaryName: RuntimeBinaryName): string | null {
   const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath
   if (!resourcesPath) {
     return null
@@ -100,11 +95,12 @@ function resolveBundledBinary(binaryName: 'opencode' | 'workspace-agent'): strin
 }
 
 export function getOpencodeBinary(): string {
-  if (process.env.ARCHE_OPENCODE_BIN) {
-    return process.env.ARCHE_OPENCODE_BIN
-  }
+  return process.env.ARCHE_OPENCODE_BIN || (resolveBundledBinary('opencode') ?? 'opencode')
+}
 
-  return resolveBundledBinary('opencode') ?? 'opencode'
+// OpenCode 1, bundled only to archive conversations from vaults created before OpenCode 2.
+export function getLegacyOpencodeBinary(): string {
+  return process.env.ARCHE_OPENCODE_V1_BIN || (resolveBundledBinary('opencode-v1') ?? 'opencode-v1')
 }
 
 export function getWorkspaceAgentBinary(): string {

@@ -4,7 +4,8 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest"
 
 import { WorkspaceCommandPalette } from "@/components/workspace/workspace-command-palette"
-import type { WorkspaceFileNode, WorkspaceSession } from "@/lib/opencode/types"
+import type { WorkspaceFileNode } from "@/types/workspace"
+import type { WorkspaceSession } from "@/types/workspace-runtime"
 
 const listSessionsActionMock = vi.fn()
 const searchFilesActionMock = vi.fn()
@@ -13,7 +14,7 @@ const runFlowMock = vi.fn()
 const setThemeIdMock = vi.fn()
 const toggleDarkMock = vi.fn()
 
-vi.mock("@/actions/opencode", () => ({
+vi.mock("@/actions/workspace-sessions", () => ({
   listSessionsAction: (...args: unknown[]) => listSessionsActionMock(...args),
   searchFilesAction: (...args: unknown[]) => searchFilesActionMock(...args),
 }))

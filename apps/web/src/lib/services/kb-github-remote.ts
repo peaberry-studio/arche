@@ -180,11 +180,11 @@ export async function createWorkspaceRemoteConfig(): Promise<
   if (!record) return { ok: true, remote: null }
 
   const config = decryptIntegrationConfig(record)
-  if (!config?.appId || !config.privateKey || !record.state.installationId || !record.state.repoCloneUrl) {
+  if (!config?.appId || !config.privateKey || !record.state.installationId || !record.state.repoCloneUrl || !record.state.repoFullName) {
     return { ok: true, remote: null }
   }
 
-  const tokenResult = await getInstallationToken(config.appId, config.privateKey, record.state.installationId)
+  const tokenResult = await getInstallationToken(config.appId, config.privateKey, record.state.installationId, record.state.repoFullName.split('/')[1])
   if (!tokenResult.ok) {
     await updateSyncState({
       lastError: tokenResult.message,

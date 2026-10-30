@@ -85,6 +85,13 @@ jobs:
               | .id
             ' "$versions_json" >> "$keep_ids_file"
 
+            # Preserve the legacy rollback aliases, including architecture variants.
+            jq -r '
+              .[]
+              | select(any(.tags[]?; test("^opencode-v1(-1\\.18\\.18)?(-(amd64|arm64))?$")))
+              | .id
+            ' "$versions_json" >> "$keep_ids_file"
+
             # Keep the current main image (the one tagged latest, usually also tagged with current sha).
             jq -r '
               [ .[] | select(any(.tags[]?; . == "latest")) ]
@@ -115,23 +122,24 @@ jobs:
               | .[].id
             ' "$versions_json" >> "$keep_ids_file"
 
-            # Keep only one PR image per OPEN PR: the newest version carrying pr-<number>.
+            # Keep the newest image for each open PR, runtime and architecture.
             jq -r --argjson open_prs "$open_prs_json" '
-              def pr_num: capture("^pr-(?<n>[0-9]+)$").n | tonumber;
+              def pr_tag: "^(?<legacy>opencode-v1-1\\.18\\.18-)?pr-(?<n>[0-9]+)(-(?<arch>amd64|arm64))?$";
 
               [ .[]
-                | .pr_tags = [ .tags[]? | select(test("^pr-[0-9]+$")) ]
-                | select((.pr_tags | length) > 0)
-                | .open_pr_numbers = [ .pr_tags[] | pr_num | select($open_prs | index(.) != null) ]
-                | select((.open_pr_numbers | length) > 0)
+                | .pr_entries = [ .tags[]? | capture(pr_tag)
+                    | { pr: (.n | tonumber), runtime: (.legacy // "v2"), arch: (.arch // "amd64") }
+                    | select(.pr as $pr | $open_prs | index($pr) != null)
+                  ]
+                | select((.pr_entries | length) > 0)
               ] as $pr_versions
               |
               [ $pr_versions[] as $v
-                | $v.open_pr_numbers[]
-                | { pr: ., id: $v.id, updated_at: $v.updated_at }
+                | $v.pr_entries[]
+                | . + { id: $v.id, updated_at: $v.updated_at }
               ]
-              | sort_by(.pr, .updated_at)
-              | group_by(.pr)
+              | sort_by(.pr, .runtime, .arch, .updated_at)
+              | group_by(.pr, .runtime, .arch)
               | map(sort_by(.updated_at) | reverse | .[0].id)
               | .[]
             ' "$versions_json" >> "$keep_ids_file"

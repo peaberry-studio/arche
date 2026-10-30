@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import type { WorkspaceSession } from "@/lib/opencode/types";
 import {
   excludeSubagentSessions,
   hasUnseenFlowResult,
   isBusyFlowWorkspaceSession,
   isFlowSession,
 } from "@/lib/workspace-session-utils";
+import type { WorkspaceSession } from "@/types/workspace-runtime";
 
 const manualSession: WorkspaceSession = {
   id: "manual-session",

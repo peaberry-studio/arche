@@ -4,20 +4,20 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useWorkspaceMessageActions } from "@/hooks/workspace/use-workspace-message-actions";
-import { createEmptyChatStore, type ChatStore } from "@/lib/opencode/event-reducer";
-import type { WorkspacePermission } from "@/lib/opencode/permission";
+import type { ArchePermission } from "@/lib/harness/events";
+import { createEmptyChatStore, type ChatStore } from "@/lib/workspace-events/reducer";
 
 const opencodeMocks = vi.hoisted(() => ({
   abortSessionAction: vi.fn(),
   listPermissionsAction: vi.fn(),
 }));
 
-vi.mock("@/actions/opencode", () => ({
+vi.mock("@/actions/workspace-sessions", () => ({
   abortSessionAction: opencodeMocks.abortSessionAction,
   listPermissionsAction: opencodeMocks.listPermissionsAction,
 }));
 
-function permission(id: string, sessionId: string): WorkspacePermission {
+function permission(id: string, sessionId: string): ArchePermission {
   return { id, sessionId, title: `Approve ${id}`, state: "pending" };
 }
 
@@ -34,7 +34,7 @@ describe("useWorkspaceMessageActions", () => {
     vi.unstubAllGlobals();
   });
 
-  function renderActions(store: ChatStore = createEmptyChatStore()) {
+  function renderActions(store: ChatStore = createEmptyChatStore(), archived = false) {
     let current = store;
     const getStore = () => current;
     const commitStore = (updater: ChatStore | ((prev: ChatStore) => ChatStore)) => {
@@ -46,6 +46,7 @@ describe("useWorkspaceMessageActions", () => {
       useWorkspaceMessageActions({
         slug: "alice",
         activeSessionIdRef: { current: "s1" },
+        getSessions: () => [{ id: "s1", title: "Session", status: "idle", updatedAt: "now", archived }],
         agentDefaultModel: null,
         createSession: vi.fn(),
         models: [],
@@ -90,6 +91,27 @@ describe("useWorkspaceMessageActions", () => {
     expect(sent).toBe(false);
     expect(getStore().messages.s1 ?? []).toHaveLength(0);
     expect(getStore().sessionStatus.s1).toBe("busy");
+  });
+
+  it("does not prompt, abort, or answer permissions in an archived session", async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    const { hook, getStore } = renderActions(createEmptyChatStore(), true);
+    await act(async () => {
+      expect(await hook.result.current.sendMessage("Hello")).toBe(false);
+      expect(await hook.result.current.answerPermission("s1", "p1", "once")).toBe(false);
+      await hook.result.current.abortSession();
+    });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(opencodeMocks.abortSessionAction).not.toHaveBeenCalled();
+    expect(getStore().sessionStatus.s1).toBeUndefined();
+  });
+
+  it("does not mistake session_archived for a busy conflict during a migration race", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: "session_archived" }), { status: 409 })));
+    const { hook, getStore } = renderActions();
+    await act(async () => { expect(await hook.result.current.sendMessage("Hello")).toBe(false); });
+    expect(getStore().sessionStatus.s1).toBe("idle");
   });
 
   it("restores idle when prompt fails with a non-409 error", async () => {

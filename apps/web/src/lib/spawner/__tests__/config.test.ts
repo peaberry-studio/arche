@@ -108,6 +108,21 @@ describe('config', () => {
     })
   })
 
+  describe('getOpencodeV1Image', () => {
+    it('pins the legacy 1.18.18 build independently of the current image', async () => {
+      delete process.env.OPENCODE_V1_IMAGE
+      process.env.OPENCODE_IMAGE = 'current-image'
+      const { getOpencodeV1Image } = await import('../config')
+      expect(getOpencodeV1Image()).toBe('ghcr.io/peaberry-studio/arche/workspace:opencode-v1-1.18.18')
+    })
+
+    it('honors the legacy image override', async () => {
+      process.env.OPENCODE_V1_IMAGE = 'legacy-image'
+      const { getOpencodeV1Image } = await import('../config')
+      expect(getOpencodeV1Image()).toBe('legacy-image')
+    })
+  })
+
   describe('getOpencodeNetwork', () => {
     it('returns default network when OPENCODE_NETWORK not set', async () => {
       delete process.env.OPENCODE_NETWORK
@@ -178,6 +193,24 @@ describe('config', () => {
     })
   })
 
+  describe('getScratchSizeMb', () => {
+    it.each([
+      [undefined, 512],
+      ['1024', 1024],
+      ['256.9', 256],
+      ['0', 512],
+      ['-5', 512],
+      ['lots', 512],
+    ])('reads ARCHE_SCRATCH_SIZE_MB=%s as %i', async (value, expected) => {
+      if (value === undefined) delete process.env.ARCHE_SCRATCH_SIZE_MB
+      else process.env.ARCHE_SCRATCH_SIZE_MB = value
+
+      const { getScratchSizeMb } = await import('../config')
+
+      expect(getScratchSizeMb()).toBe(expected)
+    })
+  })
+
   describe('getIdleTimeoutMinutes', () => {
     it('returns default 120 when not set', async () => {
       delete process.env.ARCHE_IDLE_TIMEOUT_MINUTES
@@ -201,6 +234,39 @@ describe('config', () => {
       const { getIdleTimeoutMinutes } = await import('../config')
 
       expect(getIdleTimeoutMinutes()).toBe(45)
+    })
+  })
+
+  describe('memory pressure thresholds', () => {
+    it.each([
+      [undefined, 15],
+      ['10', 10],
+      ['12.5', 12.5],
+      ['0', 15],
+      ['100', 15],
+      ['abc', 15],
+    ])('reads ARCHE_REAPER_MIN_AVAILABLE_MEMORY_PERCENT=%s as %s', async (raw, expected) => {
+      if (raw === undefined) delete process.env.ARCHE_REAPER_MIN_AVAILABLE_MEMORY_PERCENT
+      else process.env.ARCHE_REAPER_MIN_AVAILABLE_MEMORY_PERCENT = raw
+
+      const { getReaperMinAvailableMemoryPercent } = await import('../config')
+
+      expect(getReaperMinAvailableMemoryPercent()).toBe(expected)
+    })
+
+    it.each([
+      [undefined, null],
+      ['2048', 2048],
+      ['1536.9', 1536],
+      ['0', null],
+      ['-5', null],
+    ])('reads ARCHE_REAPER_MIN_AVAILABLE_MEMORY_MB=%s as %s', async (raw, expected) => {
+      if (raw === undefined) delete process.env.ARCHE_REAPER_MIN_AVAILABLE_MEMORY_MB
+      else process.env.ARCHE_REAPER_MIN_AVAILABLE_MEMORY_MB = raw
+
+      const { getReaperMinAvailableMemoryMb } = await import('../config')
+
+      expect(getReaperMinAvailableMemoryMb()).toBe(expected)
     })
   })
 

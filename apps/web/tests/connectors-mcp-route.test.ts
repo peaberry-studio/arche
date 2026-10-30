@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+vi.mock('@/lib/security/workspace-auth', () => ({ isWorkspaceCredentialCurrent: vi.fn().mockResolvedValue(true) }))
+
 const mockDecryptConfig = vi.fn()
 vi.mock('@/lib/connectors/crypto', () => ({
   decryptConfig: (...args: unknown[]) => mockDecryptConfig(...args),

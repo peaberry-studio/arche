@@ -1,15 +1,14 @@
 "use client";
 
-import type { WorkspacePermission } from "@/lib/opencode/permission";
+import type { ArchePermission } from "@/lib/harness/events";
+import { isProviderId, normalizeProviderId } from "@/lib/providers/catalog";
+import type { MessageAttachmentInput, WorkspaceFileNode } from "@/types/workspace";
 import type {
   AvailableModel,
   PermissionResponse,
-  WorkspaceFileNode,
   WorkspaceMessage,
   WorkspaceSession,
-} from "@/lib/opencode/types";
-import { isProviderId, normalizeProviderId } from "@/lib/providers/catalog";
-import type { MessageAttachmentInput } from "@/types/workspace";
+} from "@/types/workspace-runtime";
 
 export type { WorkspaceDiff } from "@/hooks/use-workspace-diffs";
 
@@ -165,10 +164,10 @@ export function collectSessionFamilyIds(
  * session's permissions; the UI shows only the active family.
  */
 export function selectVisiblePermissions(
-  permissionsBySession: Record<string, WorkspacePermission[]>,
+  permissionsBySession: Record<string, ArchePermission[]>,
   sessions: WorkspaceSession[],
   activeSessionId: string | null
-): WorkspacePermission[] {
+): ArchePermission[] {
   if (!activeSessionId) return [];
   const familyIds = collectSessionFamilyIds(sessions, activeSessionId);
   return Object.entries(permissionsBySession).flatMap(([sessionId, items]) =>
@@ -187,7 +186,7 @@ export type UseWorkspaceOptions = {
 
 export type UseWorkspaceReturn = {
   // Connection
-  connection: import("@/lib/opencode/types").WorkspaceConnectionState;
+  connection: import("@/types/workspace-runtime").WorkspaceConnectionState;
   isConnected: boolean;
 
   // Files
@@ -248,7 +247,7 @@ export type UseWorkspaceReturn = {
 
   // Permissions (pending) visible for the active session, from the event-bus
   // store: the active session plus its known child sessions.
-  permissions: WorkspacePermission[];
+  permissions: ArchePermission[];
 
   // Diffs
   diffs: import("@/hooks/use-workspace-diffs").WorkspaceDiff[];

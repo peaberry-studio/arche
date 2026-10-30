@@ -5,8 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useWorkspace } from "@/hooks/use-workspace";
 import { WorkspaceRuntimeProvider } from "@/contexts/workspace-runtime-context";
-import type { WorkspaceMessage } from "@/lib/opencode/types";
 import { WORKSPACE_CONFIG_STATUS_CHANGED_EVENT } from "@/lib/runtime/config-status-events";
+import type { WorkspaceMessage } from "@/types/workspace-runtime";
 
 const opencodeMocks = vi.hoisted(() => ({
   checkConnectionAction: vi.fn(),
@@ -33,7 +33,7 @@ const workspaceAgentMocks = vi.hoisted(() => ({
   discardWorkspaceFileChangesAction: vi.fn(),
 }));
 
-vi.mock("@/actions/opencode", () => opencodeMocks);
+vi.mock("@/actions/workspace-sessions", () => opencodeMocks);
 vi.mock("@/actions/workspace-agent", () => workspaceAgentMocks);
 
 vi.mock("@/hooks/use-instance-startup", () => ({
@@ -201,7 +201,7 @@ vi.stubGlobal(
 
         // Persistent event bus: keep the stream open; tests drive the store via
         // assumption of the pure reducer's behavior.
-        if (String(input) === "/api/w/alice/events") {
+        if (String(input) === "/api/w/alice/events?protocol=arche-v1") {
           return {
             ok: true,
             body: {
@@ -608,7 +608,7 @@ vi.stubGlobal(
         }
 
         // Hanging event pipe: connected, but no runtime events ever arrive.
-        if (String(input) === "/api/w/alice/events") {
+        if (String(input) === "/api/w/alice/events?protocol=arche-v1") {
           return {
             ok: true,
             body: {
@@ -726,7 +726,7 @@ vi.stubGlobal(
           };
         }
 
-        if (String(input) === "/api/w/alice/events") {
+        if (String(input) === "/api/w/alice/events?protocol=arche-v1") {
           return {
             ok: true,
             body: {
@@ -1005,7 +1005,7 @@ vi.stubGlobal(
           };
         }
 
-        if (String(input) === "/api/w/alice/events") {
+        if (String(input) === "/api/w/alice/events?protocol=arche-v1") {
           return {
             ok: true,
             body: {
@@ -1713,7 +1713,7 @@ vi.stubGlobal(
           };
         }
 
-        if (String(input) === "/api/w/alice/events") {
+        if (String(input) === "/api/w/alice/events?protocol=arche-v1") {
           return {
             ok: true,
             body: {
@@ -1856,7 +1856,7 @@ vi.stubGlobal(
         };
       }
 
-      if (String(input) === "/api/w/alice/events") {
+      if (String(input) === "/api/w/alice/events?protocol=arche-v1") {
         return {
           ok: true,
           body: {
@@ -2077,7 +2077,7 @@ vi.stubGlobal(
           };
         }
 
-        if (String(input) === "/api/w/alice/events") {
+        if (String(input) === "/api/w/alice/events?protocol=arche-v1") {
           return {
             ok: true,
             body: {
@@ -2149,7 +2149,7 @@ vi.stubGlobal(
           };
         }
 
-        if (String(input) === "/api/w/alice/events") {
+        if (String(input) === "/api/w/alice/events?protocol=arche-v1") {
           return {
             ok: true,
             body: {
@@ -2276,7 +2276,7 @@ vi.stubGlobal(
           };
         }
 
-        if (String(input) === "/api/w/alice/events") {
+        if (String(input) === "/api/w/alice/events?protocol=arche-v1") {
           return {
             ok: true,
             body: {
@@ -2358,7 +2358,7 @@ vi.stubGlobal(
           };
         }
 
-        if (String(input) === "/api/w/alice/events") {
+        if (String(input) === "/api/w/alice/events?protocol=arche-v1") {
           return {
             ok: true,
             body: {

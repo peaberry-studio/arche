@@ -24,10 +24,10 @@ describe('sanitizeConnectorConfigForResponse', () => {
     })).toEqual({ unexpected: 'value' })
   })
 
-  it('returns non-OAuth configs unchanged', () => {
+  it('preserves public non-OAuth configuration', () => {
     const config = { authType: 'manual', endpoint: 'https://mcp.example.com' }
 
-    expect(sanitizeConnectorConfigForResponse('custom', config)).toBe(config)
+    expect(sanitizeConnectorConfigForResponse('custom', config)).toEqual(config)
   })
 
   it('redacts GitHub personal access tokens from responses', () => {
@@ -69,4 +69,16 @@ describe('sanitizeConnectorConfigForResponse', () => {
       },
     })
   })
+  it('redacts manual credentials and arbitrary authentication headers', () => {
+    expect(sanitizeConnectorConfigForResponse('custom', {
+      endpoint: 'https://example.com/mcp',
+      apiKey: 'secret', apiToken: 'secret', password: 'secret',
+      headers: { Authorization: 'Bearer secret', 'X-Custom-Key': 'secret' },
+      auth: { token: 'secret' }, oauthPendingState: 'pending',
+    })).toEqual({
+      endpoint: 'https://example.com/mcp',
+      hasApiKey: true, hasApiToken: true, hasPassword: true, hasHeaders: true, hasAuth: true,
+    })
+  })
+
 })

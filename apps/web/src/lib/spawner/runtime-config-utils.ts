@@ -121,14 +121,15 @@ export const AGENT_KB_POLICY_PROMPT_BLOCK =
   KB_POLICY_OVERRIDE_LINE +
   `- You ${KB_POLICY_WRITE_RULE_CORE}` +
   `- ${KB_POLICY_GIT_RULE_CORE}` +
-  '- Persist knowledge only by submitting a proposal with `learning_propose`. This is the only sanctioned way to store knowledge in the vault.\n'
+  '- Persist knowledge only by submitting a proposal with `arche_tools_learning_propose` when enabled. This is the only sanctioned way to store knowledge in the vault.\n' +
+  '- For temporary work, call `arche_tools_scratch_dir` to get your session scratch folder: read, write, edit files and run commands there freely, for example on copies of vault files or attachments. Hand results to the user with `arche_tools_scratch_publish` or propose them with `arche_tools_learning_propose`.\n'
 
 export function withWorkspaceKnowledgePolicy(agentsMd: string): string {
   const block =
     KB_POLICY_BLOCK_HEADER +
     KB_POLICY_OVERRIDE_LINE +
     `- Chat agents ${KB_POLICY_WRITE_RULE_CORE}` +
-    '- Persist agent knowledge only with `learning_propose`.\n' +
+    '- Persist agent knowledge only with `arche_tools_learning_propose` when enabled.\n' +
     '- User edits belong in Explore. They appear under Manual edits and are published from there. They do not go through Proposals.\n'
 
   return agentsMd + block

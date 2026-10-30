@@ -127,6 +127,28 @@ describe('provider gateway adapters', () => {
     expect(opencodeGo.baseUrl()).toBe('https://opencode.ai/zen/go/v1')
   })
 
+  it.each([
+    ['opencode', ['inference', 'openai', 'v1', 'chat', 'completions'], 'https://opencode.ai/inference/openai/v1/chat/completions'],
+    ['opencode', ['inference', 'anthropic', 'v1', 'messages'], 'https://opencode.ai/inference/anthropic/v1/messages'],
+    ['opencode', ['chat', 'completions'], 'https://opencode.ai/zen/v1/chat/completions'],
+    ['opencode', ['inference', 'go', 'openai', 'v1', 'chat', 'completions'], 'https://opencode.ai/zen/v1/inference/go/openai/v1/chat/completions'],
+    ['opencode-go', ['inference', 'go', 'google', 'v1beta', 'models'], 'https://opencode.ai/inference/go/google/v1beta/models'],
+    ['opencode-go', ['inference', 'openai', 'v1', 'chat', 'completions'], 'https://opencode.ai/zen/go/v1/inference/openai/v1/chat/completions'],
+  ] as const)('routes %s path %j to its OpenCode 2 inference upstream', (providerId, path, expected) => {
+    const adapter = getProviderGatewayAdapter(providerId)
+    const segments = [...path]
+    expect(buildUpstreamUrl(adapter.baseUrl(undefined, segments), segments, new URL('http://web/x'))).toBe(expected)
+  })
+
+  it('reads Zen gateway tokens from the header each model family sends', () => {
+    for (const providerId of ['opencode', 'opencode-go'] as const) {
+      const adapter = getProviderGatewayAdapter(providerId)
+      expect(adapter.extractGatewayToken(new Headers({ authorization: 'Bearer openai-family' }))).toBe('openai-family')
+      expect(adapter.extractGatewayToken(new Headers({ 'x-api-key': 'anthropic-family' }))).toBe('anthropic-family')
+      expect(adapter.extractGatewayToken(new Headers({ 'x-goog-api-key': 'google-family' }))).toBe('google-family')
+    }
+  })
+
   it('uses Ollama credential base URLs and optional bearer auth', () => {
     const ollama = getProviderGatewayAdapter('ollama')
     const localHeaders = new Headers({ authorization: 'Bearer gateway-token' })

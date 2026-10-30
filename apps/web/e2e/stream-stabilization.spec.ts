@@ -9,7 +9,7 @@ import { adminSlug } from './support/test-data'
 
 test.setTimeout(90_000)
 
-test('streams a text chat response through the stabilized SSE pipeline', async ({ page }) => {
+test('streams a reply, restores its snapshot after reload, and continues chatting', async ({ page }) => {
   // V10 cutover: the web chat must never touch the legacy per-message stream.
   const forbiddenRequests: string[] = []
   page.on('request', (request) => {
@@ -32,6 +32,20 @@ test('streams a text chat response through the stabilized SSE pipeline', async (
   // After the stream completes, the composer must be available again
   // (no lingering "Reconnecting..." or error state from a healthy flow).
   await expect(page.getByPlaceholder('Type a message...')).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByText('Reconnecting...')).toHaveCount(0)
+
+  await expect(page).toHaveURL(/[?&]session=[^&]+/)
+  const sessionUrl = page.url()
+  await page.reload()
+
+  await expect(page.getByText('E2E_OK: Hello stream', { exact: true })).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByText('E2E_OK: Hello stream', { exact: true })).toHaveCount(1)
+  await expect(page).toHaveURL(sessionUrl)
+
+  await page.getByPlaceholder('Type a message...').fill('Continue after reload')
+  await page.getByLabel('Send message', { exact: true }).click()
+  await expect(page.getByText('E2E_OK: Continue after reload', { exact: true })).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByText('E2E_OK: Hello stream', { exact: true })).toHaveCount(1)
   await expect(page.getByText('Reconnecting...')).toHaveCount(0)
   expect(forbiddenRequests).toEqual([])
 })

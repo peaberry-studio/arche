@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { NextRequest } from 'next/server'
 
@@ -15,7 +17,7 @@ const mocks = vi.hoisted(() => ({
   getPublicBaseUrl: vi.fn(() => 'http://localhost'),
   connectorService: {
     findByIdAndUserIdSelect: vi.fn(),
-    updateByIdUnsafe: vi.fn(),
+    compareAndSwapConfig: vi.fn(),
   },
 }))
 
@@ -52,6 +54,7 @@ const SESSION = {
 }
 
 const PARSED_STATE = {
+  sessionId: 's1',
   connectorId: 'c1',
   connectorType: 'linear',
   userId: 'u1',
@@ -86,7 +89,8 @@ describe('GET /api/connectors/oauth/callback', () => {
       type: 'linear',
       config: 'encrypted',
     })
-    mocks.decryptConfig.mockReturnValue({ apiKey: 'old' })
+    mocks.decryptConfig.mockImplementation(() => ({ apiKey: 'old', oauthPendingState: createHash('sha256').update('encoded-state').digest('hex') }))
+    mocks.connectorService.compareAndSwapConfig.mockResolvedValue({ count: 1 })
     mocks.buildConfigWithOAuth.mockReturnValue({ oauth: 'new-config' })
     mocks.encryptConfig.mockReturnValue('new-encrypted')
     mocks.exchangeConnectorOAuthCode.mockResolvedValue({
@@ -103,7 +107,7 @@ describe('GET /api/connectors/oauth/callback', () => {
     expect(res.status).toBe(307)
     const location = res.headers.get('location')!
     expect(location).toContain('oauth=success')
-    expect(mocks.connectorService.updateByIdUnsafe).toHaveBeenCalled()
+    expect(mocks.connectorService.compareAndSwapConfig).toHaveBeenCalled()
     expect(mocks.auditEvent).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'connector.oauth_connected' }),
     )
@@ -124,7 +128,7 @@ describe('GET /api/connectors/oauth/callback', () => {
 
   it('redirects with unauthorized when no session', async () => {
     mocks.getSession.mockResolvedValue(null)
-    const res = await GET(makeRequest({ code: 'c', state: 's' }))
+    const res = await GET(makeRequest({ code: 'c', state: 'encoded-state' }))
     expect(res.status).toBe(307)
     expect(res.headers.get('location')).toContain('unauthorized')
   })
@@ -134,13 +138,13 @@ describe('GET /api/connectors/oauth/callback', () => {
       user: { id: 'u2', email: 'user@test.com', slug: 'other', role: 'USER' },
       sessionId: 's1',
     })
-    const res = await GET(makeRequest({ code: 'c', state: 's' }))
+    const res = await GET(makeRequest({ code: 'c', state: 'encoded-state' }))
     expect(res.status).toBe(307)
     expect(res.headers.get('location')).toContain('forbidden')
   })
 
   it('redirects with provider error when error param present', async () => {
-    const res = await GET(makeRequest({ state: 's', error: 'access_denied' }))
+    const res = await GET(makeRequest({ state: 'encoded-state', error: 'access_denied' }))
     expect(res.status).toBe(307)
     expect(res.headers.get('location')).toContain('access_denied')
     expect(mocks.auditEvent).toHaveBeenCalledWith(
@@ -149,19 +153,19 @@ describe('GET /api/connectors/oauth/callback', () => {
   })
 
   it('normalizes unknown provider errors', async () => {
-    const res = await GET(makeRequest({ state: 's', error: 'some_custom_error' }))
+    const res = await GET(makeRequest({ state: 'encoded-state', error: 'some_custom_error' }))
     expect(res.headers.get('location')).toContain('oauth_failed')
   })
 
   it('redirects with missing_code when code is absent', async () => {
-    const res = await GET(makeRequest({ state: 's' }))
+    const res = await GET(makeRequest({ state: 'encoded-state' }))
     expect(res.status).toBe(307)
     expect(res.headers.get('location')).toContain('missing_code')
   })
 
   it('redirects with connector_not_found when connector missing', async () => {
     mocks.connectorService.findByIdAndUserIdSelect.mockResolvedValue(null)
-    const res = await GET(makeRequest({ code: 'c', state: 's' }))
+    const res = await GET(makeRequest({ code: 'c', state: 'encoded-state' }))
     expect(res.status).toBe(307)
     expect(res.headers.get('location')).toContain('connector_not_found')
   })
@@ -171,14 +175,14 @@ describe('GET /api/connectors/oauth/callback', () => {
       ...PARSED_STATE,
       clientId: undefined,
     })
-    const res = await GET(makeRequest({ code: 'c', state: 's' }))
+    const res = await GET(makeRequest({ code: 'c', state: 'encoded-state' }))
     expect(res.status).toBe(307)
     expect(res.headers.get('location')).toContain('invalid_state')
   })
 
   it('redirects with oauth_failed on exchange error', async () => {
     mocks.exchangeConnectorOAuthCode.mockRejectedValue(new Error('token exchange failed'))
-    const res = await GET(makeRequest({ code: 'c', state: 's' }))
+    const res = await GET(makeRequest({ code: 'c', state: 'encoded-state' }))
     expect(res.status).toBe(307)
     expect(res.headers.get('location')).toContain('oauth_failed')
   })
@@ -189,4 +193,25 @@ describe('GET /api/connectors/oauth/callback', () => {
     expect(location).toContain('/w/admin?settings=connectors')
     expect(location).toContain('oauth=success')
   })
+ it.each(['USER', 'ADMIN'])('rejects another user even with role %s', async (role) => {
+    mocks.getSession.mockResolvedValue({ user: { id: 'attacker', slug: 'attacker', role }, sessionId: 's1' })
+    const res = await GET(makeRequest({ code: 'code', state: 'encoded-state' }))
+    expect(res.headers.get('location')).toContain('forbidden')
+    expect(mocks.exchangeConnectorOAuthCode).not.toHaveBeenCalled()
+  })
+
+  it('rejects a different initiating session', async () => {
+    mocks.getSession.mockResolvedValue({ ...SESSION, sessionId: 'other-session' })
+    const res = await GET(makeRequest({ code: 'code', state: 'encoded-state' }))
+    expect(res.headers.get('location')).toContain('invalid_state')
+    expect(mocks.exchangeConnectorOAuthCode).not.toHaveBeenCalled()
+  })
+
+  it('rejects reused state before exchanging the code', async () => {
+    mocks.connectorService.compareAndSwapConfig.mockResolvedValue({ count: 0 })
+    const res = await GET(makeRequest({ code: 'code', state: 'encoded-state' }))
+    expect(res.headers.get('location')).toContain('invalid_state')
+    expect(mocks.exchangeConnectorOAuthCode).not.toHaveBeenCalled()
+  })
+
 })

@@ -4,7 +4,7 @@ import { useMemo, useState, type MouseEvent } from "react";
 import { CaretRight, File, Folder, FolderOpen } from "@phosphor-icons/react";
 
 import { cn } from "@/lib/utils";
-import type { WorkspaceFileNode } from "@/lib/opencode/types";
+import type { WorkspaceFileNode } from "@/types/workspace";
 
 type FileTreeProps = {
   nodes: WorkspaceFileNode[];

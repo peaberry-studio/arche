@@ -3,10 +3,10 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { PermissionCard } from '@/components/workspace/chat-panel/permission-card'
-import type { WorkspacePermission } from '@/lib/opencode/permission'
-import type { PermissionResponse } from '@/lib/opencode/types'
+import type { ArchePermission } from '@/lib/harness/events'
+import type { PermissionResponse } from '@/types/workspace-runtime'
 
-function createPermission(): WorkspacePermission {
+function createPermission(): ArchePermission {
   return {
     id: 'perm-1',
     sessionId: 's1',

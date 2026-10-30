@@ -1,4 +1,4 @@
-import { MCP_TOOL_PATTERN, OPENCODE_AGENT_TOOLS } from '@/lib/agent-capabilities'
+import { DEFAULT_ENABLED_AGENT_TOOLS, MCP_TOOL_PATTERN, OPENCODE_AGENT_TOOLS } from '@/lib/agent-capabilities'
 import type { ConnectorToolPermissionMap } from '@/lib/connectors/tool-permissions'
 import { CONNECTOR_TYPES, isSingleInstanceConnectorType, type ConnectorType } from '@/lib/connectors/types'
 import { KNOWLEDGE_CURATOR_SYSTEM_INSTRUCTIONS } from '@/lib/learning/curator-prompt'
@@ -12,48 +12,28 @@ import {
 
 const CONNECTOR_TYPE_PATTERN = CONNECTOR_TYPES.join('|')
 const MCP_SERVER_KEY_PATTERN = new RegExp(`^arche_(${CONNECTOR_TYPE_PATTERN})_([^_]+)$`)
-const ALWAYS_ENABLED_TOOLS = ['email_draft', 'chart_create', 'diagram_create', 'flow_propose', 'session_history_query', 'learning_propose'] as const
+const ARCHE_BUILT_IN_TOOL_IDS = [
+  'chart_create',
+  'diagram_create',
+  'document_inspect',
+  'email_draft',
+  'flow_propose',
+  'learning_propose',
+  'presentation_inspect',
+  'scratch_dir',
+  'scratch_publish',
+  'session_history_query',
+  'spreadsheet_inspect',
+  'spreadsheet_sample',
+  'spreadsheet_query',
+  'spreadsheet_stats',
+] as const
+const ARCHE_BUILT_IN_TOOL_SET = new Set<string>(ARCHE_BUILT_IN_TOOL_IDS)
 const PERMISSION_ACTIONS = new Set(['allow', 'ask', 'deny'])
 const CUSTOM_CONNECTOR_KEY_PREFIX = 'arche_custom_'
 
 function isToolMap(value: unknown): value is Record<string, boolean> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
-}
-
-export function applyDefaultAgentModel(
-  config: Record<string, unknown>,
-): Record<string, unknown> {
-  const defaultModel = typeof config.default_model === 'string' && config.default_model.trim()
-    ? config.default_model.trim()
-    : undefined
-  if (!defaultModel) return config
-
-  const configWithoutDefaultModel = { ...config }
-  delete configWithoutDefaultModel.default_model
-
-  const agents = isRecord(config.agent) ? config.agent : null
-  if (!agents) return configWithoutDefaultModel
-
-  const nextAgents: Record<string, unknown> = {}
-  let changed = false
-
-  for (const [agentId, agent] of Object.entries(agents)) {
-    if (!isRecord(agent)) {
-      nextAgents[agentId] = agent
-      continue
-    }
-
-    if (typeof agent.model === 'string' && agent.model.trim()) {
-      nextAgents[agentId] = agent
-      continue
-    }
-
-    nextAgents[agentId] = { ...agent, model: defaultModel }
-    changed = true
-  }
-
-  if (!changed) return configWithoutDefaultModel
-  return { ...configWithoutDefaultModel, agent: nextAgents }
 }
 
 function buildExactConnectorToolName(serverKey: string, toolName: string): string {
@@ -137,60 +117,80 @@ function expandConnectorToolPolicy(input: {
   return { tools, permission }
 }
 
-export function injectAlwaysOnAgentTools(
+function remapBuiltInToolId(toolId: string): string {
+  return ARCHE_BUILT_IN_TOOL_SET.has(toolId) ? `arche_tools_${toolId}` : toolId
+}
+
+function remapBuiltInToolMap<T>(map: Record<string, T>): Record<string, T> {
+  return Object.fromEntries(Object.entries(map)
+    .filter(([key]) => !ARCHE_BUILT_IN_TOOL_SET.has(key) || !(remapBuiltInToolId(key) in map))
+    .map(([key, value]) => [remapBuiltInToolId(key), value]))
+}
+
+function matchesToolPattern(pattern: string, toolId: string): boolean {
+  const expression = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')
+  return new RegExp(`^${expression}$`).test(toolId)
+}
+
+function resolveToolPermission(permission: Record<string, unknown>, toolId: string, legacyToolId: string): unknown {
+  const matchingPermissions = Object.entries(permission)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .filter(([pattern]) => matchesToolPattern(pattern, toolId) || matchesToolPattern(pattern, legacyToolId))
+  return permission[toolId] ?? matchingPermissions.at(-1)?.[1]
+}
+
+export function remapAgentBuiltInTools(
   config: Record<string, unknown>,
 ): Record<string, unknown> {
   const agents = isRecord(config.agent) ? config.agent : null
-  if (!agents) return config
-
   const nextAgents: Record<string, unknown> = {}
-  let changed = false
+  const globalPermission = remapBuiltInToolMap(toPermissionMap(config.permission))
 
-  for (const [agentId, agent] of Object.entries(agents)) {
+  for (const [agentId, agent] of Object.entries(agents ?? {})) {
     if (!isRecord(agent)) {
       nextAgents[agentId] = agent
       continue
     }
 
-    if (!isToolMap(agent.tools)) {
-      nextAgents[agentId] = agent
-      continue
+    const tools = remapBuiltInToolMap(isToolMap(agent.tools) ? agent.tools : materializeLegacyToolsMap())
+    const permission = remapBuiltInToolMap(toPermissionMap(agent.permission))
+    const currentPermission = { ...permission }
+    for (const pattern of Object.keys(currentPermission)) {
+      if (pattern.includes('*') || pattern.includes('?')) tools[pattern] ??= false
+    }
+    tools['arche_tools_*'] = false
+    permission['arche_tools_*'] = 'deny'
+
+    for (const toolId of ARCHE_BUILT_IN_TOOL_IDS) {
+      const runtimeId = remapBuiltInToolId(toolId)
+      tools[runtimeId] = (tools[runtimeId] ?? DEFAULT_ENABLED_AGENT_TOOLS.has(toolId)) === true
+      if (!tools[runtimeId]) {
+        permission[runtimeId] = 'deny'
+        continue
+      }
+      permission[runtimeId] = resolveToolPermission(currentPermission, runtimeId, toolId)
+        ?? resolveToolPermission(globalPermission, runtimeId, toolId)
+        ?? 'allow'
     }
 
-    const currentTools = agent.tools
-    const nextTools: Record<string, boolean> = { ...currentTools }
-    let toolsChanged = false
-
-    for (const toolName of ALWAYS_ENABLED_TOOLS) {
-      if (nextTools[toolName] === true) continue
-      nextTools[toolName] = true
-      toolsChanged = true
-    }
-
-    if (toolsChanged) {
-      nextAgents[agentId] = { ...agent, tools: nextTools }
-      changed = true
-      continue
-    }
-
-    nextAgents[agentId] = agent
+    nextAgents[agentId] = { ...agent, tools, permission }
   }
 
-  if (!changed) return config
-  return { ...config, agent: nextAgents }
+  return {
+    ...config,
+    tools: { ...remapBuiltInToolMap(isToolMap(config.tools) ? config.tools : {}), 'arche_tools_*': false },
+    ...(typeof config.permission === 'string' || isRecord(config.permission) ? { permission: globalPermission } : {}),
+    ...(agents ? { agent: nextAgents } : {}),
+  }
 }
 
-// Full `'all'` semantics as an explicit boolean map: every built-in, every
-// always-on tool, the skill tool, and MCP connector access (arche_*). This is
-// what a pre-#473 `tools: 'all'` / missing-tools agent implicitly had, so
-// materializing it preserves those capabilities through the connector remap,
-// always-on, and skill transforms instead of silently dropping them.
 function materializeLegacyToolsMap(): Record<string, boolean> {
   return {
-    ...Object.fromEntries(OPENCODE_AGENT_TOOLS.map((toolId) => [toolId, true])),
-    ...Object.fromEntries(ALWAYS_ENABLED_TOOLS.map((toolId) => [toolId, true])),
+    ...Object.fromEntries(OPENCODE_AGENT_TOOLS.map((toolId) => [remapBuiltInToolId(toolId), true])),
+    ...Object.fromEntries(ARCHE_BUILT_IN_TOOL_IDS.map((toolId) => [remapBuiltInToolId(toolId), true])),
     skill: true,
     'arche_*': true,
+    'arche_tools_*': false,
   }
 }
 
@@ -217,35 +217,6 @@ export function materializeAgentToolMaps(
   return { ...config, agent: nextAgents }
 }
 
-export function denyAgentKnowledgeWrites(
-  config: Record<string, unknown>,
-): Record<string, unknown> {
-  const agents = isRecord(config.agent) ? config.agent : null
-  if (!agents) return config
-
-  const nextAgents: Record<string, unknown> = {}
-
-  for (const [agentId, agent] of Object.entries(agents)) {
-    if (!isRecord(agent)) {
-      nextAgents[agentId] = agent
-      continue
-    }
-
-    // Fallback for any non-map tools that reach the deny step (materialize
-    // is meant to run earlier in the pipeline, so this normally never fires):
-    // seed the full legacy toolset before flipping write/edit off.
-    const tools: Record<string, boolean> = isToolMap(agent.tools)
-      ? { ...agent.tools }
-      : materializeLegacyToolsMap()
-    tools.write = false
-    tools.edit = false
-
-    nextAgents[agentId] = { ...agent, tools }
-  }
-
-  return { ...config, agent: nextAgents }
-}
-
 // Guarantees the knowledge-curator sub-agent runs the canonical persona: the
 // reserved id is system-owned (getAgentSummaries filters it out of every user
 // surface), so any stored prompt for it came from an older runtime injection —
@@ -267,6 +238,10 @@ export function injectSystemKnowledgeCuratorAgent(
     nextAgents[SYSTEM_KNOWLEDGE_CURATOR_AGENT_ID] = {
       ...storedCurator,
       prompt: KNOWLEDGE_CURATOR_SYSTEM_INSTRUCTIONS,
+      // A learning run cannot work without these, whatever the stored map says.
+      ...(isToolMap(storedCurator.tools) && {
+        tools: { ...storedCurator.tools, arche_tools_session_history_query: true, arche_tools_learning_propose: true },
+      }),
     }
     return { ...config, agent: nextAgents }
   }
@@ -285,8 +260,8 @@ export function injectSystemKnowledgeCuratorAgent(
       list: true,
       glob: true,
       grep: true,
-      session_history_query: true,
-      learning_propose: true,
+      arche_tools_session_history_query: true,
+      arche_tools_learning_propose: true,
     },
   }
 
@@ -554,6 +529,37 @@ export function injectAgentKnowledgePolicy(
   }
 
   if (!changed) return config
+  return { ...config, agent: nextAgents }
+}
+
+export function injectAgentToolCallerIdentity(
+  config: Record<string, unknown>,
+): Record<string, unknown> {
+  const agents = isRecord(config.agent) ? config.agent : null
+  if (!agents) return config
+
+  const nextAgents: Record<string, unknown> = {}
+  for (const [agentId, agent] of Object.entries(agents)) {
+    if (!isRecord(agent)) {
+      nextAgents[agentId] = agent
+      continue
+    }
+
+    const guidance = [
+      '## Arche tool caller identity',
+      `Your current agent id is ${JSON.stringify(agentId)}.`,
+      'When calling arche_tools_learning_propose or arche_tools_session_history_query, prefill caller_agent with this exact agent id.',
+      'Supply caller_session_id only when the current session id is explicitly known. Never guess an agent or session id.',
+      'Do not assume the harness forwards session metadata. If the session id is unknown, omit caller_session_id and accept caller_identity_unavailable when metadata is absent. Do not invent an identity to bypass this fail-closed error.',
+      'These fields provide attribution, not authorization; internal workspace authentication still applies.',
+    ].join('\n')
+    const prompt = typeof agent.prompt === 'string' ? agent.prompt : ''
+    nextAgents[agentId] = {
+      ...agent,
+      prompt: prompt.includes(guidance) ? prompt : prompt ? `${prompt}\n\n${guidance}` : guidance,
+    }
+  }
+
   return { ...config, agent: nextAgents }
 }
 

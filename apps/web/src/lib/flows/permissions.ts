@@ -6,13 +6,14 @@ import {
   type FlowPermissionRecord,
   type FlowRunPermissionRecord,
 } from '@/lib/flows/authorization'
+import { hasFlowSharingApproval } from '@/lib/flows/sharing-approval'
 
 export function canViewFlow(actor: FlowPermissionActor, flow: FlowPermissionRecord): boolean {
   return isFlowOwner(actor, flow) || isAdminFlowActor(actor) || flow.visibility === 'team'
 }
 
 export function canRunFlow(actor: FlowPermissionActor, flow: FlowPermissionRecord): boolean {
-  return isFlowOwner(actor, flow) || isAdminFlowActor(actor) || (flow.visibility === 'team' && flow.organizationCanRun)
+  return isFlowOwner(actor, flow) || (flow.visibility === 'team' && flow.organizationCanRun && hasFlowSharingApproval(flow))
 }
 
 export function canEditFlow(actor: FlowPermissionActor, flow: FlowPermissionRecord): boolean {

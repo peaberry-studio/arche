@@ -9,6 +9,7 @@ import { formatFlowRunDate } from '@/lib/flows/cron'
 import { dispatchFlowExecution } from '@/lib/flows/execution-dispatcher'
 import { getFlowNodeById, getFlowOutgoingTargets } from '@/lib/flows/graph'
 import { executeFlowNode } from '@/lib/flows/node-executors'
+import { canRunFlow } from '@/lib/flows/permissions'
 import { planFlowRetry } from '@/lib/flows/retry-policy'
 import { validateFlowSlackNodeAccess } from '@/lib/flows/route-auth'
 import { serializeFlowRun } from '@/lib/flows/serializers'
@@ -18,12 +19,9 @@ import {
 } from '@/lib/flows/session-executor'
 import type { FlowDefinition } from '@/lib/flows/types'
 import { validateFlowDefinition } from '@/lib/flows/validation'
-import { createInstanceClient } from '@/lib/opencode/client'
-import { ensureProviderAccessFreshForExecution } from '@/lib/opencode/providers'
-import {
-  ensureWorkspaceRunningForExecution,
-  type SessionExecutionClient,
-} from '@/lib/opencode/session-execution'
+import type { HarnessRuntime } from '@/lib/harness/contract'
+import { ensureWorkspaceRunningForExecution } from '@/lib/harness/execution'
+import { getRuntimeForSlug } from '@/lib/harness/registry'
 import { auditService, flowService, instanceService, userService } from '@/lib/services'
 import type { FlowClaimedRecord, FlowRecord, FlowRetryClaimedRecord, FlowRunDetailRecord, FlowRunRecord, FlowRunStepRecord } from '@/lib/services/flow'
 
@@ -78,6 +76,7 @@ async function validateFlowDefinitionForExecution(
   flow: FlowRecord,
   executionUser: FlowExecutionUser,
 ): Promise<{ ok: true; definition: FlowDefinition } | { ok: false; error: string }> {
+  if (!canRunFlow(executionUser, flow)) return { ok: false, error: 'flow_approval_required' }
   const definitionResult = validateFlowDefinition(flow.definition)
   if (!definitionResult.ok) return { ok: false, error: definitionResult.error }
 
@@ -112,7 +111,7 @@ async function hasActiveFlowLease(flowId: string, leaseOwner: string): Promise<b
 }
 
 async function executeFlowNodes(params: {
-  client: SessionExecutionClient
+  client: HarnessRuntime
   definition: FlowDefinition
   executionUserId: string
   flow: FlowRecord
@@ -152,11 +151,11 @@ async function executeFlowNodes(params: {
     // where a concurrent sync (which disposes the instance) must not run.
     if (visitedNodeIds.size > 0) {
       try {
-        await ensureProviderAccessFreshForExecution({
-          slug: params.slug,
+        const sync = await params.client.syncProviderAccess({
           userId: params.executionUserId,
           force: true,
         })
+        if (!sync.ok) throw new Error(sync.error.code)
       } catch (error) {
         console.warn('[flows] Failed to refresh provider access between steps', {
           error: error instanceof Error ? error.message : String(error),
@@ -204,7 +203,7 @@ async function executeFlowNodes(params: {
 }
 
 async function continueRun(params: {
-  client: SessionExecutionClient
+  client: HarnessRuntime
   definition: FlowDefinition
   flow: FlowRecord
   executionUserId: string
@@ -445,16 +444,21 @@ async function executeClaimedFlowRun(
     // Force a token refresh at flow start: a scheduled flow can begin long
     // after the last interactive sync, and would otherwise inherit a gateway
     // token with too little TTL left to cover the first step.
-    await ensureWorkspaceRunningForExecution(slug, executionUserId, { forceProviderRefresh: true })
+    const workspace = await ensureWorkspaceRunningForExecution(slug, executionUserId, { forceProviderRefresh: true })
+    if (!workspace.ok) {
+      outcome = { status: 'failed', error: workspace.error }
+      return
+    }
     await instanceService.touchActivity(slug).catch(() => undefined)
 
-    const client = await createInstanceClient(slug)
-    if (!client) throw new Error('instance_unavailable')
+    const runtimeResult = await getRuntimeForSlug(slug)
+    if (!runtimeResult.ok) throw new Error(runtimeResult.error.code)
+    const client = runtimeResult.data
 
     if (!sessionId) {
       sessionTitle = buildFlowSessionTitle(flow, flow.scheduledFor)
-      const sessionResult = await client.session.create({ title: sessionTitle }, { throwOnError: true })
-      if (!sessionResult.data) throw new Error('flow_session_create_failed')
+      const sessionResult = await client.createSession({ title: sessionTitle })
+      if (!sessionResult.ok) throw new Error(sessionResult.error.code)
 
       sessionId = sessionResult.data.id
       await flowService.attachRunSession(run.id, { openCodeSessionId: sessionId, sessionTitle })
@@ -541,7 +545,7 @@ export async function triggerFlowNow(params: {
   flowId: string
   ownerUserId?: string
   trigger: FlowRunTrigger
-}): Promise<{ ok: true; runId: string } | { ok: false; error: 'not_found' | 'flow_busy' }> {
+}): Promise<{ ok: true; runId: string } | { ok: false; error: 'not_found' | 'flow_busy' | 'flow_approval_required' }> {
   const now = new Date()
   const leaseOwner = await createFlowLeaseOwner()
   const claimed = await flowService.claimFlowForImmediateRun({
@@ -563,7 +567,12 @@ export async function triggerFlowNow(params: {
     return { ok: false, error: 'flow_busy' }
   }
 
-  return dispatchClaimedFlowRun(claimed, params.trigger, params.executionUserId ?? claimed.userId)
+  const executionUserId = params.executionUserId ?? claimed.userId
+  if (!canRunFlow({ id: executionUserId, role: 'USER' }, claimed)) {
+    await flowService.releaseFlowLease(claimed.id, leaseOwner)
+    return { ok: false, error: 'flow_approval_required' }
+  }
+  return dispatchClaimedFlowRun(claimed, params.trigger, executionUserId)
 }
 
 export async function resumeFlowRun(params: {
@@ -654,9 +663,14 @@ async function resumeClaimedFlowRun(params: {
       return
     }
 
-    await ensureWorkspaceRunningForExecution(slug, executionUserId, { forceProviderRefresh: true })
-    const client = await createInstanceClient(slug)
-    if (!client) throw new Error('instance_unavailable')
+    const workspace = await ensureWorkspaceRunningForExecution(slug, executionUserId, { forceProviderRefresh: true })
+    if (!workspace.ok) {
+      outcome = { status: 'failed', error: workspace.error }
+      return
+    }
+    const runtimeResult = await getRuntimeForSlug(slug)
+    if (!runtimeResult.ok) throw new Error(runtimeResult.error.code)
+    const client = runtimeResult.data
 
     outcome = await continueRun({
       client,

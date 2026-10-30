@@ -15,7 +15,8 @@ const mocks = vi.hoisted(() => ({
   waitForSessionToComplete: vi.fn(),
 }))
 
-vi.mock('@/lib/opencode/session-execution', () => ({
+vi.mock('@/lib/harness/execution', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/lib/harness/execution')>(),
   captureSessionMessageCursor: mocks.captureSessionMessageCursor,
   describeLatestAssistantReply: mocks.describeLatestAssistantReply,
   EXECUTION_TERMINATION_UNCONFIRMED_ERROR: 'execution_termination_unconfirmed',
@@ -32,16 +33,17 @@ vi.mock('@/lib/services', () => ({
 }))
 
 import { createFlowLeaseOwner, runFlowPromptAndReadOutput } from '@/lib/flows/session-executor'
+import { fakeRuntime, session } from '@/lib/harness/__tests__/fake-runtime'
 
 type FlowPromptClient = Parameters<typeof runFlowPromptAndReadOutput>[0]['client']
 type TestFlowPromptClient = FlowPromptClient & {
-  app: { agents: ReturnType<typeof vi.fn> }
-  config: { get: ReturnType<typeof vi.fn>; providers: ReturnType<typeof vi.fn> }
-  mcp: { status: ReturnType<typeof vi.fn> }
-  session: FlowPromptClient['session'] & {
-    abort: ReturnType<typeof vi.fn>
-    promptAsync: ReturnType<typeof vi.fn>
-  }
+  listAgents: ReturnType<typeof vi.fn>
+  listModels: ReturnType<typeof vi.fn>
+  listConnectorKeys: ReturnType<typeof vi.fn>
+  listConnectorStatus: ReturnType<typeof vi.fn>
+  sessionStatus: ReturnType<typeof vi.fn>
+  abortSession: ReturnType<typeof vi.fn>
+  prompt: ReturnType<typeof vi.fn>
 }
 
 function createClient(params: {
@@ -51,21 +53,15 @@ function createClient(params: {
   providers?: unknown[]
 } = {}): TestFlowPromptClient {
   return {
-    app: {
-      agents: vi.fn().mockResolvedValue({ data: params.agents ?? [] }),
-    },
-    config: {
-      get: vi.fn().mockResolvedValue({ data: params.config ?? {} }),
-      providers: vi.fn().mockResolvedValue({ data: { providers: params.providers ?? [] } }),
-    },
-    mcp: {
-      status: vi.fn().mockResolvedValue({ data: params.mcpStatus ?? {} }),
-    },
-    session: {
-      abort: vi.fn(),
-      promptAsync: vi.fn(),
-    },
-  } as TestFlowPromptClient
+    ...fakeRuntime(),
+    listAgents: vi.fn().mockResolvedValue({ ok: true, data: params.agents ?? [] }),
+    listModels: vi.fn().mockResolvedValue({ ok: true, data: params.providers ?? [] }),
+    listConnectorKeys: vi.fn().mockResolvedValue({ ok: true, data: params.config ?? [] }),
+    listConnectorStatus: vi.fn().mockResolvedValue({ ok: true, data: params.mcpStatus ?? {} }),
+    sessionStatus: vi.fn().mockResolvedValue({ ok: true, data: {} }),
+    listChildren: vi.fn().mockResolvedValue({ ok: true, data: [] }),
+    prompt: vi.fn().mockResolvedValue({ ok: true }),
+  }
 }
 
 describe('runFlowPromptAndReadOutput', () => {
@@ -75,9 +71,9 @@ describe('runFlowPromptAndReadOutput', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.captureSessionMessageCursor.mockResolvedValue({ messageCount: 3 })
+    mocks.captureSessionMessageCursor.mockResolvedValue({ ok: true, data: { messageCount: 3 } })
     mocks.waitForSessionToComplete.mockResolvedValue({ status: 'completed' })
-    mocks.readLatestAssistantText.mockResolvedValue('assistant output')
+    mocks.readLatestAssistantText.mockResolvedValue({ ok: true, data: 'assistant output' })
     mocks.extendFlowLease.mockResolvedValue({ count: 1 })
     mocks.findRunStatusById.mockResolvedValue({ status: FlowRunStatus.running })
     mocks.messageRunService.markRunFailed.mockResolvedValue(undefined)
@@ -98,20 +94,30 @@ describe('runFlowPromptAndReadOutput', () => {
       slug: 'alice',
     })).resolves.toEqual({ ok: true, output: 'assistant output' })
 
-    expect(client.session.promptAsync).toHaveBeenCalledWith(
+    expect(client.prompt).toHaveBeenCalledWith(
       {
         agent: 'writer',
         parts: [{ text: 'Do work', type: 'text' }],
-        sessionID: 'session-1',
+        sessionId: 'session-1',
       },
-      { throwOnError: true },
     )
     expect(mocks.readLatestAssistantText).toHaveBeenCalledWith(client, 'session-1', { messageCount: 3 })
   })
 
+  it.each([undefined, 'user-1'])('refuses a busy descendant before flow prompt/run creation (user=%s)', async (userId) => {
+    const client = fakeRuntime()
+    client.listChildren.mockResolvedValueOnce({ ok: true, data: [session('child')] })
+    client.sessionStatus.mockResolvedValue({ ok: true, data: { child: { type: 'retry' } } })
+    expect(await runFlowPromptAndReadOutput({ client, flowId: 'flow-1', leaseOwner: 'worker-1', prompt: 'Do work', runId: 'run-1', sessionId: 'session-1', slug: 'alice', userId }))
+      .toEqual({ ok: false, type: 'failed', error: 'session_busy' })
+    expect(mocks.messageRunService.createActiveRunAfterRuntimeStateCheck).not.toHaveBeenCalled()
+    expect(mocks.captureSessionMessageCursor).not.toHaveBeenCalled()
+    expect(client.prompt).not.toHaveBeenCalled()
+  })
+
   it('records message run usage when an execution user is provided', async () => {
     const client = createClient()
-    client.session.status = vi.fn().mockResolvedValue({ data: { 'session-1': { type: 'idle' } } })
+    client.sessionStatus.mockResolvedValue({ ok: true, data: { 'session-1': { type: 'idle' } } })
     mocks.messageRunService.createActiveRunAfterRuntimeStateCheck.mockImplementation(async (input) => {
       await input.readRuntimeSessionState()
       return { ok: true, run: { id: 'message-run-1' } }
@@ -142,7 +148,7 @@ describe('runFlowPromptAndReadOutput', () => {
 
   it('returns session_busy when message run tracking cannot start', async () => {
     const client = createClient()
-    client.session.status = vi.fn().mockResolvedValue({ data: { 'session-1': { type: 'busy' } } })
+    client.sessionStatus.mockResolvedValue({ ok: true, data: { 'session-1': { type: 'busy' } } })
     mocks.messageRunService.createActiveRunAfterRuntimeStateCheck.mockResolvedValue({ ok: false, error: 'session_busy' })
 
     await expect(runFlowPromptAndReadOutput({
@@ -157,7 +163,7 @@ describe('runFlowPromptAndReadOutput', () => {
     })).resolves.toEqual({ ok: false, type: 'failed', error: 'session_busy' })
 
     expect(mocks.captureSessionMessageCursor).not.toHaveBeenCalled()
-    expect(client.session.promptAsync).not.toHaveBeenCalled()
+    expect(client.prompt).not.toHaveBeenCalled()
   })
 
   it('does not send a prompt when the run was already cancelled', async () => {
@@ -175,14 +181,14 @@ describe('runFlowPromptAndReadOutput', () => {
     })).resolves.toEqual({ ok: false, type: 'failed', error: 'flow_run_cancelled' })
 
     expect(mocks.captureSessionMessageCursor).not.toHaveBeenCalled()
-    expect(client.session.promptAsync).not.toHaveBeenCalled()
-    expect(client.session.abort).not.toHaveBeenCalled()
+    expect(client.prompt).not.toHaveBeenCalled()
+    expect(client.abortSession).not.toHaveBeenCalled()
   })
 
   it('fails before sending when the target agent model is unavailable', async () => {
     const client = createClient({
-      agents: [{ model: { providerID: 'opencode', modelID: 'missing-model' }, name: 'writer' }],
-      providers: [{ id: 'opencode', models: { 'big-pickle': {} } }],
+      agents: [{ model: { providerId: 'opencode', modelId: 'missing-model' }, id: 'writer' }],
+      providers: [{ providerId: 'opencode', modelId: 'big-pickle' }],
     })
 
     await expect(runFlowPromptAndReadOutput({
@@ -197,12 +203,12 @@ describe('runFlowPromptAndReadOutput', () => {
     })).resolves.toEqual({ ok: false, type: 'failed', error: 'flow_agent_model_unavailable:writer:opencode/missing-model' })
 
     expect(mocks.captureSessionMessageCursor).not.toHaveBeenCalled()
-    expect(client.session.promptAsync).not.toHaveBeenCalled()
+    expect(client.prompt).not.toHaveBeenCalled()
   })
 
   it('continues when runtime agent metadata cannot be read', async () => {
-    const client = createClient({ agents: [null, { model: { modelID: 9 }, name: 7 }] })
-    client.app.agents.mockRejectedValue(new Error('runtime unavailable'))
+    const client = createClient()
+    client.listAgents.mockResolvedValue({ ok: false, error: { code: 'runtime_error' } })
 
     await expect(runFlowPromptAndReadOutput({
       agent: 'writer',
@@ -218,19 +224,9 @@ describe('runFlowPromptAndReadOutput', () => {
 
   it('skips the MCP gate entirely when no connectors are declared', async () => {
     const client = createClient({
-      config: {
-        agent: {
-          growth: {
-            tools: { 'arche_custom_mixpanel_*': true },
-          },
-        },
-        default_agent: 'growth',
-        mcp: {
-          arche_custom_mixpanel: { enabled: true, type: 'remote', url: 'https://mixpanel.example/mcp' },
-        },
-      },
+      config: ['arche_custom_mixpanel'],
       mcpStatus: {
-        arche_custom_mixpanel: { status: 'failed', error: 'not ready' },
+        arche_custom_mixpanel: false,
       },
     })
 
@@ -256,22 +252,18 @@ describe('runFlowPromptAndReadOutput', () => {
       slug: 'alice',
     })).resolves.toEqual({ ok: true, output: 'assistant output' })
 
-    expect(client.config.get).not.toHaveBeenCalled()
-    expect(client.mcp.status).not.toHaveBeenCalled()
-    expect(client.session.promptAsync).toHaveBeenCalled()
+    expect(client.listConnectorKeys).not.toHaveBeenCalled()
+    expect(client.listConnectorStatus).not.toHaveBeenCalled()
+    expect(client.prompt).toHaveBeenCalled()
   })
 
   it('waits for declared MCP connectors before sending the prompt', async () => {
     const client = createClient({
-      config: {
-        mcp: {
-          arche_custom_mixpanel: { enabled: true, type: 'remote', url: 'https://mixpanel.example/mcp' },
-        },
-      },
+      config: ['arche_custom_mixpanel'],
     })
-    client.mcp.status
-      .mockResolvedValueOnce({ data: { arche_custom_mixpanel: { status: 'failed', error: 'not ready' } } })
-      .mockResolvedValueOnce({ data: { arche_custom_mixpanel: { status: 'connected' } } })
+    client.listConnectorStatus
+      .mockResolvedValueOnce({ ok: true, data: { arche_custom_mixpanel: false } })
+      .mockResolvedValueOnce({ ok: true, data: { arche_custom_mixpanel: true } })
 
     await expect(runFlowPromptAndReadOutput({
       client,
@@ -286,19 +278,15 @@ describe('runFlowPromptAndReadOutput', () => {
       slug: 'alice',
     })).resolves.toEqual({ ok: true, output: 'assistant output' })
 
-    expect(client.mcp.status).toHaveBeenCalledTimes(2)
-    expect(client.session.promptAsync).toHaveBeenCalled()
+    expect(client.listConnectorStatus).toHaveBeenCalledTimes(2)
+    expect(client.prompt).toHaveBeenCalled()
   })
 
   it('returns an explicit declared-connector error when MCP readiness times out', async () => {
     const client = createClient({
-      config: {
-        mcp: {
-          arche_custom_mixpanel: { enabled: true, type: 'remote', url: 'https://mixpanel.example/mcp' },
-        },
-      },
+      config: ['arche_custom_mixpanel'],
       mcpStatus: {
-        arche_custom_mixpanel: { status: 'failed', error: 'not ready' },
+        arche_custom_mixpanel: false,
       },
     })
 
@@ -315,18 +303,14 @@ describe('runFlowPromptAndReadOutput', () => {
     })).resolves.toEqual({ ok: false, type: 'failed', error: 'flow_mcp_connector_unavailable:Mixpanel' })
 
     expect(mocks.captureSessionMessageCursor).not.toHaveBeenCalled()
-    expect(client.session.promptAsync).not.toHaveBeenCalled()
+    expect(client.prompt).not.toHaveBeenCalled()
   })
 
   it('falls back to the server key when a declared connector has no display name', async () => {
     const client = createClient({
-      config: {
-        mcp: {
-          arche_custom_mixpanel: { enabled: true, type: 'remote', url: 'https://mixpanel.example/mcp' },
-        },
-      },
+      config: ['arche_custom_mixpanel'],
       mcpStatus: {
-        arche_custom_mixpanel: { status: 'failed', error: 'not ready' },
+        arche_custom_mixpanel: false,
       },
     })
 
@@ -345,11 +329,7 @@ describe('runFlowPromptAndReadOutput', () => {
 
   it('returns the declared id as unavailable when it is absent from the runtime config', async () => {
     const client = createClient({
-      config: {
-        mcp: {
-          arche_custom_other: { enabled: true, type: 'remote', url: 'https://other.example/mcp' },
-        },
-      },
+      config: ['arche_custom_other'],
       mcpStatus: {},
     })
 
@@ -365,19 +345,15 @@ describe('runFlowPromptAndReadOutput', () => {
       slug: 'alice',
     })).resolves.toEqual({ ok: false, type: 'failed', error: 'flow_mcp_connector_unavailable:missingcuid' })
 
-    expect(client.session.promptAsync).not.toHaveBeenCalled()
+    expect(client.prompt).not.toHaveBeenCalled()
   })
 
   it('returns declared-connector unavailability when MCP status does not answer', async () => {
     vi.useFakeTimers()
     const client = createClient({
-      config: {
-        mcp: {
-          arche_custom_mixpanel: { enabled: true, type: 'remote', url: 'https://mixpanel.example/mcp' },
-        },
-      },
+      config: ['arche_custom_mixpanel'],
     })
-    client.mcp.status.mockReturnValue(new Promise(() => undefined))
+    client.listConnectorStatus.mockReturnValue(new Promise(() => undefined))
 
     const resultPromise = runFlowPromptAndReadOutput({
       client,
@@ -396,19 +372,15 @@ describe('runFlowPromptAndReadOutput', () => {
 
     await expect(resultPromise).resolves.toEqual({ ok: false, type: 'failed', error: 'flow_mcp_connector_unavailable:Mixpanel' })
     expect(mocks.captureSessionMessageCursor).not.toHaveBeenCalled()
-    expect(client.session.promptAsync).not.toHaveBeenCalled()
+    expect(client.prompt).not.toHaveBeenCalled()
   })
 
   it('stops polling declared-connector readiness after the maximum attempts', async () => {
     vi.useFakeTimers()
     const client = createClient({
-      config: {
-        mcp: {
-          arche_custom_mixpanel: { enabled: true, type: 'remote', url: 'https://mixpanel.example/mcp' },
-        },
-      },
+      config: ['arche_custom_mixpanel'],
       mcpStatus: {
-        arche_custom_mixpanel: { status: 'failed', error: 'not ready' },
+        arche_custom_mixpanel: false,
       },
     })
 
@@ -429,8 +401,8 @@ describe('runFlowPromptAndReadOutput', () => {
     await vi.advanceTimersByTimeAsync(1)
 
     await expect(resultPromise).resolves.toEqual({ ok: false, type: 'failed', error: 'flow_mcp_connector_unavailable:Mixpanel' })
-    expect(client.mcp.status).toHaveBeenCalledTimes(2)
-    expect(client.session.promptAsync).not.toHaveBeenCalled()
+    expect(client.listConnectorStatus).toHaveBeenCalledTimes(2)
+    expect(client.prompt).not.toHaveBeenCalled()
   })
 
   it('returns cancellation to the shared session waiter', async () => {
@@ -453,7 +425,7 @@ describe('runFlowPromptAndReadOutput', () => {
       slug: 'alice',
     })).resolves.toEqual({ ok: false, type: 'failed', error: 'flow_run_cancelled' })
 
-    expect(client.session.abort).not.toHaveBeenCalled()
+    expect(client.abortSession).not.toHaveBeenCalled()
     expect(mocks.extendFlowLease).not.toHaveBeenCalled()
     expect(mocks.readLatestAssistantText).not.toHaveBeenCalled()
   })
@@ -515,8 +487,8 @@ describe('runFlowPromptAndReadOutput', () => {
 
   it('marks tracked message runs failed when prompt dispatch fails', async () => {
     const client = createClient()
-    client.session.status = vi.fn().mockResolvedValue({ data: { 'session-1': { type: 'idle' } } })
-    client.session.promptAsync.mockRejectedValue(new Error('prompt failed'))
+    client.sessionStatus.mockResolvedValue({ ok: true, data: { 'session-1': { type: 'idle' } } })
+    client.prompt.mockRejectedValue(new Error('prompt failed'))
     mocks.messageRunService.createActiveRunAfterRuntimeStateCheck.mockResolvedValue({ ok: true, run: { id: 'message-run-1' } })
 
     await expect(runFlowPromptAndReadOutput({
@@ -533,9 +505,67 @@ describe('runFlowPromptAndReadOutput', () => {
     expect(mocks.messageRunService.markRunFailed).toHaveBeenCalledWith('message-run-1', 'prompt failed')
   })
 
+  it('settles a tracked message run after a typed prompt rejection', async () => {
+    const client = createClient()
+    client.prompt.mockResolvedValue({ ok: false, error: { code: 'session_not_found' } })
+    mocks.messageRunService.createActiveRunAfterRuntimeStateCheck.mockResolvedValue({ ok: true, run: { id: 'message-run-1' } })
+
+    await expect(runFlowPromptAndReadOutput({
+      client, flowId: 'flow-1', leaseOwner: 'worker-1', prompt: 'Do work',
+      runId: 'run-1', sessionId: 'session-1', slug: 'alice', userId: 'user-1',
+    })).resolves.toEqual({ ok: false, type: 'failed', error: 'session_not_found' })
+    expect(mocks.messageRunService.markRunFailed).toHaveBeenCalledWith('message-run-1', 'session_not_found')
+    expect(mocks.waitForSessionToComplete).not.toHaveBeenCalled()
+  })
+
+  it('fails the tracked message run after a typed cursor failure without dispatching', async () => {
+    const client = createClient()
+    mocks.messageRunService.createActiveRunAfterRuntimeStateCheck.mockResolvedValue({ ok: true, run: { id: 'message-run-1' } })
+    mocks.captureSessionMessageCursor.mockResolvedValue({ ok: false, error: { code: 'session_not_found', detail: 'Do not replace the code' } })
+
+    await expect(runFlowPromptAndReadOutput({
+      client, flowId: 'flow-1', leaseOwner: 'worker-1', prompt: 'Do work',
+      runId: 'run-1', sessionId: 'session-1', slug: 'alice', userId: 'user-1',
+    })).resolves.toEqual({ ok: false, type: 'failed', error: 'session_not_found' })
+
+    expect(mocks.messageRunService.markRunFailed).toHaveBeenCalledWith('message-run-1', 'session_not_found')
+    expect(mocks.messageRunService.markRunSucceeded).not.toHaveBeenCalled()
+    expect(client.prompt).not.toHaveBeenCalled()
+    expect(mocks.waitForSessionToComplete).not.toHaveBeenCalled()
+  })
+
+  it('fails the tracked message run after a typed waiter error so its lock is released', async () => {
+    mocks.messageRunService.createActiveRunAfterRuntimeStateCheck.mockResolvedValue({ ok: true, run: { id: 'message-run-1' } })
+    mocks.waitForSessionToComplete.mockResolvedValue({ status: 'error', error: { code: 'instance_unavailable', detail: 'Do not replace the code' } })
+
+    await expect(runFlowPromptAndReadOutput({
+      client: createClient(), flowId: 'flow-1', leaseOwner: 'worker-1', prompt: 'Do work',
+      runId: 'run-1', sessionId: 'session-1', slug: 'alice', userId: 'user-1',
+    })).resolves.toEqual({ ok: false, type: 'failed', error: 'instance_unavailable' })
+
+    expect(mocks.messageRunService.markRunFailed).toHaveBeenCalledWith('message-run-1', 'instance_unavailable')
+    expect(mocks.messageRunService.markRunSucceeded).not.toHaveBeenCalled()
+    expect(mocks.readLatestAssistantText).not.toHaveBeenCalled()
+  })
+
+  it('preserves success bookkeeping before a typed output-read failure', async () => {
+    mocks.messageRunService.createActiveRunAfterRuntimeStateCheck.mockResolvedValue({ ok: true, run: { id: 'message-run-1' } })
+    mocks.readLatestAssistantText.mockResolvedValue({ ok: false, error: { code: 'runtime_error', detail: 'Do not replace the code' } })
+
+    await expect(runFlowPromptAndReadOutput({
+      client: createClient(), flowId: 'flow-1', leaseOwner: 'worker-1', prompt: 'Do work',
+      runId: 'run-1', sessionId: 'session-1', slug: 'alice', userId: 'user-1',
+    })).resolves.toEqual({ ok: false, type: 'failed', error: 'runtime_error' })
+
+    expect(mocks.messageRunService.markRunSucceeded).toHaveBeenCalledWith('message-run-1')
+    expect(mocks.messageRunService.markRunSucceeded.mock.invocationCallOrder[0]).toBeLessThan(mocks.readLatestAssistantText.mock.invocationCallOrder[0])
+    expect(mocks.messageRunService.markRunFailed).not.toHaveBeenCalled()
+    expect(mocks.describeLatestAssistantReply).not.toHaveBeenCalled()
+  })
+
   it('marks tracked message runs failed when completion returns a failure reason', async () => {
     const client = createClient()
-    client.session.status = vi.fn().mockResolvedValue({ data: { 'session-1': { type: 'idle' } } })
+    client.sessionStatus.mockResolvedValue({ ok: true, data: { 'session-1': { type: 'idle' } } })
     mocks.messageRunService.createActiveRunAfterRuntimeStateCheck.mockResolvedValue({ ok: true, run: { id: 'message-run-1' } })
     mocks.waitForSessionToComplete.mockResolvedValue({ status: 'failed', error: 'flow_run_timeout' })
 
@@ -555,7 +585,7 @@ describe('runFlowPromptAndReadOutput', () => {
 
   it('fails tracked message runs when termination is unconfirmed', async () => {
     const client = createClient()
-    client.session.status = vi.fn().mockResolvedValue({ data: { 'session-1': { type: 'idle' } } })
+    client.sessionStatus.mockResolvedValue({ ok: true, data: { 'session-1': { type: 'idle' } } })
     mocks.messageRunService.createActiveRunAfterRuntimeStateCheck.mockResolvedValue({ ok: true, run: { id: 'message-run-1' } })
     mocks.waitForSessionToComplete.mockResolvedValue({
       status: 'termination_unconfirmed',
@@ -585,14 +615,17 @@ describe('runFlowPromptAndReadOutput', () => {
 
   it('returns a self-describing error when no assistant output is available', async () => {
     const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    mocks.readLatestAssistantText.mockResolvedValue(null)
+    mocks.readLatestAssistantText.mockResolvedValue({ ok: true, data: null })
     mocks.describeLatestAssistantReply.mockResolvedValue({
-      agent: 'repository-analyst',
-      assistantMessageCount: 1,
-      messageCount: 2,
-      modelId: 'glm-5.2',
-      partTypes: ['reasoning', 'step-finish'],
-      providerId: 'openrouter',
+      ok: true,
+      data: {
+        agent: 'repository-analyst',
+        assistantMessageCount: 1,
+        messageCount: 2,
+        modelId: 'glm-5.2',
+        partTypes: ['reasoning', 'step-finish'],
+        providerId: 'openrouter',
+      },
     })
 
     await expect(runFlowPromptAndReadOutput({
@@ -618,7 +651,7 @@ describe('runFlowPromptAndReadOutput', () => {
 
   it('returns the plain no-output error when diagnostics are unavailable', async () => {
     const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    mocks.readLatestAssistantText.mockResolvedValue(null)
+    mocks.readLatestAssistantText.mockResolvedValue({ ok: true, data: null })
     mocks.describeLatestAssistantReply.mockRejectedValue(new Error('instance unavailable'))
 
     await expect(runFlowPromptAndReadOutput({
@@ -632,6 +665,16 @@ describe('runFlowPromptAndReadOutput', () => {
     })).resolves.toEqual({ ok: false, type: 'failed', error: 'flow_no_assistant_output' })
 
     consoleWarnSpy.mockRestore()
+  })
+
+  it('returns the plain no-output error after a typed diagnostics failure', async () => {
+    mocks.readLatestAssistantText.mockResolvedValue({ ok: true, data: null })
+    mocks.describeLatestAssistantReply.mockResolvedValue({ ok: false, error: { code: 'instance_unavailable' } })
+
+    await expect(runFlowPromptAndReadOutput({
+      client: createClient(), flowId: 'flow-1', leaseOwner: 'worker-1', prompt: 'Do work',
+      runId: 'run-1', sessionId: 'session-1', slug: 'alice',
+    })).resolves.toEqual({ ok: false, type: 'failed', error: 'flow_no_assistant_output' })
   })
 })
 

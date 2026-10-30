@@ -1383,15 +1383,38 @@ set_env ARCHE_RELEASE_VERSION %s
 set_env ARCHE_WEB_IMAGE %s
 set_env OPENCODE_IMAGE %s
 set_env ARCHE_FLOW_SCHEDULER_MODE daemon
-set -a
-. /opt/%s/.env
-set +a
+while IFS= read -r dotenv_line || [[ -n "$dotenv_line" ]]; do
+  dotenv_line="${dotenv_line%%$'\r'}"
+  [[ "$dotenv_line" =~ ^[[:space:]]*(#|$) ]] && continue
+  if [[ ! "$dotenv_line" =~ ^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
+    log "Invalid .env assignment"
+    exit 1
+  fi
+  dotenv_key="${BASH_REMATCH[2]}"
+  dotenv_value="${BASH_REMATCH[3]}"
+  if [[ "$dotenv_value" == \"*\" && "$dotenv_value" == *\" ]] || [[ "$dotenv_value" == \'*\' && "$dotenv_value" == *\' ]]; then
+    dotenv_value="${dotenv_value:1:${#dotenv_value}-2}"
+  fi
+  export "$dotenv_key=$dotenv_value"
+done < /opt/%s/.env
 log "Pulling ${ARCHE_WEB_IMAGE}"
 docker pull "${ARCHE_WEB_IMAGE}"
+backend_ids="$(docker compose ps -q web flows reaper)"
+runtime_upgrade=false
+for container_id in $backend_ids; do
+  contract="$(docker inspect --format '{{ index .Config.Labels "arche.runtime.contract" }}' "$container_id")"
+  if [[ "$contract" != 'opencode-v2' ]]; then
+    runtime_upgrade=true
+  fi
+done
+if $runtime_upgrade; then
+  log 'Stopping legacy backend writers before changing the workspace image'
+  docker compose stop -t 10 web flows reaper
+fi
 log "Pulling ${OPENCODE_IMAGE}"
 docker pull "${OPENCODE_IMAGE}"
 log 'Recreating web, flows, and reaper services'
-docker compose up -d web flows reaper
+docker compose up -d web flows reaper docker-socket-proxy traefik
 docker compose ps
 log 'Update complete'
 `, appName, appName, appName, shellQuote(b64(compose)), shellQuote(version), shellQuote(version), shellQuote(appImageForVersion(version)), shellQuote(workspaceImageForVersion(version)), appName)
@@ -1948,12 +1971,13 @@ services:
     networks:
       - default
       - arche-internal
+      - arche-control
     depends_on:
       docker-socket-proxy:
         condition: service_healthy
 
   docker-socket-proxy:
-    image: ghcr.io/tecnativa/docker-socket-proxy:latest
+    image: ghcr.io/tecnativa/docker-socket-proxy@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459
     restart: unless-stopped
     environment:
       CONTAINERS: 1
@@ -1967,7 +1991,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
-      - arche-internal
+      - arche-control
     healthcheck:
       test: ["CMD-SHELL", "test -S /var/run/docker.sock"]
       interval: 10s
@@ -2000,6 +2024,7 @@ services:
     networks:
       - default
       - arche-internal
+      - arche-control
     volumes:
       - /opt/arche/users:/opt/arche/users
       - /opt/arche/kb-content:/kb-content
@@ -2030,6 +2055,7 @@ services:
     networks:
       - default
       - arche-internal
+      - arche-control
     volumes:
       - /opt/arche/users:/opt/arche/users
       - /opt/arche/kb-content:/kb-content
@@ -2050,6 +2076,7 @@ services:
     networks:
       - default
       - arche-internal
+      - arche-control
     depends_on:
       postgres:
         condition: service_healthy
@@ -2059,6 +2086,9 @@ services:
       disable: true
 
 networks:
+  arche-control:
+    name: arche-control
+    internal: true
   default:
   arche-internal:
     name: arche-internal
@@ -2187,9 +2217,20 @@ chmod 600 /opt/%s/.env
 log 'Wrote /opt/arche/.env with server-generated secrets and the live public URL'
 
 step 'Pulling container images'
-set -a
-. /opt/%s/.env
-set +a
+while IFS= read -r dotenv_line || [[ -n "$dotenv_line" ]]; do
+  dotenv_line="${dotenv_line%%$'\r'}"
+  [[ "$dotenv_line" =~ ^[[:space:]]*(#|$) ]] && continue
+  if [[ ! "$dotenv_line" =~ ^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
+    log "Invalid .env assignment"
+    exit 1
+  fi
+  dotenv_key="${BASH_REMATCH[2]}"
+  dotenv_value="${BASH_REMATCH[3]}"
+  if [[ "$dotenv_value" == \"*\" && "$dotenv_value" == *\" ]] || [[ "$dotenv_value" == \'*\' && "$dotenv_value" == *\' ]]; then
+    dotenv_value="${dotenv_value:1:${#dotenv_value}-2}"
+  fi
+  export "$dotenv_key=$dotenv_value"
+done < /opt/%s/.env
 log "Pulling web image ${ARCHE_WEB_IMAGE}"
 docker pull "${ARCHE_WEB_IMAGE}"
 log "Pulling workspace image ${OPENCODE_IMAGE}"

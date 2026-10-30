@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { checkConnectionAction } from "@/actions/opencode";
-import type { WorkspaceConnectionState } from "@/lib/opencode/types";
+import { checkConnectionAction } from "@/actions/workspace-sessions";
+import type { WorkspaceConnectionState } from "@/types/workspace-runtime";
 
 const MAX_RETRIES = 10;
 const BASE_DELAY_MS = 1000;

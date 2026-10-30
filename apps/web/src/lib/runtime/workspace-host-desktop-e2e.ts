@@ -1,4 +1,5 @@
 import { getE2eRuntimeConnection } from '@/lib/e2e/runtime'
+import { CURRENT_RUNTIME_KIND } from '@/lib/harness/registry'
 import type { WorkspaceHost, WorkspaceHostConnection, WorkspaceHostStatus } from '@/lib/runtime/types'
 import { instanceService } from '@/lib/services'
 import { encryptPassword } from '@/lib/spawner/crypto'
@@ -11,7 +12,7 @@ export const desktopWorkspaceHostE2e: WorkspaceHost = {
     }
 
     await instanceService.upsertStarting(slug, encryptPassword(connection.password))
-    await instanceService.setRunning(slug, null)
+    await instanceService.setRunning(slug, null, CURRENT_RUNTIME_KIND)
     // Mirror the desktop host contract, which reports a successful launch as started.
     return { ok: true, status: 'started' }
   },
