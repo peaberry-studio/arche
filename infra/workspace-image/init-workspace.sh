@@ -36,6 +36,11 @@ is_bare_kb() {
 set_workspace_git_identity() {
   git config user.email "$WORKSPACE_GIT_AUTHOR_EMAIL"
   git config user.name "$WORKSPACE_GIT_AUTHOR_NAME"
+  if [ -n "${ARCHE_KB_PUSH_URL:-}" ]; then
+    git remote set-url --push "$KB_REMOTE_NAME" "$ARCHE_KB_PUSH_URL"
+    auth="$(printf 'opencode:%s' "$OPENCODE_SERVER_PASSWORD" | base64 | tr -d '\n')"
+    git config "http.${ARCHE_KB_PUSH_URL}.extraHeader" "Authorization: Basic $auth"
+  fi
 }
 
 ensure_workspace_excludes() {
@@ -90,17 +95,17 @@ if [ -n "$(ls -A "$WORKSPACE_DIR" 2>/dev/null)" ]; then
   log "Workspace is not empty and has no git, initializing git without cloning"
   cd "$WORKSPACE_DIR"
   git init -b main
-  set_workspace_git_identity
   if ! git remote get-url "$KB_REMOTE_NAME" > /dev/null 2>&1; then
     log "Adding KB remote for future syncs"
     git remote add "$KB_REMOTE_NAME" "$KB_CONTENT_DIR"
   fi
+  set_workspace_git_identity
   ensure_workspace_excludes
   exit 0
 fi
 
 log "Cloning KB into workspace..."
-git -c safe.directory="$KB_CONTENT_DIR" clone "$KB_CONTENT_DIR" "$WORKSPACE_DIR"
+git -c safe.directory="$KB_CONTENT_DIR" clone --no-local "$KB_CONTENT_DIR" "$WORKSPACE_DIR"
 cd "$WORKSPACE_DIR"
 if git remote get-url origin > /dev/null 2>&1 && [ "$KB_REMOTE_NAME" != "origin" ]; then
   git remote rename origin "$KB_REMOTE_NAME" 2>/dev/null || true

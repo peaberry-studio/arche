@@ -1,5 +1,6 @@
 import { parseMetaAdsConnectorConfig } from '@/lib/connectors/meta-ads'
 import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
+import { CONNECTOR_PRIVATE_FIELDS } from '@/lib/connectors/private-fields'
 import type { ConnectorType } from '@/lib/connectors/types'
 
 type ConnectorConfigSanitizer = (config: Record<string, unknown>) => Record<string, unknown>
@@ -43,11 +44,15 @@ export function sanitizeConnectorConfigForResponse(
   config: Record<string, unknown>,
 ): Record<string, unknown> {
   const sanitizer = CONNECTOR_CONFIG_SANITIZERS[type]
-  if (sanitizer) return sanitizer(config)
-
-  if (getConnectorAuthType(config) !== 'oauth') return config
-
-  const sanitizedConfig = { ...config }
+  const sanitizedConfig = sanitizer ? sanitizer(config) : { ...config }
+  delete sanitizedConfig.oauthPendingState
+  for (const [field, presence] of Object.entries(CONNECTOR_PRIVATE_FIELDS)) {
+    if (field in sanitizedConfig) {
+      delete sanitizedConfig[field]
+      sanitizedConfig[presence] = Boolean(config[field])
+    }
+  }
+  if (getConnectorAuthType(config) !== 'oauth') return sanitizedConfig
   if (type === 'custom' || type === 'linear') {
     delete sanitizedConfig.oauthClientSecret
   }

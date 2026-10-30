@@ -28,7 +28,7 @@ is_bare_repo() {
 }
 
 normalize_repo_permissions() {
-  chmod -R a+rwX "$KB_DEST"
+  chmod -R u+rwX,go+rX,go-w "$KB_DEST"
 }
 
 ensure_bare_repo() {

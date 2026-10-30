@@ -39,6 +39,8 @@ describe('proxyConnectorMcpRequest', () => {
         Host: 'arche.example.com',
         'Content-Length': '11',
         'X-Test': 'forward-me',
+        Cookie: 'arche_session=secret',
+        'X-Arche-Desktop-Token': 'desktop-secret',
       },
       body: '{"ok":true}',
     })
@@ -57,13 +59,16 @@ describe('proxyConnectorMcpRequest', () => {
 
     expect(url).toBe('https://mcp.linear.app/mcp?cursor=abc')
     expect(init.method).toBe('POST')
+    expect(init.redirect).toBe('error')
+    expect(headers.get('cookie')).toBeNull()
+    expect(headers.get('x-arche-desktop-token')).toBeNull()
     expect(init.duplex).toBe('half')
     expect(init.body).toBeTruthy()
     expect(headers.get('authorization')).toBe('Bearer oauth-token')
     expect(headers.get('host')).toBeNull()
     expect(headers.get('content-length')).toBeNull()
     expect(headers.get('accept-encoding')).toBe('identity')
-    expect(headers.get('x-test')).toBe('forward-me')
+    expect(headers.get('x-test')).toBeNull()
 
     expect(response.status).toBe(202)
     expect(response.headers.get('content-type')).toBe('application/json')
@@ -92,3 +97,7 @@ describe('proxyConnectorMcpRequest', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 })
+
+vi.mock('@/lib/security/public-fetch', () => ({
+  publicFetch: (url: string, init: RequestInit) => fetch(url, { ...init, redirect: 'error' }),
+}))

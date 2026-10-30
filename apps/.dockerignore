@@ -8,3 +8,6 @@ web/.env.*.local
 desktop/dist
 desktop/release
 desktop/coverage
+web/playwright
+web/playwright-report
+web/test-results

@@ -55,7 +55,7 @@ describe('getConnectorMcpServerUrl', () => {
     }
   })
 
-  it('prefers the OAuth-discovered MCP server URL when present', () => {
+  it('ignores user-controlled OAuth MCP URLs for hosted connectors', () => {
     const url = getConnectorMcpServerUrl('linear', {
       authType: 'oauth',
       oauth: {
@@ -66,7 +66,7 @@ describe('getConnectorMcpServerUrl', () => {
       },
     })
 
-    expect(url).toBe('https://gateway.linear.example/mcp')
+    expect(url).toBe('https://mcp.linear.app/mcp')
   })
 
   it('uses the configured official MCP URLs for hosted connectors', () => {
@@ -93,7 +93,7 @@ describe('getConnectorMcpServerUrl', () => {
     })).toBe('https://api.githubcopilot.com/mcp/')
   })
 
-  it('does not let stored OAuth MCP URLs influence hosted connector URLs except Linear and Notion', () => {
+  it('does not let stored OAuth MCP URLs influence hosted connector URLs ', () => {
     expect(getConnectorMcpServerUrl('google_gmail', {
       authType: 'oauth',
       oauth: {

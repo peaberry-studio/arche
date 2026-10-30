@@ -878,6 +878,7 @@ describe('runtime artifacts', () => {
 
   it.each([
     { url: 'http://web:3000/api/internal/mcp/connectors/connector-1/mcp', sameHash: true },
+    { url: 'http://127.0.0.1:4097/mcp/connectors/connector-1', sameHash: true },
     { url: 'https://external.example/mcp', sameHash: false },
   ])('hashes native V2 MCP auth rotation with the same gateway-only normalization: $sameHash', async ({ url, sameHash }) => {
     const { hashWorkspaceRuntimeArtifacts } = await loadRuntimeArtifactsModule()
@@ -887,5 +888,17 @@ describe('runtime artifacts', () => {
       }),
     })
     expect(hash('first') === hash('second')).toBe(sameHash)
+  })
+
+  it('ignores an assigned Desktop proxy port but retains connector identity in the hash', async () => {
+    const { hashWorkspaceRuntimeArtifacts } = await loadRuntimeArtifactsModule()
+    const hash = (port: number, id: string) => hashWorkspaceRuntimeArtifacts({
+      opencodeConfigContent: JSON.stringify({ mcp: { servers: { connector: {
+        type: 'remote', url: `http://127.0.0.1:${port}/mcp/connectors/${id}`,
+        headers: { Authorization: 'Bearer fixture' },
+      } } } }),
+    })
+    expect(hash(4097, 'first')).toBe(hash(49152, 'first'))
+    expect(hash(4097, 'first')).not.toBe(hash(4097, 'second'))
   })
 })

@@ -46,11 +46,12 @@ services:
 {% elif deploy_mode == 'local-dev' %}
     ports:
       - "8080:80"
-      - "8081:8080"
+      - "127.0.0.1:8081:8080"
 {% endif %}
     networks:
       - default
       - arche-internal
+      - arche-control
     depends_on:
       - docker-socket-proxy
 
@@ -71,7 +72,7 @@ services:
 {% endif %}
 
   docker-socket-proxy:
-    image: ghcr.io/tecnativa/docker-socket-proxy:latest
+    image: ghcr.io/tecnativa/docker-socket-proxy@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459
     restart: "on-failure:5"
 {% if deploy_mode == 'local-dev' %}
     user: root
@@ -88,7 +89,7 @@ services:
     volumes:
       - {{ podman_socket_path }}:/var/run/docker.sock:ro
     networks:
-      - arche-internal
+      - arche-control
     healthcheck:
       test: ["CMD-SHELL", "test -S /var/run/docker.sock"]
       interval: 10s
@@ -128,7 +129,7 @@ services:
         gosu postgres psql -v ON_ERROR_STOP=1 -U "$$POSTGRES_USER" -d postgres -c "ALTER USER \"$$POSTGRES_USER\" PASSWORD '$$POSTGRES_PASSWORD';"
         wait "$$pid"
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
 {% endif %}
     volumes:
       - arche_postgres:/var/lib/postgresql/data
@@ -152,6 +153,7 @@ services:
     networks:
       - default
       - arche-internal
+      - arche-control
     depends_on:
       postgres:
         condition: service_healthy
@@ -171,6 +173,7 @@ services:
     networks:
       - default
       - arche-internal
+      - arche-control
     volumes:
       - {{ users_path | default('/opt/arche/users') }}:{{ users_path | default('/opt/arche/users') }}
       - {{ kb_content_host_path | default('/opt/arche/kb-content') }}:/kb-content
@@ -211,6 +214,7 @@ services:
     networks:
       - default
       - arche-internal
+      - arche-control
     depends_on:
       postgres:
         condition: service_healthy
@@ -234,6 +238,9 @@ services:
 {% endif %}
 
 networks:
+  arche-control:
+    name: arche-control
+    external: true
   default:
   arche-internal:
     name: arche-internal

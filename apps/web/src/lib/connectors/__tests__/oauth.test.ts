@@ -617,3 +617,7 @@ describe('refreshConnectorOAuthToken', () => {
     expect(body).toContain('client_secret=secret-1')
   })
 })
+
+vi.mock('@/lib/security/public-fetch', () => ({
+  publicFetch: (url: string, init: RequestInit) => fetch(url, { ...init, redirect: 'error' }),
+}))

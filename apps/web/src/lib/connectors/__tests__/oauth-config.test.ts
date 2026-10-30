@@ -143,6 +143,15 @@ describe('oauth-config', () => {
   })
 
   describe('mergeConnectorConfigWithPreservedOAuth', () => {
+    it('preserves redacted manual credentials while accepting explicit replacement', async () => {
+      const { mergeConnectorConfigWithPreservedOAuth } = await import('@/lib/connectors/oauth-config')
+      expect(mergeConnectorConfigWithPreservedOAuth({
+        connectorType: 'custom',
+        currentConfig: { apiKey: 'stored', password: 'old', headers: { Authorization: 'secret' } },
+        nextConfig: { endpoint: 'https://example.com', password: 'new', hasApiKey: true, hasHeaders: true },
+      })).toEqual({ endpoint: 'https://example.com', apiKey: 'stored', password: 'new', headers: { Authorization: 'secret' } })
+    })
+
     it('returns next config when authType is not oauth', async () => {
       const { mergeConnectorConfigWithPreservedOAuth } = await import('@/lib/connectors/oauth-config')
       const result = mergeConnectorConfigWithPreservedOAuth({

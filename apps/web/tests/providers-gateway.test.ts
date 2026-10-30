@@ -264,7 +264,7 @@ describe('providers gateway', () => {
     })
     mockDecryptProviderSecret.mockReturnValue({
       apiKey: 'remote-token',
-      baseUrl: 'https://203.0.113.10/v1',
+      baseUrl: 'https://8.8.8.8/v1',
       discoveredAt: '2026-05-27T00:00:00.000Z',
       mode: 'remote',
       models: [{ id: 'gpt-oss:20b-cloud', name: 'gpt-oss:20b-cloud' }],
@@ -281,7 +281,7 @@ describe('providers gateway', () => {
 
     expect(response.status).toBe(200)
     const [url, options] = (global.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]
-    expect(url).toBe('https://203.0.113.10/v1/models?foo=bar')
+    expect(url).toBe('https://8.8.8.8/v1/models?foo=bar')
     expect(options.redirect).toBe('error')
     expect((options.headers as Headers).get('authorization')).toBe('Bearer remote-token')
   })

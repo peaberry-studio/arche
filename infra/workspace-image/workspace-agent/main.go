@@ -32,9 +32,11 @@ const (
 )
 
 type server struct {
-	workspace string
-	username  string
-	password  string
+	workspace        string
+	username         string
+	password         string
+	workspaceSlug    string
+	connectorGateway string
 }
 
 type errorResponse struct {
@@ -263,12 +265,15 @@ func main() {
 	}
 
 	s := &server{
-		workspace: *workspace,
-		username:  username,
-		password:  password,
+		workspace:        *workspace,
+		username:         username,
+		password:         password,
+		workspaceSlug:    os.Getenv("ARCHE_WORKSPACE_SLUG"),
+		connectorGateway: os.Getenv("ARCHE_CONNECTOR_GATEWAY_BASE_URL"),
 	}
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("/mcp/connectors/", s.handleConnectorProxy)
 	mux.HandleFunc("/health", s.withAuth(s.handleHealth))
 	mux.HandleFunc("/git/diffs", s.withAuth(s.handleGitDiffs))
 	mux.HandleFunc("/git/conflict", s.withAuth(s.handleGitConflict))
@@ -2494,6 +2499,9 @@ func runCmdWithEnv(ctx context.Context, dir string, args []string, env []string)
 	if len(args) == 0 {
 		return "", "", 1, errors.New("no_command")
 	}
+	if args[0] == "git" {
+		args = append([]string{"git", "-c", "core.hooksPath=/dev/null"}, args[1:]...)
+	}
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 	cmd.Dir = dir
 	if len(env) > 0 {
@@ -2734,6 +2742,20 @@ func (s *server) resolvePath(rel string) (string, error) {
 
 	if !strings.HasPrefix(abs+string(os.PathSeparator), workspaceAbs+string(os.PathSeparator)) && abs != workspaceAbs {
 		return "", errors.New("path_outside_workspace")
+	}
+	current := workspaceAbs
+	for _, component := range strings.Split(cleaned, string(os.PathSeparator)) {
+		current = filepath.Join(current, component)
+		info, statErr := os.Lstat(current)
+		if os.IsNotExist(statErr) {
+			break
+		}
+		if statErr != nil {
+			return "", statErr
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return "", errors.New("symlinks_not_allowed")
+		}
 	}
 	return abs, nil
 }

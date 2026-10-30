@@ -4,8 +4,10 @@ import { isGoogleWorkspaceConnectorType } from '@/lib/connectors/google-workspac
 import { discoverOAuthMetadata, getString, sanitizeOAuthMetadata, type OAuthServerMetadata } from '@/lib/connectors/oauth-metadata'
 import { getStrategy } from '@/lib/connectors/oauth-provider-strategies'
 import { OAUTH_CONNECTOR_TYPES, type ConnectorType, type OAuthConnectorType } from '@/lib/connectors/types'
+import { publicFetch } from '@/lib/security/public-fetch'
 
 type OAuthStatePayload = {
+  sessionId?: string
   connectorId: string
   slug: string
   returnTo?: string
@@ -175,7 +177,7 @@ async function postForm(
   values: Record<string, string>,
   errorPrefix: string,
 ): Promise<Record<string, unknown>> {
-  const response = await fetch(endpoint, {
+  const response = await publicFetch(endpoint, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -198,7 +200,7 @@ async function postForm(
 }
 
 async function getJson(endpoint: string, errorPrefix: string): Promise<Record<string, unknown>> {
-  const response = await fetch(endpoint, {
+  const response = await publicFetch(endpoint, {
     method: 'GET',
     headers: {
       Accept: 'application/json',
@@ -297,7 +299,7 @@ async function registerOAuthClient(
     throw new Error('oauth_registration_failed:missing_registration_endpoint')
   }
 
-  const response = await fetch(metadata.registrationEndpoint, {
+  const response = await publicFetch(metadata.registrationEndpoint, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -362,6 +364,7 @@ export function normalizeConnectorOAuthReturnTo(value: string | null | undefined
 }
 
 export function issueConnectorOAuthState(input: {
+  sessionId?: string
   connectorId: string
   slug: string
   returnTo?: string
@@ -378,6 +381,7 @@ export function issueConnectorOAuthState(input: {
   mcpServerUrl?: string
 }): string {
   return encodeStatePayload({
+    sessionId: input.sessionId,
     connectorId: input.connectorId,
     slug: input.slug,
     returnTo: input.returnTo,
@@ -402,6 +406,7 @@ export function verifyConnectorOAuthState(token: string): OAuthStatePayload {
 }
 
 export async function prepareConnectorOAuthAuthorization(input: {
+  sessionId?: string
   connectorId: string
   slug: string
   returnTo?: string
@@ -430,6 +435,7 @@ export async function prepareConnectorOAuthAuthorization(input: {
   const codeChallenge = codeVerifier ? createPkceCodeChallenge(codeVerifier) : undefined
 
   const state = issueConnectorOAuthState({
+    sessionId: input.sessionId,
     connectorId: input.connectorId,
     slug: input.slug,
     returnTo: input.returnTo,

@@ -16,7 +16,7 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('@/lib/providers/crypto', () => ({ decryptProviderSecret: mocks.decryptProviderSecret }))
-vi.mock('@/lib/e2e/runtime', () => ({ getE2eFakeProviderUrl: mocks.getE2eFakeProviderUrl }))
+vi.mock('@/lib/e2e/runtime', () => ({ getE2eFakeProviderUrl: mocks.getE2eFakeProviderUrl, isE2eFakeOAuthEndpoint: () => false }))
 vi.mock('@/lib/providers/catalog', () => ({ getCanonicalProviderId: mocks.getCanonicalProviderId }))
 vi.mock('@/lib/providers/store', () => ({ getEffectiveCredentialForUser: mocks.getEffectiveCredentialForUser }))
 vi.mock('@/lib/providers/tokens', () => ({ verifyGatewayToken: mocks.verifyGatewayToken }))
@@ -582,7 +582,7 @@ describe('/api/internal/providers/[provider]/[...path]', () => {
     mocks.verifyGatewayToken.mockReturnValue({ ...GATEWAY_PAYLOAD, providerId: 'ollama' })
     mocks.decryptProviderSecret.mockReturnValue({
       apiKey: 'ollama-token',
-      baseUrl: 'https://203.0.113.10/v1',
+      baseUrl: 'https://8.8.8.8/v1',
       discoveredAt: '2026-05-27T00:00:00.000Z',
       mode: 'remote',
       models: [{ id: 'llama3.2', name: 'llama3.2' }],
@@ -598,7 +598,7 @@ describe('/api/internal/providers/[provider]/[...path]', () => {
 
     expect(res.status).toBe(200)
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://203.0.113.10/v1/models',
+      'https://8.8.8.8/v1/models',
       expect.objectContaining({ redirect: 'error' }),
     )
     const sentHeaders = fetchMock.mock.calls[0][1].headers as Headers

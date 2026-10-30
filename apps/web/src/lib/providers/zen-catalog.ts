@@ -59,7 +59,7 @@ export function rewriteZenCatalog(catalog: Record<string, unknown>, gatewayRoot:
 
 async function fetchUpstreamCatalog(): Promise<Record<string, unknown> | null> {
   try {
-    const response = await fetch(UPSTREAM_CATALOG_URL, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
+    const response = await fetch(UPSTREAM_CATALOG_URL, { redirect: 'error', signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
     if (!response.ok) return null
     const catalog: unknown = await response.json()
     return isRecord(catalog) && isZenCatalog(catalog) ? catalog : null
