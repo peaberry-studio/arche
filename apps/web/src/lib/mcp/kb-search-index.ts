@@ -48,6 +48,7 @@ export async function searchKbIndex(input: {
 
   const index = await getIndex(input.headHash, input.loadArticles)
   if (!index) return { ok: false, error: 'search_failed' }
+  if (index.sections.length === 0) return { ok: true, matches: [] }
 
   const allowed = (position: number) =>
     !input.pathPrefix || index.sections[position].path.startsWith(`${input.pathPrefix}/`)

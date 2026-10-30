@@ -94,6 +94,14 @@ describe('kb search index', () => {
     expect(loadArticles).not.toHaveBeenCalled()
   })
 
+  it('returns no matches for a repository without articles without embedding the query', async () => {
+    const { searchKbIndex } = await import('@/lib/mcp/kb-search-index')
+
+    expect(await searchKbIndex({ headHash: 'h1', loadArticles: loaderOf([]), query: 'vercel', limit: 10 })).toEqual({ ok: true, matches: [] })
+    expect(embeddings.embedPassages).not.toHaveBeenCalled()
+    expect(embeddings.embedQuery).not.toHaveBeenCalled()
+  })
+
   it('ranks by terms only without the model when semantic search is unavailable', async () => {
     capabilities.kbSemanticSearch = false
     const { searchKbIndex } = await import('@/lib/mcp/kb-search-index')
