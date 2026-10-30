@@ -394,9 +394,12 @@ describe("WorkspaceShell", () => {
     });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.useRealTimers();
     cleanup();
+    // Radix FocusScope dispatches its unmount event from a setTimeout(0); let it
+    // run while jsdom is still the environment, not after teardown.
+    await new Promise((resolve) => setTimeout(resolve, 0));
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
