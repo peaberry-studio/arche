@@ -167,7 +167,7 @@ async function syncProviderAccessForInstance(input: {
   try {
     const enabledByProvider = await getEnabledProviderCredentialsForUser(input.userId)
     const providerSyncHash = buildProviderSyncHash(enabledByProvider)
-    const client = createConnectionClient(input.connection)
+    const client = await createConnectionClient(input.connection)
 
     await replaceManagedCredentials(client, buildDesiredCredentials({ enabledByProvider, slug: input.slug, userId: input.userId }), input)
 
