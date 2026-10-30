@@ -1,6 +1,10 @@
 #!/bin/sh
 set -e
 
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=core.hooksPath
+export GIT_CONFIG_VALUE_0=/dev/null
+
 ensure_git_safe_directory() {
   dir="$1"
   if [ ! -d "$dir" ]; then

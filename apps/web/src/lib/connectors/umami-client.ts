@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 
 import { isRecord, getString } from '@/lib/connectors/connector-values'
+import { publicFetch } from '@/lib/security/public-fetch'
 import { validateConnectorTestEndpoint } from '@/lib/security/ssrf'
 
 import type { UmamiApiResponse, UmamiConnectorConfig } from '@/lib/connectors/umami-types'
@@ -106,7 +107,7 @@ async function fetchJson(url: URL, init: RequestInit): Promise<UmamiApiResponse>
   const timer = setTimeout(() => controller.abort(), UMAMI_TIMEOUT_MS)
 
   try {
-    const response = await fetch(url, {
+    const response = await publicFetch(url.toString(), {
       ...init,
       cache: 'no-store',
       signal: controller.signal,

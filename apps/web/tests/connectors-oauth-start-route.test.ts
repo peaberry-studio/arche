@@ -26,6 +26,7 @@ async function loadRoute() {
   }))
 
   vi.doMock('@/lib/connectors/crypto', () => ({
+    encryptConfig: JSON.stringify,
     decryptConfig: (...args: unknown[]) => mockDecryptConfig(...args),
   }))
 
@@ -65,6 +66,7 @@ async function loadRoute() {
 
   vi.doMock('@/lib/services', () => ({
     connectorService: {
+      compareAndSwapConfig: vi.fn().mockResolvedValue({ count: 1 }),
       findByIdAndUserIdSelect: (...args: unknown[]) => mockFindByIdAndUserIdSelect(...args),
     },
     userService: {
@@ -138,6 +140,7 @@ describe('POST /api/u/[slug]/connectors/[id]/oauth/start', () => {
 
     expect(mockDecryptConfig).toHaveBeenCalledWith('encrypted-config')
     expect(mockPrepareConnectorOAuthAuthorization).toHaveBeenCalledWith({
+      sessionId: 'session-1',
       connectorId: 'conn-1',
       slug: 'alice',
       returnTo: '/u/alice/settings/integrations/slack',

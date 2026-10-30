@@ -15,7 +15,7 @@ export function getConnectorMcpServerUrl(type: 'google_gmail' | 'google_drive' |
 export function getConnectorMcpServerUrl(type: ConnectorType, config: Record<string, unknown>): string | null
 export function getConnectorMcpServerUrl(type: ConnectorType, config: Record<string, unknown>): string | null {
   const oauth = getConnectorOAuthConfig(type, config)
-  if ((type === 'linear' || type === 'notion' || type === 'custom') && oauth?.mcpServerUrl) {
+  if (type === 'custom' && oauth?.mcpServerUrl) {
     return oauth.mcpServerUrl
   }
 

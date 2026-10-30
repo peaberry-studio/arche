@@ -274,10 +274,20 @@ done
 # ---------------------------------------------------------------------------
 if [[ "$MODE" != "local-dev-down" && -f "$SCRIPT_DIR/.env" ]]; then
   log "Loading .env file"
-  set -a
-  # shellcheck source=/dev/null
-  source "$SCRIPT_DIR/.env" || { echo "ERROR: Failed to source .env"; exit 1; }
-  set +a
+  while IFS= read -r dotenv_line || [[ -n "$dotenv_line" ]]; do
+    dotenv_line="${dotenv_line%$'\r'}"
+    [[ "$dotenv_line" =~ ^[[:space:]]*(#|$) ]] && continue
+    if [[ ! "$dotenv_line" =~ ^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
+      err "Invalid .env assignment"
+      exit 1
+    fi
+    dotenv_key="${BASH_REMATCH[2]}"
+    dotenv_value="${BASH_REMATCH[3]}"
+    if [[ "$dotenv_value" == \"*\" && "$dotenv_value" == *\" ]] || [[ "$dotenv_value" == \'*\' && "$dotenv_value" == *\' ]]; then
+      dotenv_value="${dotenv_value:1:${#dotenv_value}-2}"
+    fi
+    export "$dotenv_key=$dotenv_value"
+  done < "$SCRIPT_DIR/.env"
   log ".env file loaded successfully"
 fi
 

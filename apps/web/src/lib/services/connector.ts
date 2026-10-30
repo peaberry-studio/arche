@@ -229,3 +229,10 @@ export function updateManyByIdAndUserId(id: string, userId: string, data: Record
 export function deleteManyByIdAndUserId(id: string, userId: string) {
   return prisma.connector.deleteMany({ where: { id, userId } })
 }
+
+export function compareAndSwapConfig(id: string, userId: string, previousConfig: string, config: string, enabled?: boolean) {
+  return prisma.connector.updateMany({
+    where: { id, userId, config: previousConfig },
+    data: { config, ...(enabled === undefined ? {} : { enabled }) },
+  })
+}

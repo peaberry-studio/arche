@@ -17,6 +17,7 @@ import { getEffectiveCredentialForUser } from '@/lib/providers/store'
 import { verifyGatewayToken } from '@/lib/providers/tokens'
 import type { ProviderSecret } from '@/lib/providers/types'
 import { checkRateLimit } from '@/lib/rate-limit'
+import { publicFetch } from '@/lib/security/public-fetch'
 import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 import type { ProviderUsageCredentialSource } from '@/lib/services/provider-usage'
 
@@ -236,6 +237,9 @@ async function handleProxy(
   headers.delete('authorization')
   headers.delete('x-api-key')
   headers.delete('x-goog-api-key')
+  for (const name of ['cookie', 'x-arche-desktop-token', 'origin', 'referer', 'forwarded', 'x-forwarded-for', 'x-forwarded-host', 'x-forwarded-proto']) {
+    headers.delete(name)
+  }
 
   // Avoid content-encoding pass-through issues.
   // Node fetch will typically decompress upstream responses, but the upstream
@@ -280,7 +284,9 @@ async function handleProxy(
 
   let upstreamResponse: Response
   try {
-    upstreamResponse = await fetchWithRetry(upstreamUrl, init, maxAttempts)
+    upstreamResponse = providerId === 'ollama' && providerSecret && 'mode' in providerSecret && providerSecret.mode === 'remote'
+      ? await publicFetch(upstreamUrl, init)
+      : await fetchWithRetry(upstreamUrl, init, maxAttempts)
   } catch (error) {
     console.error('[providers/gateway] upstream fetch failed', {
       provider: providerId,

@@ -123,3 +123,7 @@ describe('testConnectorConnection for Google Workspace', () => {
     expect(result.message).toBe('People API MCP connection verified.')
   })
 })
+
+vi.mock('@/lib/security/public-fetch', () => ({
+  publicFetch: (url: string, init: RequestInit) => fetch(url, { ...init, redirect: 'error' }),
+}))

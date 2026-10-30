@@ -1,12 +1,33 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 
 for (const [image, version] of [
   ['arche-workspace:opencode-v1', '1.18.18'],
   ['arche-workspace:opencode-v2', '2.0.32'],
 ]) {
+  const volumes = ['work', 'share', 'state', 'kb'].map(suffix => `arche-nonroot-smoke-${randomUUID()}-${suffix}`)
+  const run = args => {
+    const result = spawnSync('podman', args, { encoding: 'utf8', timeout: 120_000 })
+    assert.equal(result.status, 0, result.stderr + result.stdout)
+  }
+  try {
+    run(['run', '--rm', '--network', 'none', '--user', '0:0', '--entrypoint', 'sh',
+      '-v', `${volumes[0]}:/workspace`, '-v', `${volumes[3]}:/kb-content`, image, '-c',
+      'git init --bare /kb-content && printf preserved > /workspace/legacy.txt && chmod 600 /workspace/legacy.txt && ln -s /etc/passwd /workspace/link'])
+    for (let pass = 0; pass < 2; pass++) run(['run', '--rm', '--network', 'none', '--read-only', '--user', '0:0',
+      '--cap-drop=ALL', '--cap-add=CHOWN,DAC_OVERRIDE,FOWNER', '--security-opt=no-new-privileges',
+      '--entrypoint', '/usr/local/bin/prepare-workspace-volumes',
+      ...volumes.slice(0, 3).flatMap((volume, index) => ['-v', `${volume}:/volumes/${index}`]), image])
   const result = spawnSync('podman', [
     'run', '--rm', '-i', '--network', 'none', '--entrypoint', 'node',
+    '--user', '1000:1000', '--read-only', '--cap-drop=ALL', '--security-opt=no-new-privileges', '--pids-limit=512',
+    '--memory=2g', '--memory-swap=2g', '--cpus=2',
+    '--tmpfs', '/tmp:rw,nosuid,nodev,size=512m,mode=1777',
+    '--tmpfs', '/tmp/arche-user-data:rw,nosuid,nodev,size=16m,mode=1777',
+    '--tmpfs', '/home/workspace:rw,nosuid,nodev,size=256m,mode=1777',
+    '-v', `${volumes[0]}:/workspace`, '-v', `${volumes[1]}:/home/workspace/.local/share/opencode`,
+    '-v', `${volumes[2]}:/home/workspace/.local/state/opencode`, '-v', `${volumes[3]}:/kb-content:ro`,
     '-e', `EXPECTED_VERSION=${version}`, image, '--input-type=module',
   ], {
     encoding: 'utf8',
@@ -21,8 +42,11 @@ import { setTimeout } from 'node:timers/promises'
 const version = process.env.EXPECTED_VERSION
 const v2 = version.startsWith('2.')
 assert.match(spawnSync('opencode', ['--version'], { encoding: 'utf8' }).stdout, new RegExp(version.replaceAll('.', '\\\\.')))
-mkdirSync('/kb-content', { recursive: true })
-assert.equal(spawnSync('git', ['init', '--bare', '/kb-content']).status, 0)
+assert.equal(process.getuid(), 1000)
+assert.equal(readFileSync('/workspace/legacy.txt', 'utf8'), 'preserved')
+assert.match(readFileSync('/proc/self/status', 'utf8'), /CapEff:\\s+0+\\n/)
+assert.throws(() => writeFileSync('/etc/arche-smoke', 'blocked'))
+assert.throws(() => writeFileSync('/kb-content/arche-smoke', 'blocked'))
 mkdirSync('/tmp/arche-user-data/skills/arche-smoke', { recursive: true })
 writeFileSync('/tmp/arche-user-data/skills/arche-smoke/SKILL.md', '---\\nname: arche-smoke\\ndescription: Isolated runtime smoke skill\\n---\\nSmoke fixture only.\\n')
 const agent = { description: 'Isolated runtime smoke agent', mode: 'primary', [v2 ? 'system' : 'prompt']: 'Smoke fixture only.' }
@@ -104,4 +128,7 @@ try {
   process.stderr.write(result.stderr ?? '')
   assert.equal(result.error, undefined, `${image}: ${result.error?.message}`)
   assert.equal(result.status, 0, `${image}: runtime smoke failed`)
+  } finally {
+    for (const volume of volumes) spawnSync('podman', ['volume', 'rm', volume], { encoding: 'utf8' })
+  }
 }

@@ -221,6 +221,9 @@ jobs:
 
           added_lines=$(echo "$diff_content" | grep '^+' | grep -v '^+++' || true)
 
+          # These complete lines map credential names to public presence flags.
+          added_lines=$(echo "$added_lines" | grep -vE "^\+[[:space:]]*(apiKey:[ ]'hasApiKey'|password:[ ]'hasPassword'|clientSecret:[ ]'hasClientSecret'|accessToken:[ ]'hasAccessToken'),[[:space:]]*$" || true)
+
           secret_patterns=(
             'AKIA[0-9A-Z]{16}'
             'sk-[a-zA-Z0-9]{20,}'

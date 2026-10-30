@@ -133,7 +133,20 @@ else
     fi
     echo "    Checksum OK: $ACTUAL_HASH"
   else
-    echo "    Warning: no .sha256 asset found; skipping checksum verification" >&2
+    METADATA="$TMPDIR_DL/release.json"
+    curl -fSL -o "$METADATA" "https://api.github.com/repos/anomalyco/opencode/releases/tags/v$VERSION"
+    node - "$METADATA" "$ARCHIVE" "$ASSET" <<'NODE'
+const { createHash } = require('node:crypto')
+const { readFileSync } = require('node:fs')
+const [metadataPath, archivePath, name] = process.argv.slice(2)
+const metadata = JSON.parse(readFileSync(metadataPath, 'utf8'))
+const asset = metadata.assets?.find((entry) => entry.name === name)
+const actual = `sha256:${createHash('sha256').update(readFileSync(archivePath)).digest('hex')}`
+if (!asset?.digest || asset.digest !== actual) {
+  console.error('Error: OpenCode asset SHA256 integrity mismatch or missing digest')
+  process.exit(1)
+}
+NODE
   fi
 fi
 

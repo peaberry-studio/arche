@@ -354,3 +354,43 @@ func TestDisplaySSHCommandUsesDeployUserForKeyBasedState(t *testing.T) {
 		t.Fatalf("displaySSHCommand() should not target root: %q", command)
 	}
 }
+
+func TestComposeIsolatesControlPlane(t *testing.T) {
+	compose := renderCompose()
+	start := strings.Index(compose, "  docker-socket-proxy:\n    image:")
+	end := strings.Index(compose[start:], "\n  postgres:") + start
+	proxy := compose[start:end]
+	if strings.Contains(proxy, "arche-internal") || !strings.Contains(proxy, "- arche-control") {
+		t.Fatalf("socket proxy is not isolated: %s", proxy)
+	}
+	if !strings.Contains(proxy, "@sha256:") || !strings.Contains(compose, "name: arche-control\n    internal: true") {
+		t.Fatal("control network or image pin missing")
+	}
+	if !strings.Contains(renderUpdateScript("latest", compose), "docker compose up -d web flows reaper docker-socket-proxy traefik") {
+		t.Fatal("updates must migrate the proxy and Traefik networks")
+	}
+}
+
+func TestGeneratedScriptsLoadEnvAsData(t *testing.T) {
+	scripts := []string{renderUpdateScript("latest", renderCompose()), renderBootstrapScript(input{email: "test@example.com", version: "latest"})}
+	for _, script := range scripts {
+		dir := t.TempDir()
+		marker := filepath.Join(dir, "executed")
+		envPath := filepath.Join(dir, ".env")
+		value := "$(touch " + marker + ")"
+		if err := os.WriteFile(envPath, []byte("ARCHE_TEST_VALUE=\""+value+"\"\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		start := strings.Index(script, "while IFS=")
+		end := strings.Index(script[start:], "done < /opt/arche/.env") + start + len("done < /opt/arche/.env")
+		parser := strings.ReplaceAll(script[start:end], "/opt/arche/.env", shellQuote(envPath))
+		command := exec.Command("bash", "-c", "set -eu\nlog() { :; }\n"+parser+"\nprintf '%s' \"$ARCHE_TEST_VALUE\"")
+		output, err := command.CombinedOutput()
+		if err != nil || string(output) != value {
+			t.Fatalf("dotenv parser: %v, %s", err, output)
+		}
+		if _, err := os.Stat(marker); !os.IsNotExist(err) {
+			t.Fatal("dotenv executed a command")
+		}
+	}
+}

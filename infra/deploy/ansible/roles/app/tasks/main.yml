@@ -276,6 +276,27 @@
   ansible.builtin.debug:
     msg: "podman compose available: {{ podman_compose_check.rc == 0 }}"
 
+- name: Ensure control network exists before replacing the socket proxy
+  ansible.builtin.command:
+    cmd: podman network create --internal arche-control
+  register: control_network_create
+  changed_when: control_network_create.rc == 0
+  failed_when: control_network_create.rc != 0 and 'already exists' not in control_network_create.stderr
+
+- name: Find existing web containers for control network migration
+  ansible.builtin.command:
+    cmd: podman ps --filter label=arche.role=web --format '{{ '{{' }}.ID{{ '}}' }}'
+  register: control_web_containers
+  changed_when: false
+
+- name: Connect existing web containers before isolating the socket proxy
+  ansible.builtin.command:
+    cmd: podman network connect arche-control {{ item }}
+  loop: "{{ control_web_containers.stdout_lines }}"
+  register: control_connect
+  changed_when: control_connect.rc == 0
+  failed_when: control_connect.rc != 0 and 'already' not in control_connect.stderr
+
 - name: Start base services (podman compose)
   ansible.builtin.shell:
     cmd: >
@@ -408,6 +429,7 @@
       -e ARCHE_GATEWAY_TOKEN_TTL_SECONDS="{{ arche_gateway_token_ttl_seconds }}" \
       -e ARCHE_GATEWAY_BASE_URL="{{ arche_gateway_base_url }}" \
       --network arche-internal \
+      --network arche-control \
       --network {{ compose_default_network }} \
       -v {{ users_path | default('/opt/arche/users') }}:{{ users_path | default('/opt/arche/users') }} \
       {{ kb_volumes | trim }} \

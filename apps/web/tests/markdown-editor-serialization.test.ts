@@ -16,6 +16,7 @@ import {
   encodeMarkdownForEditor,
   normalizeMarkdownForKb,
 } from "@/components/workspace/markdown-editor-content";
+import { MarkdownParagraph } from "@/components/workspace/markdown-paragraph";
 import { VegaLiteChart } from "@/components/workspace/vega-lite-chart-node";
 import { MathDisplay } from "@/components/workspace/math-display-node";
 import { MathInline } from "@/components/workspace/math-inline-node";
@@ -27,7 +28,8 @@ vi.mock("vega-embed", () => ({
 function createMarkdownEditor(content: string) {
   return new Editor({
     extensions: [
-      StarterKit,
+      StarterKit.configure({ paragraph: false }),
+      MarkdownParagraph,
       Placeholder.configure({ placeholder: "Write…" }),
       TaskList,
       TaskItem.configure({ nested: true }),

@@ -54,7 +54,7 @@ describe('oauth-metadata', () => {
         registrationEndpoint: 'https://example.com/register',
       })
       expect(result).toEqual({
-        issuer: 'https://example.com',
+        issuer: 'https://example.com/auth',
         authorizationEndpoint: 'https://example.com/auth',
         tokenEndpoint: 'https://example.com/auth',
         registrationEndpoint: 'https://example.com/auth',
@@ -97,6 +97,7 @@ describe('oauth-metadata', () => {
         method: 'GET',
         headers: { Accept: 'application/json' },
         cache: 'no-store',
+        redirect: 'error',
       })
 
       vi.unstubAllGlobals()
@@ -175,3 +176,7 @@ describe('oauth-metadata', () => {
     })
   })
 })
+
+vi.mock('@/lib/security/public-fetch', () => ({
+  publicFetch: (url: string, init: RequestInit) => fetch(url, { ...init, redirect: 'error' }),
+}))

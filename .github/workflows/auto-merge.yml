@@ -7,7 +7,7 @@ on:
 
 jobs:
   auto-merge:
-    if: github.event.review.state == 'approved'
+    if: github.event.review.state == 'approved' && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.review.author_association)
     runs-on: ubuntu-latest
     permissions:
       contents: write

@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 import { NextRequest, NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
@@ -71,8 +73,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.redirect(buildRedirect(baseUrl, parsedState.slug, 'error', 'unauthorized', parsedState.returnTo))
   }
 
-  if (session.user.slug !== parsedState.slug && session.user.role !== 'ADMIN') {
+  if (session.user.id !== parsedState.userId || session.user.slug !== parsedState.slug) {
     return NextResponse.redirect(buildRedirect(baseUrl, parsedState.slug, 'error', 'forbidden', parsedState.returnTo))
+  }
+
+  if (!parsedState.sessionId || parsedState.sessionId !== session.sessionId) {
+    return NextResponse.redirect(buildRedirect(baseUrl, parsedState.slug, 'error', 'invalid_state', parsedState.returnTo))
   }
 
   if (providerError) {
@@ -112,13 +118,23 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       return NextResponse.redirect(buildRedirect(baseUrl, parsedState.slug, 'error', 'invalid_state', parsedState.returnTo))
     }
 
+    const currentConfig = decryptConfig(connector.config)
+    if (currentConfig.oauthPendingState !== createHash('sha256').update(state).digest('hex')) {
+      return NextResponse.redirect(buildRedirect(baseUrl, parsedState.slug, 'error', 'invalid_state', parsedState.returnTo))
+    }
+    delete currentConfig.oauthPendingState
+    const consumedConfig = encryptConfig(currentConfig)
+    const consumed = await connectorService.compareAndSwapConfig(connector.id, parsedState.userId, connector.config, consumedConfig)
+    if (consumed.count !== 1) {
+      return NextResponse.redirect(buildRedirect(baseUrl, parsedState.slug, 'error', 'invalid_state', parsedState.returnTo))
+    }
+
     const token = await exchangeConnectorOAuthCode({
       code,
       redirectUri,
       state: parsedState,
     })
 
-    const currentConfig = decryptConfig(connector.config)
     const nextConfig = buildConfigWithOAuth({
       connectorType: connector.type,
       currentConfig,
@@ -138,10 +154,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       },
     })
 
-    await connectorService.updateByIdUnsafe(connector.id, {
-      config: encryptConfig(nextConfig),
-      enabled: true,
-    })
+    const saved = await connectorService.compareAndSwapConfig(connector.id, parsedState.userId, consumedConfig, encryptConfig(nextConfig), true)
+    if (saved.count !== 1) throw new Error('config_conflict')
 
     await auditEvent({
       actorUserId: session.user.id,

@@ -1,3 +1,4 @@
+import { getConnectorGatewayBaseUrl } from '@/lib/connectors/gateway-config'
 import type { SkillBundle } from '@/lib/skills/types'
 import {
   getContainerProxyUrl,
@@ -15,6 +16,7 @@ import {
   serializeRuntimeConfig,
   WEB_SCRATCH,
 } from '@/lib/spawner/runtime-config';
+import { prepareWorkspaceVolumes } from '@/lib/spawner/volume-init'
 import { ensureUserDirectory, getUserDataHostPath } from '@/lib/user-data';
 
 type DockerConstructor = typeof import("dockerode");
@@ -197,11 +199,7 @@ export async function createContainer(
     opencodeShareVolumeName,
     opencodeStateVolumeName,
   ]) {
-    try {
-      await docker.createVolume({ Name: name });
-    } catch (err) {
-      console.warn('[docker] Volume creation skipped (may already exist):', { name, error: err instanceof Error ? err.message : err })
-    }
+    await docker.createVolume({ Name: name });
   }
 
   // Build binds array: always mount workspace and OpenCode runtime state,
@@ -212,7 +210,7 @@ export async function createContainer(
     `${opencodeStateVolumeName}:/home/workspace/.local/state/opencode`,
   ];
   const kbContentHostPath = getKbContentHostPath();
-  binds.push(`${kbContentHostPath}:/kb-content`);
+  binds.push(`${kbContentHostPath}:/kb-content:ro`);
 
   // Persist runtime files in host user-data directory.
   // We mount files individually into /tmp inside the container so the workspace
@@ -256,15 +254,18 @@ export async function createContainer(
     }
   }
 
-  binds.push(`${userDataPath}:/tmp/arche-user-data:ro`);
+  binds.push(`${modelsCatalogPath}:/tmp/arche-user-data/models-catalog.json:ro`);
+  binds.push(`${opencodeConfigPath}:/tmp/arche-user-data/opencode-config.json:ro`);
+  if (agentsMd) binds.push(`${agentsPath}:/tmp/arche-user-data/AGENTS.md:ro`);
+  if (skills?.length) binds.push(`${skillsDir}:/tmp/arche-user-data/skills:ro`);
 
   const env = [
     `OPENCODE_SERVER_PASSWORD=${password}`,
     `OPENCODE_SERVER_USERNAME=opencode`,
     `ARCHE_WORKSPACE_SLUG=${slug}`,
+    `ARCHE_CONNECTOR_GATEWAY_BASE_URL=${getConnectorGatewayBaseUrl()}`,
+    `ARCHE_KB_PUSH_URL=${process.env.ARCHE_INTERNAL_API_BASE_URL ?? 'http://web:3000'}/api/internal/kb/${slug}`,
     `ARCHE_INTERNAL_API_BASE_URL=${process.env.ARCHE_INTERNAL_API_BASE_URL ?? 'http://web:3000'}`,
-    // The workspace image runs as root for Podman volume compatibility.
-    // Force HOME/XDG to mounted /home/workspace paths so session data persists.
     `HOME=/home/workspace`,
     `XDG_DATA_HOME=/home/workspace/.local/share`,
     `XDG_CONFIG_HOME=/home/workspace/.config`,
@@ -279,6 +280,7 @@ export async function createContainer(
 
   const options = {
     Image: getOpencodeImage(),
+    User: '1000:1000',
     name: containerName,
     WorkingDir: "/workspace",
     // arche-workspace image has an entrypoint wrapper that initializes the workspace
@@ -286,9 +288,20 @@ export async function createContainer(
     Env: env,
     HostConfig: {
       NetworkMode: getOpencodeNetwork(),
+      CapDrop: ["ALL"],
+      ReadonlyRootfs: true,
+      SecurityOpt: ["no-new-privileges"],
+      PidsLimit: 512,
+      Memory: 2 * 1024 * 1024 * 1024,
+      MemorySwap: 2 * 1024 * 1024 * 1024,
+      NanoCpus: 2_000_000_000,
       RestartPolicy: { Name: "on-failure", MaximumRetryCount: 5 },
       Binds: binds,
-      Tmpfs: { [WEB_SCRATCH.root]: `rw,nosuid,nodev,size=${getScratchSizeMb()}m,mode=0700` },
+      Tmpfs: {
+        '/tmp': 'rw,nosuid,nodev,size=512m,mode=1777',
+        '/home/workspace': 'rw,nosuid,nodev,size=256m,mode=1777',
+        [WEB_SCRATCH.root]: `rw,nosuid,nodev,size=${getScratchSizeMb()}m,mode=1777`,
+      },
     },
     Labels: {
       "arche.managed": "true",
@@ -296,6 +309,8 @@ export async function createContainer(
       "arche.runtime.kind": "opencode-v2",
     },
   };
+
+  await prepareWorkspaceVolumes(docker, slug, getOpencodeImage(), [volumeName, opencodeShareVolumeName, opencodeStateVolumeName])
 
   try {
     return await docker.createContainer(options);
@@ -336,12 +351,13 @@ export async function createArchiveContainer(slug: string, password: string): Pr
   const name = `opencode-archive-${slug}`
   const options = {
     Image: image,
+    User: '0:0',
     name,
     WorkingDir: '/workspace',
     Entrypoint: ['sh', '-c',
       'mkdir -p /home/workspace/.local/share/opencode /home/workspace/.local/state/opencode && ' +
-      'cp -a /tmp/arche-archive-source/share/. /home/workspace/.local/share/opencode/ && ' +
-      'cp -a /tmp/arche-archive-source/state/. /home/workspace/.local/state/opencode/ && ' +
+      'cp -R /tmp/arche-archive-source/share/. /home/workspace/.local/share/opencode/ && ' +
+      'cp -R /tmp/arche-archive-source/state/. /home/workspace/.local/state/opencode/ && ' +
       'exec opencode "$@"', 'arche-archive'],
     Cmd: ['serve', '--hostname', '0.0.0.0', '--port', '4096'],
     Env: [
@@ -361,6 +377,18 @@ export async function createArchiveContainer(slug: string, password: string): Pr
     HostConfig: {
       NetworkMode: getOpencodeNetwork(),
       RestartPolicy: { Name: 'no' },
+      ReadonlyRootfs: true,
+      CapDrop: ['ALL'],
+      CapAdd: ['DAC_OVERRIDE'],
+      SecurityOpt: ['no-new-privileges'],
+      PidsLimit: 128,
+      Memory: 2 * 1024 * 1024 * 1024,
+      MemorySwap: 2 * 1024 * 1024 * 1024,
+      NanoCpus: 2_000_000_000,
+      Tmpfs: {
+        '/tmp': 'rw,nosuid,nodev,size=256m,mode=1777',
+        '/home/workspace': 'rw,nosuid,nodev,size=2048m,mode=0700',
+      },
       Binds: [
         `arche-workspace-${slug}:/workspace:ro`,
         `arche-opencode-share-${slug}:/tmp/arche-archive-source/share:ro`,

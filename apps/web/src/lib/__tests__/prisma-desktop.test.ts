@@ -202,6 +202,7 @@ describe('desktop prisma context isolation', () => {
       .mockResolvedValueOnce([{ name: 'regeneration_change_id' }])
       .mockResolvedValueOnce([{ name: 'runtime_kind' }])
       .mockResolvedValueOnce([{ name: 'validated_at' }])
+      .mockResolvedValueOnce([{ name: 'organization_approved_hash' }])
 
     mockGeneratedPrismaClient.mockImplementationOnce(({ adapter }: { adapter: { url: string } }) => ({
       adapterUrl: adapter.url,
@@ -228,6 +229,7 @@ describe('desktop prisma context isolation', () => {
       .mockResolvedValueOnce([{ name: 'id' }])
       .mockResolvedValueOnce([{ name: 'runtime_kind' }])
       .mockResolvedValueOnce([{ name: 'validated_at' }])
+      .mockResolvedValueOnce([{ name: 'organization_approved_hash' }])
 
     mockGeneratedPrismaClient.mockImplementationOnce(({ adapter }: { adapter: { url: string } }) => ({
       adapterUrl: adapter.url,
@@ -305,7 +307,15 @@ describe('desktop prisma context isolation', () => {
       expect(database.prepare('SELECT id, slug, status, container_id, server_password, runtime_kind FROM instances').all()).toEqual([
         { id: 'instance-1', slug: 'alice', status: 'running', container_id: 'container-1', server_password: 'enc-pw', runtime_kind: null },
       ])
-      expect(database.prepare("SELECT value FROM _arche_schema_meta WHERE key = 'schema_version'").get()).toEqual({ value: '14' })
+      expect(database.prepare("SELECT value FROM _arche_schema_meta WHERE key = 'schema_version'").get()).toEqual({ value: '15' })
+      database.prepare('INSERT INTO flows (id, user_id, name, definition, updated_at, visibility, organization_can_run) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run('existing-flow', 'user-1', 'Shared flow', '{"version":1}', '2026-10-20', 'team', 1)
+      database.exec('ALTER TABLE flows DROP COLUMN organization_approved_hash')
+      database.prepare("UPDATE _arche_schema_meta SET value = '14' WHERE key = 'schema_version'").run()
+      await initDesktopDatabase()
+      expect(database.prepare('SELECT definition, organization_can_run, organization_approved_hash FROM flows WHERE id = ?').get('existing-flow')).toEqual({
+        definition: '{"version":1}', organization_can_run: 1, organization_approved_hash: null,
+      })
       if (mode === 'upgrade') {
         expect(database.prepare('SELECT messages, validated_at FROM legacy_session_archives WHERE id = ?').get('old-archive')).toEqual({
           messages: '[{"id":"old-message"}]', validated_at: null,

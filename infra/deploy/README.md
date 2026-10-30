@@ -42,8 +42,10 @@ Remote VPS (/opt/arche)
 
 ## Prerequisites
 
-- **Local machine**: Bash, Podman + podman-compose, Ansible (`pip install ansible`)
-- **Remote VPS**: Debian/Ubuntu (fresh or existing), SSH access
+- **Local machine**: Bash, Podman + podman-compose, Python 3.14 and pinned Ansible (`pip install --require-hashes -r requirements.txt`; `ansible-galaxy collection install -r collections.yml`)
+- **Remote VPS**: Debian/Ubuntu (fresh or existing), SSH access with independently verified host keys in `known_hosts`. CI requires the `VPS_KNOWN_HOSTS` secret.
+
+See [security rollout prerequisites](../security-hardening.md#deployment-prerequisites) before upgrading existing workspaces.
 
 ## Deployment Modes
 
@@ -299,7 +301,7 @@ HTTP-01 challenge is used in direct remote mode. Make sure your domain resolves 
 |---------|-------|---------|
 | Traefik | `traefik:v3.6.7` | Reverse proxy, direct-mode TLS termination, routing |
 | cloudflared | `cloudflare/cloudflared:2026.5.0` | Cloudflare Tunnel client in tunnel mode |
-| docker-socket-proxy | `ghcr.io/tecnativa/docker-socket-proxy:latest` | Secure container API access |
+| docker-socket-proxy | `ghcr.io/tecnativa/docker-socket-proxy@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459` | Secure container API access |
 | PostgreSQL | `postgres:16` | Database |
 | Web | Configurable (`WEB_IMAGE`) | Next.js app (BFF + spawner) |
 

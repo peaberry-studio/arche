@@ -7,3 +7,6 @@ yarn-error.log*
 .env
 .env.local
 .env.*.local
+playwright
+playwright-report
+test-results

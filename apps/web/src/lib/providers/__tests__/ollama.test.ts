@@ -13,7 +13,7 @@ import {
   validateOllamaURL,
 } from '@/lib/providers/ollama'
 
-const PUBLIC_LOOKUP = vi.fn(async () => [{ address: '203.0.113.10', family: 4 }])
+const PUBLIC_LOOKUP = vi.fn(async () => [{ address: '8.8.8.8', family: 4 }])
 
 describe('ollama provider helpers', () => {
   beforeEach(() => {
