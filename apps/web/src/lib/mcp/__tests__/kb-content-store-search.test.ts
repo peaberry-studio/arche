@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   cleanupClone: vi.fn(),
   cloneRepoToTemp: vi.fn(),
   hasBareRepoLayout: vi.fn(),
+  runGit: vi.fn(),
   runGitOnBareRepo: vi.fn(),
 }))
 
@@ -33,6 +34,7 @@ vi.mock('@/lib/git/bare-repo', () => ({
   isGitAvailable: vi.fn().mockResolvedValue(true),
   mutateBareRepo: vi.fn(),
   resolveRepoRoot: vi.fn().mockResolvedValue('/kb-content.git'),
+  runGit: mocks.runGit,
   runGitOnBareRepo: mocks.runGitOnBareRepo,
 }))
 
@@ -69,6 +71,7 @@ describe('searchKb', () => {
     mocks.hasBareRepoLayout.mockResolvedValue(true)
     mocks.cloneRepoToTemp.mockResolvedValue({ ok: true, dir: cloneDir, gitEnv: {}, safeConfigDir: '/tmp/safe' })
     headIs('abc123')
+    mocks.runGit.mockResolvedValue({ ok: true, stdout: '' })
     embeddings.embedPassages.mockImplementation(async (texts: string[]) => texts.map(fakeEmbedding))
     embeddings.embedQuery.mockImplementation(async (text: string) => fakeEmbedding(text))
   })
@@ -142,6 +145,20 @@ describe('searchKb', () => {
 
     expect(mocks.cloneRepoToTemp).toHaveBeenCalledTimes(2)
     expect(result.ok && result.matches.map((match) => match.path)).toEqual(['Proyectos/New/00 - New.md'])
+  })
+
+  it('reads the articles at the HEAD it resolved', async () => {
+    const { searchKb } = await import('@/lib/mcp/kb-content-store')
+    await searchKb({ query: 'vercel' })
+
+    expect(mocks.runGit).toHaveBeenCalledWith(['checkout', '--quiet', '--detach', 'abc123'], { cwd: cloneDir, env: {} })
+  })
+
+  it('returns search_failed when the resolved HEAD cannot be checked out', async () => {
+    mocks.runGit.mockResolvedValueOnce({ ok: false, stderr: 'fatal: reference is not a tree' })
+
+    const { searchKb } = await import('@/lib/mcp/kb-content-store')
+    expect(await searchKb({ query: 'vercel' })).toEqual({ ok: false, error: 'search_failed' })
   })
 
   it('returns no matches for a repository without commits', async () => {

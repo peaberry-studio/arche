@@ -38,14 +38,12 @@ let currentIndex: SearchIndex | null = null
 let pendingBuild: { headHash: string; promise: Promise<SearchIndex | null> } | null = null
 
 export async function searchKbIndex(input: {
-  headHash: string | null
+  headHash: string
   loadArticles: LoadArticles
   query: string
   pathPrefix?: string
   limit: number
 }): Promise<{ ok: true; matches: KbSearchMatch[] } | { ok: false; error: 'search_failed' }> {
-  if (input.headHash === null) return { ok: true, matches: [] }
-
   const index = await getIndex(input.headHash, input.loadArticles)
   if (!index) return { ok: false, error: 'search_failed' }
   if (index.sections.length === 0) return { ok: true, matches: [] }

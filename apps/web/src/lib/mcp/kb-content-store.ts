@@ -8,6 +8,7 @@ import {
   hasBareRepoLayout,
   isGitAvailable,
   resolveRepoRoot,
+  runGit,
   runGitOnBareRepo,
 } from '@/lib/git/bare-repo'
 import { searchKbIndex, type KbArticleContent } from '@/lib/mcp/kb-search-index'
@@ -120,12 +121,13 @@ export async function searchKb(input: { query: string; path?: string; limit?: nu
   if (!root || !(await hasBareRepoLayout(root))) return { ok: false, error: 'kb_unavailable' }
 
   const head = await runGitOnBareRepo(root, ['rev-parse', '--verify', '-q', 'HEAD'])
-  if (!head.ok && head.stderr) return { ok: false, error: 'read_failed' }
+  if (!head.ok) return head.stderr ? { ok: false, error: 'read_failed' } : { ok: true, matches: [] }
 
+  const headHash = head.stdout.trim()
   return searchKbIndex({
-    headHash: head.ok ? head.stdout.trim() : null,
+    headHash,
     limit: Math.min(Math.max(input.limit ?? SEARCH_DEFAULT_LIMIT, 1), SEARCH_MAX_LIMIT),
-    loadArticles: () => readContentRepo(({ repoDir }) => readAllArticlesInRepo(repoDir)),
+    loadArticles: () => readContentRepo((context) => readAllArticlesAtCommit(context, headHash)),
     pathPrefix,
     query,
   })
@@ -161,10 +163,14 @@ async function listKbArticlesInRepo(repoDir: string, input: { path?: string } = 
   return { ok: true, articles }
 }
 
-async function readAllArticlesInRepo(repoDir: string): Promise<
+// The index is keyed by the HEAD resolved before cloning, so it reads that commit even if a newer one landed since.
+async function readAllArticlesAtCommit({ repoDir, gitEnv }: CloneContext, commit: string): Promise<
   | { ok: true; articles: KbArticleContent[] }
   | { ok: false; error: KbReadError }
 > {
+  const checkout = await runGit(['checkout', '--quiet', '--detach', commit], { cwd: repoDir, env: gitEnv })
+  if (!checkout.ok) return { ok: false, error: 'read_failed' }
+
   const files = await listMarkdownFiles(repoDir, repoDir, '')
   const articles: KbArticleContent[] = []
   for (const file of files) {

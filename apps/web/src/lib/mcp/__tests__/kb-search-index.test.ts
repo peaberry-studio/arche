@@ -86,14 +86,6 @@ describe('kb search index', () => {
     expect(loadArticles).toHaveBeenCalledTimes(1)
   })
 
-  it('returns no matches for an empty repository without loading', async () => {
-    const { searchKbIndex } = await import('@/lib/mcp/kb-search-index')
-    const loadArticles = loaderOf(ARTICLES)
-
-    expect(await searchKbIndex({ headHash: null, loadArticles, query: 'vercel', limit: 10 })).toEqual({ ok: true, matches: [] })
-    expect(loadArticles).not.toHaveBeenCalled()
-  })
-
   it('returns no matches for a repository without articles without embedding the query', async () => {
     const { searchKbIndex } = await import('@/lib/mcp/kb-search-index')
 
