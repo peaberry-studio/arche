@@ -34,3 +34,9 @@
 - [x] 5.3 Persist section vectors keyed by passage hash and model revision; read them on a process's first build and rewrite them after embedding (design D5). Verify with `__tests__/kb-search-vector-cache.test.ts` and `__tests__/kb-search-index.test.ts`.
 - [x] 5.4 Fetch the four pinned model files verified by SHA-256 and load them with remote access disabled; bake them into the web image, drop other platforms' `onnxruntime-node` binaries and `onnxruntime-web`, and mount the vector cache directory in the Ansible deploy.
 - [x] 5.5 Trim the model vocabulary to Spanish and English with `scripts/trim-kb-search-model.py`, publish it at a pinned Hugging Face revision and switch the pinned files to it; check memory, embedding drift and the evaluation queries against the original model (design D3).
+
+## 6. Review follow-up fixes (second review)
+
+- [x] 6.1 Rank by terms only on runtimes without the embedding model: add the `kbSemanticSearch` runtime capability (false on desktop) and skip vectors, the vector cache and the embedder when it is off, so the packaged desktop app no longer returns `search_failed` for every query (design D6). Verify with `__tests__/kb-search-index.test.ts` and the capability matrix.
+- [x] 6.2 Return no matches for an index without sections before embedding the query (design D5).
+- [x] 6.3 Check out the resolved HEAD in the clone before reading articles, so the index content always matches its key (design D5). Verify with `__tests__/kb-content-store-search.test.ts`.

@@ -15,6 +15,11 @@ Defines how MCP clients search the Knowledge Base: ranked hybrid retrieval that 
 - **WHEN** a client searches `dónde se aloja la web` and an article describes the site hosting using the word `hosting`
 - **THEN** that article is returned among the results
 
+#### Scenario: Runtime without the embedding model
+- **WHEN** a client searches on the desktop runtime, which ships no embedding model
+- **THEN** articles are ranked by query terms only, with the same result shape
+- **AND** the embedding model is never loaded
+
 #### Scenario: Accent and case folding
 - **WHEN** a client searches `indice de proyectos`
 - **THEN** an article titled `Índice de proyectos` is returned
@@ -55,7 +60,7 @@ Search results SHALL reflect the content repository's current `HEAD` commit at t
 - **THEN** search returns an empty result set
 
 ### Requirement: Search failures are explicit
-If the search index cannot be built (repository unreadable, embedding model unavailable, or inference error), `search_kb` SHALL return an error result instead of partial or lexical-only results, and the next search SHALL retry the build.
+If the search index cannot be built on a runtime that ships the embedding model (repository unreadable, embedding model unavailable, or inference error), `search_kb` SHALL return an error result instead of partial or lexical-only results, and the next search SHALL retry the build.
 
 #### Scenario: Embedding model fails to load
 - **WHEN** the embedding model cannot be loaded during a search
