@@ -9,6 +9,7 @@ import { formatFlowRunDate } from '@/lib/flows/cron'
 import { dispatchFlowExecution } from '@/lib/flows/execution-dispatcher'
 import { getFlowNodeById, getFlowOutgoingTargets } from '@/lib/flows/graph'
 import { executeFlowNode } from '@/lib/flows/node-executors'
+import { canRunFlow } from '@/lib/flows/permissions'
 import { planFlowRetry } from '@/lib/flows/retry-policy'
 import { validateFlowSlackNodeAccess } from '@/lib/flows/route-auth'
 import { serializeFlowRun } from '@/lib/flows/serializers'
@@ -75,6 +76,7 @@ async function validateFlowDefinitionForExecution(
   flow: FlowRecord,
   executionUser: FlowExecutionUser,
 ): Promise<{ ok: true; definition: FlowDefinition } | { ok: false; error: string }> {
+  if (!canRunFlow(executionUser, flow)) return { ok: false, error: 'flow_approval_required' }
   const definitionResult = validateFlowDefinition(flow.definition)
   if (!definitionResult.ok) return { ok: false, error: definitionResult.error }
 
@@ -543,7 +545,7 @@ export async function triggerFlowNow(params: {
   flowId: string
   ownerUserId?: string
   trigger: FlowRunTrigger
-}): Promise<{ ok: true; runId: string } | { ok: false; error: 'not_found' | 'flow_busy' }> {
+}): Promise<{ ok: true; runId: string } | { ok: false; error: 'not_found' | 'flow_busy' | 'flow_approval_required' }> {
   const now = new Date()
   const leaseOwner = await createFlowLeaseOwner()
   const claimed = await flowService.claimFlowForImmediateRun({
@@ -565,7 +567,12 @@ export async function triggerFlowNow(params: {
     return { ok: false, error: 'flow_busy' }
   }
 
-  return dispatchClaimedFlowRun(claimed, params.trigger, params.executionUserId ?? claimed.userId)
+  const executionUserId = params.executionUserId ?? claimed.userId
+  if (!canRunFlow({ id: executionUserId, role: 'USER' }, claimed)) {
+    await flowService.releaseFlowLease(claimed.id, leaseOwner)
+    return { ok: false, error: 'flow_approval_required' }
+  }
+  return dispatchClaimedFlowRun(claimed, params.trigger, executionUserId)
 }
 
 export async function resumeFlowRun(params: {

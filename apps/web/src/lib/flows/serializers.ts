@@ -1,13 +1,5 @@
 import { Prisma } from '@prisma/client'
 
-import type {
-  FlowDetail,
-  FlowListItem,
-  FlowPermissions,
-  FlowRunListItem,
-  FlowRunStepListItem,
-  FlowUserSummary,
-} from '@/lib/flows/types'
 import {
   canCopyFlow,
   canEditFlow,
@@ -16,6 +8,15 @@ import {
   canViewFlow,
   canViewFlowRun,
 } from '@/lib/flows/permissions'
+import { getFlowDefinitionRevision, hasFlowSharingApproval } from '@/lib/flows/sharing-approval'
+import type {
+  FlowDetail,
+  FlowListItem,
+  FlowPermissions,
+  FlowRunListItem,
+  FlowRunStepListItem,
+  FlowUserSummary,
+} from '@/lib/flows/types'
 import { validateFlowDefinition } from '@/lib/flows/validation'
 import type {
   FlowDetailRecord,
@@ -86,6 +87,7 @@ function getPermissions(flow: FlowListRecord | FlowDetailRecord, actor?: FlowPer
   const permissionActor = actor ?? { id: flow.userId, role: 'USER' }
 
   return {
+    canApprove: permissionActor.role === 'ADMIN',
     canCopy: canCopyFlow(permissionActor, flow),
     canEdit: canEditFlow(permissionActor, flow),
     canManage: canManageFlow(permissionActor, flow),
@@ -119,6 +121,7 @@ export function serializeFlowListItem(flow: FlowListRecord, actor?: FlowPermissi
   const latestRun = flow.runs.find((run) => isRunVisibleToActor(flow, run, permissionActor))
 
   return {
+    sharingApproval: { approved: hasFlowSharingApproval(flow), revision: getFlowDefinitionRevision(flow.definition) },
     createdAt: flow.createdAt.toISOString(),
     cronExpression: flow.cronExpression,
     definition: parseDefinition(flow.definition),

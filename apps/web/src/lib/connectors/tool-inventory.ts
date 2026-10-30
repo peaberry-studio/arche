@@ -7,6 +7,7 @@ import type { ConnectorType } from '@/lib/connectors/types'
 import { getUmamiMcpTools, parseUmamiConnectorConfig } from '@/lib/connectors/umami'
 import { getZendeskMcpTools, parseZendeskConnectorConfig } from '@/lib/connectors/zendesk'
 import { isRecord } from '@/lib/records'
+import { publicFetch } from '@/lib/security/public-fetch'
 import { validateConnectorTestEndpoint } from '@/lib/security/ssrf'
 import { INITIAL_SSE_PARSE_STATE, parseSseChunk } from '@/lib/sse-parser'
 
@@ -238,7 +239,7 @@ async function loadRemoteConnectorToolInventory(
   const timeout = setTimeout(() => controller.abort(), REMOTE_TOOL_LIST_TIMEOUT_MS)
 
   try {
-    const response = await fetch(url.toString(), {
+    const response = await publicFetch(url.toString(), {
       method: 'POST',
       headers,
       body: JSON.stringify({

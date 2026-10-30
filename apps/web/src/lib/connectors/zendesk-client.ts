@@ -120,6 +120,7 @@ export async function requestZendeskJson(input: {
       headers,
       body,
       cache: 'no-store',
+      redirect: 'error',
       signal: controller.signal,
     })
 

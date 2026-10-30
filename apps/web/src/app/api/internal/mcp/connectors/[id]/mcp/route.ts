@@ -11,6 +11,7 @@ import { isOAuthConnectorType } from '@/lib/connectors/oauth'
 import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
 import { refreshConnectorOAuthConfigIfNeeded } from '@/lib/connectors/oauth-refresh'
 import { validateConnectorType } from '@/lib/connectors/validators'
+import { isWorkspaceCredentialCurrent } from '@/lib/security/workspace-auth'
 import { connectorService } from '@/lib/services'
 
 export const runtime = 'nodejs'
@@ -43,6 +44,10 @@ async function handleProxy(
 
   if (payload.connectorId !== id) {
     return NextResponse.json({ error: 'connector_mismatch' }, { status: 403 })
+  }
+
+  if (!await isWorkspaceCredentialCurrent(payload.workspaceSlug, payload.credentialEpoch)) {
+    return NextResponse.json({ error: 'stale_token' }, { status: 401 })
   }
 
   const connector = await connectorService.findEnabledByIdAndUserId(id, payload.userId)

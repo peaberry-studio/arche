@@ -83,10 +83,12 @@ vi.mock('@/lib/slack/notifications', () => ({
 }))
 
 import { dispatchClaimedFlowRun, resumeFlowRun, runClaimedFlow, triggerFlowNow } from '@/lib/flows/runner'
+import { getFlowDefinitionRevision } from '@/lib/flows/sharing-approval'
+import type { FlowClaimedRecord } from '@/lib/services/flow-records'
 
 const now = new Date('2026-05-12T10:00:00.000Z')
 
-function createClaimedFlow() {
+function createClaimedFlow(): FlowClaimedRecord {
   return {
     createdAt: now,
     cronExpression: null,
@@ -415,7 +417,11 @@ describe('triggerFlowNow', () => {
   })
 
   it('runs shared manual flows in the execution user workspace', async () => {
-    mocks.claimFlowForImmediateRun.mockResolvedValue(createClaimedFlow())
+    const flow = createClaimedFlow()
+    flow.visibility = 'team'
+    flow.organizationCanRun = true
+    flow.organizationApprovedHash = getFlowDefinitionRevision(flow.definition)
+    mocks.claimFlowForImmediateRun.mockResolvedValue(flow)
     mocks.createRun.mockResolvedValue(createRunRecord({ executionUserId: 'user-2' }))
     mocks.userFindByIdSelect.mockResolvedValue({ role: 'USER', slug: 'bob' })
 
@@ -456,6 +462,9 @@ describe('triggerFlowNow', () => {
       startNodeId: 'slack-1',
       version: 1,
     }
+    flow.visibility = 'team'
+    flow.organizationCanRun = true
+    flow.organizationApprovedHash = getFlowDefinitionRevision(flow.definition)
     mocks.claimFlowForImmediateRun.mockResolvedValue(flow)
     mocks.createRun.mockResolvedValue(createRunRecord({ executionUserId: 'user-2', id: 'run-shared-slack' }))
     mocks.userFindByIdSelect.mockResolvedValue({ role: 'USER', slug: 'bob' })

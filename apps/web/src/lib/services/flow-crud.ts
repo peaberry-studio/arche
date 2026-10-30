@@ -154,3 +154,11 @@ export async function deleteFlowByIdAndOwnerId(id: string, ownerUserId: string) 
 
   return result
 }
+
+export async function setFlowSharingApproval(id: string, updatedAt: Date, definition: Prisma.InputJsonValue, revision: string | null): Promise<boolean> {
+  const result = await prisma.flow.updateMany({
+    where: { id, updatedAt, definition: { equals: definition }, deletedAt: null, visibility: 'team', organizationCanRun: true },
+    data: { organizationApprovedHash: revision },
+  })
+  return result.count === 1
+}
