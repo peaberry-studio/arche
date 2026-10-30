@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   captureKbArticleForReview: vi.fn(),
   createKnowledgeReviewChange: vi.fn(),
   publishWorkspaceEvent: vi.fn(),
+  runtimeCapabilities: { kbSemanticSearch: true },
 }))
 
 vi.mock('@/lib/mcp/kb-content-store', async (importOriginal) => {
@@ -13,6 +14,10 @@ vi.mock('@/lib/mcp/kb-content-store', async (importOriginal) => {
 vi.mock('@/lib/learning/service', () => ({
   createKnowledgeReviewChange: mocks.createKnowledgeReviewChange,
 }))
+vi.mock('@/lib/runtime/capabilities', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@/lib/runtime/capabilities')>()
+  return { ...original, getRuntimeCapabilities: () => ({ ...original.getRuntimeCapabilities(), ...mocks.runtimeCapabilities }) }
+})
 vi.mock('@/lib/runtime/workspace-broadcast', () => ({ publishWorkspaceEvent: mocks.publishWorkspaceEvent }))
 vi.mock('@/lib/runtime/workspace-broadcast-events', () => ({
   KNOWLEDGE_PROPOSALS_CHANGED_EVENT: 'knowledge.proposals_changed',
@@ -24,6 +29,10 @@ import { MCP_SCOPE_AGENTS_READ, MCP_SCOPE_KB_READ, MCP_SCOPE_KB_WRITE } from '@/
 const user = { id: 'u1', email: 'alice@example.com', slug: 'alice', role: 'USER' }
 
 describe('handleMcpJsonRpcRequest', () => {
+  beforeEach(() => {
+    mocks.runtimeCapabilities.kbSemanticSearch = true
+  })
+
   it('lists only scoped tools and no flow tools', async () => {
     const response = await handleMcpJsonRpcRequest({
       body: { jsonrpc: '2.0', id: 1, method: 'tools/list' },
@@ -65,6 +74,22 @@ describe('handleMcpJsonRpcRequest', () => {
     expect(byName.get('create_kb_article')).toContain('KaTeX')
     expect(byName.get('update_kb_article')).toContain('vega-lite')
     expect(byName.get('update_kb_article')).toContain('KaTeX')
+  })
+
+  it.each([
+    [true, 'by terms and meaning'],
+    [false, 'by terms.'],
+  ])('describes search_kb matching for kbSemanticSearch %s', async (kbSemanticSearch, matching) => {
+    mocks.runtimeCapabilities.kbSemanticSearch = kbSemanticSearch
+    const response = await handleMcpJsonRpcRequest({
+      body: { jsonrpc: '2.0', id: 1, method: 'tools/list' },
+      scopes: [MCP_SCOPE_KB_READ],
+      user,
+    })
+    const body = await response.json() as { result: { tools: Array<{ name: string; description: string }> } }
+    const searchKb = body.result.tools.find((tool) => tool.name === 'search_kb')
+
+    expect(searchKb?.description).toContain(`Search markdown knowledge-base articles ${matching}`)
   })
 
   it('rejects write tool calls without kb:write', async () => {

@@ -70,6 +70,7 @@ const caps: RuntimeCapabilities = {
   googleWorkspaceIntegration: true,
   kbGithubRemoteIntegration: true,
   metaAdsConnector: true,
+  kbSemanticSearch: true,
 }
 
 vi.mock('@/components/connectors/connectors-manager', () => ({

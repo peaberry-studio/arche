@@ -312,6 +312,7 @@ HTTP-01 challenge is used in direct remote mode. Make sure your domain resolves 
 ├── compose.yml
 ├── .env
 └── data/
+    └── kb-search/   # KB search vector cache, mounted into web (rebuilt from the KB if deleted)
 
 /var/lib/arche/
 └── users/
