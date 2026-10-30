@@ -5,6 +5,7 @@ set -euo pipefail
 # Usage:
 #   Remote:    ./deploy.sh --ip <IP> --domain <DOMAIN> [--ssh-key <KEY>] --acme-email <EMAIL>
 #   Tunnel:    ./deploy.sh --ip <IP> --domain <DOMAIN> [--ssh-key <KEY>] --cloudflare-tunnel
+#   Tailscale: ./deploy.sh --ip <IP> --domain <TAILNET-HOSTNAME> [--ssh-key <KEY>] --tailscale
 #   Local dev: ./deploy.sh --local-dev
 #   Local dev down: ./deploy.sh --local-dev-down
 
@@ -160,6 +161,7 @@ Arche One-Click Deployer
 REMOTE MODE:
   ./deploy.sh --ip <IP> --domain <DOMAIN> [--ssh-key <KEY>] --acme-email <EMAIL> [OPTIONS]
   ./deploy.sh --ip <IP> --domain <DOMAIN> [--ssh-key <KEY>] --cloudflare-tunnel [OPTIONS]
+  ./deploy.sh --ip <IP> --domain <TAILNET-HOSTNAME> [--ssh-key <KEY>] --tailscale [OPTIONS]
 
   Required:
     --ip            VPS IP address (IPv4 or IPv6)
@@ -169,6 +171,7 @@ REMOTE MODE:
   Optional:
     --ssh-key       Path to SSH private key (omit to use ssh-agent, ~/.ssh/config, or default OpenSSH keys)
     --cloudflare-tunnel  Use Cloudflare Tunnel instead of public 80/443 + ACME
+    --tailscale     Serve HTTP on host loopback for `tailscale serve` instead of public 80/443 + ACME
     --version       Web image tag to deploy (default: latest)
     --user          SSH user (default: root)
     --skip-ensure-dns-record  Skip DNS verification step before deploy
@@ -179,7 +182,7 @@ REMOTE MODE:
     In direct mode, the script will verify your domain points to the VPS IP.
     If not, it will show you exactly which DNS record to add.
     Works with any domain provider (Cloudflare, GoDaddy, Namecheap, etc.)
-    In Cloudflare Tunnel mode, DNS verification is skipped.
+    In Cloudflare Tunnel and Tailscale modes, DNS verification is skipped.
 
 LOCAL DEV MODE:
   ./deploy.sh --local-dev
@@ -255,6 +258,7 @@ while [[ $# -gt 0 ]]; do
     --user)        SSH_USER="$2";        shift 2 ;;
     --acme-email)  ACME_EMAIL="$2";      REMOTE_FLAGS_SET=true; shift 2 ;;
     --cloudflare-tunnel) EXPOSURE_MODE="cloudflare-tunnel"; EXPOSURE_MODE_SET_BY_FLAG=true; REMOTE_FLAGS_SET=true; shift ;;
+    --tailscale)   EXPOSURE_MODE="tailscale"; EXPOSURE_MODE_SET_BY_FLAG=true; REMOTE_FLAGS_SET=true; shift ;;
     --version)     WEB_VERSION="$2";     shift 2 ;;
     --stop-podman-machine) STOP_PODMAN_MACHINE=true; shift ;;
     --skip-ensure-dns-record) SKIP_ENSURE_DNS_RECORD=true; shift ;;
@@ -330,8 +334,8 @@ PY
 validate_remote() {
   log "Starting validate_remote..."
   case "$EXPOSURE_MODE" in
-    direct|cloudflare-tunnel) ;;
-    *) ERRORS+=("Invalid exposure mode: $EXPOSURE_MODE (expected direct or cloudflare-tunnel)") ;;
+    direct|cloudflare-tunnel|tailscale) ;;
+    *) ERRORS+=("Invalid exposure mode: $EXPOSURE_MODE (expected direct, cloudflare-tunnel or tailscale)") ;;
   esac
 
   [[ -z "$DEPLOY_IP" ]]    && ERRORS+=("--ip is required")
@@ -339,7 +343,7 @@ validate_remote() {
 
   if [[ "$EXPOSURE_MODE" == "direct" ]]; then
     [[ -z "$ACME_EMAIL" ]] && ERRORS+=("--acme-email is required")
-  else
+  elif [[ "$EXPOSURE_MODE" == "cloudflare-tunnel" ]]; then
     [[ -z "${CLOUDFLARED_TUNNEL_TOKEN:-}" ]] && ERRORS+=("CLOUDFLARED_TUNNEL_TOKEN is required when --cloudflare-tunnel is used")
   fi
 
@@ -409,12 +413,12 @@ log "About to determine mode, current MODE=$MODE"
 if [[ "$MODE" == "local-dev" ]]; then
   # Ensure no remote flags were also passed
   if $REMOTE_FLAGS_SET; then
-    ERRORS+=("--${MODE} is mutually exclusive with remote flags (--ip, --domain, --ssh-key, --acme-email, --cloudflare-tunnel)")
+    ERRORS+=("--${MODE} is mutually exclusive with remote flags (--ip, --domain, --ssh-key, --acme-email, --cloudflare-tunnel, --tailscale)")
   fi
   validate_local
 elif [[ "$MODE" == "local-dev-down" ]]; then
   if $REMOTE_FLAGS_SET; then
-    ERRORS+=("--${MODE} is mutually exclusive with remote flags (--ip, --domain, --ssh-key, --acme-email, --cloudflare-tunnel)")
+    ERRORS+=("--${MODE} is mutually exclusive with remote flags (--ip, --domain, --ssh-key, --acme-email, --cloudflare-tunnel, --tailscale)")
   fi
 elif $REMOTE_FLAGS_SET; then
   MODE="remote"
@@ -434,7 +438,7 @@ fi
 
 log "Validation passed, MODE=$MODE"
 
-if [[ "$MODE" == "remote" && "$EXPOSURE_MODE" == "cloudflare-tunnel" && -z "${ARCHE_PUBLIC_BASE_URL:-}" ]]; then
+if [[ "$MODE" == "remote" && ( "$EXPOSURE_MODE" == "cloudflare-tunnel" || "$EXPOSURE_MODE" == "tailscale" ) && -z "${ARCHE_PUBLIC_BASE_URL:-}" ]]; then
   export ARCHE_PUBLIC_BASE_URL="https://${DEPLOY_DOMAIN}"
   log "Using ARCHE_PUBLIC_BASE_URL=$ARCHE_PUBLIC_BASE_URL"
 fi
@@ -583,8 +587,8 @@ deploy_remote() {
   fi
   log "SSH connection OK"
 
-  if [[ "$EXPOSURE_MODE" == "cloudflare-tunnel" ]]; then
-    warn "Skipping DNS verification (Cloudflare Tunnel mode)"
+  if [[ "$EXPOSURE_MODE" == "cloudflare-tunnel" || "$EXPOSURE_MODE" == "tailscale" ]]; then
+    warn "Skipping DNS verification ($EXPOSURE_MODE mode)"
   elif $SKIP_ENSURE_DNS_RECORD; then
     warn "Skipping DNS verification (--skip-ensure-dns-record enabled)"
   else
