@@ -87,7 +87,7 @@ jobs:
     name: Web - E2E Smoke
     needs: detect-changes
     if: needs.detect-changes.outputs.web == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     services:
