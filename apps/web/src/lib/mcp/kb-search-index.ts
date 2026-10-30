@@ -12,17 +12,23 @@ import {
 } from '@/lib/mcp/kb-search-ranking'
 import { splitArticleIntoSections, type KbSection } from '@/lib/mcp/kb-search-sections'
 import { readVectorCache, writeVectorCache } from '@/lib/mcp/kb-search-vector-cache'
+import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 
 export type KbArticleContent = { path: string; content: string }
 
 type LoadArticles = () => Promise<{ ok: true; articles: KbArticleContent[] } | { ok: false; error: string }>
 
+type SemanticIndex = {
+  vectors: Float32Array[]
+  vectorsByPassage: Map<string, Float32Array>
+}
+
+// `semantic` is null where the runtime ships no embedding model, so search ranks by terms only.
 type SearchIndex = {
   headHash: string
   sections: KbSection[]
   lexical: LexicalIndex
-  vectors: Float32Array[]
-  vectorsByPassage: Map<string, Float32Array>
+  semantic: SemanticIndex | null
 }
 
 const MIN_SEMANTIC_SIMILARITY = 0.4
@@ -43,20 +49,23 @@ export async function searchKbIndex(input: {
   const index = await getIndex(input.headHash, input.loadArticles)
   if (!index) return { ok: false, error: 'search_failed' }
 
-  const queryVector = await embedQuery(input.query).catch((error: unknown) => {
-    console.error('[kb-search] Query embedding failed', error)
-    return null
-  })
-  if (!queryVector) return { ok: false, error: 'search_failed' }
-
   const allowed = (position: number) =>
     !input.pathPrefix || index.sections[position].path.startsWith(`${input.pathPrefix}/`)
-  const lexicalRanking = rankLexical(index.lexical, input.query).filter(allowed)
-  const semanticRanking = rankSemantic(index.vectors, queryVector, MIN_SEMANTIC_SIMILARITY)
-    .filter(allowed)
-    .slice(0, SEMANTIC_CANDIDATES)
+  const rankings = [rankLexical(index.lexical, input.query).filter(allowed)]
 
-  const scores = fuseRankings([lexicalRanking, semanticRanking])
+  if (index.semantic) {
+    const queryVector = await embedQuery(input.query).catch((error: unknown) => {
+      console.error('[kb-search] Query embedding failed', error)
+      return null
+    })
+    if (!queryVector) return { ok: false, error: 'search_failed' }
+
+    rankings.push(rankSemantic(index.semantic.vectors, queryVector, MIN_SEMANTIC_SIMILARITY)
+      .filter(allowed)
+      .slice(0, SEMANTIC_CANDIDATES))
+  }
+
+  const scores = fuseRankings(rankings)
   return { ok: true, matches: aggregateByArticle(index.sections, scores, input.limit) }
 }
 
@@ -64,7 +73,7 @@ function getIndex(headHash: string, loadArticles: LoadArticles): Promise<SearchI
   if (currentIndex?.headHash === headHash) return Promise.resolve(currentIndex)
   if (pendingBuild?.headHash === headHash) return pendingBuild.promise
 
-  const promise = buildIndex(headHash, loadArticles, currentIndex?.vectorsByPassage ?? null).catch((error: unknown) => {
+  const promise = buildIndex(headHash, loadArticles, currentIndex?.semantic?.vectorsByPassage ?? null).catch((error: unknown) => {
     console.error('[kb-search] Index build failed', error)
     return null
   }).then((index) => {
@@ -89,6 +98,17 @@ async function buildIndex(
   }
 
   const sections = loaded.articles.flatMap((article) => splitArticleIntoSections(article.path, article.content))
+  const lexical = buildLexicalIndex(sections)
+  if (!getRuntimeCapabilities().kbSemanticSearch) return { headHash, sections, lexical, semantic: null }
+
+  const semantic = await buildSemanticIndex(sections, previousVectors)
+  return semantic ? { headHash, sections, lexical, semantic } : null
+}
+
+async function buildSemanticIndex(
+  sections: KbSection[],
+  previousVectors: Map<string, Float32Array> | null,
+): Promise<SemanticIndex | null> {
   const passages = sections.map((section) => `${section.heading || section.path}\n${section.text}`)
   const vectorsByPassage = await resolveVectors(passages, previousVectors ?? await readVectorCache())
 
@@ -99,7 +119,7 @@ async function buildIndex(
     vectors.push(vector)
   }
 
-  return { headHash, sections, lexical: buildLexicalIndex(sections), vectors, vectorsByPassage }
+  return { vectors, vectorsByPassage }
 }
 
 // Reuses known vectors, embeds only new passages and persists the result when it changed.

@@ -16,6 +16,12 @@ const vectorCache = vi.hoisted(() => ({
 
 vi.mock('@/lib/mcp/kb-search-vector-cache', () => vectorCache)
 
+const capabilities = vi.hoisted(() => ({ kbSemanticSearch: true }))
+
+vi.mock('@/lib/runtime/capabilities', () => ({
+  getRuntimeCapabilities: () => capabilities,
+}))
+
 type Article = { path: string; content: string }
 
 const ARTICLES: Article[] = [
@@ -35,6 +41,7 @@ describe('kb search index', () => {
     embeddings.embedQuery.mockImplementation(async (text: string) => fakeEmbedding(text))
     vectorCache.readVectorCache.mockResolvedValue(new Map())
     vectorCache.writeVectorCache.mockResolvedValue(undefined)
+    capabilities.kbSemanticSearch = true
   })
 
   it('ranks articles from the loaded content', async () => {
@@ -85,6 +92,23 @@ describe('kb search index', () => {
 
     expect(await searchKbIndex({ headHash: null, loadArticles, query: 'vercel', limit: 10 })).toEqual({ ok: true, matches: [] })
     expect(loadArticles).not.toHaveBeenCalled()
+  })
+
+  it('ranks by terms only without the model when semantic search is unavailable', async () => {
+    capabilities.kbSemanticSearch = false
+    const { searchKbIndex } = await import('@/lib/mcp/kb-search-index')
+    const loadArticles = loaderOf(ARTICLES)
+
+    const lexical = await searchKbIndex({ headHash: 'h1', loadArticles, query: 'vercel hosting', limit: 10 })
+    const paraphrase = await searchKbIndex({ headHash: 'h1', loadArticles, query: 'dónde se aloja', limit: 10 })
+
+    expect(lexical.ok && lexical.matches.map((match) => match.path)).toEqual(['Proyectos/Magua/00 - Magua.md'])
+    expect(paraphrase).toEqual({ ok: true, matches: [] })
+    expect(loadArticles).toHaveBeenCalledTimes(1)
+    expect(embeddings.embedPassages).not.toHaveBeenCalled()
+    expect(embeddings.embedQuery).not.toHaveBeenCalled()
+    expect(vectorCache.readVectorCache).not.toHaveBeenCalled()
+    expect(vectorCache.writeVectorCache).not.toHaveBeenCalled()
   })
 
   it('restricts matches to the path prefix', async () => {
