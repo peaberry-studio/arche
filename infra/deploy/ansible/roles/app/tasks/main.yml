@@ -62,7 +62,7 @@
     - deploy_mode == 'remote'
     - exposure_mode == 'direct'
 
-- name: Remove public HTTP UFW allow rule in tunnel mode
+- name: Remove public HTTP UFW allow rule in tunnel and Tailscale modes
   community.general.ufw:
     rule: allow
     port: "80"
@@ -70,9 +70,9 @@
     delete: true
   when:
     - deploy_mode == 'remote'
-    - exposure_mode == 'cloudflare-tunnel'
+    - exposure_mode in ['cloudflare-tunnel', 'tailscale']
 
-- name: Remove public HTTPS UFW allow rule in tunnel mode
+- name: Remove public HTTPS UFW allow rule in tunnel and Tailscale modes
   community.general.ufw:
     rule: allow
     port: "443"
@@ -80,7 +80,7 @@
     delete: true
   when:
     - deploy_mode == 'remote'
-    - exposure_mode == 'cloudflare-tunnel'
+    - exposure_mode in ['cloudflare-tunnel', 'tailscale']
 
 - name: Create users data directory
   ansible.builtin.file:
