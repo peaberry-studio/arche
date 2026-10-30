@@ -40,3 +40,4 @@
 - [x] 6.1 Rank by terms only on runtimes without the embedding model: add the `kbSemanticSearch` runtime capability (false on desktop) and skip vectors, the vector cache and the embedder when it is off, so the packaged desktop app no longer returns `search_failed` for every query (design D6). Verify with `__tests__/kb-search-index.test.ts` and the capability matrix.
 - [x] 6.2 Return no matches for an index without sections before embedding the query (design D5).
 - [x] 6.3 Check out the resolved HEAD in the clone before reading articles, so the index content always matches its key (design D5). Verify with `__tests__/kb-content-store-search.test.ts`.
+- [x] 6.4 Describe `search_kb` matching from the `kbSemanticSearch` capability, so agents on desktop are told it matches by terms only (design D6). Verify with `__tests__/server.test.ts`.

@@ -20,6 +20,7 @@ import {
   readSkillResource,
 } from '@/lib/mcp/workspace-tools'
 import { isRecord } from '@/lib/records'
+import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 import type { RuntimeUser } from '@/lib/runtime/types'
 import { publishWorkspaceEvent } from '@/lib/runtime/workspace-broadcast'
 import { KNOWLEDGE_PROPOSALS_CHANGED_EVENT } from '@/lib/runtime/workspace-broadcast-events'
@@ -201,7 +202,7 @@ function buildToolDefinitions(scopes: readonly string[], user: RuntimeUser): Too
       }),
       defineTool({
         name: 'search_kb',
-        description: 'Search markdown knowledge-base articles by terms and meaning. Returns the most relevant articles first, one match per article with its best section heading, start line and a short snippet. Use this when the relevant article is unknown; optional path restricts results to a folder.',
+        description: `Search markdown knowledge-base articles ${getRuntimeCapabilities().kbSemanticSearch ? 'by terms and meaning' : 'by terms. Paraphrases that share no terms with an article do not match it'}. Returns the most relevant articles first, one match per article with its best section heading, start line and a short snippet. Use this when the relevant article is unknown; optional path restricts results to a folder.`,
         args: { query: { type: 'string', required: true }, path: { type: 'string' }, limit: { type: 'number' } },
         handler: (a) => searchKb({ query: str(a, 'query'), path: optStr(a, 'path'), limit: optNum(a, 'limit') }),
       }),
