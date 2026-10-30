@@ -1,0 +1,36 @@
+name: tks-web
+description: team-knowledge-spaces lane web (task groups 1-5) on OpenCode with GPT-6.1-Sol, one fresh implementer per task group
+# Brief: .convoy/pipelines/team-knowledge-spaces.prompt.md
+steps:
+  - agent: implementer
+    name: impl-data
+    runner: opencode
+    model: openai/gpt-6.1-sol#high
+    advisor: openai/gpt-6-astra#xhigh
+    reports: none
+  - agent: implementer
+    name: impl-api
+    runner: opencode
+    model: openai/gpt-6.1-sol#high
+    advisor: false
+    reports: previous
+    diff: false
+  - agent: implementer
+    name: impl-wiring
+    runner: opencode
+    model: openai/gpt-6.1-sol#high
+    advisor: openai/gpt-6-astra#xhigh
+    reports: [impl-data, impl-api]
+    diff: false
+  - agent: implementer
+    name: impl-ui
+    runner: opencode
+    model: openai/gpt-6.1-sol#high
+    advisor: false
+    reports: [impl-api, impl-wiring]
+    diff: false
+  - agent: design
+    runner: opencode
+    model: openai/gpt-6.1-sol#medium
+    advisor: false
+    reports: [impl-ui]
