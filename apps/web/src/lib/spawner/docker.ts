@@ -15,6 +15,7 @@ import {
   parseRuntimeConfigContent,
   serializeRuntimeConfig,
   WEB_SCRATCH,
+  WEB_XDG_DATA_HOME,
 } from '@/lib/spawner/runtime-config';
 import { prepareWorkspaceVolumes } from '@/lib/spawner/volume-init'
 import { ensureUserDirectory, getUserDataHostPath } from '@/lib/user-data';
@@ -267,7 +268,7 @@ export async function createContainer(
     `ARCHE_KB_PUSH_URL=${process.env.ARCHE_INTERNAL_API_BASE_URL ?? 'http://web:3000'}/api/internal/kb/${slug}`,
     `ARCHE_INTERNAL_API_BASE_URL=${process.env.ARCHE_INTERNAL_API_BASE_URL ?? 'http://web:3000'}`,
     `HOME=/home/workspace`,
-    `XDG_DATA_HOME=/home/workspace/.local/share`,
+    `XDG_DATA_HOME=${WEB_XDG_DATA_HOME}`,
     `XDG_CONFIG_HOME=/home/workspace/.config`,
     `XDG_STATE_HOME=/home/workspace/.local/state`,
     `WORKSPACE_AGENT_PORT=${getWorkspaceAgentPort()}`,
@@ -364,7 +365,7 @@ export async function createArchiveContainer(slug: string, password: string): Pr
       `OPENCODE_SERVER_PASSWORD=${password}`,
       'OPENCODE_SERVER_USERNAME=opencode',
       'HOME=/home/workspace',
-      'XDG_DATA_HOME=/home/workspace/.local/share',
+      `XDG_DATA_HOME=${WEB_XDG_DATA_HOME}`,
       'XDG_STATE_HOME=/home/workspace/.local/state',
       'XDG_CONFIG_HOME=/tmp/arche-archive-config',
       'GIT_CONFIG_COUNT=1',

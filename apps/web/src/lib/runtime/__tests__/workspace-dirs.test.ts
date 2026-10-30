@@ -86,6 +86,24 @@ describe('desktop workspace dirs', () => {
     expect(getDesktopScratch('another-user')).toEqual(getDesktopScratch('local'))
   })
 
+  it('derives the XDG data home and the tool-output directory from the OpenCode 2 data directory', async () => {
+    const { getDesktopToolOutputDirectory, getDesktopXdgDataHome } = await import('@/lib/runtime/desktop/workspace-dirs')
+    expect(getDesktopXdgDataHome()).toBe('/tmp/arche/.runtime/opencode-v2/.local/share')
+    expect(getDesktopToolOutputDirectory()).toBe('/tmp/arche/.runtime/opencode-v2/.local/share/opencode/tool-output')
+  })
+
+  it('normalizes the Windows tool-output directory to forward slashes', async () => {
+    process.env.ARCHE_DATA_DIR = String.raw`C:\Users\Ada\Vault`
+    process.env.ARCHE_DESKTOP_PLATFORM = 'win32'
+    vi.doMock('path', () => win32)
+    vi.doMock('@arche/desktop-runtime/layout', () => ({
+      getDesktopRuntimeDataDir: (vault: string) => win32.join(vault, '.runtime', 'opencode'),
+      getDesktopWorkspaceDir: (vault: string) => win32.join(vault, 'workspace'),
+    }))
+    const { getDesktopToolOutputDirectory } = await import('@/lib/runtime/desktop/workspace-dirs')
+    expect(getDesktopToolOutputDirectory()).toBe('C:/Users/Ada/Vault/.runtime/opencode-v2/.local/share/opencode/tool-output')
+  })
+
   it('detects legacy OpenCode 1 data only when its share directory exists', async () => {
     const { hasLegacyOpencodeData } = await import('@/lib/runtime/desktop/workspace-dirs')
     mockExistsSync.mockImplementation((path: string) => path === '/tmp/arche/.runtime/opencode/.local/share/opencode')

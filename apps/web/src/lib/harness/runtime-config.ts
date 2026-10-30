@@ -25,6 +25,7 @@ export type RuntimeConfigModel = {
   // One scratch folder per session lives under this absolute directory, outside
   // the Knowledge Base; agents may read, write and edit there without asking.
   scratch?: { root: string; workspaceRoot: string }
+  toolOutputDirectory?: string
 }
 
 export type RenderedRuntimeConfig = {
